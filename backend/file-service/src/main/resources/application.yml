@@ -37,6 +37,8 @@ mybatis-plus:
       id-type: auto
 
 aetherflow:
+  file:
+    internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://192.168.101.68:9000}
     public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}

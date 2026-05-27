@@ -106,7 +106,7 @@ spring:
         - id: file-service
           uri: lb://file-service
           predicates:
-            - Path=/files/**,/internal/files/**
+            - Path=/files/**
         - id: notify-service
           uri: lb://notify-service
           predicates:

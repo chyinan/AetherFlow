@@ -60,6 +60,18 @@ X-Roles
 
 Business services should consume these headers instead of parsing JWT again unless they own an auth-specific concern.
 
+## Internal Service Calls
+
+Internal endpoints under `/internal/**` are service-to-service APIs and should not be exposed through Gateway unless a task explicitly approves it.
+
+File metadata registration uses:
+
+- Endpoint: `POST file-service/internal/files/metadata`
+- Header: `X-Internal-File-Token`
+- Token source: `FILE_INTERNAL_TOKEN`
+
+`ai-service` and `file-service` must use the same `FILE_INTERNAL_TOKEN` value in shared environments. Gateway routes only public `/files/**` traffic to file-service; callers should use service discovery for the internal metadata API.
+
 ## MQ Event
 
 Use `MqEvent<T>` when publishing cross-service business events. Use `TaskMessageDTO` and `NotifyMessageDTO` for the already-defined task and notification flows.

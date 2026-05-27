@@ -35,4 +35,17 @@ class GatewayRouteConfigurationTest {
         assertThat(authOpenApiRoute.getFilters())
                 .anySatisfy(filter -> assertThat(filter.toString()).contains("RewritePath", "/auth/v3/api-docs", "/v3/api-docs"));
     }
+
+    @Test
+    void fileServiceGatewayRouteDoesNotExposeInternalMetadataApi() {
+        RouteDefinition fileServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "file-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(fileServiceRoute).isNotNull();
+        assertThat(fileServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString()).contains("Path", "/files/**"));
+        assertThat(fileServiceRoute.getPredicates())
+                .noneSatisfy(predicate -> assertThat(predicate.toString()).contains("/internal/files/**"));
+    }
 }
