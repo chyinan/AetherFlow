@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260527-1949-codex-ai-infer
 分支：feature/AI-INFER-CENTER-20260527-enterprise-ai-inference
-状态：REVIEW
+状态：DONE
 
 任务目标：
 在不修改 workflow-service、gateway-service、auth-service、file-service、notify-service、common、MQ 契约、公共 DTO、公共数据库结构和 Gateway 的前提下，将 ai-service 和 python-ai-service 实现为企业级 AI 推理任务中心。能力包括 RabbitMQ AI 任务消费、异步推理、Whisper ASR、OpenAI/Ollama Provider 抽象、Prompt 模板与版本、AI Workflow 节点执行、Redis AI 任务状态和结果缓存、Sentinel 限流熔断、文件处理、推理完成通知和健康状态接口。
@@ -85,7 +85,7 @@ Agent 编码计划：
 当前风险：
 1. workflow-service 没有现成 AI 结果回调接口；本任务不改 workflow-service，因此完成回调通过现有 notify MQ 和任务 payload 中已有 callbackUrl 执行，未新增公共回调契约。
 2. PromptTemplate/PromptVersion 不改数据库，采用内置版本注册表；如后续需要后台管理 Prompt，需要另开数据库契约任务。
-3. 本地未启动完整 Docker 编排，Redis/RabbitMQ/MySQL/Nacos 的联调需统一运行电脑补测。
+3. 本地未启动完整 Docker 编排，Redis/RabbitMQ/MySQL/Nacos 的联调仍需统一运行电脑补测。
 
 环境检测：
 - git：git version 2.53.0.windows.3
@@ -132,6 +132,7 @@ Agent 编码计划：
 4. python -m unittest discover python-ai-service/tests：通过；3 个测试通过。
 5. python -m compileall python-ai-service：通过。
 6. git diff --name-only main...HEAD：仅包含 docs/agent/**、backend/ai-service/**、python-ai-service/**。
+7. 合入 main 后验证：mvn -pl backend/ai-service -am test 通过；python -m unittest discover python-ai-service/tests 通过；python -m compileall python-ai-service 通过。
 
 提交记录：
 1. docs(agent): claim AI-INFER-CENTER-20260527：c873fce
@@ -145,8 +146,8 @@ Agent 编码计划：
 修改文件：backend/ai-service/**、python-ai-service/**、docs/agent/tasks/AI-INFER-CENTER-20260527.md、docs/agent/logs/2026-05-27.md
 测试结果：本机 Java 17 Maven 测试通过；Python unittest 和 compileall 通过。
 PR/提交/分支：feature/AI-INFER-CENTER-20260527-enterprise-ai-inference，业务提交 c8930a2。
-合入 main：未合入
+合入 main：已合入，本地 main fast-forward 到 4f4a698
 统一运行电脑验证：未运行
 遗留问题：需要统一运行电脑进行完整 Docker 编排和 RabbitMQ/Redis/MySQL/Nacos 联调；workflow-service callback 契约未变更。
 下一步：负责人 Review diff，必要时创建 PR 并做统一运行电脑联调。
-文件锁：ACTIVE，等待 Review 结论后释放。
+文件锁：RELEASED
