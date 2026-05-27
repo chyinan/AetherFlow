@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260527-1949-codex-ai-infer
 分支：feature/AI-INFER-CENTER-20260527-enterprise-ai-inference
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 在不修改 workflow-service、gateway-service、auth-service、file-service、notify-service、common、MQ 契约、公共 DTO、公共数据库结构和 Gateway 的前提下，将 ai-service 和 python-ai-service 实现为企业级 AI 推理任务中心。能力包括 RabbitMQ AI 任务消费、异步推理、Whisper ASR、OpenAI/Ollama Provider 抽象、Prompt 模板与版本、AI Workflow 节点执行、Redis AI 任务状态和结果缓存、Sentinel 限流熔断、文件处理、推理完成通知和健康状态接口。
@@ -83,10 +83,9 @@ Agent 编码计划：
 4. 如本机 Java 仍为 11，则记录后端 Maven 验证未执行或失败原因，并要求 Java 17 环境补测。
 
 当前风险：
-1. GitHub 当前连接失败，claim push 可能无法完成；claim push 未成功前禁止修改业务代码。
-2. 本机 Maven 当前使用 Java 11，不满足项目 Java 17 要求，后端完整验证需要切换 JDK 或统一运行电脑补测。
-3. workflow-service 没有现成 AI 结果回调接口；本任务不改 workflow-service，因此完成回调只能通过现有 notify MQ 或任务 payload 中已有 callbackUrl 执行，不能新增公共回调契约。
-4. PromptTemplate/PromptVersion 不改数据库，采用内置版本注册表；如后续需要后台管理 Prompt，需要另开数据库契约任务。
+1. workflow-service 没有现成 AI 结果回调接口；本任务不改 workflow-service，因此完成回调通过现有 notify MQ 和任务 payload 中已有 callbackUrl 执行，未新增公共回调契约。
+2. PromptTemplate/PromptVersion 不改数据库，采用内置版本注册表；如后续需要后台管理 Prompt，需要另开数据库契约任务。
+3. 本地未启动完整 Docker 编排，Redis/RabbitMQ/MySQL/Nacos 的联调需统一运行电脑补测。
 
 环境检测：
 - git：git version 2.53.0.windows.3
@@ -114,3 +113,40 @@ Agent 编码计划：
 对方 Agent ID：无
 当前进度：已完成 claim push，解除网络阻塞。
 建议处理方式：继续在文件锁范围内实现 ai-service 和 python-ai-service。
+
+实现记录：
+1. 已实现 RabbitMQ AI Task Consumer，继续消费既有 RabbitMqNames.AI_TASK_QUEUE，不修改 MQ 契约。
+2. 已实现 AI 任务编排服务，负责 AiJob RUNNING/SUCCEEDED/FAILED 状态、Redis 缓存、节点执行、结果通知和异常处理。
+3. 已实现 ASR、SUMMARY、TRANSLATE、SUBTITLE 四类 AI Workflow Node Executor。
+4. 已实现 PromptTemplate、PromptVersion、PromptRenderService 和内置版本化模板注册表。
+5. 已实现 OpenAI/Ollama Provider 抽象，Java 侧统一 Provider Router，Python 侧提供 /v1/llm/chat。
+6. 已实现 Python FastAPI Whisper/FFmpeg/Subtitle/LLM runtime，支持 mp3/wav/mp4 和模型关闭 fallback。
+7. 已实现 Redis AI Task Cache key 设计和 StringRedisTemplate 缓存服务。
+8. 已实现 Sentinel AI 资源守卫和 QPS 规则加载。
+9. 已实现 /ai/status，继续使用 common 提供的 /health。
+
+测试与验证记录：
+1. 环境检测：Java 已切换为 openjdk 17.0.19，Maven 3.9.9 使用 Java 17.0.19。
+2. python -m pip install -r python-ai-service\requirements.txt：通过；为兼容 Python 3.14，将 FastAPI/Pydantic 升级到可安装版本，并将 httpx 调整为 0.27.2 以兼容 ollama 0.4.5。
+3. mvn -pl backend/ai-service -am test：通过；common 8 个测试通过，ai-service 7 个测试通过，BUILD SUCCESS。
+4. python -m unittest discover python-ai-service/tests：通过；3 个测试通过。
+5. python -m compileall python-ai-service：通过。
+6. git diff --name-only main...HEAD：仅包含 docs/agent/**、backend/ai-service/**、python-ai-service/**。
+
+提交记录：
+1. docs(agent): claim AI-INFER-CENTER-20260527：c873fce
+2. docs(agent): block AI-INFER-CENTER-20260527：b047474
+3. docs(agent): resume AI-INFER-CENTER-20260527：831f443
+4. feat(ai): add enterprise inference task center：c8930a2
+
+交接记录：
+任务ID：AI-INFER-CENTER-20260527
+完成内容：企业级 AI 推理任务中心已实现并推送 feature 分支。
+修改文件：backend/ai-service/**、python-ai-service/**、docs/agent/tasks/AI-INFER-CENTER-20260527.md、docs/agent/logs/2026-05-27.md
+测试结果：本机 Java 17 Maven 测试通过；Python unittest 和 compileall 通过。
+PR/提交/分支：feature/AI-INFER-CENTER-20260527-enterprise-ai-inference，业务提交 c8930a2。
+合入 main：未合入
+统一运行电脑验证：未运行
+遗留问题：需要统一运行电脑进行完整 Docker 编排和 RabbitMQ/Redis/MySQL/Nacos 联调；workflow-service callback 契约未变更。
+下一步：负责人 Review diff，必要时创建 PR 并做统一运行电脑联调。
+文件锁：ACTIVE，等待 Review 结论后释放。
