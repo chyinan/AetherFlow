@@ -1,0 +1,268 @@
+name: aetherflow
+
+services:
+  mysql:
+    image: mysql:8.0.26
+    container_name: aetherflow-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: aetherflow
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - aetherflow
+
+  redis:
+    image: redis:7.2
+    container_name: aetherflow-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - aetherflow
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: aetherflow-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: aetherflow
+      RABBITMQ_DEFAULT_PASS: aetherflow
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - aetherflow
+
+  minio:
+    image: minio/minio:latest
+    container_name: aetherflow-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      TZ: Asia/Shanghai
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - aetherflow
+
+  nacos:
+    image: nacos/nacos-server:v2.4.0.1
+    container_name: aetherflow-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+      NACOS_AUTH_ENABLE: "false"
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    networks:
+      - aetherflow
+
+  seata:
+    image: seataio/seata-server:1.5.2
+    container_name: aetherflow-seata
+    environment:
+      SEATA_IP: seata
+      SEATA_PORT: 8091
+    ports:
+      - "8091:8091"
+    networks:
+      - aetherflow
+
+  python-ai-service:
+    build:
+      context: .
+      dockerfile: python-ai-service/Dockerfile
+    container_name: aetherflow-python-ai-service
+    environment:
+      ENABLE_WHISPER: "false"
+      WHISPER_MODEL: small
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8200:8200"
+    networks:
+      - aetherflow
+
+  gateway-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: gateway-service
+    container_name: aetherflow-gateway-service
+    environment:
+      NACOS_ADDR: nacos:8848
+      JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "8080:8080"
+    depends_on:
+      - nacos
+      - auth-service
+      - workflow-service
+      - task-service
+      - ai-service
+      - file-service
+      - notify-service
+    networks:
+      - aetherflow
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: auth-service
+    container_name: aetherflow-auth-service
+    environment: &java-service-env
+      NACOS_ADDR: nacos:8848
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: aetherflow
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: root123456
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: aetherflow
+      RABBITMQ_PASSWORD: aetherflow
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: http://192.168.101.68:9000
+      PYTHON_AI_BASE_URL: http://python-ai-service:8200
+      SEATA_ADDR: seata:8091
+      JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
+      SENTINEL_DASHBOARD: sentinel-dashboard:8858
+    ports:
+      - "8101:8101"
+    depends_on:
+      - mysql
+      - nacos
+    networks:
+      - aetherflow
+
+  workflow-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: workflow-service
+    container_name: aetherflow-workflow-service
+    environment:
+      <<: *java-service-env
+    ports:
+      - "8102:8102"
+    depends_on:
+      - mysql
+      - nacos
+      - seata
+      - task-service
+    networks:
+      - aetherflow
+
+  task-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: task-service
+    container_name: aetherflow-task-service
+    environment:
+      <<: *java-service-env
+      XXL_JOB_ENABLED: "false"
+    ports:
+      - "8103:8103"
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+      - nacos
+    networks:
+      - aetherflow
+
+  ai-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: ai-service
+    container_name: aetherflow-ai-service
+    environment:
+      <<: *java-service-env
+    ports:
+      - "8104:8104"
+    depends_on:
+      - mysql
+      - rabbitmq
+      - nacos
+      - python-ai-service
+      - file-service
+    networks:
+      - aetherflow
+
+  file-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: file-service
+    container_name: aetherflow-file-service
+    environment:
+      <<: *java-service-env
+    ports:
+      - "8105:8105"
+    depends_on:
+      - mysql
+      - minio
+      - nacos
+    networks:
+      - aetherflow
+
+  notify-service:
+    build:
+      context: .
+      dockerfile: docker/java-service.Dockerfile
+      args:
+        SERVICE: notify-service
+    container_name: aetherflow-notify-service
+    environment:
+      <<: *java-service-env
+    ports:
+      - "8106:8106"
+    depends_on:
+      - mysql
+      - rabbitmq
+      - nacos
+    networks:
+      - aetherflow
+
+networks:
+  aetherflow:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+

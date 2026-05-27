@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+httpx==0.28.1
+openai==1.58.1
+ollama==0.4.5
+faster-whisper==1.1.1
+

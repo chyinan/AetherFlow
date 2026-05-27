@@ -1,0 +1,29 @@
+# Java
+target/
+*.class
+
+# Node / frontend
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and local config
+*.log
+logs/
+application-local.yml
+application-*.local.yml
+.env
+

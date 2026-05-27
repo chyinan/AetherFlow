@@ -1,0 +1,9 @@
+.git
+**/target
+**/node_modules
+**/__pycache__
+*.log
+logs
+.idea
+.vscode
+

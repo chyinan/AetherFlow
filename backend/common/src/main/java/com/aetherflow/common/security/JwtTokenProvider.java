@@ -1,0 +1,68 @@
+package com.aetherflow.common.security;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
+import java.util.List;
+
+public class JwtTokenProvider {
+
+    private final JwtProperties properties;
+    private final SecretKey key;
+
+    public JwtTokenProvider(JwtProperties properties) {
+        this.properties = properties;
+        this.key = Keys.hmacShaKeyFor(properties.getSecret().getBytes(StandardCharsets.UTF_8));
+    }
+
+    public String createToken(JwtUserClaims userClaims) {
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(properties.getExpireMinutes(), ChronoUnit.MINUTES);
+        return Jwts.builder()
+                .issuer(properties.getIssuer())
+                .subject(String.valueOf(userClaims.getUserId()))
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(expiresAt))
+                .claim("username", userClaims.getUsername())
+                .claim("roles", userClaims.getRoles())
+                .signWith(key)
+                .compact();
+    }
+
+    public JwtUserClaims parseToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .requireIssuer(properties.getIssuer())
+                .build()
+                .parseSignedClaims(cleanBearerPrefix(token))
+                .getPayload();
+        Long userId = Long.valueOf(claims.getSubject());
+        String username = claims.get("username", String.class);
+        @SuppressWarnings("unchecked")
+        List<String> roles = claims.get("roles", List.class);
+        return new JwtUserClaims(userId, username, roles);
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            parseToken(token);
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private String cleanBearerPrefix(String token) {
+        if (token != null && token.startsWith(properties.getPrefix())) {
+            return token.substring(properties.getPrefix().length());
+        }
+        return token;
+    }
+}
+
