@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260527-FILE-SERVICE-INIT-CODEX
 分支：feature/FILE-SERVICE-INIT-file-management
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 初始化 file-service，接入 Nacos、MySQL、MinIO，实现文件上传、下载、删除、元数据保存、文件状态记录、Swagger 文档和 health 接口。
@@ -64,3 +64,30 @@ Agent 编码计划：
 当前风险：
 1. MinIO 端口 9000 从当前开发机探测不可达，需要在统一运行电脑确认 MinIO 容器状态。
 2. file-service 表结构 SQL 未写入 docker 公共初始化脚本，需要统一运行电脑执行 backend/file-service/src/main/resources/db/file-service.sql。
+
+环境检测：
+1. git：git version 2.45.1.windows.1
+2. java：17.0.14，本机不是目标 jdk-17.0.19.10-hotspot，需要统一运行电脑复测。
+3. maven：Apache Maven 3.9.4
+4. 操作系统：Windows 11 amd64
+5. 检测时间：2026-05-27 20:13
+
+验证记录：
+1. 2026-05-27 19:56，执行 mvn -pl backend/file-service -am test，通过。
+2. 2026-05-27 19:56，执行 mvn -pl backend/file-service -am package -DskipTests，通过。
+3. 2026-05-27 20:12，业务提交后执行 mvn -pl backend/file-service -am test，通过，common tests run: 8, failures: 0, errors: 0；file-service 无测试源码。
+4. 2026-05-27 20:13，业务提交后执行 mvn -pl backend/file-service -am package -DskipTests，通过。
+5. 2026-05-27 19:57，本机探测 192.168.101.68:8848 和 3306 可达，9000 不可达，需要统一运行电脑确认 MinIO。
+
+交接记录：
+1. 完成 FileInfo 实体、FileInfoMapper、FileInfoService、FileController。
+2. 完成 MultipartFile 上传、MinIO 存储、file_url 和元数据保存。
+3. 完成文件下载和删除接口，删除会移除 MinIO 对象并标记 DELETED。
+4. 完成 Swagger 注解，health 由 common HealthController 提供。
+5. 新增 backend/file-service/src/main/resources/db/file-service.sql，需在统一运行电脑 MySQL 执行。
+6. 未修改 workflow-service、task-service、ai-service、gateway-service、common、docker、MQ、Redis、DTO、Seata。
+7. commit：f5f3fe0
+8. 分支：feature/FILE-SERVICE-INIT-file-management
+9. 合入 main：未合入
+10. 统一运行电脑验证：未运行，需补测 MinIO、/health、Swagger、上传、下载、删除。
+11. 文件锁：RELEASED after review
