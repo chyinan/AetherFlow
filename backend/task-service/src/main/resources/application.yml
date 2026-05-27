@@ -23,6 +23,11 @@ spring:
     username: ${RABBITMQ_USERNAME:aetherflow}
     password: ${RABBITMQ_PASSWORD:aetherflow}
     virtual-host: ${RABBITMQ_VHOST:/}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        prefetch: ${RABBITMQ_LISTENER_PREFETCH:10}
   cloud:
     nacos:
       discovery:
@@ -58,6 +63,27 @@ feign:
   sentinel:
     enabled: true
 
+aetherflow:
+  task:
+    max-retries: ${TASK_MAX_RETRIES:3}
+    scan-limit: ${TASK_SCAN_LIMIT:100}
+    redis-ttl: ${TASK_REDIS_TTL:2h}
+    dispatch-timeout: ${TASK_DISPATCH_TIMEOUT:5m}
+    execution-timeout: ${TASK_EXECUTION_TIMEOUT:30m}
+    retry-initial-interval: ${TASK_RETRY_INITIAL_INTERVAL:1m}
+    retry-max-interval: ${TASK_RETRY_MAX_INTERVAL:10m}
+    scheduler:
+      enabled: ${TASK_SCHEDULER_ENABLED:true}
+      retry-fixed-delay: ${TASK_RETRY_FIXED_DELAY:60000}
+      timeout-fixed-delay: ${TASK_TIMEOUT_FIXED_DELAY:60000}
+    consumer:
+      dispatch-enabled: ${TASK_CONSUMER_DISPATCH_ENABLED:true}
+      dead-letter-enabled: ${TASK_CONSUMER_DEAD_LETTER_ENABLED:true}
+    mq:
+      dispatch-exchange: ${TASK_DISPATCH_EXCHANGE:aetherflow.task.scheduler.exchange}
+      dispatch-queue: ${TASK_DISPATCH_QUEUE:aetherflow.task.scheduler.queue}
+      dispatch-routing-key: ${TASK_DISPATCH_ROUTING_KEY:task.schedule.dispatch}
+
 management:
   endpoints:
     web:
@@ -77,4 +103,3 @@ springdoc:
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
-

@@ -5,7 +5,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+@EnableScheduling
 @EnableDiscoveryClient
 @EnableFeignClients(basePackages = "com.aetherflow.task.client")
 @MapperScan("com.aetherflow.task.mapper")
@@ -16,4 +18,3 @@ public class TaskServiceApplication {
         SpringApplication.run(TaskServiceApplication.class, args);
     }
 }
-
