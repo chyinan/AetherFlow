@@ -12,18 +12,23 @@ import com.aetherflow.task.service.TaskStateService;
 import com.aetherflow.task.service.TimeoutChecker;
 import com.aetherflow.task.support.TaskMessageFactory;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,6 +68,13 @@ class TaskDispatchServiceImplTest {
                 properties);
     }
 
+    @AfterEach
+    void tearDown() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
     @Test
     void createsTaskAndPublishesDispatchMessage() {
         TaskMessageDTO message = validMessage();
@@ -80,6 +92,42 @@ class TaskDispatchServiceImplTest {
         assertThat(message.getRetryCount()).isZero();
         verify(taskQueueProducer).publishForDispatch(message);
         verify(taskStateService).mark(any(Task.class), eq(TaskStatus.QUEUED), any(LocalDateTime.class));
+    }
+
+    @Test
+    void publishesDispatchMessageOnlyAfterTransactionCommit() {
+        TransactionSynchronizationManager.initSynchronization();
+        TaskMessageDTO message = validMessage();
+        when(taskMessageFactory.writePayload(message.getPayload())).thenReturn("{\"fileUrl\":\"https://example.test/video.mp4\"}");
+        when(taskMapper.insert(any(Task.class))).thenAnswer(invocation -> {
+            Task task = invocation.getArgument(0);
+            task.setId(56L);
+            return 1;
+        });
+
+        Long taskId = taskDispatchService.dispatch(message);
+
+        assertThat(taskId).isEqualTo(56L);
+        verify(taskQueueProducer, never()).publishForDispatch(any(TaskMessageDTO.class));
+        List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+        assertThat(synchronizations).hasSize(1);
+
+        synchronizations.get(0).afterCommit();
+
+        verify(taskQueueProducer).publishForDispatch(message);
+        verify(taskStateService).mark(any(Task.class), eq(TaskStatus.QUEUED), any(LocalDateTime.class));
+    }
+
+    @Test
+    void marksTaskSucceededWhenWorkerCompletes() {
+        Task task = new Task();
+        task.setId(57L);
+        task.setStatus(TaskStatus.DISPATCHED.value());
+        when(taskMapper.selectById(57L)).thenReturn(task);
+
+        taskDispatchService.markSucceeded(57L);
+
+        verify(taskStateService).mark(task, TaskStatus.SUCCEEDED, null);
     }
 
     @Test

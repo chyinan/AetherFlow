@@ -37,13 +37,16 @@ public class TimeoutChecker {
                 .in(Task::getStatus,
                         TaskStatus.PENDING.value(),
                         TaskStatus.QUEUED.value(),
-                        TaskStatus.DISPATCHING.value(),
-                        TaskStatus.DISPATCHED.value())
+                        TaskStatus.DISPATCHING.value())
                 .le(Task::getNextRetryAt, now)
                 .last("LIMIT " + Math.max(1, properties.getScanLimit())));
         int handled = 0;
         for (Task task : timedOutTasks) {
             try {
+                if (!isTimeoutRetryCandidate(task)) {
+                    log.info("task timeout ignored, taskId={}, status={}", task.getId(), task.getStatus());
+                    continue;
+                }
                 taskStateService.mark(task, TaskStatus.TIMEOUT, now);
                 retryManager.handleTimeout(task);
                 handled++;
@@ -55,5 +58,16 @@ public class TimeoutChecker {
             log.warn("task timeout scan completed, handled={}", handled);
         }
         return handled;
+    }
+
+    private boolean isTimeoutRetryCandidate(Task task) {
+        try {
+            TaskStatus status = TaskStatus.from(task.getStatus());
+            return status == TaskStatus.PENDING || status == TaskStatus.QUEUED || status == TaskStatus.DISPATCHING;
+        } catch (IllegalArgumentException exception) {
+            log.warn("task timeout skipped because status is unknown, taskId={}, status={}",
+                    task.getId(), task.getStatus(), exception);
+            return false;
+        }
     }
 }

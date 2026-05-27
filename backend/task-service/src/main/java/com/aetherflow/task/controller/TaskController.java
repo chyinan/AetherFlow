@@ -1,8 +1,6 @@
 package com.aetherflow.task.controller;
 
 import com.aetherflow.common.core.Result;
-import com.aetherflow.common.core.ResultCode;
-import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.task.entity.Task;
 import com.aetherflow.task.mapper.TaskMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,10 +22,6 @@ public class TaskController {
     @GetMapping("/{id}")
     @Operation(summary = "Get task by id.")
     public Result<Task> getById(@PathVariable Long id) {
-        Task task = taskMapper.selectById(id);
-        if (task == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "task not found");
-        }
-        return Result.success(task);
+        return Result.success(taskMapper.selectById(id));
     }
 }

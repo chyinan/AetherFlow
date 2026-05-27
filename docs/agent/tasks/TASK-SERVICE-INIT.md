@@ -11,7 +11,10 @@ Session ID：SESSION-20260527-TASK-SERVICE-INIT-CODEX
 
 允许修改文件：
 1. backend/task-service/**
-2. docs/agent/tasks/TASK-SERVICE-INIT.md
+2. backend/ai-service/src/main/java/com/aetherflow/ai/client/TaskStatusClient.java
+3. backend/ai-service/src/main/java/com/aetherflow/ai/callback/AiTaskCallbackService.java
+4. backend/ai-service/src/test/java/com/aetherflow/ai/callback/**
+5. docs/agent/tasks/TASK-SERVICE-INIT.md
 
 禁止修改文件：
 1. workflow-service/**
@@ -28,7 +31,7 @@ Session ID：SESSION-20260527-TASK-SERVICE-INIT-CODEX
 2. backend/task-service/src/test/java/com/aetherflow/task/**
 3. docs/agent/tasks/TASK-SERVICE-INIT.md
 
-是否允许修改接口：否，保持现有 TaskMessageDTO、/internal/tasks/dispatch、/tasks/{id} 契约不变；Swagger 只补注解，不改返回结构。
+是否允许修改接口：是，仅允许新增 task-service 内部状态回写接口 /internal/tasks/{id}/succeeded，供 ai-service 推理成功后回写任务终态；保持 TaskMessageDTO、/internal/tasks/dispatch、/tasks/{id}、公共 DTO、MQ、DB、Gateway 契约不变。
 是否允许修改数据库：否，使用现有 af_task_record 表，不修改 docker/mysql/init/01-aetherflow.sql，不新增公共数据库结构。
 是否允许修改配置：是，仅限 backend/task-service/src/main/resources/application.yml、backend/task-service/pom.xml、backend/task-service/src/main/java/com/aetherflow/task/config/**
 
@@ -48,10 +51,13 @@ Agent 编码计划：
 3. 数据库 SQL 和公共数据库结构。
 4. Gateway 路由和全局契约。
 
-是否涉及契约变更：否
+是否涉及契约变更：是，仅新增 task-service 内部状态回写接口 /internal/tasks/{id}/succeeded；不修改公共 DTO、MQ、DB、Gateway 或既有外部接口。
 文件锁范围：
 1. backend/task-service/**
-2. docs/agent/tasks/TASK-SERVICE-INIT.md
+2. backend/ai-service/src/main/java/com/aetherflow/ai/client/TaskStatusClient.java
+3. backend/ai-service/src/main/java/com/aetherflow/ai/callback/AiTaskCallbackService.java
+4. backend/ai-service/src/test/java/com/aetherflow/ai/callback/**
+5. docs/agent/tasks/TASK-SERVICE-INIT.md
 
 验证方式：
 1. mvn -pl backend/task-service -am test
@@ -71,7 +77,7 @@ Agent 编码计划：
 
 当前风险：
 1. 现有 af_task_record 表字段较少，不能新增失败原因、锁版本、超时字段等数据库列，只能在现有字段内实现状态流转、重试和超时策略。
-2. ai-service 当前监听 aetherflow.ai.task.queue，本任务通过 task-service 内部调度队列转投现有 AI 任务队列，运行态需要统一联调确认跨服务消息链路。
+2. ai-service 当前监听 aetherflow.ai.task.queue，本任务通过 task-service 内部调度队列转投现有 AI 任务队列，并在成功后回写 task-service SUCCEEDED；运行态需要统一联调确认跨服务消息链路。
 3. RabbitMQ、Redis、Nacos、XXL-Job 依赖外部基础设施，本机 Maven 验证不能替代统一运行环境验证。
 
 验证记录：
@@ -79,10 +85,15 @@ Agent 编码计划：
 2. 2026-05-27 20:18，本机执行 mvn -pl backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 8，Failures: 0，Errors: 0。
 3. 2026-05-27 20:19，本机执行 mvn -pl backend/task-service -am package -DskipTests，提升权限写入 ~/.m2 后通过，task-service boot jar 重新打包成功。
 4. 2026-05-27 20:19，本机执行 git diff --check，通过。
+5. 2026-05-27 21:40，Review 修复前执行 mvn -pl backend/ai-service,backend/task-service -am test，按 TDD 预期失败；缺失 TaskDispatchServiceImpl.markSucceeded 行为。
+6. 2026-05-27 21:43，Review 修复后执行 mvn -pl backend/ai-service,backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 12，ai-service Tests run: 9，Failures: 0，Errors: 0。
 
 交接记录：
 1. 已完成 task-service 初始化和调度核心实现，修改范围限制在 backend/task-service/** 和 docs/agent/tasks/TASK-SERVICE-INIT.md。
 2. 未修改 workflow-service、gateway-service、auth-service、common、docker、根 pom.xml、公共 DTO、RabbitMqNames、数据库 SQL、Gateway 路由。
 3. 新增 task-service 内部调度队列 aetherflow.task.scheduler.queue，HTTP dispatch 先落库并投递内部队列，TaskQueueConsumer 再转投现有 AI 任务队列，避免直接消费 ai-service 的公共队列。
-4. 已实现 Redis 状态缓存、任务状态流转、RetryManager、TimeoutChecker、死信队列消费、XXL-Job 补偿入口和 Swagger 注解。
-5. RabbitMQ、Redis、Nacos、XXL-Job 运行态仍需统一运行电脑联调验证。
+4. Review 修复新增 /internal/tasks/{id}/succeeded，ai-service 推理成功后回写 task-service SUCCEEDED，避免成功任务因 DISPATCHED 超时被重复投递。
+5. Review 修复将 MQ 投递延后到数据库事务提交后执行，避免事务回滚后队列中残留无对应 DB 记录的消息。
+6. Review 修复恢复 /tasks/{id} 未找到时 success/null 的既有返回语义，避免未登记的查询契约变化。
+7. 已实现 Redis 状态缓存、任务状态流转、RetryManager、TimeoutChecker、死信队列消费、XXL-Job 补偿入口和 Swagger 注解。
+8. RabbitMQ、Redis、Nacos、XXL-Job 运行态仍需统一运行电脑联调验证。

@@ -6,6 +6,8 @@ public interface TaskDispatchService {
 
     Long dispatch(TaskMessageDTO taskMessage);
 
+    void markSucceeded(Long taskId);
+
     void compensateTimeouts();
 }
 

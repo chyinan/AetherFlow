@@ -1,5 +1,6 @@
 package com.aetherflow.ai.callback;
 
+import com.aetherflow.ai.client.TaskStatusClient;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.RabbitMqNames;
 import com.aetherflow.common.dto.NotifyMessageDTO;
@@ -20,11 +21,14 @@ public class AiTaskCallbackService {
 
     private final RabbitTemplate rabbitTemplate;
     private final RestClient callbackRestClient;
+    private final TaskStatusClient taskStatusClient;
 
     public AiTaskCallbackService(RabbitTemplate rabbitTemplate,
-                                 @Qualifier("aiCallbackRestClient") RestClient callbackRestClient) {
+                                 @Qualifier("aiCallbackRestClient") RestClient callbackRestClient,
+                                 TaskStatusClient taskStatusClient) {
         this.rabbitTemplate = rabbitTemplate;
         this.callbackRestClient = callbackRestClient;
+        this.taskStatusClient = taskStatusClient;
     }
 
     public void notifySuccess(TaskMessageDTO taskMessage, AiNodeResult result) {
@@ -33,6 +37,7 @@ public class AiTaskCallbackService {
         payload.put("output", result.output());
         payload.put("artifacts", result.artifacts());
         publishNotify("AI_TASK_SUCCEEDED", payload);
+        markTaskSucceeded(taskMessage);
         invokeCallbackUrl(taskMessage, payload);
     }
 
@@ -60,6 +65,17 @@ public class AiTaskCallbackService {
         notifyMessage.setPayload(payload);
         notifyMessage.setOccurredAt(OffsetDateTime.now());
         rabbitTemplate.convertAndSend(RabbitMqNames.NOTIFY_EXCHANGE, RabbitMqNames.NOTIFY_ROUTING_KEY, notifyMessage);
+    }
+
+    private void markTaskSucceeded(TaskMessageDTO taskMessage) {
+        if (taskMessage.getTaskId() == null) {
+            return;
+        }
+        try {
+            taskStatusClient.markSucceeded(taskMessage.getTaskId());
+        } catch (RuntimeException exception) {
+            log.warn("task-service success status callback failed, taskId={}", taskMessage.getTaskId(), exception);
+        }
     }
 
     private void invokeCallbackUrl(TaskMessageDTO taskMessage, Map<String, Object> payload) {

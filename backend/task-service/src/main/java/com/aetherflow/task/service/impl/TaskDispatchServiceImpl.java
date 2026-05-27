@@ -17,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -55,11 +57,34 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         taskMessage.setTaskId(task.getId());
         taskMessage.setRetryCount(task.getRetryCount());
         taskMessage.setCreatedAt(OffsetDateTime.now());
-        taskQueueProducer.publishForDispatch(taskMessage);
-        taskStateService.mark(task, TaskStatus.QUEUED, now.plus(properties.getDispatchTimeout()));
+        publishForDispatchAfterCommit(task, taskMessage, now.plus(properties.getDispatchTimeout()));
         log.info("async task created, taskId={}, workflowInstanceId={}, nodeId={}",
                 task.getId(), task.getWorkflowInstanceId(), task.getNodeId());
         return task.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markSucceeded(Long taskId) {
+        if (taskId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "task id is required");
+        }
+        Task task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "task not found");
+        }
+        TaskStatus currentStatus = TaskStatus.from(task.getStatus());
+        if (currentStatus == TaskStatus.SUCCEEDED) {
+            taskStateService.cacheStatus(taskId, TaskStatus.SUCCEEDED);
+            return;
+        }
+        if (currentStatus.terminal()) {
+            log.warn("terminal task status update ignored, taskId={}, currentStatus={}, targetStatus={}",
+                    taskId, currentStatus, TaskStatus.SUCCEEDED);
+            return;
+        }
+        taskStateService.mark(task, TaskStatus.SUCCEEDED, null);
+        log.info("task marked succeeded, taskId={}", taskId);
     }
 
     @Override
@@ -67,6 +92,28 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         int timeoutCount = timeoutChecker.checkTimeouts();
         int retryCount = retryManager.retryDueTasks();
         log.info("task compensation completed, timeoutHandled={}, retryRequeued={}", timeoutCount, retryCount);
+    }
+
+    private void publishForDispatchAfterCommit(Task task, TaskMessageDTO taskMessage, LocalDateTime dispatchDeadline) {
+        Runnable publisher = () -> {
+            try {
+                taskQueueProducer.publishForDispatch(taskMessage);
+                taskStateService.mark(task, TaskStatus.QUEUED, dispatchDeadline);
+            } catch (RuntimeException exception) {
+                log.error("task dispatch publish after commit failed, taskId={}", task.getId(), exception);
+                retryManager.handleDispatchFailure(task, taskMessage, exception);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publisher.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publisher.run();
+            }
+        });
     }
 
     private void validate(TaskMessageDTO taskMessage) {
