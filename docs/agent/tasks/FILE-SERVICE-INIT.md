@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260527-FILE-SERVICE-INIT-CODEX
 分支：feature/FILE-SERVICE-INIT-file-management
-状态：REVIEW
+状态：DONE
 
 任务目标：
 初始化 file-service，接入 Nacos、MySQL、MinIO，实现文件上传、下载、删除、元数据保存、文件状态记录、Swagger 文档和 health 接口。
@@ -100,6 +100,7 @@ Agent 编码计划：
 6. 2026-05-27 22:43，新增 Gateway 内部路由测试，执行 mvn -pl backend/file-service,backend/ai-service,backend/gateway-service -am test，按预期失败：file-service route 仍包含 /internal/files/**。
 7. 2026-05-27 22:47，修复后执行 mvn -pl backend/file-service,backend/ai-service,backend/gateway-service -am test，通过；common 8、gateway 14、ai-service 10、file-service 3，failures 0，errors 0。
 8. 2026-05-27 22:56，执行 mvn -pl backend/file-service,backend/ai-service,backend/gateway-service -am package -DskipTests，通过。
+9. 2026-05-27 23:04，合入 main 后执行 mvn -pl backend/file-service,backend/ai-service,backend/gateway-service -am test，通过；common 8、gateway 14、ai-service 10、file-service 3，failures 0，errors 0。
 
 交接记录：
 1. 完成 FileInfo 实体、FileInfoMapper、FileInfoService、FileController。
@@ -110,8 +111,8 @@ Agent 编码计划：
 6. 修复 Gateway route，不再暴露 /internal/files/**；ai-service 通过 Feign 直连 file-service 内部接口。
 7. 新增 X-Internal-File-Token 内部调用头，ai-service 和 file-service 通过 FILE_INTERNAL_TOKEN 对齐。
 8. 未修改 workflow-service、task-service、MQ、Redis、DTO、Seata。
-9. commit：f5f3fe0，合入修复 commit 待提交
+9. commit：f5f3fe0、ae6385e
 10. 分支：feature/FILE-SERVICE-INIT-file-management
-11. 合入 main：未合入
+11. 合入 main：已合入 main；origin/main 由本次收工推送。
 12. 统一运行电脑验证：未运行，需补测 MinIO、/health、Swagger、上传、下载、删除，并确认 FILE_INTERNAL_TOKEN。
-13. 文件锁：ACTIVE during merge repair
+13. 文件锁：RELEASED after merge
