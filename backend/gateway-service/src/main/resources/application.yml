@@ -45,6 +45,48 @@ spring:
               args:
                 pattern: "'/' + serviceId + '/**'"
       routes:
+        - id: auth-service-openapi
+          uri: lb://auth-service
+          order: -100
+          predicates:
+            - Path=/auth/v3/api-docs
+          filters:
+            - RewritePath=/auth/v3/api-docs, /v3/api-docs
+        - id: workflow-service-openapi
+          uri: lb://workflow-service
+          order: -100
+          predicates:
+            - Path=/workflows/v3/api-docs
+          filters:
+            - RewritePath=/workflows/v3/api-docs, /v3/api-docs
+        - id: task-service-openapi
+          uri: lb://task-service
+          order: -100
+          predicates:
+            - Path=/tasks/v3/api-docs
+          filters:
+            - RewritePath=/tasks/v3/api-docs, /v3/api-docs
+        - id: ai-service-openapi
+          uri: lb://ai-service
+          order: -100
+          predicates:
+            - Path=/ai/v3/api-docs
+          filters:
+            - RewritePath=/ai/v3/api-docs, /v3/api-docs
+        - id: file-service-openapi
+          uri: lb://file-service
+          order: -100
+          predicates:
+            - Path=/files/v3/api-docs
+          filters:
+            - RewritePath=/files/v3/api-docs, /v3/api-docs
+        - id: notify-service-openapi
+          uri: lb://notify-service
+          order: -100
+          predicates:
+            - Path=/notify/v3/api-docs
+          filters:
+            - RewritePath=/notify/v3/api-docs, /v3/api-docs
         - id: auth-service
           uri: lb://auth-service
           predicates:
