@@ -4,7 +4,7 @@
 Agent ID：爱沫酱
 Session ID：SESSION-20260527-TASK-SERVICE-INIT-CODEX
 分支：feature/TASK-SERVICE-INIT-task-service-scheduler
-状态：REVIEW
+状态：DONE
 
 任务目标：
 初始化并完善 task-service 分布式任务调度微服务，实现异步任务创建、RabbitMQ 投递、消费任务、重试机制、超时处理、死信队列、XXL-Job 补偿入口、Redis 状态缓存、Swagger 和 health 能力。
@@ -87,13 +87,23 @@ Agent 编码计划：
 4. 2026-05-27 20:19，本机执行 git diff --check，通过。
 5. 2026-05-27 21:40，Review 修复前执行 mvn -pl backend/ai-service,backend/task-service -am test，按 TDD 预期失败；缺失 TaskDispatchServiceImpl.markSucceeded 行为。
 6. 2026-05-27 21:43，Review 修复后执行 mvn -pl backend/ai-service,backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 12，ai-service Tests run: 9，Failures: 0，Errors: 0。
+7. 2026-05-27 21:59，合入 main 后执行 mvn test，通过；common 8、gateway-service 13、task-service 12、ai-service 9 个测试通过，Failures: 0，Errors: 0。
+8. 2026-05-27 21:59，合入 main 后执行 mvn package -DskipTests，通过，全部后端模块 jar/boot jar 构建成功。
+
+提交记录：
+1. docs(agent): claim TASK-SERVICE-INIT：6e6ff08
+2. feat(task): initialize task scheduler service：4bf8fa9
+3. docs(agent): handoff TASK-SERVICE-INIT：d6218f8
+4. fix(task): harden scheduler merge readiness：4e1b500
 
 交接记录：
-1. 已完成 task-service 初始化和调度核心实现，修改范围限制在 backend/task-service/** 和 docs/agent/tasks/TASK-SERVICE-INIT.md。
+1. 已完成 task-service 初始化和调度核心实现，并已由负责人本地 fast-forward 合入 main。
 2. 未修改 workflow-service、gateway-service、auth-service、common、docker、根 pom.xml、公共 DTO、RabbitMqNames、数据库 SQL、Gateway 路由。
 3. 新增 task-service 内部调度队列 aetherflow.task.scheduler.queue，HTTP dispatch 先落库并投递内部队列，TaskQueueConsumer 再转投现有 AI 任务队列，避免直接消费 ai-service 的公共队列。
 4. Review 修复新增 /internal/tasks/{id}/succeeded，ai-service 推理成功后回写 task-service SUCCEEDED，避免成功任务因 DISPATCHED 超时被重复投递。
 5. Review 修复将 MQ 投递延后到数据库事务提交后执行，避免事务回滚后队列中残留无对应 DB 记录的消息。
 6. Review 修复恢复 /tasks/{id} 未找到时 success/null 的既有返回语义，避免未登记的查询契约变化。
 7. 已实现 Redis 状态缓存、任务状态流转、RetryManager、TimeoutChecker、死信队列消费、XXL-Job 补偿入口和 Swagger 注解。
-8. RabbitMQ、Redis、Nacos、XXL-Job 运行态仍需统一运行电脑联调验证。
+8. 合入 main：已合入本地 main；随本次 docs close 提交推送 origin/main 后生效。
+9. 统一运行电脑验证：未运行；RabbitMQ、Redis、Nacos、XXL-Job 运行态仍需统一运行电脑联调验证。
+10. 文件锁：RELEASED
