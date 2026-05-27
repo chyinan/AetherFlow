@@ -4,7 +4,7 @@
 Agent ID：爱沫酱
 Session ID：SESSION-20260527-TASK-SERVICE-INIT-CODEX
 分支：feature/TASK-SERVICE-INIT-task-service-scheduler
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 初始化并完善 task-service 分布式任务调度微服务，实现异步任务创建、RabbitMQ 投递、消费任务、重试机制、超时处理、死信队列、XXL-Job 补偿入口、Redis 状态缓存、Swagger 和 health 能力。
@@ -71,5 +71,18 @@ Agent 编码计划：
 
 当前风险：
 1. 现有 af_task_record 表字段较少，不能新增失败原因、锁版本、超时字段等数据库列，只能在现有字段内实现状态流转、重试和超时策略。
-2. ai-service 当前也监听 aetherflow.ai.task.queue，task-service 若监听同一队列会形成竞争消费；本任务在不改公共 MQ 契约前提下实现核心逻辑，运行态需要统一联调确认服务启动组合。
+2. ai-service 当前监听 aetherflow.ai.task.queue，本任务通过 task-service 内部调度队列转投现有 AI 任务队列，运行态需要统一联调确认跨服务消息链路。
 3. RabbitMQ、Redis、Nacos、XXL-Job 依赖外部基础设施，本机 Maven 验证不能替代统一运行环境验证。
+
+验证记录：
+1. 2026-05-27 20:10，本机执行 mvn -pl backend/task-service -am test，提升权限写入 ~/.m2 后通过；基线 Tests run: 8, Failures: 0, Errors: 0, Skipped: 0。
+2. 2026-05-27 20:18，本机执行 mvn -pl backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 8，Failures: 0，Errors: 0。
+3. 2026-05-27 20:19，本机执行 mvn -pl backend/task-service -am package -DskipTests，提升权限写入 ~/.m2 后通过，task-service boot jar 重新打包成功。
+4. 2026-05-27 20:19，本机执行 git diff --check，通过。
+
+交接记录：
+1. 已完成 task-service 初始化和调度核心实现，修改范围限制在 backend/task-service/** 和 docs/agent/tasks/TASK-SERVICE-INIT.md。
+2. 未修改 workflow-service、gateway-service、auth-service、common、docker、根 pom.xml、公共 DTO、RabbitMqNames、数据库 SQL、Gateway 路由。
+3. 新增 task-service 内部调度队列 aetherflow.task.scheduler.queue，HTTP dispatch 先落库并投递内部队列，TaskQueueConsumer 再转投现有 AI 任务队列，避免直接消费 ai-service 的公共队列。
+4. 已实现 Redis 状态缓存、任务状态流转、RetryManager、TimeoutChecker、死信队列消费、XXL-Job 补偿入口和 Swagger 注解。
+5. RabbitMQ、Redis、Nacos、XXL-Job 运行态仍需统一运行电脑联调验证。
