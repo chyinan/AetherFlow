@@ -17,6 +17,23 @@ spring:
     username: ${RABBITMQ_USERNAME:aetherflow}
     password: ${RABBITMQ_PASSWORD:aetherflow}
     virtual-host: ${RABBITMQ_VHOST:/}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: ${AI_TASK_RETRY_MAX_ATTEMPTS:3}
+          initial-interval: ${AI_TASK_RETRY_INITIAL_INTERVAL:2s}
+          multiplier: 2
+          max-interval: ${AI_TASK_RETRY_MAX_INTERVAL:30s}
+        default-requeue-rejected: false
+        prefetch: ${AI_TASK_PREFETCH:2}
+  data:
+    redis:
+      host: ${REDIS_HOST:192.168.101.68}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:3s}
   cloud:
     nacos:
       discovery:
@@ -41,6 +58,21 @@ mybatis-plus:
 aetherflow:
   python-ai:
     base-url: ${PYTHON_AI_BASE_URL:http://192.168.101.68:8200}
+    connect-timeout-millis: ${PYTHON_AI_CONNECT_TIMEOUT_MILLIS:3000}
+    read-timeout-millis: ${PYTHON_AI_READ_TIMEOUT_MILLIS:120000}
+  ai:
+    default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
+    default-model: ${AI_DEFAULT_MODEL:llama3}
+    task-cache-ttl: ${AI_TASK_CACHE_TTL:6h}
+    provider-timeout: ${AI_PROVIDER_TIMEOUT:60s}
+    callback-timeout: ${AI_CALLBACK_TIMEOUT:5s}
+    sentinel-enabled: ${AI_SENTINEL_ENABLED:true}
+    task-qps: ${AI_TASK_QPS:5}
+    provider-qps: ${AI_PROVIDER_QPS:2}
+    http-qps: ${AI_HTTP_QPS:10}
+    listener-concurrent-consumers: ${AI_LISTENER_CONCURRENT_CONSUMERS:2}
+    listener-max-concurrent-consumers: ${AI_LISTENER_MAX_CONCURRENT_CONSUMERS:6}
+    listener-prefetch: ${AI_TASK_PREFETCH:2}
 
 feign:
   sentinel:
