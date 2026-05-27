@@ -4,8 +4,17 @@ server:
 spring:
   application:
     name: gateway-service
+  cache:
+    type: caffeine
   main:
     web-application-type: reactive
+  data:
+    redis:
+      host: ${REDIS_HOST:192.168.101.68}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:}
+      timeout: 3s
   config:
     import: optional:nacos:${spring.application.name}.yml?group=DEFAULT_GROUP&refreshEnabled=true
   cloud:
@@ -21,12 +30,63 @@ spring:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:192.168.101.68:8858}
       eager: true
+    loadbalancer:
+      cache:
+        enabled: true
+        caffeine:
+          spec: maximumSize=10000,expireAfterWrite=30s
     gateway:
       discovery:
         locator:
           enabled: true
           lower-case-service-id: true
+          predicates:
+            - name: Path
+              args:
+                pattern: "'/' + serviceId + '/**'"
       routes:
+        - id: auth-service-openapi
+          uri: lb://auth-service
+          order: -100
+          predicates:
+            - Path=/auth/v3/api-docs
+          filters:
+            - RewritePath=/auth/v3/api-docs, /v3/api-docs
+        - id: workflow-service-openapi
+          uri: lb://workflow-service
+          order: -100
+          predicates:
+            - Path=/workflows/v3/api-docs
+          filters:
+            - RewritePath=/workflows/v3/api-docs, /v3/api-docs
+        - id: task-service-openapi
+          uri: lb://task-service
+          order: -100
+          predicates:
+            - Path=/tasks/v3/api-docs
+          filters:
+            - RewritePath=/tasks/v3/api-docs, /v3/api-docs
+        - id: ai-service-openapi
+          uri: lb://ai-service
+          order: -100
+          predicates:
+            - Path=/ai/v3/api-docs
+          filters:
+            - RewritePath=/ai/v3/api-docs, /v3/api-docs
+        - id: file-service-openapi
+          uri: lb://file-service
+          order: -100
+          predicates:
+            - Path=/files/v3/api-docs
+          filters:
+            - RewritePath=/files/v3/api-docs, /v3/api-docs
+        - id: notify-service-openapi
+          uri: lb://notify-service
+          order: -100
+          predicates:
+            - Path=/notify/v3/api-docs
+          filters:
+            - RewritePath=/notify/v3/api-docs, /v3/api-docs
         - id: auth-service
           uri: lb://auth-service
           predicates:
@@ -58,6 +118,107 @@ aetherflow:
       issuer: aetherflow
       secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
       expire-minutes: 120
+  gateway:
+    security:
+      auth-enabled: true
+      permit-all:
+        - /auth/**
+        - /actuator/**
+        - /health
+        - /gateway/status
+        - /swagger-ui/**
+        - /webjars/**
+        - /v3/api-docs/**
+        - /*/v3/api-docs
+      token:
+        blacklist-enabled: true
+        blacklist-key-prefix: "aetherflow:gateway:token:blacklist:"
+    sentinel:
+      enabled: true
+      api-groups:
+        - name: auth-api
+          patterns:
+            - /auth
+          match-strategy: prefix
+        - name: workflow-api
+          patterns:
+            - /workflows
+            - /workflow-instances
+          match-strategy: prefix
+        - name: task-api
+          patterns:
+            - /tasks
+          match-strategy: prefix
+        - name: ai-api
+          patterns:
+            - /ai
+          match-strategy: prefix
+        - name: file-api
+          patterns:
+            - /files
+          match-strategy: prefix
+        - name: notify-api
+          patterns:
+            - /notify
+          match-strategy: prefix
+      route-rules:
+        - resource: auth-api
+          resource-mode: 1
+          count: 80
+          interval-sec: 1
+        - resource: workflow-api
+          resource-mode: 1
+          count: 60
+          interval-sec: 1
+        - resource: task-api
+          resource-mode: 1
+          count: 80
+          interval-sec: 1
+        - resource: ai-api
+          resource-mode: 1
+          count: 30
+          interval-sec: 1
+        - resource: file-api
+          resource-mode: 1
+          count: 40
+          interval-sec: 1
+        - resource: notify-api
+          resource-mode: 1
+          count: 100
+          interval-sec: 1
+      ip-rules:
+        - resource: auth-service
+          resource-mode: 0
+          count: 20
+          interval-sec: 1
+        - resource: workflow-service
+          resource-mode: 0
+          count: 30
+          interval-sec: 1
+        - resource: ai-service
+          resource-mode: 0
+          count: 10
+          interval-sec: 1
+      degrade-rules:
+        - resource: workflow-api
+          grade: 1
+          count: 0.5
+          time-window: 10
+          min-request-amount: 20
+          stat-interval-ms: 10000
+        - resource: ai-api
+          grade: 0
+          count: 3000
+          time-window: 15
+          min-request-amount: 10
+          stat-interval-ms: 10000
+          slow-ratio-threshold: 0.6
+        - resource: file-api
+          grade: 1
+          count: 0.5
+          time-window: 10
+          min-request-amount: 20
+          stat-interval-ms: 10000
 
 management:
   endpoints:
@@ -71,11 +232,20 @@ management:
 
 springdoc:
   swagger-ui:
+    path: /swagger-ui.html
     urls:
       - name: auth-service
         url: /auth/v3/api-docs
       - name: workflow-service
         url: /workflows/v3/api-docs
+      - name: task-service
+        url: /tasks/v3/api-docs
+      - name: ai-service
+        url: /ai/v3/api-docs
+      - name: file-service
+        url: /files/v3/api-docs
+      - name: notify-service
+        url: /notify/v3/api-docs
 
 logging:
   pattern:
