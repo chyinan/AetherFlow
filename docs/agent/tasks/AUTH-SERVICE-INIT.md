@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-001
 Session ID：SESSION-20260528-AUTH-SERVICE-INIT-CODEX
 分支：feature/AUTH-SERVICE-INIT-auth-service-basic
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 初始化并完善 auth-service，接入 Nacos、MySQL、MyBatis Plus、Redis、Swagger/OpenAPI，提供用户注册、用户登录、JWT 签发、用户信息查询、基础 RBAC 角色返回与 /health 健康检查能力。
@@ -47,12 +47,13 @@ Agent 编码计划：
 
 是否涉及契约变更：否
 文件锁范围：
-1. docs/agent/tasks/AUTH-SERVICE-INIT.md
-2. docs/agent/logs/2026-05-28.md
+1. backend/auth-service/**
+2. docs/agent/tasks/AUTH-SERVICE-INIT.md
+3. docs/agent/logs/2026-05-28.md
 验证方式：
 1. git diff --name-only main...HEAD
-2. mvn -pl backend/auth-service -am test
-3. mvn -pl backend/auth-service -am package -DskipTests
+2. mvn -f backend/auth-service/pom.xml -am test
+3. mvn -f backend/auth-service/pom.xml -am package -DskipTests
 4. curl /health、/auth/register、/auth/login、/auth/me、/swagger-ui/index.html
 
 当前风险：
@@ -68,3 +69,22 @@ Agent 编码计划：
 恢复记录：
 1. GitHub 仓库权限已恢复为 push=true。
 2. feature/AUTH-SERVICE-INIT-auth-service-basic 已成功推送到 origin。
+
+实现记录：
+1. 在 backend/auth-service 内完成 UserController、UserService、UserServiceImpl 分层实现，复用 common Result、DTO、JWT 组件。
+2. 用户注册写入 af_user，密码使用 BCrypt 哈希，默认状态 ENABLED，默认角色 USER，注册和登录均签发 JWT。
+3. application.yml 接入 Nacos、MySQL、MyBatis Plus、Redis、JWT、Springdoc Swagger/OpenAPI 配置；/health 由 common HealthController 通过 scanBasePackages 暴露。
+4. 未修改 gateway-service、workflow-service、task-service、ai-service、common、docker、Nacos 全局配置、DTO、MQ、Gateway、Seata、Sentinel。
+
+验证记录：
+1. git diff --check：通过；仅提示 Git 工作区 LF/CRLF 转换 warning，无空白错误。
+2. mvn -f backend/auth-service/pom.xml -am test：通过；common 8 tests，auth-service 12 tests，0 failures，0 errors。
+3. mvn -f backend/auth-service/pom.xml -am package -DskipTests：通过；生成 backend/auth-service/target/auth-service-0.1.0-SNAPSHOT.jar。
+4. 本地 jar 烟测：使用 JDK 17 启动 auth-service，临时禁用外部 Nacos/Sentinel 连接；/health 返回 200，/v3/api-docs 返回 200。
+5. 统一运行环境 192.168.101.68 未执行拉分支联调；合并 main 前需由负责人在统一环境补测 Nacos 注册、MySQL、Redis 连接和接口调用。
+
+交接记录：
+1. 当前分支：feature/AUTH-SERVICE-INIT-auth-service-basic。
+2. 当前状态：REVIEW，等待负责人检查 diff 并在统一运行环境补测。
+3. 合并 main：未合并。
+4. 文件锁：本次交接后释放。
