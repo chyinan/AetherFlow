@@ -61,25 +61,6 @@ function updateConfig(key: string, value: string) {
         <p class="mt-2 text-xs leading-5 text-text-secondary">{{ selectedNode.data.description }}</p>
       </div>
 
-      <div class="mb-5 grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          class="inline-flex items-center justify-center gap-2 rounded-md border border-ai/20 bg-ai-soft px-3 py-2 text-sm font-medium text-ai transition hover:border-ai/40"
-          @click="emit('openCopilot')"
-        >
-          <Sparkles class="h-4 w-4" />
-          Copilot
-        </button>
-        <button
-          type="button"
-          class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/20 bg-primary-soft px-3 py-2 text-sm font-medium text-primary transition hover:border-primary/40"
-          @click="emit('openLogs')"
-        >
-          <TerminalSquare class="h-4 w-4" />
-          Logs
-        </button>
-      </div>
-
       <section class="mb-5">
         <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Config</h3>
         <div class="space-y-3">
