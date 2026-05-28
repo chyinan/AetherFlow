@@ -158,3 +158,5 @@ Runs 页面布局修复记录：
 4. 已为 RunsPage、RunTimeline、LogStream 的 grid/flex 子项补齐 min-w-0、overflow-hidden/overflow-y-auto，日志行改为固定字段列 + 可换行消息列，避免长日志反向撑开布局。
 5. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
 6. 本地访问 http://127.0.0.1:5173/runs：返回 200。
+7. Runs 布局修复提交已本地完成：87ce740 fix(frontend): stabilize runs page layout；d0a07ba docs(agent): record FRONTEND-INIT runs layout fix。
+8. git push 连续失败，原因：GitHub 连接被重置 / 无法连接 github.com:443；当前本地分支领先远端，需要网络恢复后补推。
