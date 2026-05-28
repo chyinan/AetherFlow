@@ -116,11 +116,13 @@ public class UserServiceImpl implements UserService {
     @Override
     public void logout(AuthLogoutRequest request, AuthRequestContext context) {
         JwtUserClaims claims = authTokenService.parseRefreshToken(request.getRefreshToken());
-        if (!authSessionService.isRefreshTokenActive(claims.getUserId(), request.getRefreshToken())) {
+        Long userId = claims.getUserId();
+        if (!authSessionService.isRefreshTokenActive(userId, request.getRefreshToken())) {
             throw new UnauthorizedException("refresh token expired or revoked");
         }
-        blacklistAccessToken(request.getAccessToken());
-        authSessionService.deleteSession(claims.getUserId());
+        String storedAccessToken = authSessionService.getAccessToken(userId);
+        blacklistLogoutAccessTokens(storedAccessToken, request.getAccessToken());
+        authSessionService.deleteSession(userId);
     }
 
     @Override
@@ -169,6 +171,24 @@ public class UserServiceImpl implements UserService {
         if (StringUtils.hasText(existingAccessToken)) {
             blacklistAccessToken(existingAccessToken);
         }
+    }
+
+    private void blacklistLogoutAccessTokens(String storedAccessToken, String requestAccessToken) {
+        if (StringUtils.hasText(storedAccessToken)) {
+            blacklistAccessToken(storedAccessToken);
+        }
+        if (StringUtils.hasText(requestAccessToken)
+                && !normalizeToken(requestAccessToken).equals(normalizeToken(storedAccessToken))) {
+            blacklistAccessToken(requestAccessToken);
+        }
+    }
+
+    private String normalizeToken(String token) {
+        if (!StringUtils.hasText(token)) {
+            return "";
+        }
+        String value = token.trim();
+        return value.startsWith("Bearer ") ? value.substring("Bearer ".length()) : value;
     }
 
     private void blacklistAccessToken(String accessToken) {

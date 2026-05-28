@@ -186,10 +186,28 @@ class UserServiceImplTest {
         request.setAccessToken(bundle.getAccessToken());
         request.setRefreshToken(bundle.getRefreshToken());
         when(authSessionService.isRefreshTokenActive(7L, bundle.getRefreshToken())).thenReturn(true);
+        when(authSessionService.getAccessToken(7L)).thenReturn(bundle.getAccessToken());
 
         userService.logout(request, requestContext());
 
         verify(authSessionService).blacklistToken(eq(bundle.getAccessToken()), any(Duration.class));
+        verify(authSessionService).deleteSession(7L);
+    }
+
+    @Test
+    void logoutBlacklistsStoredAccessTokenWhenRequestAccessTokenDiffers() {
+        AuthTokenBundle stored = authTokenService.issueTokenBundle(7L, "alice", List.of("USER"));
+        AuthTokenBundle wrong = authTokenService.issueTokenBundle(8L, "bob", List.of("USER"));
+        AuthLogoutRequest request = new AuthLogoutRequest();
+        request.setAccessToken(wrong.getAccessToken());
+        request.setRefreshToken(stored.getRefreshToken());
+        when(authSessionService.isRefreshTokenActive(7L, stored.getRefreshToken())).thenReturn(true);
+        when(authSessionService.getAccessToken(7L)).thenReturn(stored.getAccessToken());
+
+        userService.logout(request, requestContext());
+
+        verify(authSessionService).blacklistToken(eq(stored.getAccessToken()), any(Duration.class));
+        verify(authSessionService).blacklistToken(eq(wrong.getAccessToken()), any(Duration.class));
         verify(authSessionService).deleteSession(7L);
     }
 

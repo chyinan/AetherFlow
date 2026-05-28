@@ -82,7 +82,7 @@ Agent 编码计划：
 1. 新增 auth-service 私有 DTO：AuthTokenResponse、AuthRefreshRequest、AuthLogoutRequest、AuthMetricsResponse，未修改 backend/common 公共 DTO。
 2. /auth/register 与 /auth/login 返回 Access Token + Refresh Token；Access Token 仍使用 JWT 兼容 Gateway，Refresh Token 使用独立 refresh secret，避免被 Gateway 当作 Access Token 接受。
 3. 新增 /auth/refresh 自动轮换 token pair，刷新时校验 auth:refresh:{userId}，并将旧 Access Token 同步写入 auth:blacklist:{token} 与 aetherflow:gateway:token:blacklist:{sha256(cleanToken)}。
-4. 新增 /auth/logout，校验 Refresh Token Redis 会话，黑名单当前 Access Token，同步对齐 Gateway 黑名单 hash key，并删除 auth:token:{userId} 与 auth:refresh:{userId}。
+4. 新增 /auth/logout，校验 Refresh Token Redis 会话后，以 auth:token:{userId} 中的当前 Access Token 为准写入黑名单；若请求体 accessToken 与当前会话 token 不一致，也一并黑掉，最后删除 auth:token:{userId} 与 auth:refresh:{userId}。
 5. 新增 Redis Session 管理、Redis Key 规范、登录失败限制、密码错误次数限制、Redis 登录限流。
 6. 新增登录审计日志，记录 userId、username、IP、登录时间、登录状态、User-Agent。
 7. 新增 AuthTraceContextFilter，统一 MDC traceId、userId、requestId，并在 application.yml logging pattern 输出。
@@ -90,6 +90,7 @@ Agent 编码计划：
 9. 新增 /auth/status 与 /auth/metrics，返回在线用户数、Token 数量、登录失败次数。
 10. 完善 Swagger summary、description、request example 和本地 DTO field example。
 11. 已将 origin/main 合入当前分支，解决 docs/agent/logs/2026-05-28.md 合并冲突，PR 分支基于最新 main。
+12. 已修复 logout 撤销语义：有效 refresh token 下，即使请求体 accessToken 传错，也会黑掉 Redis 当前会话 access token，避免 Gateway 继续放行。
 
 验证记录：
 1. mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 29 tests，0 failures，0 errors。
@@ -97,10 +98,11 @@ Agent 编码计划：
 3. git diff --check：通过；仅有 LF/CRLF 工作区转换 warning，无空白错误。
 4. Review 修复后复跑 mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 29 tests，0 failures，0 errors。
 5. Review 修复后复跑 mvn -pl backend/auth-service -am package -DskipTests：通过，BUILD SUCCESS。
+6. Logout review 修复后新增回归测试，复跑 mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 30 tests，0 failures，0 errors。
 
 交接记录：
 1. 当前分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance。
-2. 当前提交：e71a08f Merge remote-tracking branch 'origin/main' into feature/AUTH-SERVICE-ENTERPRISE-auth-governance；review 修复提交 d35c2d7 fix(auth): align blacklist keys with gateway。
+2. 当前提交：待本轮 logout review 修复提交；前序 review 修复提交 d35c2d7 fix(auth): align blacklist keys with gateway。
 3. PR：https://github.com/chyinan/AetherFlow/pull/1
 4. 合并 main：已合入 origin/main 到当前 feature 分支，docs/agent/logs/2026-05-28.md 冲突已解决。
 5. 统一运行环境 192.168.101.68：未执行联调，需负责人补测 Redis/MySQL/Nacos 和接口实际调用。
