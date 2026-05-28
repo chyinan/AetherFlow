@@ -98,7 +98,8 @@ Agent 编码计划：
 交接记录：
 1. 当前分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance。
 2. 当前提交：e377194 feat(auth): implement enterprise token governance。
-3. 合并 main：未合并。
-4. 统一运行环境 192.168.101.68：未执行联调，需负责人补测 Redis/MySQL/Nacos 和接口实际调用。
-5. 任务状态：REVIEW，等待负责人检查 diff 和统一运行环境补测。
-6. 文件锁：本次 handoff 提交后释放。
+3. PR：https://github.com/chyinan/AetherFlow/pull/1
+4. 合并 main：未合并。
+5. 统一运行环境 192.168.101.68：未执行联调，需负责人补测 Redis/MySQL/Nacos 和接口实际调用。
+6. 任务状态：REVIEW，等待负责人检查 diff 和统一运行环境补测。
+7. 文件锁：本次 handoff 提交后释放。
