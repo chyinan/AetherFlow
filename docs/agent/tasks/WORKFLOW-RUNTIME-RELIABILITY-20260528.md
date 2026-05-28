@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1836-CODEX-WORKFLOW-RUNTIME-RELIABILITY
 分支：feature/WORKFLOW-RUNTIME-RELIABILITY-20260528-runtime-reliability
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 在已合入 main 的 Workflow Runtime Core 基础上，分阶段补齐企业级 Runtime 可靠性能力：
@@ -111,6 +111,13 @@ Agent 编码计划：
 5. 位置：backend/workflow-service/src/main/resources/db/workflow-runtime-reliability.sql。
 6. 边界：该表仅属于 workflow-service Runtime Event Stream；未修改既有 MQ exchange、routing key、queue 或 Rabbit payload 契约。
 
+第四阶段新增 Runtime 自有锁：
+1. 锁 key：aetherflow:workflow:runtime:lock:{workflowId}。
+2. 方案：Redis SET NX PX 获取锁，Lua 脚本基于 token 做 renew / release 校验，避免误续租或误删别的 worker 的锁。
+3. 原因：跨进程互斥要求低延迟、TTL 自动释放和 token 校验；Redis 适合做 Runtime 入口锁，比 DB 乐观锁更直接，也不需要额外锁表和轮询。
+4. 边界：锁仅保护 workflow-service Runtime 入口，不改公共 DTO、既有 MQ 契约或其他服务业务逻辑。
+5. 位置：backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；backend/workflow-service/src/main/java/com/aetherflow/workflow/runtime/lock/**。
+
 开工同步记录：
 1. 已读取 AGENT.md 和 docs/COMMON_CONTRACTS.md。
 2. 已读取已合入 main 的 workflow-runtime-api 与 workflow-service Runtime Core 代码。
@@ -155,6 +162,12 @@ Agent 编码计划：
 22. 第三阶段已完成：WorkflowRuntimeController 保留旧的二参构造兼容 standalone 测试，旧路径可继续从 InMemoryRuntimeObservationStore 读取事件。
 23. 第三阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
 24. 第三阶段代码已提交：4fb54cd feat(workflow): persist runtime event stream。
+25. 第四阶段已完成：新增 WorkflowRuntimeLock、WorkflowRuntimeLockLease 和 RedisWorkflowRuntimeLock，支持 acquire / renew / release / TTL 自动释放。
+26. 第四阶段已完成：workflow-service pom.xml 增加 spring-boot-starter-data-redis，application.yml 增加 spring.data.redis 与 workflow runtime lock 配置。
+27. 第四阶段已完成：WorkflowRuntimeEngine 在 execute / resume 入口统一 acquire 锁，执行结束后 release，并按 lease.ttl 进行 renewal heartbeat。
+28. 第四阶段已完成：WorkflowRuntimeConfig 将 lock bean 注入 WorkflowRuntimeEngine，不让业务节点控制锁或 RuntimeState。
+29. 第四阶段已完成：新增 RedisWorkflowRuntimeLockTest 与 WorkflowRuntimeEngineLockTest，覆盖互斥、renew / release、TTL、获取失败和执行释放。
+30. 第四阶段代码已提交：e2ce521 feat(workflow): add redis runtime lock。
 
 TDD 记录：
 1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
@@ -174,6 +187,8 @@ TDD 记录：
 15. RuntimeObservationRebuilderTest 先失败于 RuntimeObservationRebuilder 缺失，随后通过事件流回放重建 WorkflowRuntimeObservation。
 16. WorkflowRuntimeControllerTest 先失败于 controller 尚未注入 RuntimeEventStore，随后补齐持久化事件查询和观测 fallback 后通过。
 17. WorkflowRuntimeConfigTest 补充 composite publisher 持久化写入断言，确保 Runtime 发布的事件会进入 DB Event Stream。
+18. RedisWorkflowRuntimeLockTest 先失败于 Redis 依赖和 Runtime lock 类型缺失，随后补齐 Redis SET NX PX + token Lua renew/release 后通过。
+19. WorkflowRuntimeEngineLockTest 先失败于 RuntimeEngine 缺少 lock 构造与入口保护，随后补齐 execute / resume 入口锁后通过。
 
 验证记录：
 1. 2026-05-28 18:45，mvn -pl backend/workflow-service -am -Dtest=WorkflowDagTest test 首次被 common 模块 surefire 无匹配测试拦截；随后使用 -Dsurefire.failIfNoSpecifiedTests=false 重新运行。
@@ -195,12 +210,14 @@ TDD 记录：
 17. 2026-05-28 20:39，mvn -pl backend/workflow-service -am -Dtest=PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 按 TDD 预期失败：缺少 RuntimeEventStore、WorkflowRuntimeEventMapper、MybatisRuntimeEventStore、RuntimeEventEntity。
 18. 2026-05-28 20:42，补齐 Runtime Event Store 后，mvn -pl backend/workflow-service -am -Dtest=PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：7 tests，BUILD SUCCESS。
 19. 2026-05-28 20:45，补充 config 集成测试后，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeConfigTest,PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：9 tests，BUILD SUCCESS。
-20. 2026-05-28 20:51，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
-21. 2026-05-28 20:51，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 40 tests；BUILD SUCCESS。
+20. 2026-05-28 21:00，mvn -pl backend/workflow-service -am -Dtest=RedisWorkflowRuntimeLockTest,WorkflowRuntimeEngineLockTest -Dsurefire.failIfNoSpecifiedTests=false test 按 TDD 预期失败：缺少 WorkflowRuntimeLock、WorkflowRuntimeLockLease、RedisWorkflowRuntimeLock 和 Spring Data Redis 依赖。
+21. 2026-05-28 21:06，补齐 Redis workflow runtime lock 后，mvn -pl backend/workflow-service -am -Dtest=RedisWorkflowRuntimeLockTest,WorkflowRuntimeEngineLockTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：8 tests，BUILD SUCCESS。
+22. 2026-05-28 21:18，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+23. 2026-05-28 21:18，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 48 tests；BUILD SUCCESS。
 
 当前阶段状态：
 1. 第一阶段“并行 DAG + join”已完成并验证。
 2. 第二阶段“Runtime 持久化与恢复”已完成并验证。
 3. 第三阶段“Event Stream”已完成并验证。
-4. 第四阶段“分布式锁”未开始。
-5. 任务整体保持 IN_PROGRESS，不标记 DONE。
+4. 第四阶段“分布式锁”已完成并验证。
+5. 任务整体进入 REVIEW，等待负责人 Review / 合入 main。
