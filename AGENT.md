@@ -696,7 +696,7 @@ docs/agent/README.md
 | 时间 | 任务ID | Agent ID | 本次完成 | 修改文件 | 测试结果 | PR / 提交 | 合入 main | 统一运行电脑验证 | 遗留问题 | 文件锁 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  | 未合入 / 已合入 | 未运行 / 已运行 / 不涉及 |  | RELEASED / ACTIVE / EXPIRED |
-| 2026-05-28 12:30 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | 为 ai-service Provider Orchestration 管理 API 补齐 Gateway 路由、Sentinel 限流与测试 | backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | `mvn -pl backend/gateway-service -am test` 通过 | docs(agent): claim GW-AI-PROVIDER-ROUTE-20260528 / feat(gateway): add ai provider route | 未合入 | 未运行 | 无 | RELEASED |
+| 2026-05-28 12:30 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | 为 ai-service Provider Orchestration 管理 API 补齐 Gateway 路由、Sentinel 限流与测试 | backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | `mvn -pl backend/gateway-service -am test` 通过 | docs(agent): claim GW-AI-PROVIDER-ROUTE-20260528 / feat(gateway): add ai provider route | 已合入 | 未运行 | 无 | RELEASED |
 
 交接模板：
 

@@ -117,7 +117,7 @@ Agent 编码计划：
 3. 修改文件：backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md
 4. 测试结果：`mvn -pl backend/gateway-service -am test` 通过。
 5. PR/提交/分支：`feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route`；claim `d3c7e10c00cef82a8be63bcb70f3a4bd4da2c539`；业务提交 `7e2cb3be5d1668d230a6eceae66ddfb62b57beb4`。
-6. 合入 main：未合入
+6. 合入 main：已合入，主线合入提交 151605c。
 7. 统一运行电脑验证：未运行
 8. 遗留问题：无功能阻塞，等待负责人 Review 后合入 main。
 9. 文件锁：RELEASED
