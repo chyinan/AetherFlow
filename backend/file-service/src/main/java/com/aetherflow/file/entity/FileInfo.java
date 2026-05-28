@@ -16,6 +16,10 @@ public class FileInfo extends BaseEntity {
     @Schema(description = "Owner user id.", example = "1001")
     private Long userId;
 
+    @TableField("uploader_id")
+    @Schema(description = "Uploader user id.", example = "1001")
+    private Long uploaderId;
+
     @Schema(description = "MinIO bucket name.", example = "aetherflow")
     private String bucket;
 
@@ -28,6 +32,14 @@ public class FileInfo extends BaseEntity {
     @Schema(description = "File content type.", example = "video/mp4")
     private String contentType;
 
+    @TableField("mime_type")
+    @Schema(description = "Detected MIME type.", example = "video/mp4")
+    private String mimeType;
+
+    @TableField("file_hash")
+    @Schema(description = "SHA256 file hash.", example = "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2")
+    private String hash;
+
     @TableField("file_size")
     @Schema(description = "File size in bytes.", example = "1048576")
     private Long fileSize;
@@ -38,4 +50,8 @@ public class FileInfo extends BaseEntity {
 
     @Schema(description = "File status.", example = "AVAILABLE")
     private String status;
+
+    @TableField("upload_duration")
+    @Schema(description = "Upload duration in milliseconds.", example = "312")
+    private Long uploadDuration;
 }

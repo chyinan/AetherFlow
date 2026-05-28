@@ -6,9 +6,22 @@ import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.file.config.MinioProperties;
 import com.aetherflow.file.entity.FileInfo;
+import com.aetherflow.file.exception.StorageException;
+import com.aetherflow.file.exception.UploadException;
 import com.aetherflow.file.mapper.FileInfoMapper;
+import com.aetherflow.file.model.FileMetricsResponse;
+import com.aetherflow.file.model.FileStatusResponse;
+import com.aetherflow.file.model.FileUploadProfile;
+import com.aetherflow.file.model.MinioHealthView;
+import com.aetherflow.file.model.ProgressState;
+import com.aetherflow.file.model.UploadProgressView;
 import com.aetherflow.file.service.FileDownload;
+import com.aetherflow.file.service.FileGovernanceCacheService;
+import com.aetherflow.file.service.FileHashService;
 import com.aetherflow.file.service.FileInfoService;
+import com.aetherflow.file.service.FileUploadGuardService;
+import com.aetherflow.file.service.MinioHealthService;
+import com.aetherflow.file.support.FileLogContext;
 import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
@@ -21,10 +34,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.UUID;
@@ -41,51 +55,76 @@ public class FileInfoServiceImpl implements FileInfoService {
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
     private final FileInfoMapper fileInfoMapper;
+    private final FileUploadGuardService fileUploadGuardService;
+    private final FileHashService fileHashService;
+    private final FileGovernanceCacheService cacheService;
+    private final MinioHealthService minioHealthService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public FileMetadataDTO upload(Long userId, MultipartFile file) {
-        requireUserId(userId);
-        if (file == null || file.isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "upload file must not be empty");
-        }
-
-        String bucket = minioProperties.getBucket();
-        String objectKey = buildObjectKey(file.getOriginalFilename());
-        String contentType = resolveContentType(file.getContentType());
-
+    public FileMetadataDTO upload(Long userId, MultipartFile file, String taskId) {
+        String uploadTaskId = normalizeTaskId(taskId);
+        String sha256 = null;
+        Long fileId = null;
+        boolean reserved = false;
+        long start = System.nanoTime();
         try {
-            ensureBucket(bucket);
-            minioClient.putObject(PutObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .contentType(contentType)
-                    .stream(file.getInputStream(), file.getSize(), -1)
-                    .build());
-        } catch (Exception exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "minio upload failed");
-        }
+            requireUserId(userId);
+            FileLogContext.putUserId(userId);
+            cacheService.recordProgress(uploadTaskId, ProgressState.RECEIVED, 5, null, userId, null,
+                    "Upload request received");
+            cacheService.checkUploadRate(userId);
 
-        try {
-            FileInfo fileInfo = buildFileInfo(
-                    userId,
-                    bucket,
-                    objectKey,
-                    cleanOriginalName(file.getOriginalFilename()),
-                    contentType,
-                    file.getSize()
-            );
-            fileInfoMapper.insert(fileInfo);
-            return toDTO(fileInfo);
+            FileUploadProfile profile = fileUploadGuardService.validate(file);
+
+            cacheService.recordProgress(uploadTaskId, ProgressState.HASHING, 20, null, userId, null,
+                    "Calculating SHA256");
+            sha256 = fileHashService.sha256(file);
+            cacheService.recordProgress(uploadTaskId, ProgressState.HASHING, 35, null, userId, sha256,
+                    "SHA256 calculated");
+
+            FileInfo reusableFile = findReusableFile(sha256);
+            if (reusableFile != null) {
+                FileMetadataDTO metadata = createDedupMetadata(userId, profile, sha256, reusableFile, uploadTaskId, start);
+                fileId = metadata.getId();
+                log.info("File upload dedupe hit traceId={} fileId={} userId={} hash={} size={}",
+                        FileLogContext.traceId(), fileId, userId, sha256, profile.size());
+                return metadata;
+            }
+
+            reserved = cacheService.tryReserveHashUpload(sha256, uploadTaskId);
+            if (!reserved) {
+                reusableFile = findReusableFile(sha256);
+                if (reusableFile != null) {
+                    FileMetadataDTO metadata = createDedupMetadata(userId, profile, sha256, reusableFile, uploadTaskId, start);
+                    fileId = metadata.getId();
+                    log.info("File upload dedupe hit after reservation miss traceId={} fileId={} userId={} hash={} size={}",
+                            FileLogContext.traceId(), fileId, userId, sha256, profile.size());
+                    return metadata;
+                }
+                throw new UploadException(ResultCode.CONFLICT, "same file upload is already in progress");
+            }
+
+            FileMetadataDTO metadata = uploadNewObject(userId, file, profile, sha256, uploadTaskId, start);
+            fileId = metadata.getId();
+            log.info("File upload completed traceId={} fileId={} userId={} hash={} size={}",
+                    FileLogContext.traceId(), fileId, userId, sha256, profile.size());
+            return metadata;
         } catch (RuntimeException exception) {
-            removeObjectQuietly(bucket, objectKey);
-            throw new BusinessException(ResultCode.INTERNAL_ERROR, "save file metadata failed");
+            if (reserved && StringUtils.hasText(sha256)) {
+                cacheService.releaseHashReservation(sha256, uploadTaskId);
+            }
+            cacheService.recordProgress(uploadTaskId, ProgressState.FAILED, 100, fileId, userId, sha256,
+                    exception.getMessage());
+            throw exception;
         }
     }
 
     @Override
     public FileDownload download(Long userId, Long fileId) {
         requireUserId(userId);
+        FileLogContext.putUserId(userId);
+        FileLogContext.putFileId(fileId);
         FileInfo fileInfo = getAvailableFile(fileId);
         checkFileOwner(userId, fileInfo);
 
@@ -94,9 +133,11 @@ public class FileInfoServiceImpl implements FileInfoService {
                     .bucket(fileInfo.getBucket())
                     .object(fileInfo.getObjectKey())
                     .build());
+            log.info("File download opened traceId={} fileId={} userId={}",
+                    FileLogContext.traceId(), fileId, userId);
             return new FileDownload(
                     fileInfo.getOriginalName(),
-                    resolveContentType(fileInfo.getContentType()),
+                    resolveContentType(resolveMimeType(fileInfo)),
                     fileInfo.getFileSize(),
                     response
             );
@@ -104,9 +145,9 @@ public class FileInfoServiceImpl implements FileInfoService {
             if (isMinioNotFound(exception)) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "file object not found in minio");
             }
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "minio download failed");
+            throw new StorageException("minio download failed");
         } catch (Exception exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "minio download failed");
+            throw new StorageException("minio download failed");
         }
     }
 
@@ -114,6 +155,8 @@ public class FileInfoServiceImpl implements FileInfoService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long userId, Long fileId) {
         requireUserId(userId);
+        FileLogContext.putUserId(userId);
+        FileLogContext.putFileId(fileId);
         FileInfo fileInfo = getExistingFile(fileId);
         checkFileOwner(userId, fileInfo);
 
@@ -121,37 +164,180 @@ public class FileInfoServiceImpl implements FileInfoService {
             return;
         }
 
-        try {
-            minioClient.removeObject(RemoveObjectArgs.builder()
-                    .bucket(fileInfo.getBucket())
-                    .object(fileInfo.getObjectKey())
-                    .build());
-        } catch (ErrorResponseException exception) {
-            if (!isMinioNotFound(exception)) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "minio delete failed");
-            }
-        } catch (Exception exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "minio delete failed");
-        }
-
         fileInfo.setStatus(STATUS_DELETED);
         fileInfo.setUpdatedAt(LocalDateTime.now());
         fileInfoMapper.updateById(fileInfo);
+
+        if (shouldRemovePhysicalObject(fileInfo)) {
+            afterCommit(() -> {
+                try {
+                    removePhysicalObject(fileInfo);
+                    log.info("File object removed traceId={} fileId={} userId={} hash={}",
+                            FileLogContext.traceId(), fileId, userId, fileInfo.getHash());
+                } catch (StorageException exception) {
+                    log.error("File metadata deleted but object removal failed traceId={} fileId={} userId={} hash={}",
+                            FileLogContext.traceId(), fileId, userId, fileInfo.getHash(), exception);
+                }
+            });
+        } else {
+            log.info("File metadata deleted, object retained by dedupe refs traceId={} fileId={} userId={} hash={}",
+                    FileLogContext.traceId(), fileId, userId, fileInfo.getHash());
+        }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request) {
+        String contentType = resolveContentType(request.getContentType());
         FileInfo fileInfo = buildFileInfo(
                 userId,
                 request.getBucket(),
                 request.getObjectKey(),
                 cleanOriginalName(request.getOriginalName()),
-                resolveContentType(request.getContentType()),
-                request.getSize()
+                contentType,
+                request.getSize(),
+                null,
+                null
         );
         fileInfoMapper.insert(fileInfo);
+        FileLogContext.putFileId(fileInfo.getId());
+        log.info("Internal file metadata created traceId={} fileId={} userId={}",
+                FileLogContext.traceId(), fileInfo.getId(), FileLogContext.userId());
         return toDTO(fileInfo);
+    }
+
+    @Override
+    public UploadProgressView getUploadProgress(String taskId) {
+        return cacheService.getProgress(taskId);
+    }
+
+    @Override
+    public FileStatusResponse getStatus() {
+        MinioHealthView minioHealth = minioHealthService.check();
+        return new FileStatusResponse(
+                minioHealth.status(),
+                safeLong(fileInfoMapper.countAvailableFiles()),
+                cacheService.countUploadingTasks(),
+                safeLong(fileInfoMapper.sumPhysicalStorageSize())
+        );
+    }
+
+    @Override
+    public FileMetricsResponse getMetrics() {
+        MinioHealthView minioHealth = minioHealthService.check();
+        return new FileMetricsResponse(
+                minioHealth.status(),
+                safeLong(fileInfoMapper.countAvailableFiles()),
+                cacheService.countUploadingTasks(),
+                safeLong(fileInfoMapper.sumPhysicalStorageSize()),
+                safeLong(fileInfoMapper.averageUploadDurationMs())
+        );
+    }
+
+    private FileMetadataDTO createDedupMetadata(Long userId,
+                                                FileUploadProfile profile,
+                                                String sha256,
+                                                FileInfo reusableFile,
+                                                String taskId,
+                                                long start) {
+        cacheService.recordProgress(taskId, ProgressState.DEDUPED, 70, null, userId, sha256,
+                "Duplicate file found");
+        FileInfo fileInfo = buildFileInfo(
+                userId,
+                reusableFile.getBucket(),
+                reusableFile.getObjectKey(),
+                profile.originalName(),
+                profile.contentType(),
+                profile.size(),
+                sha256,
+                elapsedMs(start)
+        );
+        fileInfo.setFileUrl(StringUtils.hasText(reusableFile.getFileUrl())
+                ? reusableFile.getFileUrl()
+                : buildFileUrl(reusableFile.getBucket(), reusableFile.getObjectKey()));
+        try {
+            fileInfoMapper.insert(fileInfo);
+        } catch (RuntimeException exception) {
+            throw new StorageException("save file metadata failed");
+        }
+        FileLogContext.putFileId(fileInfo.getId());
+        afterCommit(() -> {
+            cacheService.cacheHash(sha256, reusableFile.getId());
+            cacheService.recordUpload(fileInfo.getId(), userId, taskId, sha256, ProgressState.COMPLETED);
+            cacheService.recordProgress(taskId, ProgressState.COMPLETED, 100, fileInfo.getId(), userId, sha256,
+                    "Duplicate file reused");
+        });
+        return toDTO(fileInfo);
+    }
+
+    private FileMetadataDTO uploadNewObject(Long userId,
+                                            MultipartFile file,
+                                            FileUploadProfile profile,
+                                            String sha256,
+                                            String taskId,
+                                            long start) {
+        String bucket = minioProperties.getBucket();
+        String objectKey = buildObjectKey(sha256, profile.extension());
+
+        try {
+            cacheService.recordProgress(taskId, ProgressState.UPLOADING, 55, null, userId, sha256,
+                    "Uploading object to MinIO");
+            ensureBucket(bucket);
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .contentType(profile.contentType())
+                    .stream(file.getInputStream(), profile.size(), -1)
+                    .build());
+        } catch (Exception exception) {
+            throw new StorageException("minio upload failed");
+        }
+
+        try {
+            cacheService.recordProgress(taskId, ProgressState.PERSISTING, 85, null, userId, sha256,
+                    "Persisting file metadata");
+            FileInfo fileInfo = buildFileInfo(
+                    userId,
+                    bucket,
+                    objectKey,
+                    profile.originalName(),
+                    profile.contentType(),
+                    profile.size(),
+                    sha256,
+                    elapsedMs(start)
+            );
+            fileInfoMapper.insert(fileInfo);
+            FileLogContext.putFileId(fileInfo.getId());
+            afterCommit(() -> {
+                cacheService.cacheHash(sha256, fileInfo.getId());
+                cacheService.recordUpload(fileInfo.getId(), userId, taskId, sha256, ProgressState.COMPLETED);
+                cacheService.recordProgress(taskId, ProgressState.COMPLETED, 100, fileInfo.getId(), userId, sha256,
+                        "Upload completed");
+            });
+            afterRollback(() -> removeObjectIfNoReferences(bucket, objectKey, sha256));
+            return toDTO(fileInfo);
+        } catch (RuntimeException exception) {
+            removeObjectIfNoReferences(bucket, objectKey, sha256);
+            throw new StorageException("save file metadata failed");
+        }
+    }
+
+    private FileInfo findReusableFile(String sha256) {
+        FileInfo cachedFile = cacheService.findCachedHashFileId(sha256)
+                .map(fileInfoMapper::selectById)
+                .filter(fileInfo -> fileInfo != null
+                        && STATUS_AVAILABLE.equals(fileInfo.getStatus())
+                        && sha256.equals(fileInfo.getHash()))
+                .orElse(null);
+        if (cachedFile != null) {
+            return cachedFile;
+        }
+
+        FileInfo databaseFile = fileInfoMapper.selectFirstAvailableByHash(sha256);
+        if (databaseFile != null) {
+            cacheService.cacheHash(sha256, databaseFile.getId());
+        }
+        return databaseFile;
     }
 
     private FileInfo getAvailableFile(Long fileId) {
@@ -174,6 +360,9 @@ public class FileInfoServiceImpl implements FileInfoService {
     }
 
     private void checkFileOwner(Long userId, FileInfo fileInfo) {
+        if (fileInfo.getUserId() == null) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "file owner is not available for public access");
+        }
         if (fileInfo.getUserId() != null && !fileInfo.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "file does not belong to current user");
         }
@@ -190,17 +379,23 @@ public class FileInfoServiceImpl implements FileInfoService {
                                    String objectKey,
                                    String originalName,
                                    String contentType,
-                                   Long size) {
+                                   Long size,
+                                   String sha256,
+                                   Long uploadDuration) {
         LocalDateTime now = LocalDateTime.now();
         FileInfo fileInfo = new FileInfo();
         fileInfo.setUserId(userId);
+        fileInfo.setUploaderId(userId);
         fileInfo.setBucket(bucket);
         fileInfo.setObjectKey(objectKey);
         fileInfo.setOriginalName(originalName);
-        fileInfo.setContentType(contentType);
+        fileInfo.setContentType(resolveContentType(contentType));
+        fileInfo.setMimeType(resolveContentType(contentType));
+        fileInfo.setHash(sha256);
         fileInfo.setFileSize(size);
         fileInfo.setFileUrl(buildFileUrl(bucket, objectKey));
         fileInfo.setStatus(STATUS_AVAILABLE);
+        fileInfo.setUploadDuration(uploadDuration);
         fileInfo.setCreatedAt(now);
         fileInfo.setUpdatedAt(now);
         return fileInfo;
@@ -213,22 +408,18 @@ public class FileInfoServiceImpl implements FileInfoService {
         }
     }
 
-    private String buildObjectKey(String originalName) {
-        LocalDate today = LocalDate.now();
-        String extension = StringUtils.getFilenameExtension(cleanOriginalName(originalName));
-        String suffix = "";
-        if (StringUtils.hasText(extension)) {
-            String safeExtension = extension.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-            if (StringUtils.hasText(safeExtension) && safeExtension.length() <= 20) {
-                suffix = "." + safeExtension;
-            }
+    private String buildObjectKey(String sha256, String extension) {
+        String safeExtension = StringUtils.hasText(extension)
+                ? extension.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "")
+                : "bin";
+        if (!StringUtils.hasText(safeExtension) || safeExtension.length() > 20) {
+            safeExtension = "bin";
         }
-        return "uploads/%d/%02d/%02d/%s%s".formatted(
-                today.getYear(),
-                today.getMonthValue(),
-                today.getDayOfMonth(),
-                UUID.randomUUID(),
-                suffix
+        return "objects/sha256/%s/%s/%s.%s".formatted(
+                sha256.substring(0, 2),
+                sha256.substring(2, 4),
+                sha256,
+                safeExtension
         );
     }
 
@@ -241,6 +432,13 @@ public class FileInfoServiceImpl implements FileInfoService {
         return StringUtils.hasText(contentType) ? contentType : DEFAULT_CONTENT_TYPE;
     }
 
+    private String resolveMimeType(FileInfo fileInfo) {
+        if (StringUtils.hasText(fileInfo.getMimeType())) {
+            return fileInfo.getMimeType();
+        }
+        return fileInfo.getContentType();
+    }
+
     private String buildFileUrl(String bucket, String objectKey) {
         String publicEndpoint = minioProperties.getPublicEndpoint();
         String normalizedEndpoint = publicEndpoint.endsWith("/")
@@ -249,13 +447,79 @@ public class FileInfoServiceImpl implements FileInfoService {
         return normalizedEndpoint + "/" + bucket + "/" + objectKey;
     }
 
+    private boolean shouldRemovePhysicalObject(FileInfo fileInfo) {
+        if (StringUtils.hasText(fileInfo.getHash())) {
+            return safeLong(fileInfoMapper.countAvailableByHash(fileInfo.getHash())) <= 0;
+        }
+        return safeLong(fileInfoMapper.countAvailableByObject(fileInfo.getBucket(), fileInfo.getObjectKey())) <= 0;
+    }
+
+    private void removeObjectIfNoReferences(String bucket, String objectKey, String sha256) {
+        if (StringUtils.hasText(sha256) && safeLong(fileInfoMapper.countAvailableByHash(sha256)) > 0) {
+            return;
+        }
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            log.warn("Rollback minio object failed traceId={} fileId={} userId={} bucket={} objectKey={}",
+                    FileLogContext.traceId(), FileLogContext.fileId(), FileLogContext.userId(), bucket, objectKey,
+                    exception);
+        }
+    }
+
+    private void removePhysicalObject(FileInfo fileInfo) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(fileInfo.getBucket())
+                    .object(fileInfo.getObjectKey())
+                    .build());
+        } catch (ErrorResponseException exception) {
+            if (!isMinioNotFound(exception)) {
+                throw new StorageException("minio delete failed");
+            }
+        } catch (Exception exception) {
+            throw new StorageException("minio delete failed");
+        }
+    }
+
+    private void afterCommit(Runnable runnable) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            runnable.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                runnable.run();
+            }
+        });
+    }
+
+    private void afterRollback(Runnable runnable) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == TransactionSynchronization.STATUS_ROLLED_BACK
+                        || status == TransactionSynchronization.STATUS_UNKNOWN) {
+                    runnable.run();
+                }
+            }
+        });
+    }
+
     private FileMetadataDTO toDTO(FileInfo fileInfo) {
         return new FileMetadataDTO(
                 fileInfo.getId(),
                 fileInfo.getBucket(),
                 fileInfo.getObjectKey(),
                 fileInfo.getOriginalName(),
-                fileInfo.getContentType(),
+                resolveContentType(resolveMimeType(fileInfo)),
                 fileInfo.getFileSize(),
                 fileInfo.getFileUrl()
         );
@@ -266,14 +530,15 @@ public class FileInfoServiceImpl implements FileInfoService {
                 || "NoSuchBucket".equals(exception.errorResponse().code());
     }
 
-    private void removeObjectQuietly(String bucket, String objectKey) {
-        try {
-            minioClient.removeObject(RemoveObjectArgs.builder()
-                    .bucket(bucket)
-                    .object(objectKey)
-                    .build());
-        } catch (Exception exception) {
-            log.warn("Rollback minio object failed, bucket={}, objectKey={}", bucket, objectKey, exception);
-        }
+    private String normalizeTaskId(String taskId) {
+        return StringUtils.hasText(taskId) ? taskId : UUID.randomUUID().toString();
+    }
+
+    private Long elapsedMs(long start) {
+        return (System.nanoTime() - start) / 1_000_000L;
+    }
+
+    private long safeLong(Long value) {
+        return value == null ? 0L : value;
     }
 }
