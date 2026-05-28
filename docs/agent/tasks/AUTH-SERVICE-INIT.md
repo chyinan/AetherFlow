@@ -85,8 +85,8 @@ Agent 编码计划：
 
 交接记录：
 1. 当前分支：feature/AUTH-SERVICE-INIT-auth-service-basic。
-2. 当前状态：REVIEW，等待负责人检查 diff 并在统一运行环境补测。
-3. 合并 main：未合并。
+2. 当前状态：REVIEW，已完成负责人合入检查，等待统一运行环境补测。
+3. 合并 main：已合并并推送 origin/main，主线提交 5107c1c。
 4. 文件锁：本次交接后释放。
 
 合入检查修复记录：
@@ -97,3 +97,9 @@ Agent 编码计划：
 5. 2026-05-28 11:27 +08:00 使用 JDK 17 复跑 mvn -pl backend/auth-service -am package -DskipTests：通过；生成 auth-service boot jar。
 6. git diff --check --cached 与 git diff --check：通过。
 7. 统一运行环境 192.168.101.68 仍未执行运行态联调；合入 main 后仍需补测 Nacos/MySQL/Redis 实际连接和接口调用。
+
+主线合入记录：
+1. 2026-05-28 11:32 +08:00 已将 feature/AUTH-SERVICE-INIT-auth-service-basic 合入 main 并推送 origin/main。
+2. 主线合入提交：5107c1c merge: feature/AUTH-SERVICE-INIT-auth-service-basic。
+3. feature 合入前同步提交：cf2a3f9 merge: sync AUTH-SERVICE-INIT with main。
+4. 统一运行电脑验证：未运行；仍需负责人在 192.168.101.68 补测服务注册、MySQL/Redis 连接、/health、/auth/register、/auth/login、/auth/me 与 /v3/api-docs。
