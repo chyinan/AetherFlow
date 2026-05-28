@@ -1,4 +1,4 @@
-# AI 协同项目进度｜Agent 执行版
+# AI 协同项目进度文档｜Agent 执行版
 
 > 本文档主要给 Agent 阅读和执行。  
 > 项目采用 100% Vibe Coding：人负责定义任务边界，Agent 只负责在边界内生成代码。
@@ -221,7 +221,7 @@ git switch -c feature/{任务ID}-{说明}
 claim commit 只允许修改：
 
 ```text
-AI协同项目进度.md
+AGENT.md
 docs/agent/tasks/{任务ID}.md
 docs/agent/logs/{日期}.md
 ```
@@ -229,7 +229,7 @@ docs/agent/logs/{日期}.md
 claim commit 不允许包含业务代码。
 
 ```shell
-git add AI协同项目进度.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
+git add AGENT.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
 git commit -m "docs(agent): claim {任务ID}"
 git push
 ```
@@ -329,7 +329,7 @@ git commit -m "feat(frontend): update order submit page"
 handoff 提交：
 
 ```shell
-git add AI协同项目进度.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
+git add AGENT.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
 git commit -m "docs(agent): handoff {任务ID}"
 git push
 ```
@@ -570,6 +570,8 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 
 | 任务ID | 任务名称 | 状态 | 负责人 | Agent ID | 分支 | 允许修改范围 | 是否允许契约变更 | 验证方式 | 更新时间 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| AI-PROVIDER-ORCH-20260528 | 企业级 AI Provider Orchestration System | REVIEW | 陈胤安 | chyinan | feature/AI-PROVIDER-ORCH-20260528-provider-orchestration | backend/ai-service/**；docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md；docs/agent/logs/2026-05-28.md | 否 | git diff --name-only main...HEAD；mvn -pl backend/ai-service -am test | 2026-05-28 12:08 |
+| GW-AI-PROVIDER-ROUTE-20260528 | AI Provider Orchestration 管理 API Gateway 路由接入 | REVIEW | 陈胤安 | chyinan | feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route | backend/gateway-service/**；backend/gateway-service/src/test/**；backend/gateway-service/src/main/resources/application.yml；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Gateway 路由 /ai/provider/** -> ai-service | git diff --name-only main...HEAD；mvn -pl backend/gateway-service -am test | 2026-05-28 12:30 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -587,7 +589,7 @@ docs/agent/tasks/{任务ID}.md
 以下文件只能短事务编辑，不能作为业务文件锁长期占用：
 
 ```text
-AI协同项目进度.md
+AGENT.md
 docs/agent/tasks/**
 docs/agent/logs/**
 docs/agent/README.md
@@ -597,6 +599,13 @@ docs/agent/README.md
 
 | 任务ID | Agent ID | 文件或目录 | 开始时间 | 过期时间 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| AI-PROVIDER-ORCH-20260528 | chyinan | backend/ai-service/** | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 企业级 AI Provider Orchestration System |
+| AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 任务文档 |
+| AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 当日执行日志 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | backend/gateway-service/** | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | ai-service Provider Orchestration 管理 API Gateway 路由接入 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 任务文档 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 当日执行日志 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | AGENT.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 任务看板、契约登记与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
@@ -640,6 +649,7 @@ docs/agent/README.md
 
 | 类型 | ID / Key / Event | 服务 | 文件或位置 | 状态 | 负责人 | 批准人 |
 | --- | --- | --- | --- | --- | --- | --- |
+| Gateway 路由 | /ai/provider/** -> ai-service | gateway-service | backend/gateway-service/src/main/resources/application.yml | APPROVED | 陈胤安 | 陈胤安 |
 |  |  |  |  | DRAFT / REVIEW / APPROVED / CHANGED / DEPRECATED |  |  |
 
 ---
@@ -668,6 +678,8 @@ docs/agent/README.md
 | 任务ID | 验证类型 | 命令 / 步骤 | 结果 | 证据 | 执行人 | 时间 |
 | --- | --- | --- | --- | --- | --- | --- |
 |  | 环境检测 / 静态检查 / 编译 / 单元测试 / 接口手测 / 前端验证 / 统一运行电脑验证 |  | 通过 / 未通过 / 未执行 |  |  |  |
+| GW-AI-PROVIDER-ROUTE-20260528 | 静态检查 | git diff --name-only main...HEAD | 通过 | AGENT.md；backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/logs/2026-05-28.md；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | chyinan | 2026-05-28 12:30 |
+| GW-AI-PROVIDER-ROUTE-20260528 | 单元测试 | JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test | 通过 | common 8 tests；gateway-service 16 tests；BUILD SUCCESS | chyinan | 2026-05-28 12:29 |
 
 不能测试时，不得写“通过”，必须写：
 
@@ -684,6 +696,7 @@ docs/agent/README.md
 | 时间 | 任务ID | Agent ID | 本次完成 | 修改文件 | 测试结果 | PR / 提交 | 合入 main | 统一运行电脑验证 | 遗留问题 | 文件锁 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  | 未合入 / 已合入 | 未运行 / 已运行 / 不涉及 |  | RELEASED / ACTIVE / EXPIRED |
+| 2026-05-28 12:30 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | 为 ai-service Provider Orchestration 管理 API 补齐 Gateway 路由、Sentinel 限流与测试 | backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | `mvn -pl backend/gateway-service -am test` 通过 | docs(agent): claim GW-AI-PROVIDER-ROUTE-20260528 / feat(gateway): add ai provider route | 已合入 | 未运行 | 无 | RELEASED |
 
 交接模板：
 
@@ -737,7 +750,7 @@ PR/提交/分支：
 1. 是否已获得任务ID、任务目标、允许修改文件、禁止修改文件；
 2. 是否明确是否允许新增文件、修改接口、修改数据库、修改配置；
 3. 是否明确必须运行的验证；
-4. 是否已读取 AI协同项目进度.md 和 微服务进阶项目编码标准.md；
+4. 是否已读取 AGENT.md 和 docs/COMMON_CONTRACTS.md；
 5. 是否已完成统一环境检测；
 6. 是否已检查目标文件没有 ACTIVE 文件锁冲突；
 7. 是否已完成 docs-only claim，并确认 push 成功。

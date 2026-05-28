@@ -99,6 +99,11 @@ spring:
           uri: lb://task-service
           predicates:
             - Path=/tasks/**,/internal/tasks/**
+        - id: ai-provider-management
+          uri: lb://ai-service
+          order: -50
+          predicates:
+            - Path=/ai/provider/**
         - id: ai-service
           uri: lb://ai-service
           predicates:
@@ -194,6 +199,10 @@ aetherflow:
         - resource: workflow-service
           resource-mode: 0
           count: 30
+          interval-sec: 1
+        - resource: ai-provider-management
+          resource-mode: 0
+          count: 10
           interval-sec: 1
         - resource: ai-service
           resource-mode: 0

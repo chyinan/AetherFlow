@@ -6,6 +6,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.task.config.TaskProperties;
 import com.aetherflow.task.entity.Task;
 import com.aetherflow.task.enums.TaskStatus;
+import com.aetherflow.task.guard.QueueBackpressureGuard;
 import com.aetherflow.task.mapper.TaskMapper;
 import com.aetherflow.task.queue.TaskQueueProducer;
 import com.aetherflow.task.service.RetryManager;
@@ -35,11 +36,13 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
     private final RetryManager retryManager;
     private final TimeoutChecker timeoutChecker;
     private final TaskProperties properties;
+    private final QueueBackpressureGuard queueBackpressureGuard;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long dispatch(TaskMessageDTO taskMessage) {
         validate(taskMessage);
+        queueBackpressureGuard.assertTaskCreationAllowed(taskMessage);
 
         LocalDateTime now = LocalDateTime.now();
         Task task = new Task();
