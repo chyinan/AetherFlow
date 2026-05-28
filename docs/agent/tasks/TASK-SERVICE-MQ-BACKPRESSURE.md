@@ -4,7 +4,7 @@
 Agent ID：爱沫酱
 Session ID：SESSION-20260528-TASK-SERVICE-MQ-BACKPRESSURE-CODEX
 分支：feature/TASK-SERVICE-MQ-BACKPRESSURE
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 在 task-service 内实现企业级 MQ 堆积保护机制，实时监控 RabbitMQ 队列 ready/unacked/consumer 指标，超过高水位阈值时拒绝新的 AI Task 创建并向 workflow-service 返回明确背压错误；队列恢复到低水位后自动恢复调度。通过 Redis 缓存 Queue Health、AI Service Busy 状态和拒绝计数，并结合 Sentinel 对 AI 调度和 MQ 消费转投做限流保护，提供 /task/metrics 观测接口。
@@ -77,3 +77,19 @@ Agent 编码计划：
 3. RabbitMQ Management API 需要管理端口和账号可用；若统一环境未启用 management 插件，需要运维补启或改用 RabbitAdmin 被动声明能力。
 4. Redis 是 Busy 状态跨实例共享关键依赖；Redis 不可用时只能本地兜底，跨实例一致性会下降。
 5. 本任务新增 task-service 自有 /task/metrics 接口；不改 Gateway 路由，因此若经网关访问需要后续 Gateway 任务单独聚合。
+
+验证记录：
+1. 2026-05-28 10:14，本机执行 mvn -pl backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 13，Failures: 0，Errors: 0。
+2. 2026-05-28 10:14，本机执行 mvn -pl backend/task-service -am package -DskipTests，通过，task-service boot jar 重新打包成功。
+3. 2026-05-28 10:15，本机执行 git diff --check，通过。
+4. RabbitMQ Management API、Redis、Sentinel Dashboard、Nacos 和 XXL-Job 运行态未在本机联调，需要统一虚拟机 192.168.101.68 补测。
+
+交接记录：
+1. 已完成 task-service MQ 堆积保护增强开发，修改范围限制在 backend/task-service/** 和 docs/agent/tasks/TASK-SERVICE-MQ-BACKPRESSURE.md。
+2. 未修改 workflow-service、gateway-service、ai-service、auth-service、common、docker、根 pom.xml、公共 DTO、RabbitMqNames、数据库 SQL、Gateway 路由。
+3. 新增 QueueMonitorService，定时监控 RabbitMQ ready/unacked/total/consumer 指标，支持多队列、Busy 高水位、Recovery 低水位和监控异常兜底。
+4. 新增 Redis Queue Health 缓存，写入 aetherflow:task:queue:status、aetherflow:task:queue:health、aetherflow:task:ai-service:busy、aetherflow:task:queue:rejected-count。
+5. 创建任务入口接入 QueueBackpressureGuard，Busy 时拒绝创建并返回“系统繁忙，请稍后重试”。
+6. Consumer 转投 AI 队列前接入 Sentinel 资源保护，触发限流后进入既有 retry/DLQ 流程。
+7. 新增 GET /task/metrics，返回队列深度、ready、unacked、consumer 数、Busy 状态、拒绝任务数和最近检查时间。
+8. 当前工作区存在未跟踪 .Rhistory，本任务未修改、未暂存、未提交该文件。
