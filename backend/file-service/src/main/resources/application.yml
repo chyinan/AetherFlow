@@ -11,10 +11,17 @@ spring:
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:root123456}
+  data:
+    redis:
+      host: ${REDIS_HOST:192.168.101.68}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: ${REDIS_TIMEOUT:2s}
   servlet:
     multipart:
-      max-file-size: 2GB
-      max-request-size: 2GB
+      max-file-size: ${FILE_MULTIPART_MAX_SIZE:2GB}
+      max-request-size: ${FILE_MULTIPART_MAX_REQUEST_SIZE:2GB}
   cloud:
     nacos:
       discovery:
@@ -37,14 +44,74 @@ mybatis-plus:
       id-type: auto
 
 aetherflow:
-  file:
-    internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://192.168.101.68:9000}
     public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}
     access-key: ${MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket: ${MINIO_BUCKET:aetherflow}
+  file:
+    internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
+    upload:
+      max-size: ${FILE_UPLOAD_MAX_SIZE:524288000}
+      rate-limit-count: ${FILE_UPLOAD_RATE_LIMIT_COUNT:20}
+      rate-limit-window-seconds: ${FILE_UPLOAD_RATE_LIMIT_WINDOW_SECONDS:60}
+      progress-ttl-seconds: ${FILE_UPLOAD_PROGRESS_TTL_SECONDS:3600}
+      upload-cache-ttl-seconds: ${FILE_UPLOAD_CACHE_TTL_SECONDS:86400}
+      hash-cache-ttl-seconds: ${FILE_HASH_CACHE_TTL_SECONDS:604800}
+      allowed-extensions:
+        - jpg
+        - jpeg
+        - png
+        - webp
+        - gif
+        - mp4
+        - mov
+        - avi
+        - webm
+        - mp3
+        - wav
+        - ogg
+        - m4a
+        - aac
+        - pdf
+        - txt
+        - csv
+        - json
+        - zip
+      allowed-mime-types:
+        - image/jpeg
+        - image/png
+        - image/webp
+        - image/gif
+        - video/mp4
+        - video/quicktime
+        - video/x-msvideo
+        - video/webm
+        - audio/mpeg
+        - audio/wav
+        - audio/ogg
+        - audio/mp4
+        - audio/aac
+        - application/pdf
+        - application/json
+        - application/zip
+        - application/octet-stream
+        - text/plain
+        - text/csv
+      blocked-extensions:
+        - exe
+        - dll
+        - bat
+        - cmd
+        - sh
+        - js
+        - jar
+        - msi
+        - ps1
+        - vbs
+        - com
+        - scr
 
 management:
   endpoints:
@@ -64,5 +131,4 @@ springdoc:
 
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
-
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level traceId=%X{traceId:-} fileId=%X{fileId:-} userId=%X{userId:-} %logger{36} - %msg%n"

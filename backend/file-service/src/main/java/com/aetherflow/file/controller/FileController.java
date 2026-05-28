@@ -2,11 +2,13 @@ package com.aetherflow.file.controller;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.FileMetadataDTO;
+import com.aetherflow.file.model.UploadProgressView;
 import com.aetherflow.file.service.FileDownload;
 import com.aetherflow.file.service.FileInfoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,37 +27,67 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/files")
 @RequiredArgsConstructor
-@Tag(name = "File Management", description = "File upload, download, delete and metadata APIs.")
+@Tag(name = "File Management", description = "Enterprise file upload, dedupe, progress, download and delete APIs.")
 public class FileController {
 
     private final FileInfoService fileInfoService;
 
-    @Operation(summary = "Upload file", description = "Upload a MultipartFile to MinIO and persist file metadata.")
-    @ApiResponse(responseCode = "200", description = "File uploaded.")
+    @Operation(
+            summary = "Upload file with governance",
+            description = "Upload a MultipartFile with size/type/rate protection, SHA256 dedupe, Redis progress cache and metadata persistence."
+    )
+    @ApiResponse(responseCode = "200", description = "File uploaded or dedupe hit.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject(value = """
+                            {
+                              "code": 0,
+                              "message": "success",
+                              "data": {
+                                "id": 1001,
+                                "bucket": "aetherflow",
+                                "objectKey": "objects/sha256/ab/cd/abcdef.mp4",
+                                "originalName": "demo.mp4",
+                                "contentType": "video/mp4",
+                                "size": 1048576,
+                                "url": "http://192.168.101.68:9000/aetherflow/objects/sha256/ab/cd/abcdef.mp4"
+                              },
+                              "traceId": "0f9f8c6b7a1e4f48",
+                              "path": "/files/upload"
+                            }
+                            """)))
     @PostMapping(value = {"", "/upload"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Result<FileMetadataDTO> upload(
-            @Parameter(description = "Gateway forwarded user id.", required = true)
+    public ResponseEntity<Result<FileMetadataDTO>> upload(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
-            @Parameter(description = "Uploaded file.", required = true)
+            @Parameter(description = "Client provided upload task id. If absent, file-service generates one.", example = "task-20260528-0001")
+            @RequestHeader(value = "X-Upload-Task-Id", required = false) String taskId,
+            @Parameter(description = "Uploaded file. Allowed by configured extension and MIME whitelist.", required = true)
             @RequestPart("file") MultipartFile file) {
-        return Result.success(fileInfoService.upload(userId, file));
+        String uploadTaskId = StringUtils.hasText(taskId) ? taskId : UUID.randomUUID().toString();
+        FileMetadataDTO metadata = fileInfoService.upload(userId, file, uploadTaskId);
+        return ResponseEntity.ok()
+                .header("X-Upload-Task-Id", uploadTaskId)
+                .header("X-File-Id", String.valueOf(metadata.getId()))
+                .body(Result.success(metadata));
     }
 
-    @Operation(summary = "Download file", description = "Download a file by metadata id.")
+    @Operation(summary = "Download file", description = "Download an available file by metadata id. The caller must own the file metadata.")
     @ApiResponse(responseCode = "200", description = "File binary stream.",
             content = @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
                     schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/{id}/download")
     public ResponseEntity<InputStreamResource> download(
-            @Parameter(description = "Gateway forwarded user id.", required = true)
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
-            @Parameter(description = "File metadata id.", required = true)
+            @Parameter(description = "File metadata id.", required = true, example = "1001")
             @PathVariable("id") Long id) {
         FileDownload fileDownload = fileInfoService.download(userId, id);
 
@@ -73,16 +105,52 @@ public class FileController {
                 .body(new InputStreamResource(fileDownload.stream()));
     }
 
-    @Operation(summary = "Delete file", description = "Delete a MinIO object and mark metadata status as DELETED.")
-    @ApiResponse(responseCode = "200", description = "File deleted.")
+    @Operation(summary = "Delete file", description = "Mark file metadata as DELETED and remove the MinIO object only when no dedupe reference still uses it.")
+    @ApiResponse(responseCode = "200", description = "File deleted.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject(value = """
+                            {
+                              "code": 0,
+                              "message": "success",
+                              "traceId": "0f9f8c6b7a1e4f48",
+                              "path": "/files/1001"
+                            }
+                            """)))
     @DeleteMapping("/{id}")
     public Result<Void> delete(
-            @Parameter(description = "Gateway forwarded user id.", required = true)
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
             @RequestHeader(value = "X-User-Id", required = false) Long userId,
-            @Parameter(description = "File metadata id.", required = true)
+            @Parameter(description = "File metadata id.", required = true, example = "1001")
             @PathVariable("id") Long id) {
         fileInfoService.delete(userId, id);
         return Result.success();
+    }
+
+    @Operation(summary = "Get upload progress", description = "Query Redis cached upload progress by task id.")
+    @ApiResponse(responseCode = "200", description = "Upload progress snapshot.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    examples = @ExampleObject(value = """
+                            {
+                              "code": 0,
+                              "message": "success",
+                              "data": {
+                                "taskId": "task-20260528-0001",
+                                "fileId": 1001,
+                                "status": "COMPLETED",
+                                "percentage": 100,
+                                "message": "Upload completed",
+                                "hash": "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                                "userId": 1001
+                              }
+                            }
+                            """)))
+    @GetMapping("/progress/{taskId}")
+    public Result<UploadProgressView> getUploadProgress(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Parameter(description = "Upload task id returned in X-Upload-Task-Id.", required = true, example = "task-20260528-0001")
+            @PathVariable("taskId") String taskId) {
+        return Result.success(fileInfoService.getUploadProgress(userId, taskId));
     }
 
     private MediaType resolveMediaType(String contentType) {
