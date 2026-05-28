@@ -1,0 +1,3 @@
+AetherFlow JMeter sample upload file.
+
+This file is intentionally small so the default performance scenario exercises the multipart upload path without adding storage pressure.
