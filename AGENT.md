@@ -572,6 +572,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AI-PROVIDER-ORCH-20260528 | 企业级 AI Provider Orchestration System | REVIEW | 陈胤安 | chyinan | feature/AI-PROVIDER-ORCH-20260528-provider-orchestration | backend/ai-service/**；docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md；docs/agent/logs/2026-05-28.md | 否 | git diff --name-only main...HEAD；mvn -pl backend/ai-service -am test | 2026-05-28 12:08 |
 | GW-AI-PROVIDER-ROUTE-20260528 | AI Provider Orchestration 管理 API Gateway 路由接入 | REVIEW | 陈胤安 | chyinan | feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route | backend/gateway-service/**；backend/gateway-service/src/test/**；backend/gateway-service/src/main/resources/application.yml；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Gateway 路由 /ai/provider/** -> ai-service | git diff --name-only main...HEAD；mvn -pl backend/gateway-service -am test | 2026-05-28 12:30 |
+| FILE-SERVICE-GOVERNANCE-20260528 | file-service 治理能力主线集成修复 | REVIEW | 陈胤安 | chyinan | feature/FILE-SERVICE-GOVERNANCE-main-integration | backend/file-service/**；docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 file-service 上传治理接口、Redis Key 和自有表字段 | git diff --name-only main...HEAD；mvn -pl backend/file-service -am test；git diff --check | 2026-05-28 16:30 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -606,6 +607,10 @@ docs/agent/README.md
 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 任务文档 |
 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 当日执行日志 |
 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | AGENT.md | 2026-05-28 12:20 | 2026-05-28 12:30 | RELEASED | 任务看板、契约登记与文件锁 |
+| FILE-SERVICE-GOVERNANCE-20260528 | chyinan | backend/file-service/** | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | file-service 治理能力主线集成修复 |
+| FILE-SERVICE-GOVERNANCE-20260528 | chyinan | docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 任务文档 |
+| FILE-SERVICE-GOVERNANCE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 当日执行日志 |
+| FILE-SERVICE-GOVERNANCE-20260528 | chyinan | AGENT.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 任务看板、契约登记与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
@@ -650,6 +655,7 @@ docs/agent/README.md
 | 类型 | ID / Key / Event | 服务 | 文件或位置 | 状态 | 负责人 | 批准人 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Gateway 路由 | /ai/provider/** -> ai-service | gateway-service | backend/gateway-service/src/main/resources/application.yml | APPROVED | 陈胤安 | 陈胤安 |
+| REST API / Redis / DB | /files/progress/{taskId}；/file/status；/file/metrics；file:upload/hash/progress:*；af_file_info 治理字段 | file-service | backend/file-service/** | APPROVED | 陈胤安 | 陈胤安 |
 |  |  |  |  | DRAFT / REVIEW / APPROVED / CHANGED / DEPRECATED |  |  |
 
 ---
@@ -680,6 +686,8 @@ docs/agent/README.md
 |  | 环境检测 / 静态检查 / 编译 / 单元测试 / 接口手测 / 前端验证 / 统一运行电脑验证 |  | 通过 / 未通过 / 未执行 |  |  |  |
 | GW-AI-PROVIDER-ROUTE-20260528 | 静态检查 | git diff --name-only main...HEAD | 通过 | AGENT.md；backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/logs/2026-05-28.md；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | chyinan | 2026-05-28 12:30 |
 | GW-AI-PROVIDER-ROUTE-20260528 | 单元测试 | JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test | 通过 | common 8 tests；gateway-service 16 tests；BUILD SUCCESS | chyinan | 2026-05-28 12:29 |
+| FILE-SERVICE-GOVERNANCE-20260528 | 单元测试 | JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am test | 通过 | common 8 tests；file-service 20 tests；BUILD SUCCESS | chyinan | 2026-05-28 16:23 |
+| FILE-SERVICE-GOVERNANCE-20260528 | 静态检查 | git diff --cached --check | 通过 | 无 whitespace error | chyinan | 2026-05-28 16:23 |
 
 不能测试时，不得写“通过”，必须写：
 
@@ -697,6 +705,7 @@ docs/agent/README.md
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  | 未合入 / 已合入 | 未运行 / 已运行 / 不涉及 |  | RELEASED / ACTIVE / EXPIRED |
 | 2026-05-28 12:30 | GW-AI-PROVIDER-ROUTE-20260528 | chyinan | 为 ai-service Provider Orchestration 管理 API 补齐 Gateway 路由、Sentinel 限流与测试 | backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | `mvn -pl backend/gateway-service -am test` 通过 | docs(agent): claim GW-AI-PROVIDER-ROUTE-20260528 / feat(gateway): add ai provider route | 已合入 | 未运行 | 无 | RELEASED |
+| 2026-05-28 16:30 | FILE-SERVICE-GOVERNANCE-20260528 | chyinan | 基于最新 main 集成 file-service 治理能力，保留内部 token 校验并补齐进度查询用户隔离 | backend/file-service/**；docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | `mvn -pl backend/file-service -am test` 通过；`git diff --cached --check` 通过 | 8ecd37a docs(agent): claim FILE-SERVICE-GOVERNANCE-20260528 / cc7dbdd feat(file): integrate governance on main | 未合入 | 未运行 | 需统一运行电脑补测 Redis/MinIO/MySQL/Nacos | RELEASED |
 
 交接模板：
 
