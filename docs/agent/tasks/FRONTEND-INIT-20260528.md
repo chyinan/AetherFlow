@@ -150,3 +150,11 @@ Review 调整记录：
 5. 已新增 /models 页面和路由，Models 指向 /models，Settings 指向 /settings，避免双高亮。
 6. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
 7. 本地访问 http://127.0.0.1:5173/settings 与 /models：均返回 200。
+
+Runs 页面布局修复记录：
+1. 用户截图反馈 Runs 页面中节点执行区被挤压，日志面板与中间区域位置分配不合理。
+2. 根因定位：RunsPage 外层三列直接分配 Run 列表、节点详情、日志；日志文本和内部内容缺少 min-w-0/overflow 约束，会提升 grid item 的最小内容宽度，把中间列挤窄。
+3. 已将 RunsPage 改为两层布局：外层只分 Run 列表与详情工作区；详情工作区内部再分 Node Execution 与 Realtime Logs。
+4. 已为 RunsPage、RunTimeline、LogStream 的 grid/flex 子项补齐 min-w-0、overflow-hidden/overflow-y-auto，日志行改为固定字段列 + 可换行消息列，避免长日志反向撑开布局。
+5. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
+6. 本地访问 http://127.0.0.1:5173/runs：返回 200。
