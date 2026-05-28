@@ -1,27 +1,41 @@
 package com.aetherflow.auth.service.impl;
 
+import com.aetherflow.auth.audit.LoginAuditService;
+import com.aetherflow.auth.audit.LoginStatus;
+import com.aetherflow.auth.dto.AuthLogoutRequest;
+import com.aetherflow.auth.dto.AuthMetricsResponse;
+import com.aetherflow.auth.dto.AuthRefreshRequest;
+import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.entity.User;
+import com.aetherflow.auth.exception.UnauthorizedException;
 import com.aetherflow.auth.mapper.UserMapper;
+import com.aetherflow.auth.security.AuthTokenBundle;
+import com.aetherflow.auth.security.AuthTokenService;
+import com.aetherflow.auth.security.LoginSecurityService;
 import com.aetherflow.auth.service.UserService;
+import com.aetherflow.auth.session.AuthMetricsSnapshot;
+import com.aetherflow.auth.session.AuthSessionService;
+import com.aetherflow.auth.web.AuthRequestContext;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AuthLoginRequest;
-import com.aetherflow.common.dto.AuthLoginResponse;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
 import com.aetherflow.common.exception.BusinessException;
-import com.aetherflow.common.security.JwtProperties;
-import com.aetherflow.common.security.JwtTokenProvider;
 import com.aetherflow.common.security.JwtUserClaims;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
@@ -31,12 +45,14 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
-    private final JwtProperties jwtProperties;
+    private final AuthTokenService authTokenService;
+    private final AuthSessionService authSessionService;
+    private final LoginSecurityService loginSecurityService;
+    private final LoginAuditService loginAuditService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public AuthLoginResponse register(UserRegisterRequest request) {
+    public AuthTokenResponse register(UserRegisterRequest request, AuthRequestContext context) {
         User existing = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, request.getUsername())
                 .last("limit 1"));
@@ -51,44 +67,121 @@ public class UserServiceImpl implements UserService {
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.insert(user);
-        return issueToken(user);
+        return issueAndStoreTokenPair(user, false);
     }
 
     @Override
-    public AuthLoginResponse login(AuthLoginRequest request) {
+    public AuthTokenResponse login(AuthLoginRequest request, AuthRequestContext context) {
+        loginSecurityService.checkLoginRateLimit(context.clientIp());
+        loginSecurityService.checkPasswordFailures(request.getUsername());
+
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
                 .eq(User::getUsername, request.getUsername())
                 .last("limit 1"));
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED, "invalid username or password");
+            loginAuditService.record(user == null ? null : user.getId(), request.getUsername(),
+                    context.clientIp(), context.userAgent(), LoginStatus.FAILURE);
+            loginSecurityService.recordPasswordFailure(request.getUsername());
+            throw new UnauthorizedException("invalid username or password");
+        }
+        if (!ENABLED.equals(user.getStatus())) {
+            loginAuditService.record(user.getId(), user.getUsername(),
+                    context.clientIp(), context.userAgent(), LoginStatus.DISABLED);
+            throw new BusinessException(ResultCode.FORBIDDEN, "user disabled");
+        }
+
+        loginSecurityService.clearPasswordFailures(request.getUsername());
+        AuthTokenResponse response = issueAndStoreTokenPair(user, true);
+        loginAuditService.record(user.getId(), user.getUsername(),
+                context.clientIp(), context.userAgent(), LoginStatus.SUCCESS);
+        return response;
+    }
+
+    @Override
+    public AuthTokenResponse refresh(AuthRefreshRequest request, AuthRequestContext context) {
+        JwtUserClaims claims = authTokenService.parseRefreshToken(request.getRefreshToken());
+        User user = userMapper.selectById(claims.getUserId());
+        if (user == null) {
+            throw new UnauthorizedException("invalid refresh token");
         }
         if (!ENABLED.equals(user.getStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "user disabled");
         }
-        return issueToken(user);
+        if (!authSessionService.isRefreshTokenActive(user.getId(), request.getRefreshToken())) {
+            throw new UnauthorizedException("refresh token expired or revoked");
+        }
+        return issueAndStoreTokenPair(user, true);
+    }
+
+    @Override
+    public void logout(AuthLogoutRequest request, AuthRequestContext context) {
+        JwtUserClaims claims = authTokenService.parseRefreshToken(request.getRefreshToken());
+        if (!authSessionService.isRefreshTokenActive(claims.getUserId(), request.getRefreshToken())) {
+            throw new UnauthorizedException("refresh token expired or revoked");
+        }
+        blacklistAccessToken(request.getAccessToken());
+        authSessionService.deleteSession(claims.getUserId());
+    }
+
+    @Override
+    public AuthMetricsResponse status() {
+        return metrics();
+    }
+
+    @Override
+    public AuthMetricsResponse metrics() {
+        AuthMetricsSnapshot snapshot = authSessionService.metrics();
+        return new AuthMetricsResponse(snapshot.getOnlineUserCount(),
+                snapshot.getTokenCount(),
+                snapshot.getLoginFailureCount());
     }
 
     @Override
     public UserPrincipalDTO currentUser(Long userId, String username, String roles) {
-        List<String> roleList = roles == null || roles.isBlank()
-                ? DEFAULT_ROLES
-                : Arrays.stream(roles.split(","))
+        List<String> roleList = Arrays.stream(roles.split(","))
                 .map(String::trim)
                 .filter(role -> !role.isBlank())
                 .toList();
         return new UserPrincipalDTO(userId, username, roleList);
     }
 
-    private AuthLoginResponse issueToken(User user) {
-        JwtUserClaims claims = new JwtUserClaims(user.getId(), user.getUsername(), DEFAULT_ROLES);
-        String token = jwtTokenProvider.createToken(claims);
-        return new AuthLoginResponse(
+    private AuthTokenResponse issueAndStoreTokenPair(User user, boolean invalidatePreviousAccessToken) {
+        if (invalidatePreviousAccessToken) {
+            blacklistExistingAccessToken(user.getId());
+        }
+        AuthTokenBundle bundle = authTokenService.issueTokenBundle(user.getId(), user.getUsername(), DEFAULT_ROLES);
+        authSessionService.storeSession(user.getId(), bundle.getAccessToken(), authTokenService.accessTokenTtl(),
+                bundle.getRefreshToken(), authTokenService.refreshTokenTtl());
+        return new AuthTokenResponse(
                 user.getId(),
                 user.getUsername(),
                 DEFAULT_ROLES,
                 "Bearer",
-                token,
-                jwtProperties.getExpireMinutes() * 60
+                bundle.getAccessToken(),
+                bundle.getRefreshToken(),
+                bundle.getAccessExpiresInSeconds(),
+                bundle.getRefreshExpiresInSeconds()
         );
+    }
+
+    private void blacklistExistingAccessToken(Long userId) {
+        String existingAccessToken = authSessionService.getAccessToken(userId);
+        if (StringUtils.hasText(existingAccessToken)) {
+            blacklistAccessToken(existingAccessToken);
+        }
+    }
+
+    private void blacklistAccessToken(String accessToken) {
+        Duration ttl = authTokenService.accessTokenTtl();
+        try {
+            Duration remainingTtl = authTokenService.accessTokenRemainingTtl(accessToken);
+            if (!remainingTtl.isZero() && !remainingTtl.isNegative()) {
+                ttl = remainingTtl;
+            }
+        } catch (RuntimeException exception) {
+            log.warn("access token ttl resolve failed, fallback to default ttl reason={}: {}",
+                    exception.getClass().getSimpleName(), exception.getMessage());
+        }
+        authSessionService.blacklistToken(accessToken, ttl);
     }
 }

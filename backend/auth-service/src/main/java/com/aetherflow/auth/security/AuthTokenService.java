@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class AuthTokenService {
@@ -96,6 +97,7 @@ public class AuthTokenService {
         return Jwts.builder()
                 .issuer(issuer)
                 .subject(String.valueOf(userId))
+                .id(UUID.randomUUID().toString())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiresAt))
                 .claim(CLAIM_USERNAME, username)
