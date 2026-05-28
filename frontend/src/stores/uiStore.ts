@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getStoredLocale, setStoredLocale, type AppLocale } from '@/i18n/locale'
-import { i18n } from '@/i18n'
+import { i18n } from '@/i18n/index'
 import type { ServiceStatus } from '@/types/api'
 
 export const useUiStore = defineStore('ui', {

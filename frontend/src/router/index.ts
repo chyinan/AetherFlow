@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import { i18n } from '@/i18n'
+import { i18n } from '@/i18n/index'
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
 import ModelsPage from '@/pages/models/ModelsPage.vue'
