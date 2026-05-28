@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1140-codex-ai-provider-orch
 分支：feature/AI-PROVIDER-ORCH-20260528-provider-orchestration
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 在不修改 workflow-service、task-service、gateway-service、auth-service、common、docker、MQ 契约、公共 DTO、数据库公共结构和 Gateway 路由的前提下，将 ai-service 现有 Provider 调用升级为可配置、可观测、可治理的企业级 AI Provider Orchestration System。能力包括统一 AIProvider 抽象、Provider Priority Routing、Failover、熔断降级、Health Check、自动/手动恢复、Redis Provider 状态缓存、AIInferenceLog、Provider Status API、Provider Policy API、Provider Metrics API、Sentinel AI 服务保护和有限重试。
@@ -96,6 +96,22 @@ Agent 编码计划：
 1. $env:JAVA_HOME='C:\\Program Files\\Microsoft\\jdk-17.0.19.10-hotspot'; $env:Path="$env:JAVA_HOME\\bin;$env:Path"; mvn -pl backend/ai-service -am test：通过。
 2. ai-service 测试结果：新增 3 个 controller 测试和 1 组 router 行为测试，全部通过；总计 ai-service 16 个测试通过。
 3. 当前验证覆盖：priority routing、failover、circuit skip、retry、circuit open、explicit provider pin、status API、policy API、metrics API。
+
+提交记录：
+1. docs(agent): claim AI-PROVIDER-ORCH-20260528：ee316ab
+2. feat(ai): add enterprise provider orchestration：67b2e73
+
+交接记录：
+任务ID：AI-PROVIDER-ORCH-20260528
+完成内容：ai-service 企业级 AI Provider Orchestration System 已实现并推送 feature 分支。
+修改文件：backend/ai-service/**、docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md、docs/agent/logs/2026-05-28.md、AGENT.md
+测试结果：mvn -pl backend/ai-service -am test 通过；common 8 个测试通过，ai-service 16 个测试通过。
+PR/提交/分支：feature/AI-PROVIDER-ORCH-20260528-provider-orchestration，业务提交 67b2e73。
+合入 main：未合入
+统一运行电脑验证：未运行
+遗留问题：当前未修改 Gateway，/ai/provider/** 若需前端经 Gateway 访问，需要后续单独登记 Gateway 路由任务；OpenAI/Ollama 实际健康依赖 Python runtime 和真实 provider 配置，需统一运行电脑联调。
+下一步：负责人 Review diff，必要时创建 PR 并做统一运行电脑联调。
+文件锁：RELEASED
 
 环境检测：
 - git：git version 2.53.0.windows.3
