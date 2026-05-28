@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, ArrowRight } from 'lucide-vue-next'
 import { onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
@@ -8,6 +9,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 
 const runStore = useRunStore()
+const { t } = useI18n()
 
 onMounted(async () => {
   await runStore.loadRuns()
@@ -21,8 +23,8 @@ onMounted(async () => {
       <div class="flex items-center gap-2">
         <Activity class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">Runs</p>
-          <p class="text-xs text-text-muted">Realtime execution observability with mock stream.</p>
+          <p class="text-sm font-semibold text-text-primary">{{ t('runs.title') }}</p>
+          <p class="text-xs text-text-muted">{{ t('runs.subtitle') }}</p>
         </div>
       </div>
     </header>
@@ -42,7 +44,7 @@ onMounted(async () => {
             <StatusBadge :status="run.status" />
           </div>
           <p class="mt-2 text-xs text-text-secondary">{{ run.workflowName }}</p>
-          <p class="mt-1 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} artifacts</p>
+          <p class="mt-1 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} {{ t('runs.artifacts') }}</p>
         </button>
       </aside>
 
@@ -54,7 +56,7 @@ onMounted(async () => {
               <p class="mt-1 text-xs text-text-muted">{{ runStore.currentRun.id }} · {{ runStore.currentRun.durationMs }}ms</p>
             </div>
             <button class="inline-flex shrink-0 items-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm text-primary">
-              Open workflow
+              {{ t('runs.openWorkflow') }}
               <ArrowRight class="h-4 w-4" />
             </button>
           </div>

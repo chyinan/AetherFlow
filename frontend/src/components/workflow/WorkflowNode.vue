@@ -12,6 +12,7 @@ import {
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Handle, Position } from '@vue-flow/core'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -25,6 +26,7 @@ const props = defineProps<{
 }>()
 
 const uiStore = useUiStore()
+const { t } = useI18n()
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
   whisper: Mic,
@@ -63,7 +65,7 @@ const isActive = computed(() => props.selected || props.data.status === 'running
 
     <div class="space-y-2 p-3">
       <div class="flex items-center justify-between text-[11px] text-text-muted">
-        <span>Inputs</span>
+        <span>{{ t('common.inputs') }}</span>
         <span>{{ data.inputs.length }}</span>
       </div>
       <div class="flex flex-wrap gap-1">
@@ -71,20 +73,20 @@ const isActive = computed(() => props.selected || props.data.status === 'running
           {{ input }}
         </span>
       </div>
-      <div class="flex items-center gap-1 text-[11px] text-text-secondary">
-        <CheckCircle2 class="h-3 w-3 text-status-success" />
-        <span>{{ data.runtime?.lastResult ?? 'waiting' }}</span>
+        <div class="flex items-center gap-1 text-[11px] text-text-secondary">
+          <CheckCircle2 class="h-3 w-3 text-status-success" />
+          <span>{{ data.runtime?.lastResult ?? t('workflow.waiting') }}</span>
+        </div>
       </div>
-    </div>
 
     <div class="flex items-center justify-end gap-1 border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" title="Test node">
+      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" :title="t('workflow.testNode')">
         <Play class="h-3.5 w-3.5" />
       </button>
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" title="Duplicate node">
+      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" :title="t('workflow.duplicateNode')">
         <Copy class="h-3.5 w-3.5" />
       </button>
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error" title="Delete node">
+      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error" :title="t('workflow.deleteNode')">
         <Trash2 class="h-3.5 w-3.5" />
       </button>
     </div>

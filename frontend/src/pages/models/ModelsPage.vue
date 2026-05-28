@@ -1,35 +1,37 @@
 <script setup lang="ts">
 import { Brain, Cpu, Gauge, Layers3, PanelLeftOpen, RefreshCw, ServerCog, ShieldCheck } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { useModelStore } from '@/stores/modelStore'
 
 const modelStore = useModelStore()
+const { t } = useI18n()
 
 const summaryCards = computed(() => [
   {
-    label: 'Providers online',
+    label: t('models.providersOnline'),
     value: modelStore.onlineProviderCount,
-    hint: `${modelStore.providers.length} registered`,
+    hint: `${modelStore.providers.length} ${t('models.registered')}`,
     icon: ServerCog,
   },
   {
-    label: 'Ready models',
+    label: t('models.readyModels'),
     value: modelStore.readyModelCount,
-    hint: `${modelStore.models.length} catalog entries`,
+    hint: `${modelStore.models.length} ${t('models.catalogEntries')}`,
     icon: Layers3,
   },
   {
-    label: 'Primary latency',
+    label: t('models.primaryLatency'),
     value: modelStore.selectedProvider?.latencyMs ? `${modelStore.selectedProvider.latencyMs}ms` : '--',
-    hint: 'mock runtime probe',
+    hint: t('models.mockRuntimeProbe'),
     icon: Gauge,
   },
   {
-    label: 'Quota used',
+    label: t('models.quotaUsed'),
     value: modelStore.selectedProvider ? `${modelStore.selectedProvider.quotaUsed}/${modelStore.selectedProvider.quotaLimit}` : '--',
-    hint: modelStore.selectedProvider?.name ?? 'select provider',
+    hint: modelStore.selectedProvider?.name ?? t('models.selectProvider'),
     icon: ShieldCheck,
   },
 ])
@@ -55,13 +57,13 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <Brain class="h-4 w-4 text-ai" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">Models</p>
-          <p class="text-xs text-text-muted">Provider routing, model catalog, and runtime health are mocked for now.</p>
+          <p class="text-sm font-semibold text-text-primary">{{ t('models.title') }}</p>
+          <p class="text-xs text-text-muted">{{ t('models.subtitle') }}</p>
         </div>
       </div>
       <button class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai">
         <RefreshCw class="h-4 w-4" />
-        Refresh mock
+        {{ t('models.refreshMock') }}
       </button>
     </header>
 
@@ -87,8 +89,8 @@ onMounted(() => {
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
                 <div>
-                  <p class="text-sm font-semibold text-text-primary">Providers</p>
-                  <p class="text-xs text-text-muted">Mock runtime pool</p>
+                  <p class="text-sm font-semibold text-text-primary">{{ t('models.providers') }}</p>
+                  <p class="text-xs text-text-muted">{{ t('models.mockRuntimePool') }}</p>
                 </div>
                 <PanelLeftOpen class="h-4 w-4 text-text-muted" />
               </div>
@@ -112,18 +114,18 @@ onMounted(() => {
                 </div>
                 <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-text-secondary">
                   <div class="rounded-md bg-app-bg2 p-2">
-                    <p class="text-text-muted">Default</p>
+                    <p class="text-text-muted">{{ t('models.defaultLabel') }}</p>
                     <p class="mt-1 font-medium text-text-primary">{{ provider.defaultModel }}</p>
                   </div>
                   <div class="rounded-md bg-app-bg2 p-2">
-                    <p class="text-text-muted">Latency</p>
+                    <p class="text-text-muted">{{ t('models.latencyLabel') }}</p>
                     <p class="mt-1 font-medium text-text-primary">{{ provider.latencyMs }}ms</p>
                   </div>
                 </div>
               </button>
 
               <section class="rounded-lg border border-app-border bg-app-bg2 p-3">
-                <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">Routing policy</p>
+                <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('models.routingPolicy') }}</p>
                 <div v-for="policy in modelStore.policies" :key="policy.id" class="mt-3 rounded-md border border-app-border bg-white p-3">
                   <div class="flex items-center justify-between gap-3">
                     <p class="text-sm font-semibold text-text-primary">{{ policy.name }}</p>
@@ -132,11 +134,11 @@ onMounted(() => {
                   <p class="mt-1 text-xs leading-5 text-text-secondary">{{ policy.description }}</p>
                   <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">Primary</p>
+                      <p class="text-text-muted">{{ t('models.primary') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ policy.primaryModel }}</p>
                     </div>
                     <div class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">Fallback</p>
+                      <p class="text-text-muted">{{ t('models.fallback') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ policy.fallbackModels.join(' → ') }}</p>
                     </div>
                   </div>
@@ -149,11 +151,11 @@ onMounted(() => {
             <div class="min-h-0 rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex items-center justify-between border-b border-app-border px-4 py-3">
                 <div>
-                  <p class="text-sm font-semibold text-text-primary">{{ modelStore.selectedProvider?.name ?? 'Provider' }}</p>
-                  <p class="text-xs text-text-muted">Catalog and capabilities</p>
+                  <p class="text-sm font-semibold text-text-primary">{{ modelStore.selectedProvider?.name ?? t('models.providers') }}</p>
+                  <p class="text-xs text-text-muted">{{ t('models.catalogAndCapabilities') }}</p>
                 </div>
                 <span class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
-                  {{ modelStore.selectedProvider?.defaultModel ?? 'none' }}
+                  {{ modelStore.selectedProvider?.defaultModel ?? t('common.none') }}
                 </span>
               </div>
 
@@ -179,10 +181,10 @@ onMounted(() => {
                               : 'bg-slate-100 text-text-secondary'
                         "
                       >
-                        {{ model.status }}
+                        {{ t(`status.${model.status}`) }}
                       </span>
                     </div>
-                    <p class="mt-3 text-xs text-text-secondary">Price hint: {{ model.priceHint }}</p>
+                    <p class="mt-3 text-xs text-text-secondary">{{ t('models.priceHint') }}: {{ model.priceHint }}</p>
                     <div class="mt-3 flex flex-wrap gap-2">
                       <span v-for="tag in model.tags" :key="tag" class="rounded bg-white px-2 py-0.5 text-[11px] text-text-secondary">{{ tag }}</span>
                     </div>
@@ -195,8 +197,8 @@ onMounted(() => {
               <section class="rounded-lg border border-app-border bg-sidebar p-4 text-text-inverse shadow-sm">
                 <div class="flex items-center justify-between">
                   <div>
-                    <p class="text-sm font-semibold">Runtime logs</p>
-                    <p class="text-xs text-slate-400">Mock probes and provider health snapshots</p>
+                    <p class="text-sm font-semibold">{{ t('models.runtimeLogs') }}</p>
+                    <p class="text-xs text-slate-400">{{ t('models.runtimeLogsHint') }}</p>
                   </div>
                   <Cpu class="h-4 w-4 text-primary" />
                 </div>
@@ -210,14 +212,14 @@ onMounted(() => {
               </section>
 
               <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
-                <p class="text-sm font-semibold text-text-primary">Provider snapshot</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('models.providerSnapshot') }}</p>
                 <div v-if="modelStore.selectedProvider" class="mt-4 space-y-3">
                   <div class="rounded-lg bg-app-bg2 p-3">
-                    <p class="text-xs text-text-muted">Endpoint</p>
+                    <p class="text-xs text-text-muted">{{ t('models.endpoint') }}</p>
                     <p class="mt-1 break-all text-sm text-text-primary">{{ modelStore.selectedProvider.endpoint }}</p>
                   </div>
                   <div class="rounded-lg bg-app-bg2 p-3">
-                    <p class="text-xs text-text-muted">Capabilities</p>
+                    <p class="text-xs text-text-muted">{{ t('models.capabilities') }}</p>
                     <p class="mt-2 flex flex-wrap gap-2">
                       <span
                         v-for="capability in modelStore.selectedProvider.capabilities"
@@ -230,11 +232,11 @@ onMounted(() => {
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">Quota</p>
+                      <p class="text-text-muted">{{ t('models.quota') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ modelStore.selectedProvider.quotaUsed }} / {{ modelStore.selectedProvider.quotaLimit }}</p>
                     </div>
                     <div class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">Checked</p>
+                      <p class="text-text-muted">{{ t('models.checked') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ modelStore.selectedProvider.lastCheckedAt }}</p>
                     </div>
                   </div>

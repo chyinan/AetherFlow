@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { PanelRightClose, Play } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 
 const runStore = useRunStore()
 const visibleLogs = computed(() => runStore.logs.slice(-24))
+const { t } = useI18n()
 const emit = defineEmits<{
   close: []
 }>()
@@ -17,18 +19,18 @@ const emit = defineEmits<{
     <div class="flex h-12 items-center justify-between border-b border-white/10 px-4">
       <div class="flex items-center gap-3">
         <Play class="h-4 w-4 text-primary" />
-        <span class="text-sm font-semibold">Run Console</span>
+        <span class="text-sm font-semibold">{{ t('workflow.runConsole') }}</span>
         <StatusBadge v-if="runStore.currentRun" :status="runStore.currentRun.status" />
       </div>
-      <button type="button" class="grid h-8 w-8 place-items-center rounded text-slate-300 hover:bg-sidebar-soft" title="Close logs" @click="emit('close')">
+      <button type="button" class="grid h-8 w-8 place-items-center rounded text-slate-300 hover:bg-sidebar-soft" :title="t('common.close')" @click="emit('close')">
         <PanelRightClose class="h-4 w-4" />
       </button>
     </div>
 
     <div class="border-b border-white/10 p-4">
-      <p class="text-xs text-slate-400">Current run</p>
-      <p class="mt-1 truncate text-sm font-semibold">{{ runStore.currentRun?.id ?? 'No run selected' }}</p>
-      <p class="mt-2 text-xs text-slate-400">{{ runStore.currentRun?.workflowName ?? 'Load a run to stream logs' }}</p>
+      <p class="text-xs text-slate-400">{{ t('workflow.currentRun') }}</p>
+      <p class="mt-1 truncate text-sm font-semibold">{{ runStore.currentRun?.id ?? t('workflow.noRunSelected') }}</p>
+      <p class="mt-2 text-xs text-slate-400">{{ runStore.currentRun?.workflowName ?? t('workflow.loadRunHint') }}</p>
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-xs leading-6">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Play, RotateCcw, Save } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
@@ -15,6 +16,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
 const route = useRoute()
+const { t } = useI18n()
 const showCopilot = ref(false)
 const showRunConsole = ref(false)
 
@@ -55,20 +57,20 @@ function openRunConsole() {
     <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
       <div>
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
-        <p class="text-xs text-text-muted">Mock workflow · {{ workflowStore.nodes.length }} nodes · {{ workflowStore.edges.length }} edges</p>
+        <p class="text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
       </div>
       <div class="flex items-center gap-2">
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="workflowStore.resetMockWorkflow()">
           <RotateCcw class="h-4 w-4" />
-          Reset
+          {{ t('workflow.reset') }}
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-white px-3 py-2 text-sm font-medium text-primary hover:bg-primary-soft" @click="saveWorkflow">
           <Save class="h-4 w-4" />
-          {{ workflowStore.dirty ? 'Save mock' : 'Saved' }}
+          {{ workflowStore.dirty ? t('workflow.saveMock') : t('workflow.saved') }}
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark" @click="startRun">
           <Play class="h-4 w-4" />
-          Run
+          {{ t('workflow.run') }}
         </button>
       </div>
     </header>

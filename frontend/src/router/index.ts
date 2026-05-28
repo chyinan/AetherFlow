@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { i18n } from '@/i18n'
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
 import ModelsPage from '@/pages/models/ModelsPage.vue'
@@ -16,7 +17,7 @@ export const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginPage,
-      meta: { layout: 'auth', title: 'Login' },
+      meta: { layout: 'auth', titleKey: 'auth.signIn' },
     },
     {
       path: '/',
@@ -26,7 +27,7 @@ export const router = createRouter({
       path: '/projects',
       name: 'projects',
       component: ProjectsPage,
-      meta: { requiresAuth: true, title: 'Projects', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'projects.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/workflows',
@@ -36,37 +37,37 @@ export const router = createRouter({
       path: '/workflows/:id',
       name: 'workflow-detail',
       component: WorkflowPage,
-      meta: { requiresAuth: true, title: 'Workflow', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'workflow.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/runs',
       name: 'runs',
       component: RunsPage,
-      meta: { requiresAuth: true, title: 'Runs', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'runs.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/runs/:id',
       name: 'run-detail',
       component: RunsPage,
-      meta: { requiresAuth: true, title: 'Run Detail', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'runs.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/files',
       name: 'files',
       component: FilesPage,
-      meta: { requiresAuth: true, title: 'Files', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'files.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/models',
       name: 'models',
       component: ModelsPage,
-      meta: { requiresAuth: true, title: 'Models', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'models.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/settings',
       name: 'settings',
       component: SettingsPage,
-      meta: { requiresAuth: true, title: 'Settings', roles: ['owner'] },
+      meta: { requiresAuth: true, titleKey: 'settings.title', roles: ['owner'] },
     },
   ],
 })
@@ -80,4 +81,10 @@ router.beforeEach((to) => {
     return { path: '/projects' }
   }
   return true
+})
+
+router.afterEach((to) => {
+  const titleKey = to.meta.titleKey as string | undefined
+  const pageTitle = titleKey ? i18n.global.t(titleKey) : i18n.global.t('app.name')
+  window.document.title = `${pageTitle} · ${i18n.global.t('app.name')}`
 })

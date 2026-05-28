@@ -1,9 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
 import type { WorkflowNodeStatus } from '@/types/workflow'
 
 const props = defineProps<{
   status: WorkflowNodeStatus | 'queued' | 'running' | 'success' | 'failed' | 'paused'
 }>()
+
+const { t } = useI18n()
 
 const classes: Record<typeof props.status, string> = {
   idle: 'border-app-border bg-app-muted text-text-secondary',
@@ -14,10 +19,25 @@ const classes: Record<typeof props.status, string> = {
   skipped: 'border-app-border bg-app-muted text-text-muted',
   paused: 'border-status-paused/20 bg-slate-100 text-status-paused',
 }
+
+const statusLabels: Record<string, string> = {
+  idle: 'status.idle',
+  queued: 'status.queued',
+  running: 'status.running',
+  success: 'status.success',
+  failed: 'status.failed',
+  skipped: 'status.skipped',
+  paused: 'status.paused',
+}
+
+const label = computed(() => {
+  const key = statusLabels[props.status]
+  return key ? t(key) : props.status
+})
 </script>
 
 <template>
   <span class="inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium" :class="classes[status]">
-    {{ status }}
+    {{ label }}
   </span>
 </template>

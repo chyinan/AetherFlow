@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { SlidersHorizontal, Sparkles, TerminalSquare } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useUiStore } from '@/stores/uiStore'
@@ -9,6 +10,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 const uiStore = useUiStore()
 const workflowStore = useWorkflowStore()
 const selectedNode = computed(() => workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId))
+const { t } = useI18n()
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
@@ -28,15 +30,15 @@ function updateConfig(key: string, value: string) {
       <div class="flex min-w-0 items-center gap-2">
         <SlidersHorizontal class="h-4 w-4 shrink-0 text-primary" />
         <div class="min-w-0">
-          <p class="text-sm font-semibold text-text-primary">Node Inspector</p>
-          <p class="truncate text-xs text-text-muted">Inputs, outputs, and runtime</p>
+          <p class="text-sm font-semibold text-text-primary">{{ t('workflow.nodeInspector') }}</p>
+          <p class="truncate text-xs text-text-muted">{{ t('workflow.inputsOutputsRuntime') }}</p>
         </div>
       </div>
       <div class="flex shrink-0 items-center gap-1">
         <button
           type="button"
           class="grid h-8 w-8 place-items-center rounded-md border border-app-border text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai"
-          title="Open AI Copilot"
+          :title="t('workflow.openCopilot')"
           @click="emit('openCopilot')"
         >
           <Sparkles class="h-4 w-4" />
@@ -44,7 +46,7 @@ function updateConfig(key: string, value: string) {
         <button
           type="button"
           class="grid h-8 w-8 place-items-center rounded-md border border-app-border text-text-secondary transition hover:border-primary/30 hover:bg-primary-soft hover:text-primary"
-          title="Open run logs"
+          :title="t('workflow.openLogs')"
           @click="emit('openLogs')"
         >
           <TerminalSquare class="h-4 w-4" />
@@ -62,7 +64,7 @@ function updateConfig(key: string, value: string) {
       </div>
 
       <section class="mb-5">
-        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Config</h3>
+        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('workflow.config') }}</h3>
         <div class="space-y-3">
           <label v-for="[key, value] in Object.entries(selectedNode.data.config)" :key="key" class="block">
             <span class="mb-1 block text-xs font-medium text-text-secondary">{{ key }}</span>
@@ -77,13 +79,13 @@ function updateConfig(key: string, value: string) {
 
       <section class="mb-5 grid grid-cols-2 gap-3">
         <div class="rounded-lg border border-app-border p-3">
-          <p class="text-xs font-semibold text-text-muted">Inputs</p>
+          <p class="text-xs font-semibold text-text-muted">{{ t('common.inputs') }}</p>
           <p v-for="input in selectedNode.data.inputs" :key="input" class="mt-2 rounded bg-app-muted px-2 py-1 text-xs text-text-secondary">
             {{ input }}
           </p>
         </div>
         <div class="rounded-lg border border-app-border p-3">
-          <p class="text-xs font-semibold text-text-muted">Outputs</p>
+          <p class="text-xs font-semibold text-text-muted">{{ t('common.outputs') }}</p>
           <p v-for="output in selectedNode.data.outputs" :key="output" class="mt-2 rounded bg-primary-soft px-2 py-1 text-xs text-primary">
             {{ output }}
           </p>
@@ -91,14 +93,14 @@ function updateConfig(key: string, value: string) {
       </section>
 
       <section class="rounded-lg border border-app-border bg-sidebar p-3 text-text-inverse">
-        <p class="text-xs font-semibold text-slate-300">Latest Runtime</p>
-        <p class="mt-2 text-sm">{{ selectedNode.data.runtime?.lastResult ?? 'No run yet' }}</p>
+        <p class="text-xs font-semibold text-slate-300">{{ t('workflow.latestRuntime') }}</p>
+        <p class="mt-2 text-sm">{{ selectedNode.data.runtime?.lastResult ?? t('workflow.waiting') }}</p>
         <p class="mt-2 text-xs text-slate-400">
-          Duration: {{ selectedNode.data.runtime?.durationMs ?? 0 }}ms
+          {{ t('workflow.duration') }}: {{ selectedNode.data.runtime?.durationMs ?? 0 }}ms
         </p>
       </section>
     </div>
 
-    <div v-else class="p-4 text-sm text-text-secondary">Select a workflow node to inspect its settings.</div>
+    <div v-else class="p-4 text-sm text-text-secondary">{{ t('workflow.noNodeSelected') }}</div>
   </aside>
 </template>

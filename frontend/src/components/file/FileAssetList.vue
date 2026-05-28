@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FileAudio, FileText, FileVideo, PackageCheck } from 'lucide-vue-next'
 import type { Component } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { FileAsset } from '@/types/file'
@@ -8,6 +9,8 @@ import type { FileAsset } from '@/types/file'
 defineProps<{
   files: FileAsset[]
 }>()
+
+const { t } = useI18n()
 
 const iconMap: Record<FileAsset['type'], Component> = {
   audio: FileAudio,
@@ -33,8 +36,8 @@ const iconMap: Record<FileAsset['type'], Component> = {
         <StatusBadge :status="file.status === 'ready' ? 'success' : file.status === 'processing' ? 'running' : 'failed'" />
       </div>
       <div class="mt-4 rounded-md bg-app-bg2 p-3 text-xs leading-5 text-text-secondary">
-        <p>{{ file.result ?? 'No result attached yet.' }}</p>
-        <p v-if="file.linkedRunId" class="mt-1 text-primary">Run: {{ file.linkedRunId }}</p>
+        <p>{{ file.result ?? t('files.noResult') }}</p>
+        <p v-if="file.linkedRunId" class="mt-1 text-primary">{{ t('files.run') }}: {{ file.linkedRunId }}</p>
       </div>
     </article>
   </div>

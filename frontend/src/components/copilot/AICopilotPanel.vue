@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { PanelRightClose, Send, Sparkles } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { copilotApi } from '@/services/api/copilotApi'
 import { initialCopilotMessages } from '@/services/mock/copilotMock'
@@ -9,15 +10,16 @@ import type { CopilotMessage } from '@/types/copilot'
 const prompt = ref('')
 const loading = ref(false)
 const messages = ref<CopilotMessage[]>([...initialCopilotMessages])
+const { locale, t } = useI18n()
 const emit = defineEmits<{
   close: []
 }>()
 
-const quickPrompts = [
-  'Suggest the next node',
-  'Explain the latest error',
-  'Draft a media digest workflow',
-]
+const quickPrompts = computed(() => [
+  t('copilot.quickSuggestNextNode'),
+  t('copilot.quickExplainLatestError'),
+  t('copilot.quickDraftWorkflow'),
+])
 
 async function sendPrompt(value = prompt.value) {
   const text = value.trim()
@@ -28,7 +30,7 @@ async function sendPrompt(value = prompt.value) {
     id: `user-${Date.now()}`,
     role: 'user',
     content: text,
-    createdAt: new Date().toLocaleTimeString('zh-CN', {
+    createdAt: new Date().toLocaleTimeString(locale.value, {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -53,14 +55,14 @@ async function sendPrompt(value = prompt.value) {
             <Sparkles class="h-4 w-4" />
           </span>
           <div>
-            <p class="text-sm font-semibold text-text-primary">AI Copilot</p>
-            <p class="text-xs text-text-muted">mock advisor</p>
+            <p class="text-sm font-semibold text-text-primary">{{ t('copilot.title') }}</p>
+            <p class="text-xs text-text-muted">{{ t('copilot.subtitle') }}</p>
           </div>
         </div>
         <button
           type="button"
           class="grid h-9 w-9 place-items-center rounded-md border border-transparent text-text-secondary transition hover:border-app-border hover:bg-app-muted hover:text-text-primary"
-          title="Close Copilot"
+          :title="t('copilot.close')"
           @click="emit('close')"
         >
           <PanelRightClose class="h-4 w-4" />
@@ -91,7 +93,7 @@ async function sendPrompt(value = prompt.value) {
           "
         >
           <div class="mb-1 flex items-center justify-between text-[11px]" :class="message.role === 'assistant' ? 'text-text-muted' : 'text-blue-100'">
-            <span>{{ message.role }}</span>
+            <span>{{ message.role === 'assistant' ? t('copilot.assistant') : t('copilot.user') }}</span>
             <span>{{ message.createdAt }}</span>
           </div>
           {{ message.content }}
@@ -103,7 +105,7 @@ async function sendPrompt(value = prompt.value) {
           <input
             v-model="prompt"
             class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
-            placeholder="Ask about this workflow"
+            :placeholder="t('copilot.askPlaceholder')"
           />
           <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="loading">
             <Send class="h-4 w-4" />

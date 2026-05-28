@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { getStoredLocale, setStoredLocale, type AppLocale } from '@/i18n/locale'
+import { i18n } from '@/i18n'
 import type { ServiceStatus } from '@/types/api'
 
 export const useUiStore = defineStore('ui', {
@@ -8,6 +10,7 @@ export const useUiStore = defineStore('ui', {
     commandMenuOpen: false,
     selectedNodeId: 'node-whisper' as string | null,
     realtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
+    locale: getStoredLocale() as AppLocale,
     theme: 'light' as 'light' | 'dark',
     statuses: [
       { name: 'Gateway', state: 'online', detail: 'mock gateway ready' },
@@ -26,6 +29,11 @@ export const useUiStore = defineStore('ui', {
         realtime.state = state === 'online' ? 'online' : state === 'reconnecting' ? 'degraded' : 'offline'
         realtime.detail = state === 'online' ? 'mock stream connected' : state
       }
+    },
+    setLocale(locale: AppLocale) {
+      this.locale = locale
+      i18n.global.locale.value = locale
+      setStoredLocale(locale)
     },
   },
 })

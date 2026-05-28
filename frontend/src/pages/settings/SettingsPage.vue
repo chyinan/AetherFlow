@@ -12,38 +12,40 @@ import {
   UsersRound,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { useSettingsStore } from '@/stores/settingsStore'
 
 const settingsStore = useSettingsStore()
 const activeTab = ref<'general' | 'members' | 'environment' | 'integrations' | 'audit'>('general')
+const { t } = useI18n()
 
 const tabs = [
-  { id: 'general', label: 'General', icon: SlidersHorizontal },
-  { id: 'members', label: 'Members', icon: UsersRound },
-  { id: 'environment', label: 'Environment', icon: KeyRound },
-  { id: 'integrations', label: 'Integrations', icon: Cable },
-  { id: 'audit', label: 'Audit', icon: ClipboardList },
+  { id: 'general', labelKey: 'settings.general', icon: SlidersHorizontal },
+  { id: 'members', labelKey: 'settings.members', icon: UsersRound },
+  { id: 'environment', labelKey: 'settings.environment', icon: KeyRound },
+  { id: 'integrations', labelKey: 'settings.integrations', icon: Cable },
+  { id: 'audit', labelKey: 'settings.audit', icon: ClipboardList },
 ] as const
 
 const summaryCards = computed(() => [
   {
-    label: 'Active members',
+    label: t('settings.activeMembers'),
     value: settingsStore.activeMemberCount,
-    hint: `${settingsStore.members.length} total users`,
+    hint: `${settingsStore.members.length} ${t('settings.totalUsers')}`,
     icon: UsersRound,
   },
   {
-    label: 'Env variables',
+    label: t('settings.envVariables'),
     value: settingsStore.configuredVariableCount,
-    hint: `${settingsStore.environmentVariables.length} registered`,
+    hint: `${settingsStore.environmentVariables.length} ${t('settings.registered')}`,
     icon: KeyRound,
   },
   {
-    label: 'Integrations',
+    label: t('settings.integrationsCount'),
     value: settingsStore.connectedIntegrationCount,
-    hint: `${settingsStore.integrations.length} mock systems`,
+    hint: `${settingsStore.integrations.length} ${t('settings.mockSystems')}`,
     icon: Cable,
   },
 ])
@@ -65,13 +67,13 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <ShieldCheck class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">Settings</p>
-          <p class="text-xs text-text-muted">Workspace, RBAC, environments, integrations, and audit are mocked.</p>
+          <p class="text-sm font-semibold text-text-primary">{{ t('settings.title') }}</p>
+          <p class="text-xs text-text-muted">{{ t('settings.subtitle') }}</p>
         </div>
       </div>
       <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
         <Save class="h-4 w-4" />
-        Save mock draft
+        {{ t('settings.saveMockDraft') }}
       </button>
     </header>
 
@@ -117,45 +119,45 @@ onMounted(() => {
               @click="activeTab = tab.id"
             >
               <component :is="tab.icon" class="h-4 w-4" />
-              {{ tab.label }}
+              {{ t(tab.labelKey) }}
             </button>
           </aside>
 
           <section class="min-w-0 rounded-lg border border-app-border bg-white shadow-sm">
             <div v-if="activeTab === 'general'" class="p-5">
               <div class="mb-5">
-                <p class="text-sm font-semibold text-text-primary">General workspace</p>
-                <p class="text-xs text-text-muted">Mock project defaults used by frontend pages and future gateway calls.</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('settings.generalWorkspace') }}</p>
+                <p class="text-xs text-text-muted">{{ t('settings.generalHint') }}</p>
               </div>
 
               <div class="grid gap-4 lg:grid-cols-2">
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Workspace name</span>
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.workspaceName') }}</span>
                   <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.name" />
                 </label>
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Slug</span>
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.slug') }}</span>
                   <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.slug" />
                 </label>
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Region</span>
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.region') }}</span>
                   <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.region" />
                 </label>
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Environment</span>
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.environmentLabel') }}</span>
                   <select class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.environment">
-                    <option>dev</option>
-                    <option>staging</option>
-                    <option>prod</option>
+                    <option value="dev">{{ t('settings.environmentOptions.dev') }}</option>
+                    <option value="staging">{{ t('settings.environmentOptions.staging') }}</option>
+                    <option value="prod">{{ t('settings.environmentOptions.prod') }}</option>
                   </select>
                 </label>
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Default timeout</span>
-                  <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.defaultTimeoutMin ?? 45} minutes`" />
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.defaultTimeout') }}</span>
+                  <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.defaultTimeoutMin ?? 45} ${t('settings.minutes')}`" />
                 </label>
                 <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-text-secondary">Artifact retention</span>
-                  <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.retentionDays ?? 30} days`" />
+                  <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.artifactRetention') }}</span>
+                  <input class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.retentionDays ?? 30} ${t('settings.days')}`" />
                 </label>
               </div>
             </div>
@@ -163,19 +165,19 @@ onMounted(() => {
             <div v-else-if="activeTab === 'members'" class="p-5">
               <div class="mb-5 flex items-center justify-between">
                 <div>
-                  <p class="text-sm font-semibold text-text-primary">Members and roles</p>
-                  <p class="text-xs text-text-muted">RBAC is mocked but follows future project-space structure.</p>
+                  <p class="text-sm font-semibold text-text-primary">{{ t('settings.membersTitle') }}</p>
+                  <p class="text-xs text-text-muted">{{ t('settings.membersHint') }}</p>
                 </div>
-                <button class="rounded-md border border-app-border px-3 py-2 text-sm text-primary">Invite mock user</button>
+                <button class="rounded-md border border-app-border px-3 py-2 text-sm text-primary">{{ t('settings.inviteMockUser') }}</button>
               </div>
 
               <div class="overflow-hidden rounded-lg border border-app-border">
                 <div class="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_120px_110px_140px] bg-app-bg2 px-3 py-2 text-xs font-semibold text-text-muted">
-                  <span>Name</span>
-                  <span>Email</span>
-                  <span>Role</span>
-                  <span>Status</span>
-                  <span>Last seen</span>
+                  <span>{{ t('settings.name') }}</span>
+                  <span>{{ t('settings.email') }}</span>
+                  <span>{{ t('settings.role') }}</span>
+                  <span>{{ t('settings.status') }}</span>
+                  <span>{{ t('settings.lastSeen') }}</span>
                 </div>
                 <div
                   v-for="member in settingsStore.members"
@@ -184,7 +186,7 @@ onMounted(() => {
                 >
                   <span class="truncate font-medium text-text-primary">{{ member.name }}</span>
                   <span class="truncate text-text-secondary">{{ member.email }}</span>
-                  <span class="text-text-secondary">{{ member.role }}</span>
+                  <span class="text-text-secondary">{{ t(`settings.roles.${member.role.toLowerCase()}`) }}</span>
                   <span><StatusDot :tone="statusTone(member.status)" :label="member.status" /></span>
                   <span class="text-xs text-text-muted">{{ member.lastSeen }}</span>
                 </div>
@@ -193,8 +195,8 @@ onMounted(() => {
 
             <div v-else-if="activeTab === 'environment'" class="p-5">
               <div class="mb-5">
-                <p class="text-sm font-semibold text-text-primary">Environment variables</p>
-                <p class="text-xs text-text-muted">Frontend-only mock values; real values should stay in gateway/runtime config.</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('settings.envVarsTitle') }}</p>
+                <p class="text-xs text-text-muted">{{ t('settings.envVarsHint') }}</p>
               </div>
               <div class="grid gap-3">
                 <article
@@ -218,8 +220,8 @@ onMounted(() => {
 
             <div v-else-if="activeTab === 'integrations'" class="p-5">
               <div class="mb-5">
-                <p class="text-sm font-semibold text-text-primary">Integrations</p>
-                <p class="text-xs text-text-muted">Mock connection surface for backend infrastructure checks.</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('settings.integrationsTitle') }}</p>
+                <p class="text-xs text-text-muted">{{ t('settings.integrationsHint') }}</p>
               </div>
               <div class="grid gap-3 lg:grid-cols-2">
                 <article
@@ -241,8 +243,8 @@ onMounted(() => {
 
             <div v-else class="p-5">
               <div class="mb-5">
-                <p class="text-sm font-semibold text-text-primary">Audit trail</p>
-                <p class="text-xs text-text-muted">Recent mock workspace and runtime events.</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('settings.auditTitle') }}</p>
+                <p class="text-xs text-text-muted">{{ t('settings.auditHint') }}</p>
               </div>
               <div class="space-y-3">
                 <article
@@ -264,22 +266,22 @@ onMounted(() => {
             <section class="rounded-lg border border-app-border bg-sidebar p-4 text-text-inverse shadow-sm">
               <div class="flex items-center gap-2">
                 <Activity class="h-4 w-4 text-primary" />
-                <p class="text-sm font-semibold">Mock control plane</p>
+                <p class="text-sm font-semibold">{{ t('settings.controlPlaneTitle') }}</p>
               </div>
               <p class="mt-3 text-sm leading-6 text-slate-300">
-                These settings are front-end fixtures. Real backend wiring should replace only services/api and services/realtime.
+                {{ t('settings.controlPlaneDescription') }}
               </p>
             </section>
 
             <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <div class="flex items-center gap-2">
                 <BellRing class="h-4 w-4 text-status-warning" />
-                <p class="text-sm font-semibold text-text-primary">Review notes</p>
+                <p class="text-sm font-semibold text-text-primary">{{ t('settings.reviewNotesTitle') }}</p>
               </div>
               <div class="mt-4 space-y-3 text-sm text-text-secondary">
-                <p class="rounded-md bg-app-bg2 p-3">Gateway route and realtime driver are still mock.</p>
-                <p class="rounded-md bg-app-bg2 p-3">RBAC is represented at UI level only.</p>
-                <p class="rounded-md bg-app-bg2 p-3">Secrets display masked fixture values.</p>
+                <p class="rounded-md bg-app-bg2 p-3">{{ t('settings.reviewNotes.gateway') }}</p>
+                <p class="rounded-md bg-app-bg2 p-3">{{ t('settings.reviewNotes.rbac') }}</p>
+                <p class="rounded-md bg-app-bg2 p-3">{{ t('settings.reviewNotes.secrets') }}</p>
               </div>
             </section>
           </aside>

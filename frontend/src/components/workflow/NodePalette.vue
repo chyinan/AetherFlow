@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate } from '@/types/workflow'
 
 const workflowStore = useWorkflowStore()
+const { t } = useI18n()
 const search = ref('')
 
 const filteredTemplates = computed(() => {
@@ -30,11 +32,11 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 <template>
   <aside class="flex h-full w-64 flex-col border-r border-app-border bg-white">
     <div class="border-b border-app-border p-4">
-      <p class="text-sm font-semibold text-text-primary">Node Palette</p>
-      <p class="mt-1 text-xs text-text-muted">Drag nodes into the canvas.</p>
+      <p class="text-sm font-semibold text-text-primary">{{ t('workflow.nodePalette') }}</p>
+      <p class="mt-1 text-xs text-text-muted">{{ t('workflow.dragHint') }}</p>
       <label class="mt-3 flex items-center gap-2 rounded-md border border-app-border bg-app-muted px-3 py-2 text-sm">
         <Search class="h-4 w-4 text-text-muted" />
-        <input v-model="search" class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted" placeholder="Search nodes" />
+        <input v-model="search" class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchNodes')" />
       </label>
     </div>
 

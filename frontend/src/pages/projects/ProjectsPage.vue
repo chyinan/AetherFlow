@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { Activity, Boxes, FolderKanban, Plus, Workflow } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useProjectStore } from '@/stores/projectStore'
 import type { ProjectHealth } from '@/types/project'
 
 const projectStore = useProjectStore()
+const { t } = useI18n()
 
 const totals = computed(() => {
   return projectStore.projects.reduce(
@@ -37,13 +39,13 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <FolderKanban class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">Projects</p>
-          <p class="text-xs text-text-muted">Choose a workspace project before opening a workflow.</p>
+          <p class="text-sm font-semibold text-text-primary">{{ t('projects.title') }}</p>
+          <p class="text-xs text-text-muted">{{ t('projects.subtitle') }}</p>
         </div>
       </div>
       <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
         <Plus class="h-4 w-4" />
-        New project
+        {{ t('projects.new') }}
       </button>
     </header>
 
@@ -53,21 +55,21 @@ onMounted(() => {
           <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
               <Workflow class="h-4 w-4 text-primary" />
-              <span class="text-xs font-medium">Workflows</span>
+              <span class="text-xs font-medium">{{ t('projects.workflows') }}</span>
             </div>
             <p class="mt-3 text-2xl font-semibold text-text-primary">{{ totals.workflows }}</p>
           </div>
           <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
               <Activity class="h-4 w-4 text-status-running" />
-              <span class="text-xs font-medium">Active runs</span>
+              <span class="text-xs font-medium">{{ t('projects.activeRuns') }}</span>
             </div>
             <p class="mt-3 text-2xl font-semibold text-text-primary">{{ totals.runs }}</p>
           </div>
           <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
               <Boxes class="h-4 w-4 text-ai" />
-              <span class="text-xs font-medium">Files and artifacts</span>
+              <span class="text-xs font-medium">{{ t('projects.filesAndArtifacts') }}</span>
             </div>
             <p class="mt-3 text-2xl font-semibold text-text-primary">{{ totals.files }}</p>
           </div>
@@ -86,20 +88,20 @@ onMounted(() => {
                   <p class="mt-2 min-h-10 text-sm leading-5 text-text-secondary">{{ project.description }}</p>
                 </div>
                 <span class="rounded-md border px-2 py-1 text-[11px] font-medium" :class="healthClass[project.health]">
-                  {{ project.health }}
+                  {{ t(`projects.health.${project.health}`) }}
                 </span>
               </div>
               <div class="mt-4 grid grid-cols-3 gap-2">
                 <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">Env</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ project.environment }}</p>
+                  <p class="text-[11px] text-text-muted">{{ t('projects.env') }}</p>
+                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ t(`settings.environmentOptions.${project.environment}`) }}</p>
                 </div>
                 <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">Runs</p>
+                  <p class="text-[11px] text-text-muted">{{ t('projects.runs') }}</p>
                   <p class="mt-1 text-xs font-semibold text-text-primary">{{ project.activeRunCount }}</p>
                 </div>
                 <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">Files</p>
+                  <p class="text-[11px] text-text-muted">{{ t('projects.files') }}</p>
                   <p class="mt-1 text-xs font-semibold text-text-primary">{{ project.fileCount }}</p>
                 </div>
               </div>
