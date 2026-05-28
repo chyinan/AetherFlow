@@ -10,12 +10,12 @@ defineProps<{
 </script>
 
 <template>
-  <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+  <div class="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-app-border bg-white p-4 shadow-sm">
     <div class="mb-4 flex items-center gap-2">
       <Clock3 class="h-4 w-4 text-primary" />
       <p class="text-sm font-semibold text-text-primary">Node Execution</p>
     </div>
-    <div class="space-y-3">
+    <div class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       <div v-for="node in nodes" :key="node.nodeId" class="flex items-center gap-3">
         <span class="h-2.5 w-2.5 rounded-full bg-primary" />
         <div class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2">
