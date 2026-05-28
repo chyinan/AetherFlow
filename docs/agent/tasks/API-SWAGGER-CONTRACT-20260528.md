@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-2257-codex-api-swagger-contract
 分支：feature/API-SWAGGER-CONTRACT-20260528-swagger-contract
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -117,3 +117,40 @@ Session ID：SESSION-20260528-2257-codex-api-swagger-contract
 3. 2026-05-28 22:57，已创建分支 `feature/API-SWAGGER-CONTRACT-20260528-swagger-contract`。
 4. 2026-05-28 22:57，已检查文件锁，目标范围内未发现 ACTIVE 冲突。
 5. 2026-05-28 22:57，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+6. 2026-05-28 22:58，docs-only claim 已提交并推送：`554b5d5 docs(agent): claim API-SWAGGER-CONTRACT-20260528`。
+7. 2026-05-28 23:02，新增 Workflow Node Catalog 测试，RED 失败原因：缺少 `WorkflowNodeCatalogController`、`WorkflowNodeCatalogService` 和 catalog DTO。
+8. 2026-05-28 23:04，补齐 catalog 只读 API 后，`WorkflowNodeCatalogControllerTest` GREEN 通过。
+9. 2026-05-28 23:06，新增 OpenAPI 反射测试，RED 失败原因：common DTO 缺少 `@Schema`，workflow/ai/notify Controller 缺少 `@Tag`/`@Operation`/`@ApiResponse`。
+10. 2026-05-28 23:11，补齐 OpenAPI 注解与 DTO Schema 后，OpenAPI 目标测试 GREEN 通过。
+11. 2026-05-28 23:15，最终执行 `git diff --check` 通过，仅 Windows LF/CRLF 提示。
+12. 2026-05-28 23:15，最终执行 `$env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; mvn -pl backend/common,backend/workflow-service,backend/ai-service,backend/notify-service -am test` 通过。
+13. 2026-05-28 23:16，业务提交已完成并推送：`7c86da6 feat(api): add swagger contracts and workflow node catalog`。
+
+## 完成内容
+
+1. workflow-service 补齐 `WorkflowController`、`WorkflowRuntimeController`、`WorkflowNodeMetricsController` 的 OpenAPI 注解。
+2. 新增 `GET /workflow/node/catalog`，返回 START、END、UPLOAD、WHISPER、SUMMARY、EXPORT、NOTIFY、CONDITION、MOCK 的节点类型、config schema、输入变量、输出变量和示例配置。
+3. ai-service 补齐 `AiController`、`AiProviderController`、`AiWorkflowNodeController` 的 OpenAPI 注解，并明确 `/ai/internal/workflow/nodes/execute` 为 Internal service-to-service API。
+4. notify-service 补齐 SSE 公开 API 与 `/notify/internal/send` Internal API 文档。
+5. common DTO 补齐 workflow、AI workflow node、AI transcription、file metadata、notify message 的 `@Schema` 字段说明与 example。
+6. ai-service Provider governance 响应模型补齐 `@Schema`，便于前端对接 provider status/policy/metrics。
+7. 新增 OpenAPI/controller 相关测试：`WorkflowNodeCatalogControllerTest`、`WorkflowOpenApiContractTest`、`CommonDtoOpenApiSchemaTest`、`AiOpenApiContractTest`、`NotifyOpenApiContractTest`。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `$env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; mvn -pl backend/common,backend/workflow-service,backend/ai-service,backend/notify-service -am test`：通过，common 8 tests、workflow-runtime-api 10 tests、workflow-service 70 tests、ai-service 20 tests、notify-service 1 test、BUILD SUCCESS。
+3. 修改范围检查：未修改 `backend/workflow-runtime-api/**`、Runtime Core 禁区、MQ 契约、数据库结构、Gateway 配置。
+
+## 交接
+
+任务ID：API-SWAGGER-CONTRACT-20260528
+完成内容：已补齐 Swagger/OpenAPI 注解、DTO Schema、Internal API 标识，并新增 Workflow Node Catalog 只读 API。
+修改文件：backend/workflow-service/**；backend/ai-service/**；backend/notify-service/**；backend/common/src/main/java/com/aetherflow/common/dto/**；docs/agent/tasks/API-SWAGGER-CONTRACT-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md
+测试结果：`git diff --check` 通过；`mvn -pl backend/common,backend/workflow-service,backend/ai-service,backend/notify-service -am test` 通过。
+PR/提交/分支：feature/API-SWAGGER-CONTRACT-20260528-swagger-contract；`554b5d5` claim；`7c86da6` 业务提交。
+合入 main：未合入。
+统一运行电脑验证：未运行。
+遗留问题：需统一运行电脑补测 Gateway Swagger 聚合入口 `http://localhost:8080/swagger-ui.html`；如前端必须经 Gateway 直接调用 `/workflow/node/catalog`，需单独登记 Gateway 路由或追加 claim。
+下一步：负责人 Review 后合入 main，并在统一运行电脑启动 Gateway、workflow-service、ai-service、notify-service 补测 Swagger 聚合。
+文件锁：RELEASED。
