@@ -110,15 +110,21 @@ claim 记录：
 
 提交记录：
 1. feat(frontend): add zh-CN i18n support：46ea47a
+2. docs(agent): handoff FRONTEND-I18N-ZH-CN-20260528：600e48e
+
+推送记录：
+1. git push origin feature/FRONTEND-I18N-ZH-CN-20260528 首次失败：GitHub 连接被重置。
+2. git push origin feature/FRONTEND-I18N-ZH-CN-20260528 第二次失败：无法连接 github.com:443。
+3. 当前代码和交接记录已在本地提交，远端仍停留在 claim commit；需要网络恢复后补推本分支所有本地提交。
 
 交接记录：
 任务ID：FRONTEND-I18N-ZH-CN-20260528
 完成内容：已加入前端多语言基础设施，默认支持简体中文 zh-CN，并保留 en-US 资源；登录页、AppShell 导航/状态栏、主要页面和基础组件的静态文案已接入 i18n。
 修改文件：frontend/**、docs/agent/tasks/FRONTEND-I18N-ZH-CN-20260528.md、docs/agent/logs/2026-05-28.md
 测试结果：node -v、npm -v、npm install、npm run build 均已执行；最终 npm run build 通过，存在非阻塞 chunk size warning。
-PR/提交/分支：feature/FRONTEND-I18N-ZH-CN-20260528，代码提交 46ea47a。
+PR/提交/分支：feature/FRONTEND-I18N-ZH-CN-20260528，代码提交 46ea47a；远端补推待网络恢复。
 合入 main：未合入
 统一运行电脑验证：未运行
 遗留问题：后续如果需要完全本地化 mock 数据，需要在 mock/service 层统一处理；后续可拆分动态 import 降低构建 chunk warning。
-下一步：负责人 Review diff，按依赖先合入 frontend-init 后再合入本 i18n 分支。
+下一步：网络恢复后补推 feature/FRONTEND-I18N-ZH-CN-20260528；负责人 Review diff，按依赖先合入 frontend-init 后再合入本 i18n 分支。
 文件锁：RELEASED
