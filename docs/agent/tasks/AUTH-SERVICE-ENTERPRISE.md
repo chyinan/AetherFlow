@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-002
 Session ID：SESSION-20260528-AUTH-SERVICE-ENTERPRISE-CODEX
 分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 在 auth-service 内实现企业级认证服务治理能力，包括 Access Token + Refresh Token、Redis Session 管理、Token 黑名单、登录审计日志、TraceId/requestId/userId 日志规范、DTO 参数校验、auth-service 本地统一异常处理、Swagger 完善、Redis Key 规范、Metrics API 和登录安全限制。
@@ -77,3 +77,28 @@ Agent 编码计划：
 2. 已将 origin 切换为 git@github.com:chyinan/AetherFlow.git。
 3. 已成功推送 feature/AUTH-SERVICE-ENTERPRISE-auth-governance，claim-first 前置条件已满足。
 4. 任务状态恢复为 IN_PROGRESS。
+
+实现记录：
+1. 新增 auth-service 私有 DTO：AuthTokenResponse、AuthRefreshRequest、AuthLogoutRequest、AuthMetricsResponse，未修改 backend/common 公共 DTO。
+2. /auth/register 与 /auth/login 返回 Access Token + Refresh Token；Access Token 仍使用 JWT 兼容 Gateway，Refresh Token 使用独立 refresh secret，避免被 Gateway 当作 Access Token 接受。
+3. 新增 /auth/refresh 自动轮换 token pair，刷新时校验 auth:refresh:{userId}，并将旧 Access Token 写入 auth:blacklist:{token}。
+4. 新增 /auth/logout，校验 Refresh Token Redis 会话，黑名单当前 Access Token，并删除 auth:token:{userId} 与 auth:refresh:{userId}。
+5. 新增 Redis Session 管理、Redis Key 规范、登录失败限制、密码错误次数限制、Redis 登录限流。
+6. 新增登录审计日志，记录 userId、username、IP、登录时间、登录状态、User-Agent。
+7. 新增 AuthTraceContextFilter，统一 MDC traceId、userId、requestId，并在 application.yml logging pattern 输出。
+8. 新增 auth-service 本地全局异常处理器，统一处理 BusinessException、UnauthorizedException、ValidationException 和 Spring 参数校验异常。
+9. 新增 /auth/status 与 /auth/metrics，返回在线用户数、Token 数量、登录失败次数。
+10. 完善 Swagger summary、description、request example 和本地 DTO field example。
+
+验证记录：
+1. mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 29 tests，0 failures，0 errors。
+2. mvn -pl backend/auth-service -am package -DskipTests：通过；生成 backend/auth-service/target/auth-service-0.1.0-SNAPSHOT.jar。
+3. git diff --check：通过；仅有 LF/CRLF 工作区转换 warning，无空白错误。
+
+交接记录：
+1. 当前分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance。
+2. 当前提交：e377194 feat(auth): implement enterprise token governance。
+3. 合并 main：未合并。
+4. 统一运行环境 192.168.101.68：未执行联调，需负责人补测 Redis/MySQL/Nacos 和接口实际调用。
+5. 任务状态：REVIEW，等待负责人检查 diff 和统一运行环境补测。
+6. 文件锁：本次 handoff 提交后释放。
