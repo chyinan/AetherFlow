@@ -103,6 +103,14 @@ Agent 编码计划：
 5. 位置：backend/workflow-service/src/main/resources/db/workflow-runtime-reliability.sql。
 6. 边界：该表仅属于 workflow-service Runtime；未修改公共 DTO、既有 MQ 契约或 docker 初始化脚本，统一运行环境需手动应用 SQL 后联调。
 
+第三阶段新增 Runtime 自有表：
+1. 表名：af_workflow_runtime_event。
+2. 原因：RuntimeEvent 需要脱离内存观测和 MQ 持久化，支持服务重启后按 workflowId 回放事件流，并从事件流重建 Runtime Observability。
+3. 字段：id、event_id、workflow_id、trace_id、task_id、event_type、node_id、runtime_state、occurred_at、attributes_json、created_at、updated_at。
+4. 索引：event_id 唯一索引用于事件幂等写入；workflow_id + occurred_at + id 查询索引用于按 workflowId 顺序回放。
+5. 位置：backend/workflow-service/src/main/resources/db/workflow-runtime-reliability.sql。
+6. 边界：该表仅属于 workflow-service Runtime Event Stream；未修改既有 MQ exchange、routing key、queue 或 Rabbit payload 契约。
+
 开工同步记录：
 1. 已读取 AGENT.md 和 docs/COMMON_CONTRACTS.md。
 2. 已读取已合入 main 的 workflow-runtime-api 与 workflow-service Runtime Core 代码。
@@ -140,6 +148,13 @@ Agent 编码计划：
 15. 第二阶段已完成：workflow-service application.yml 增加 aetherflow.workflow.runtime.recovery.enabled 与 scan-limit 配置。
 16. 第二阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
 17. 第二阶段代码已提交：864d0a5 feat(workflow): add runtime snapshot recovery。
+18. 第三阶段已完成：新增 RuntimeEventStore、PersistentRuntimeEventPublisher、MybatisRuntimeEventStore、RuntimeEventEntity 和 WorkflowRuntimeEventMapper，RuntimeEvent 可写入 workflow-service 自有 DB 表。
+19. 第三阶段已完成：WorkflowRuntimeConfig 将 persistent publisher 加入 CompositeRuntimeEventPublisher，保持 metrics、内存观测、DB 持久化、Rabbit MQ 发布解耦。
+20. 第三阶段已完成：WorkflowRuntimeController 的 /workflow/runtime/events/{workflowId} 改为从持久化 Event Stream 查询。
+21. 第三阶段已完成：新增 RuntimeObservationRebuilder，当内存观测缺失时可从持久化事件流重建 WorkflowRuntimeObservation。
+22. 第三阶段已完成：WorkflowRuntimeController 保留旧的二参构造兼容 standalone 测试，旧路径可继续从 InMemoryRuntimeObservationStore 读取事件。
+23. 第三阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
+24. 第三阶段代码已提交：4fb54cd feat(workflow): persist runtime event stream。
 
 TDD 记录：
 1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
@@ -154,6 +169,11 @@ TDD 记录：
 10. WorkflowRuntimeRecoveryRunnerTest 先失败于恢复配置和启动 runner 缺失，随后补齐 properties 与 ApplicationRunner 后通过。
 11. 补充快照恢复变量和 nodeOutputs 的断言，确保恢复逻辑由 Runtime 控制。
 12. 补充最终快照保存断言，确保恢复完成后 repository 中记录 SUCCESS 终态。
+13. PersistentRuntimeEventPublisherTest 先失败于 RuntimeEventStore / PersistentRuntimeEventPublisher 缺失，随后补齐 publisher 写入 store 后通过。
+14. MybatisRuntimeEventStoreTest 先失败于 WorkflowRuntimeEventMapper、RuntimeEventEntity、MybatisRuntimeEventStore 缺失，随后补齐 JSON 序列化和 workflowId 查询后通过。
+15. RuntimeObservationRebuilderTest 先失败于 RuntimeObservationRebuilder 缺失，随后通过事件流回放重建 WorkflowRuntimeObservation。
+16. WorkflowRuntimeControllerTest 先失败于 controller 尚未注入 RuntimeEventStore，随后补齐持久化事件查询和观测 fallback 后通过。
+17. WorkflowRuntimeConfigTest 补充 composite publisher 持久化写入断言，确保 Runtime 发布的事件会进入 DB Event Stream。
 
 验证记录：
 1. 2026-05-28 18:45，mvn -pl backend/workflow-service -am -Dtest=WorkflowDagTest test 首次被 common 模块 surefire 无匹配测试拦截；随后使用 -Dsurefire.failIfNoSpecifiedTests=false 重新运行。
@@ -172,10 +192,15 @@ TDD 记录：
 14. 2026-05-28 20:21，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeRecoveryTest,WorkflowRuntimeRecoveryServiceTest,WorkflowRuntimeRecoveryRunnerTest,MybatisRuntimeSnapshotRepositoryTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：6 tests，BUILD SUCCESS。
 15. 2026-05-28 20:26，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 16. 2026-05-28 20:26，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 34 tests；BUILD SUCCESS。
+17. 2026-05-28 20:39，mvn -pl backend/workflow-service -am -Dtest=PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 按 TDD 预期失败：缺少 RuntimeEventStore、WorkflowRuntimeEventMapper、MybatisRuntimeEventStore、RuntimeEventEntity。
+18. 2026-05-28 20:42，补齐 Runtime Event Store 后，mvn -pl backend/workflow-service -am -Dtest=PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：7 tests，BUILD SUCCESS。
+19. 2026-05-28 20:45，补充 config 集成测试后，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeConfigTest,PersistentRuntimeEventPublisherTest,MybatisRuntimeEventStoreTest,RuntimeObservationRebuilderTest,WorkflowRuntimeControllerTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：9 tests，BUILD SUCCESS。
+20. 2026-05-28 20:51，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+21. 2026-05-28 20:51，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 40 tests；BUILD SUCCESS。
 
 当前阶段状态：
 1. 第一阶段“并行 DAG + join”已完成并验证。
 2. 第二阶段“Runtime 持久化与恢复”已完成并验证。
-3. 第三阶段“Event Stream”未开始。
+3. 第三阶段“Event Stream”已完成并验证。
 4. 第四阶段“分布式锁”未开始。
 5. 任务整体保持 IN_PROGRESS，不标记 DONE。
