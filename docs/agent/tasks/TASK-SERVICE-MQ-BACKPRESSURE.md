@@ -72,17 +72,18 @@ Agent 编码计划：
 - 是否需要统一运行电脑补测：是，基础设施运行态需要统一环境验证。
 
 当前风险：
-1. 当前 main 尚未合入 TASK-SERVICE-INIT，负责人已要求继续，因此本任务从 feature/TASK-SERVICE-INIT-task-service-scheduler 派生；合入时需要先合入初始化分支或按顺序处理 PR。
-2. superpowers skill/tool 在当前会话不可用，工具搜索未找到；本任务按 AGENT.md claim-first 工作流执行。
-3. RabbitMQ Management API 需要管理端口和账号可用；若统一环境未启用 management 插件，需要运维补启或改用 RabbitAdmin 被动声明能力。
-4. Redis 是 Busy 状态跨实例共享关键依赖；Redis 不可用时只能本地兜底，跨实例一致性会下降。
-5. 本任务新增 task-service 自有 /task/metrics 接口；不改 Gateway 路由，因此若经网关访问需要后续 Gateway 任务单独聚合。
+1. RabbitMQ Management API 需要管理端口和账号可用；若统一环境未启用 management 插件，需要运维补启或改用 RabbitAdmin 被动声明能力。
+2. Redis 是 Busy 状态跨实例共享关键依赖；Redis 不可用时只能本地兜底，跨实例一致性会下降。
+3. 本任务新增 task-service 自有 /task/metrics 接口；不改 Gateway 路由，因此若经网关访问需要后续 Gateway 任务单独聚合。
+4. RabbitMQ Management API、Redis、Sentinel Dashboard、Nacos 和 XXL-Job 运行态仍需要统一虚拟机 192.168.101.68 补测。
 
 验证记录：
 1. 2026-05-28 10:14，本机执行 mvn -pl backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 13，Failures: 0，Errors: 0。
 2. 2026-05-28 10:14，本机执行 mvn -pl backend/task-service -am package -DskipTests，通过，task-service boot jar 重新打包成功。
 3. 2026-05-28 10:15，本机执行 git diff --check，通过。
 4. RabbitMQ Management API、Redis、Sentinel Dashboard、Nacos 和 XXL-Job 运行态未在本机联调，需要统一虚拟机 192.168.101.68 补测。
+5. 2026-05-28 11:06，负责人复审修复后执行 mvn -pl backend/task-service -am test，通过；common Tests run: 8，task-service Tests run: 16，Failures: 0，Errors: 0。
+6. 2026-05-28 11:07，负责人复审修复后执行 mvn -pl backend/task-service -am package -DskipTests，通过，task-service boot jar 重新打包成功。
 
 交接记录：
 1. 已完成 task-service MQ 堆积保护增强开发，修改范围限制在 backend/task-service/** 和 docs/agent/tasks/TASK-SERVICE-MQ-BACKPRESSURE.md。
@@ -94,3 +95,6 @@ Agent 编码计划：
 7. 新增 GET /task/metrics，返回队列深度、ready、unacked、consumer 数、Busy 状态、拒绝任务数和最近检查时间。
 8. 当前工作区存在未跟踪 .Rhistory，本任务未修改、未暂存、未提交该文件。
 9. 2026-05-28 10:24 发现分支历史中包含非本任务白名单的 AGENT.md 文档提交 e9ac985，已用 1fb15eb revert 撤回；最终 diff 不包含 AGENT.md。
+10. 2026-05-28 11:05 按项目库管理员指示保留 AGENT.md 和 docs/COMMON_CONTRACTS.md 权威口径，最终 AGENT.md 与 origin/main 保持一致，避免合并冲突。
+11. 2026-05-28 11:05 修复 QueueMonitorService 生产风险：RabbitMQ Management API 异常时按 fail-open/fail-closed 和上一状态写入 NORMAL/BUSY 快照，不再保持 UNKNOWN，避免任务创建热路径反复同步请求管理 API。
+12. 2026-05-28 11:05 修复拒绝计数回退风险：Redis 计数恢复但值落后于本地兜底计数时，拒绝计数保持单调递增。

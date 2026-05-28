@@ -61,12 +61,10 @@ public class QueueMonitorService {
             updateSnapshot(snapshot);
             return snapshot;
         } catch (RuntimeException exception) {
-            boolean previousBusy = latestSnapshot.get().isBusy();
+            QueueHealthSnapshot previous = latestSnapshot.get();
+            boolean previousBusy = previous.isBusy();
             boolean busyOnMonitorError = protection.isFailClosedOnMonitorError() || previousBusy;
-            QueueHealthSnapshot snapshot = QueueHealthSnapshot.unknown(
-                    "queue metrics unavailable: " + exception.getMessage(),
-                    busyOnMonitorError);
-            snapshot.setRejectedTaskCount(rejectedTaskCount());
+            QueueHealthSnapshot snapshot = monitorErrorSnapshot(previous, exception, busyOnMonitorError);
             updateSnapshot(snapshot);
             log.error("queue monitor refresh failed, failClosed={}, previousBusy={}, currentBusy={}",
                     protection.isFailClosedOnMonitorError(),
@@ -92,8 +90,7 @@ public class QueueMonitorService {
         try {
             Long count = redisTemplate.opsForValue().increment(REJECTED_TASK_COUNT_KEY);
             if (count != null) {
-                localRejectedTaskCount.set(count);
-                return count;
+                return nextRejectedTaskCount(count);
             }
         } catch (DataAccessException exception) {
             log.warn("redis rejected task counter increment failed", exception);
@@ -106,8 +103,7 @@ public class QueueMonitorService {
             String value = redisTemplate.opsForValue().get(REJECTED_TASK_COUNT_KEY);
             if (value != null && !value.isBlank()) {
                 long count = Long.parseLong(value);
-                localRejectedTaskCount.set(count);
-                return count;
+                return syncRejectedTaskCount(count);
             }
         } catch (RuntimeException exception) {
             log.warn("redis rejected task counter read failed", exception);
@@ -188,6 +184,33 @@ public class QueueMonitorService {
         snapshot.setCheckedAt(OffsetDateTime.now());
         snapshot.setRejectedTaskCount(rejectedTaskCount());
         return snapshot;
+    }
+
+    private QueueHealthSnapshot monitorErrorSnapshot(QueueHealthSnapshot previous,
+                                                     RuntimeException exception,
+                                                     boolean busy) {
+        QueueHealthSnapshot snapshot = previous.getStatus() == QueueBusyStatus.UNKNOWN
+                ? new QueueHealthSnapshot()
+                : copy(previous);
+        snapshot.setStatus(busy ? QueueBusyStatus.BUSY : QueueBusyStatus.NORMAL);
+        snapshot.setBusy(busy);
+        snapshot.setReason("queue metrics unavailable: " + errorMessage(exception));
+        snapshot.setRejectedTaskCount(rejectedTaskCount());
+        snapshot.setCheckedAt(OffsetDateTime.now());
+        return snapshot;
+    }
+
+    private String errorMessage(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
+    }
+
+    private long nextRejectedTaskCount(long redisCount) {
+        return localRejectedTaskCount.updateAndGet(localCount -> Math.max(localCount + 1, redisCount));
+    }
+
+    private long syncRejectedTaskCount(long redisCount) {
+        return localRejectedTaskCount.updateAndGet(localCount -> Math.max(localCount, redisCount));
     }
 
     private void updateSnapshot(QueueHealthSnapshot snapshot) {

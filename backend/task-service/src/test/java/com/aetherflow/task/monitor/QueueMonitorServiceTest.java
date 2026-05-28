@@ -75,4 +75,60 @@ class QueueMonitorServiceTest {
         assertThat(recovered.isBusy()).isFalse();
         assertThat(recovered.getStatus()).isEqualTo(QueueBusyStatus.NORMAL);
     }
+
+    @Test
+    void fallsBackToNormalSnapshotWhenMetricsAreUnavailableBeforeFirstSuccessfulCheck() {
+        QueueMonitorService failingMonitor = monitorWithState(new AtomicReference<>());
+
+        QueueHealthSnapshot snapshot = failingMonitor.refreshNow();
+
+        assertThat(snapshot.getStatus()).isEqualTo(QueueBusyStatus.NORMAL);
+        assertThat(snapshot.isBusy()).isFalse();
+        assertThat(snapshot.getReason()).contains("queue metrics unavailable");
+    }
+
+    @Test
+    void keepsBusySnapshotWhenMetricsFailAfterBusyState() {
+        AtomicReference<List<QueueMetrics>> state = new AtomicReference<>(
+                List.of(new QueueMetrics("aetherflow.ai.task.queue", 1200, 20, 1220, 2)));
+        QueueMonitorService failingMonitor = monitorWithState(state);
+
+        assertThat(failingMonitor.refreshNow().isBusy()).isTrue();
+        state.set(null);
+
+        QueueHealthSnapshot snapshot = failingMonitor.refreshNow();
+
+        assertThat(snapshot.getStatus()).isEqualTo(QueueBusyStatus.BUSY);
+        assertThat(snapshot.isBusy()).isTrue();
+        assertThat(snapshot.getReason()).contains("queue metrics unavailable");
+    }
+
+    @Test
+    void rejectedTaskCountDoesNotMoveBackwardsWhenRedisValueIsStale() {
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.increment(QueueMonitorService.REJECTED_TASK_COUNT_KEY)).thenReturn(null);
+        when(valueOperations.get(QueueMonitorService.REJECTED_TASK_COUNT_KEY)).thenReturn(null, "0");
+
+        long rejectedAfterRedisFailure = queueMonitorService.incrementRejectedTask();
+        long rejectedAfterRedisRecovery = queueMonitorService.rejectedTaskCount();
+
+        assertThat(rejectedAfterRedisFailure).isEqualTo(1L);
+        assertThat(rejectedAfterRedisRecovery).isEqualTo(1L);
+    }
+
+    private QueueMonitorService monitorWithState(AtomicReference<List<QueueMetrics>> state) {
+        QueueMetricsClient metricsClient = queueName -> {
+            List<QueueMetrics> current = state.get();
+            if (current == null) {
+                throw new IllegalStateException("rabbitmq management api unavailable");
+            }
+            return current.stream()
+                .filter(metrics -> metrics.getQueueName().equals(queueName))
+                .findFirst()
+                .orElse(new QueueMetrics(queueName, 0, 0, 0, 1));
+        };
+        return new QueueMonitorService(metricsClient, redisTemplate, new ObjectMapper().findAndRegisterModules(), properties);
+    }
 }
