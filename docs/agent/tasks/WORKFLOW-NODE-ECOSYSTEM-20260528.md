@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-2144-CODEX-WORKFLOW-NODE-ECOSYSTEM
 分支：feature/WORKFLOW-NODE-ECOSYSTEM-20260528-node-ecosystem
-状态：REVIEW
+状态：DONE
 
 任务目标：
 1. 在不修改 workflow-runtime-api 和 Runtime Core 的前提下，建设 Workflow Node Ecosystem。
@@ -138,3 +138,6 @@ Agent 编码计划：
 4. 2026-05-28 22:34，业务代码已提交：`f9f87f7 feat(workflow): add node executor ecosystem`。
 5. 2026-05-28 22:34，`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/file-service,backend/ai-service,backend/workflow-service -am test` 通过：common 8 tests、workflow-runtime-api 10 tests、workflow-service 67 tests、ai-service 19 tests、file-service 21 tests。
 6. 2026-05-28 22:34，`git diff --check` 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+7. 2026-05-28 22:49，已按负责人指令合入 main：`33e265e merge: workflow node ecosystem`。
+8. 2026-05-28 22:49，main 上 `git diff --check HEAD^..HEAD` 通过。
+9. 2026-05-28 22:49，main 上 `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/file-service,backend/ai-service,backend/workflow-service -am test` 通过：common 8 tests、workflow-runtime-api 10 tests、workflow-service 67 tests、ai-service 19 tests、file-service 21 tests。
