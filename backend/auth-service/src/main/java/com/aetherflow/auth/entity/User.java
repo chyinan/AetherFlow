@@ -1,23 +1,24 @@
 package com.aetherflow.auth.entity;
 
-import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableId;
+import com.aetherflow.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
-
-import java.time.LocalDateTime;
+import lombok.EqualsAndHashCode;
 
 @Data
+@EqualsAndHashCode(callSuper = true)
 @TableName("af_user")
-public class User {
+@Schema(description = "AetherFlow user account.")
+public class User extends BaseEntity {
 
-    @TableId(type = IdType.AUTO)
-    private Long id;
-
+    @Schema(description = "Unique username.", example = "alice")
     private String username;
+
+    @Schema(description = "BCrypt password hash.")
     private String passwordHash;
+
+    @Schema(description = "Account status.", example = "ENABLED")
     private String status;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 }
 

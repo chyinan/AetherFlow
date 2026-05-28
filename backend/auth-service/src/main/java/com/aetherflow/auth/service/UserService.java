@@ -5,7 +5,7 @@ import com.aetherflow.common.dto.AuthLoginResponse;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
 
-public interface AuthService {
+public interface UserService {
 
     AuthLoginResponse register(UserRegisterRequest request);
 
@@ -13,4 +13,3 @@ public interface AuthService {
 
     UserPrincipalDTO currentUser(Long userId, String username, String roles);
 }
-
