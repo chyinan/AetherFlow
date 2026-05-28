@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
+import ModelsPage from '@/pages/models/ModelsPage.vue'
 import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
 import RunsPage from '@/pages/runs/RunsPage.vue'
 import SettingsPage from '@/pages/settings/SettingsPage.vue'
@@ -54,6 +55,12 @@ export const router = createRouter({
       name: 'files',
       component: FilesPage,
       meta: { requiresAuth: true, title: 'Files', roles: ['owner', 'operator'] },
+    },
+    {
+      path: '/models',
+      name: 'models',
+      component: ModelsPage,
+      meta: { requiresAuth: true, title: 'Models', roles: ['owner', 'operator'] },
     },
     {
       path: '/settings',

@@ -16,11 +16,11 @@ const uiStore = useUiStore()
       gridTemplateRows: '56px minmax(0, 1fr)',
     }"
   >
-    <SidebarNav />
-    <TopStatusBar />
-    <main class="min-h-0 min-w-0 overflow-hidden">
+    <SidebarNav class="col-start-1 row-span-2 row-start-1" />
+    <TopStatusBar class="col-start-2 row-start-1" />
+    <main class="col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden">
       <RouterView />
     </main>
-    <AICopilotPanel class="row-span-2 border-l border-app-border" />
+    <AICopilotPanel class="col-start-3 row-span-2 row-start-1 border-l border-app-border" />
   </div>
 </template>

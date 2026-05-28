@@ -6,7 +6,7 @@ const navItems = [
   { label: 'Workflows', to: '/workflows/wf-media-digest', icon: Workflow },
   { label: 'Runs', to: '/runs', icon: Activity },
   { label: 'Files', to: '/files', icon: FileText },
-  { label: 'Models', to: '/settings', icon: Brain },
+  { label: 'Models', to: '/models', icon: Brain },
   { label: 'Settings', to: '/settings', icon: Settings },
 ]
 </script>
