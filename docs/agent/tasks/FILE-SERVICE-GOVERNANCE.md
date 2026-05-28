@@ -98,3 +98,7 @@ Agent 编码计划：
 10. 新增 16 个 file-service 单元/接口级测试，覆盖上传响应头、进度查询、异常映射、治理状态、治理指标、MinIO HealthIndicator、Hash、上传保护、Redis 缓存和去重事务边界。
 11. 未修改 workflow-service、task-service、ai-service、gateway-service、common、docker、共享 DTO、MQ、Gateway。
 12. 未在统一运行机 192.168.101.68 启动服务联调，需后续补测 MySQL/Redis/MinIO/Nacos。
+13. 已推送 PR 分支：feature/FILE-SERVICE-GOVERNANCE-enterprise-review。
+14. 代码提交：67fed55 feat(file): harden enterprise file governance。
+15. PR 创建链接：https://github.com/chyinan/AetherFlow/compare/feature/FILE-SERVICE-INIT-file-management...feature/FILE-SERVICE-GOVERNANCE-enterprise-review?expand=1。
+16. 与 origin/feature/FILE-SERVICE-INIT-file-management rebase 时存在冲突，冲突文件为 backend/file-service/src/main/java/com/aetherflow/file/config/MinioConfig.java 和 backend/file-service/src/main/java/com/aetherflow/file/controller/InternalFileController.java，按 AGENT.md 规则交由负责人审阅处理。
