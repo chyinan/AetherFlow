@@ -573,7 +573,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | AI-PROVIDER-ORCH-20260528 | 企业级 AI Provider Orchestration System | REVIEW | 陈胤安 | chyinan | feature/AI-PROVIDER-ORCH-20260528-provider-orchestration | backend/ai-service/**；docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md；docs/agent/logs/2026-05-28.md | 否 | git diff --name-only main...HEAD；mvn -pl backend/ai-service -am test | 2026-05-28 12:08 |
 | GW-AI-PROVIDER-ROUTE-20260528 | AI Provider Orchestration 管理 API Gateway 路由接入 | REVIEW | 陈胤安 | chyinan | feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route | backend/gateway-service/**；backend/gateway-service/src/test/**；backend/gateway-service/src/main/resources/application.yml；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Gateway 路由 /ai/provider/** -> ai-service | git diff --name-only main...HEAD；mvn -pl backend/gateway-service -am test | 2026-05-28 12:30 |
 | FILE-SERVICE-GOVERNANCE-20260528 | file-service 治理能力主线集成修复 | REVIEW | 陈胤安 | chyinan | feature/FILE-SERVICE-GOVERNANCE-main-integration | backend/file-service/**；docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 file-service 上传治理接口、Redis Key 和自有表字段 | git diff --name-only main...HEAD；mvn -pl backend/file-service -am test；git diff --check | 2026-05-28 16:30 |
-| WORKFLOW-RUNTIME-CORE-20260528 | Workflow Runtime Platform Core | REVIEW | 陈胤安 | chyinan | feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core | backend/workflow-runtime-api/**；backend/workflow-service/**；根 pom.xml；docs/superpowers/specs/**；docs/superpowers/plans/**；docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 workflow-service Runtime API/观测接口与 workflow-runtime-api 协议模块 | git diff --name-only main...HEAD；git diff --check；mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test | 2026-05-28 17:46 |
+| WORKFLOW-RUNTIME-CORE-20260528 | Workflow Runtime Platform Core | IN_PROGRESS | 陈胤安 | chyinan | feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core | backend/workflow-runtime-api/**；backend/workflow-service/**；根 pom.xml；docs/superpowers/specs/**；docs/superpowers/plans/**；docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 workflow-service Runtime API/观测接口与 workflow-runtime-api 协议模块 | git diff --name-only main...HEAD；git diff --check；mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test | 2026-05-28 17:48 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -612,14 +612,14 @@ docs/agent/README.md
 | FILE-SERVICE-GOVERNANCE-20260528 | chyinan | docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 任务文档 |
 | FILE-SERVICE-GOVERNANCE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 当日执行日志 |
 | FILE-SERVICE-GOVERNANCE-20260528 | chyinan | AGENT.md | 2026-05-28 16:10 | 2026-05-28 20:10 | RELEASED | 任务看板、契约登记与文件锁 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | backend/workflow-runtime-api/** | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | Runtime API 协议模块 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | backend/workflow-service/** | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | Workflow Runtime Core 与观测接口 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | pom.xml | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | 新增 workflow-runtime-api Maven 模块 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/superpowers/specs/** | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | Runtime 设计文档 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/superpowers/plans/** | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | Runtime 实施计划 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | 任务文档 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | 当日执行日志 |
-| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | AGENT.md | 2026-05-28 17:05 | 2026-05-29 01:05 | RELEASED | 任务看板、契约登记与文件锁 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | backend/workflow-runtime-api/** | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | Runtime API 协议模块 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | backend/workflow-service/** | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | Workflow Runtime Core 与观测接口 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | pom.xml | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | 新增 workflow-runtime-api Maven 模块 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/superpowers/specs/** | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | Runtime 设计文档 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/superpowers/plans/** | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | Runtime 实施计划 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | 任务文档 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | 当日执行日志 |
+| WORKFLOW-RUNTIME-CORE-20260528 | chyinan | AGENT.md | 2026-05-28 17:05 | 2026-05-29 01:05 | ACTIVE | 任务看板、契约登记与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则

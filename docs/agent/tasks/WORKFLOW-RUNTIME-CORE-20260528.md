@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1705-CODEX-WORKFLOW-RUNTIME-CORE
 分支：feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core
-状态：REVIEW
+状态：IN_PROGRESS
 
 任务目标：
 建设 AetherFlow Workflow Runtime Platform Core，拆出独立 workflow-runtime-api 协议模块，并在 workflow-service 内实现 Runtime Core、DAG 调度、状态机、Retry、RuntimeEvent、Metrics 与 Observability。Runtime 必须与业务节点解耦，不能包含 Whisper、Summary、Export、Notify 等节点业务逻辑。
@@ -144,3 +144,6 @@ Agent 编码计划：
 5. 合入 main：未合入，当前分支等待负责人 review/merge。
 6. 统一运行电脑验证：未运行，需补测 workflow-service 启动、Runtime REST API、真实节点注册和真实基础设施连接。
 7. 文件锁：RELEASED。
+
+自审修复记录：
+1. 2026-05-28 17:48，释放文件锁后本地自审发现 NodeExecutor、observability progress、Rabbit disabled 测试和 retry error message 仍有小风险，已重新标记 IN_PROGRESS 并恢复文件锁为 ACTIVE，修复后重新验证并释放。
