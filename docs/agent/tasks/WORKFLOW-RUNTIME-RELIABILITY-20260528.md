@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1836-CODEX-WORKFLOW-RUNTIME-RELIABILITY
 分支：feature/WORKFLOW-RUNTIME-RELIABILITY-20260528-runtime-reliability
-状态：REVIEW
+状态：DONE
 
 任务目标：
 在已合入 main 的 Workflow Runtime Core 基础上，分阶段补齐企业级 Runtime 可靠性能力：
@@ -168,6 +168,7 @@ Agent 编码计划：
 28. 第四阶段已完成：WorkflowRuntimeConfig 将 lock bean 注入 WorkflowRuntimeEngine，不让业务节点控制锁或 RuntimeState。
 29. 第四阶段已完成：新增 RedisWorkflowRuntimeLockTest 与 WorkflowRuntimeEngineLockTest，覆盖互斥、renew / release、TTL、获取失败和执行释放。
 30. 第四阶段代码已提交：e2ce521 feat(workflow): add redis runtime lock。
+31. 已按负责人指令合入 main：be8f848 merge: workflow runtime reliability。
 
 TDD 记录：
 1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
@@ -214,10 +215,13 @@ TDD 记录：
 21. 2026-05-28 21:06，补齐 Redis workflow runtime lock 后，mvn -pl backend/workflow-service -am -Dtest=RedisWorkflowRuntimeLockTest,WorkflowRuntimeEngineLockTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：8 tests，BUILD SUCCESS。
 22. 2026-05-28 21:18，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 23. 2026-05-28 21:18，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 48 tests；BUILD SUCCESS。
+24. 2026-05-28 21:29，main 上 git diff --check HEAD^..HEAD 通过，无 whitespace error。
+25. 2026-05-28 21:29，main 上 JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 48 tests；BUILD SUCCESS。
 
 当前阶段状态：
 1. 第一阶段“并行 DAG + join”已完成并验证。
 2. 第二阶段“Runtime 持久化与恢复”已完成并验证。
 3. 第三阶段“Event Stream”已完成并验证。
 4. 第四阶段“分布式锁”已完成并验证。
-5. 任务整体进入 REVIEW，等待负责人 Review / 合入 main。
+5. 任务整体已合入 main，状态 DONE。
+6. 统一运行电脑 192.168.101.68 尚未执行真实 MySQL、Redis、Nacos、RabbitMQ 全链路补测。
