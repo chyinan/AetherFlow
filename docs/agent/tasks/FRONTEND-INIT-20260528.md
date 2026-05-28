@@ -160,3 +160,13 @@ Runs 页面布局修复记录：
 6. 本地访问 http://127.0.0.1:5173/runs：返回 200。
 7. Runs 布局修复提交已本地完成：87ce740 fix(frontend): stabilize runs page layout；d0a07ba docs(agent): record FRONTEND-INIT runs layout fix。
 8. git push 连续失败，原因：GitHub 连接被重置 / 无法连接 github.com:443；当前本地分支领先远端，需要网络恢复后补推。
+
+Workflow 工作台拥挤问题修复记录：
+1. 用户截图反馈 Workflow 页面 UI 结构过于拥挤，AI Copilot 不应常驻占据全局右栏，日志也不适合固定在底部。
+2. 设计调整：AppShell 取消全局常驻 AI Copilot 第三列，主应用恢复为 Sidebar + Main 的基础控制台布局，释放工作区宽度。
+3. 设计调整：AI Copilot 入口移动到 Node Inspector 中，作为节点上下文能力；点击后以右侧抽屉弹出。
+4. 设计调整：Run Console 从底部常驻区域改为 Node Inspector 入口触发的右侧浮层，不再压缩画布高度。
+5. 代码调整：WorkflowPage 管理 Copilot/Logs 两个互斥浮层；NodeInspector 发出 open-copilot/open-logs 事件；AICopilotPanel 和 RunConsole 改为抽屉/浮层可关闭形态。
+6. 清理 uiStore 中不再使用的 copilotCollapsed/toggleCopilot 状态。
+7. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
+8. 本地访问 http://127.0.0.1:5173/workflows/wf-media-digest：返回 200。
