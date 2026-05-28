@@ -170,3 +170,8 @@ Workflow 工作台拥挤问题修复记录：
 6. 清理 uiStore 中不再使用的 copilotCollapsed/toggleCopilot 状态。
 7. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
 8. 本地访问 http://127.0.0.1:5173/workflows/wf-media-digest：返回 200。
+
+Node Inspector 重复按钮修复记录：
+1. 用户截图反馈 Node Inspector 标题栏右侧已有 Copilot/Logs 图标入口，内容区内两个大按钮重复。
+2. 已移除内容区内 Copilot 和 Logs 两个大按钮，保留标题栏图标入口。
+3. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
