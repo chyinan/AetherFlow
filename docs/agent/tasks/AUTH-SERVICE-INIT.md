@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-001
 Session ID：SESSION-20260528-AUTH-SERVICE-INIT-CODEX
 分支：feature/AUTH-SERVICE-INIT-auth-service-basic
-状态：IN_PROGRESS
+状态：BLOCKED
 
 任务目标：
 初始化并完善 auth-service，接入 Nacos、MySQL、MyBatis Plus、Redis、Swagger/OpenAPI，提供用户注册、用户登录、JWT 签发、用户信息查询、基础 RBAC 角色返回与 /health 健康检查能力。
@@ -59,3 +59,8 @@ Agent 编码计划：
 1. 本机默认 java 指向 JDK 21，需要在本次任务中显式切换到 JDK 17 执行 Maven。
 2. Redis 与 Nacos 运行态仍依赖统一环境 192.168.101.68。
 
+阻塞记录：
+1. docs-only claim 已本地提交：ddf99f5 docs(agent): claim AUTH-SERVICE-INIT。
+2. git push -u origin feature/AUTH-SERVICE-INIT-auth-service-basic 失败，网络到 github.com HTTPS 不稳定。
+3. 使用 GitHub API 检查权限：当前 gh 登录账号 xilingjie 对 chyinan/AetherFlow 的权限为 pull=true、push=false。
+4. 因 claim push 无法成功，按 AGENT.md 规则不能开始 auth-service 业务代码修改。
