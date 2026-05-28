@@ -53,7 +53,20 @@ feign:
     enabled: true
 
 aetherflow:
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://192.168.101.68:9000}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket: ${MINIO_BUCKET:aetherflow}
+  file:
+    internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
   workflow:
+    node:
+      file-internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
+      export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
+      default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
+      default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
     runtime:
       retry:
         max-attempts: ${WORKFLOW_RUNTIME_RETRY_MAX_ATTEMPTS:3}

@@ -2,12 +2,14 @@ package com.aetherflow.workflow.service.impl;
 
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -76,7 +79,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                 newTraceId(),
                 String.valueOf(instance.getId()),
                 definitionDTO,
-                input,
+                runtimeVariables(definitionDTO, input),
                 runtimeProperties.getRetry().toRetryPolicy()
         );
 
@@ -99,6 +102,25 @@ public class WorkflowServiceImpl implements WorkflowService {
     private void applySnapshot(WorkflowInstance instance, WorkflowExecutionSnapshot snapshot) {
         instance.setStatus(snapshot.runtimeState().name());
         instance.setCurrentNodeId(snapshot.currentNodeId());
+    }
+
+    private Map<String, Object> runtimeVariables(WorkflowDefinitionDTO definition, Map<String, Object> input) {
+        Map<String, Object> variables = new LinkedHashMap<>(input == null ? Map.of() : input);
+        variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, nodeConfigs(definition));
+        return variables;
+    }
+
+    private Map<String, Map<String, Object>> nodeConfigs(WorkflowDefinitionDTO definition) {
+        Map<String, Map<String, Object>> configs = new LinkedHashMap<>();
+        if (definition.getNodes() == null) {
+            return configs;
+        }
+        for (WorkflowNodeDTO node : definition.getNodes()) {
+            if (node.getNodeId() != null && !node.getNodeId().isBlank()) {
+                configs.put(node.getNodeId(), node.getConfig() == null ? Map.of() : Map.copyOf(node.getConfig()));
+            }
+        }
+        return configs;
     }
 
     private BusinessException runtimeFailure(RuntimeException exception) {

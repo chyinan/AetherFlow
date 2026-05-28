@@ -56,6 +56,30 @@ class InternalFileControllerTest {
         verify(fileInfoService).createMetadata(null, request);
     }
 
+    @Test
+    void returnsMetadataWhenInternalTokenMatches() {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        FileInternalProperties properties = new FileInternalProperties();
+        properties.setInternalToken("expected-token");
+        InternalFileController controller = new InternalFileController(fileInfoService, properties);
+        FileMetadataDTO metadata = new FileMetadataDTO(
+                7L,
+                "aetherflow",
+                "objects/audio.mp3",
+                "audio.mp3",
+                "audio/mpeg",
+                1024L,
+                "http://minio/aetherflow/objects/audio.mp3"
+        );
+        when(fileInfoService.getMetadata(7L)).thenReturn(metadata);
+
+        Result<FileMetadataDTO> result = controller.getMetadata("expected-token", 7L);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getData()).isSameAs(metadata);
+        verify(fileInfoService).getMetadata(7L);
+    }
+
     private CreateFileMetadataRequestDTO validRequest() {
         CreateFileMetadataRequestDTO request = new CreateFileMetadataRequestDTO();
         request.setBucket("aetherflow");

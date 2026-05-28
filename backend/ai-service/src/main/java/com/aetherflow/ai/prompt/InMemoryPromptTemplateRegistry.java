@@ -20,7 +20,7 @@ public class InMemoryPromptTemplateRegistry implements PromptTemplateRegistry {
         this.templates = List.of(
                 new PromptTemplate("summary", List.of(
                         new PromptVersion("summary", "v1",
-                                "You are an enterprise AI workflow assistant. Write a concise summary for the following text:\n{{text}}",
+                                "You are an enterprise AI workflow assistant. Write a concise summary in {{language}}. {{instruction}}\n{{text}}",
                                 true)
                 )),
                 new PromptTemplate("translate", List.of(

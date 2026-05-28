@@ -8,6 +8,7 @@ import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
@@ -95,6 +96,7 @@ class WorkflowServiceImplTest {
         assertThat(runtimeRequest.getValue().workflowId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().taskId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().variables()).containsEntry("file", "audio.mp3");
+        assertThat(runtimeRequest.getValue().variables()).containsKey(WorkflowNodeContextKeys.NODE_CONFIGS);
         verify(instanceMapper).updateById(instance);
     }
 
