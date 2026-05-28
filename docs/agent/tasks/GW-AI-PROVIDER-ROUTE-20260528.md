@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1219-codex-gw-ai-provider-route
 分支：feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 为 ai-service 新增的 AI Provider Orchestration 管理 API 接入 gateway-service 路由，使前端可通过 Gateway 访问 /ai/provider/status、/ai/provider/policy、/ai/provider/metrics 和 /ai/provider/policy/recover/{provider}，不修改 ai-service Provider Orchestration 业务逻辑、接口路径、请求参数或响应字段。
@@ -97,3 +97,27 @@ Agent 编码计划：
 7. 检测时间：2026-05-28 12:19:24 +08:00
 8. 不能执行的命令：无
 9. 是否需要统一运行电脑补测：是，原因是本机默认 Java 不是项目要求的 Java 17；本任务 Maven 验证将显式切到本机 JDK 17。
+
+实施记录：
+1. 已为 ai-service 新增显式 Gateway 路由 `/ai/provider/**`，目标服务为 `lb://ai-service`，并设置 `order: -50`，使其优先于泛 `/ai/**` 路由匹配。
+2. 已补充 `ai-provider-management` 的 Sentinel IP 限流规则，和现有 `ai-service` route-id 治理风格保持一致。
+3. 已补充路由测试，验证 `/ai/provider/status`、`/ai/provider/policy`、`/ai/provider/metrics` 和 `/ai/provider/policy/recover/openai` 会优先匹配到 `ai-provider-management` 路由。
+4. docs-only claim 已提交：`d3c7e10c00cef82a8be63bcb70f3a4bd4da2c539 docs(agent): claim GW-AI-PROVIDER-ROUTE-20260528`。
+5. docs-only claim 已通过 GitHub API 推送到远端分支。
+6. 业务代码已提交：`7e2cb3be5d1668d230a6eceae66ddfb62b57beb4 feat(gateway): add ai provider route`。
+
+验证结果：
+1. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test`：通过，common 8 tests，gateway-service 16 tests，BUILD SUCCESS。
+2. `git diff --check`：通过。
+3. `git diff --name-only main...HEAD`：通过，文件列表为 AGENT.md、backend/gateway-service/src/main/resources/application.yml、backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java、docs/agent/logs/2026-05-28.md、docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md。
+
+交接记录：
+1. 任务ID：GW-AI-PROVIDER-ROUTE-20260528
+2. 完成内容：为 ai-service 的 Provider Orchestration 管理 API 补齐 Gateway 显式路由、Sentinel IP 限流规则和路由测试。
+3. 修改文件：backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md
+4. 测试结果：`mvn -pl backend/gateway-service -am test` 通过。
+5. PR/提交/分支：`feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route`；claim `d3c7e10c00cef82a8be63bcb70f3a4bd4da2c539`；业务提交 `7e2cb3be5d1668d230a6eceae66ddfb62b57beb4`。
+6. 合入 main：未合入
+7. 统一运行电脑验证：未运行
+8. 遗留问题：无功能阻塞，等待负责人 Review 后合入 main。
+9. 文件锁：RELEASED
