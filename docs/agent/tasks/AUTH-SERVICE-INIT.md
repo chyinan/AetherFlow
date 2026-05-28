@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-001
 Session ID：SESSION-20260528-AUTH-SERVICE-INIT-CODEX
 分支：feature/AUTH-SERVICE-INIT-auth-service-basic
-状态：BLOCKED
+状态：IN_PROGRESS
 
 任务目标：
 初始化并完善 auth-service，接入 Nacos、MySQL、MyBatis Plus、Redis、Swagger/OpenAPI，提供用户注册、用户登录、JWT 签发、用户信息查询、基础 RBAC 角色返回与 /health 健康检查能力。
@@ -64,3 +64,7 @@ Agent 编码计划：
 2. git push -u origin feature/AUTH-SERVICE-INIT-auth-service-basic 失败，网络到 github.com HTTPS 不稳定。
 3. 使用 GitHub API 检查权限：当前 gh 登录账号 xilingjie 对 chyinan/AetherFlow 的权限为 pull=true、push=false。
 4. 因 claim push 无法成功，按 AGENT.md 规则不能开始 auth-service 业务代码修改。
+
+恢复记录：
+1. GitHub 仓库权限已恢复为 push=true。
+2. feature/AUTH-SERVICE-INIT-auth-service-basic 已成功推送到 origin。
