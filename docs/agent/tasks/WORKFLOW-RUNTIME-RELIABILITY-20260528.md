@@ -95,6 +95,14 @@ Agent 编码计划：
 4. Redis 分布式锁需要 workflow-service 增加 Redis 依赖和配置；如统一运行环境 Redis 不可用，需记录为统一运行电脑补测风险。
 5. 恢复未完成 in-flight 节点可能导致业务节点重复执行，Runtime 会通过快照跳过已完成节点，但真实节点仍需保证自身幂等。
 
+第二阶段新增 Runtime 自有表：
+1. 表名：af_workflow_runtime_snapshot。
+2. 原因：服务重启后需要由 Runtime 恢复 RUNNING / RETRYING workflow 的 DAG 位置、已完成节点、失败节点、变量、nodeOutputs 和 workflow 定义快照；仅依赖内存观测状态无法跨进程恢复。
+3. 字段：id、workflow_id、trace_id、task_id、definition_id、definition_json、runtime_state、current_node_ids_json、completed_node_ids_json、failed_node_ids_json、variables_json、node_outputs_json、created_at、updated_at。
+4. 索引：workflow_id 唯一索引；runtime_state + updated_at 查询索引，用于启动恢复扫描。
+5. 位置：backend/workflow-service/src/main/resources/db/workflow-runtime-reliability.sql。
+6. 边界：该表仅属于 workflow-service Runtime；未修改公共 DTO、既有 MQ 契约或 docker 初始化脚本，统一运行环境需手动应用 SQL 后联调。
+
 开工同步记录：
 1. 已读取 AGENT.md 和 docs/COMMON_CONTRACTS.md。
 2. 已读取已合入 main 的 workflow-runtime-api 与 workflow-service Runtime Core 代码。
@@ -125,6 +133,13 @@ Agent 编码计划：
 8. 第一阶段已完成：NodeResult.nextNodeId 只能跳转到 DAG 已声明边，不能让业务节点任意控制调度。
 9. 第一阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
 10. 第一阶段代码已提交并推送：dd85e64 feat(workflow): add parallel dag join scheduling。
+11. 第二阶段已完成：WorkflowExecutionSnapshot 扩展 currentNodeIds、failedNodeIds，保留旧构造器兼容现有调用。
+12. 第二阶段已完成：新增 RuntimeSnapshotRepository、WorkflowRuntimeSnapshot、InMemoryRuntimeSnapshotRepository 和 MybatisRuntimeSnapshotRepository，支持快照保存、按 workflowId 查询和 RUNNING / RETRYING 扫描。
+13. 第二阶段已完成：WorkflowRuntimeEngine 在 execute / resume 生命周期内由 Runtime 写入快照，恢复时跳过已完成节点并还原变量与 nodeOutputs。
+14. 第二阶段已完成：新增 WorkflowRuntimeRecoveryService 与 WorkflowRuntimeRecoveryRunner，服务启动时可按配置恢复 recoverable workflow；缺表等运行环境问题只记录 warn，不阻断服务启动。
+15. 第二阶段已完成：workflow-service application.yml 增加 aetherflow.workflow.runtime.recovery.enabled 与 scan-limit 配置。
+16. 第二阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
+17. 第二阶段代码已提交：864d0a5 feat(workflow): add runtime snapshot recovery。
 
 TDD 记录：
 1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
@@ -133,6 +148,12 @@ TDD 记录：
 4. 补充 retriesFailedParallelBranchAndThenRunsJoin，验证并行分支 retry 成功后才运行 join。
 5. 补充 failsWorkflowWhenParallelBranchExhaustsRetryAndDoesNotRunJoin，验证并行分支 retry 耗尽后 workflow 失败且 join 不启动。
 6. 补充 rejectsRuntimeNextNodeThatWasNotDeclaredInDag，验证业务节点不能通过 NodeResult.nextNodeId 跳到未声明边。
+7. WorkflowRuntimeRecoveryTest 先失败于 WorkflowRuntimeEngine 缺少 resume 能力，随后补齐恢复入口后通过。
+8. WorkflowRuntimeRecoveryServiceTest 先验证 RUNNING / RETRYING 恢复与 SUCCESS 跳过；补齐恢复服务后通过。
+9. MybatisRuntimeSnapshotRepositoryTest 先失败于持久化 repository 缺失，随后补齐 JSON 序列化实体与 mapper 后通过。
+10. WorkflowRuntimeRecoveryRunnerTest 先失败于恢复配置和启动 runner 缺失，随后补齐 properties 与 ApplicationRunner 后通过。
+11. 补充快照恢复变量和 nodeOutputs 的断言，确保恢复逻辑由 Runtime 控制。
+12. 补充最终快照保存断言，确保恢复完成后 repository 中记录 SUCCESS 终态。
 
 验证记录：
 1. 2026-05-28 18:45，mvn -pl backend/workflow-service -am -Dtest=WorkflowDagTest test 首次被 common 模块 surefire 无匹配测试拦截；随后使用 -Dsurefire.failIfNoSpecifiedTests=false 重新运行。
@@ -146,10 +167,15 @@ TDD 记录：
 9. 2026-05-28 19:53，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeEngineTest,WorkflowDagTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：10 tests，BUILD SUCCESS。
 10. 2026-05-28 19:55，git diff --check 通过，无 whitespace error。
 11. 2026-05-28 19:55，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 28 tests；BUILD SUCCESS。
+12. 2026-05-28 20:20，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeRecoveryTest,WorkflowRuntimeRecoveryServiceTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：2 tests，BUILD SUCCESS。
+13. 2026-05-28 20:21，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeRecoveryRunnerTest,MybatisRuntimeSnapshotRepositoryTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：4 tests，BUILD SUCCESS。
+14. 2026-05-28 20:21，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeRecoveryTest,WorkflowRuntimeRecoveryServiceTest,WorkflowRuntimeRecoveryRunnerTest,MybatisRuntimeSnapshotRepositoryTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：6 tests，BUILD SUCCESS。
+15. 2026-05-28 20:26，git diff --check 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+16. 2026-05-28 20:26，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 34 tests；BUILD SUCCESS。
 
 当前阶段状态：
 1. 第一阶段“并行 DAG + join”已完成并验证。
-2. 第二阶段“Runtime 持久化与恢复”未开始。
+2. 第二阶段“Runtime 持久化与恢复”已完成并验证。
 3. 第三阶段“Event Stream”未开始。
 4. 第四阶段“分布式锁”未开始。
 5. 任务整体保持 IN_PROGRESS，不标记 DONE。
