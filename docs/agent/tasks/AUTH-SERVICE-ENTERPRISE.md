@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-002
 Session ID：SESSION-20260528-AUTH-SERVICE-ENTERPRISE-CODEX
 分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance
-状态：IN_PROGRESS
+状态：BLOCKED
 
 任务目标：
 在 auth-service 内实现企业级认证服务治理能力，包括 Access Token + Refresh Token、Redis Session 管理、Token 黑名单、登录审计日志、TraceId/requestId/userId 日志规范、DTO 参数校验、auth-service 本地统一异常处理、Swagger 完善、Redis Key 规范、Metrics API 和登录安全限制。
@@ -64,3 +64,10 @@ Agent 编码计划：
 2. git fetch origin 在 2026-05-28 本次会话中因 github.com HTTPS 连接重置失败；当前企业增强分支从 feature/AUTH-SERVICE-INIT-auth-service-basic 的 b671465 切出。
 3. Gateway 当前已有独立黑名单前缀 aetherflow:gateway:token:blacklist:；本任务不修改 Gateway，因此 auth:blacklist:{token} 是否被 Gateway 拦截需要后续网关任务或配置对齐。
 4. Redis/MySQL/Nacos 运行态依赖 192.168.101.68 统一环境，本机单元测试只能覆盖代码行为和配置解析。
+
+阻塞记录：
+1. docs-only claim 已本地提交：77aecc7 docs(agent): claim AUTH-SERVICE-ENTERPRISE。
+2. git push -u origin feature/AUTH-SERVICE-ENTERPRISE-auth-governance 失败：无法连接 github.com:443。
+3. Test-NetConnection github.com -Port 443 失败，TcpTestSucceeded=False。
+4. github.com:22 可连通，但 ssh -T git@github.com 返回 Permission denied (publickey)，当前机器没有可用 GitHub SSH key。
+5. 按 AGENT.md claim-first 规则，claim push 成功前不得修改 backend/auth-service 业务代码。
