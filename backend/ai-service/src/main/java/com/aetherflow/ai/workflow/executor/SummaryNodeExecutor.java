@@ -38,7 +38,11 @@ public class SummaryNodeExecutor implements AiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         PromptRenderResult prompt = promptRenderService.render("summary", context.payloadString("promptVersion", ""),
-                Map.of("text", context.payloadString("text")));
+                Map.of(
+                        "text", context.payloadString("text"),
+                        "language", context.payloadString("language", "English"),
+                        "instruction", context.payloadString("prompt", "Focus on the key decisions and action items.")
+                ));
         AiProviderResponse response = providerRouter.complete(new AiProviderRequest(
                 AiProviderType.from(context.payloadString("provider", ""), null),
                 context.payloadString("model", properties.getDefaultModel()),
@@ -48,6 +52,7 @@ public class SummaryNodeExecutor implements AiNodeExecutor {
         ));
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("summary", response.text());
+        output.put("language", context.payloadString("language", "English"));
         output.put("provider", response.provider().name());
         output.put("model", response.model());
         output.put("promptVersion", prompt.version());

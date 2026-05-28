@@ -15,6 +15,8 @@ public interface FileInfoService {
 
     void delete(Long userId, Long fileId);
 
+    FileMetadataDTO getMetadata(Long fileId);
+
     FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request);
 
     UploadProgressView getUploadProgress(Long userId, String taskId);

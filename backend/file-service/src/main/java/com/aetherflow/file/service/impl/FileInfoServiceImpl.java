@@ -186,6 +186,11 @@ public class FileInfoServiceImpl implements FileInfoService {
     }
 
     @Override
+    public FileMetadataDTO getMetadata(Long fileId) {
+        return toDTO(getAvailableFile(fileId));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request) {
         String contentType = resolveContentType(request.getContentType());
