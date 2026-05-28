@@ -175,3 +175,13 @@ Node Inspector 重复按钮修复记录：
 1. 用户截图反馈 Node Inspector 标题栏右侧已有 Copilot/Logs 图标入口，内容区内两个大按钮重复。
 2. 已移除内容区内 Copilot 和 Logs 两个大按钮，保留标题栏图标入口。
 3. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
+
+Models / Settings mock 细化记录：
+1. 根据用户要求细化 Models 和 Settings 页面，当前仍全部使用 mock 数据，不对接真实后端。
+2. 已新增 modelApi、settingsApi、modelStore、settingsStore、modelMock、settingsMock、Model/Settings 类型定义，保持页面通过 services/api 和 Pinia 访问数据。
+3. Models 页面已扩展为模型运行管理 mock 控制台：provider 汇总、provider 列表、routing policy、model catalog、runtime logs 和 provider snapshot。
+4. Settings 页面已扩展为工作区设置 mock 控制台：General、Members、Environment、Integrations、Audit 分区，以及 workspace、RBAC、环境变量、集成状态和审计日志 mock 展示。
+5. 页面没有直接调用 axios；mock 数据未散落在页面组件内。
+6. 本地访问 http://127.0.0.1:5173/models：200；http://127.0.0.1:5173/settings：200。
+7. node -v：通过，v24.15.0；npm -v：通过，11.12.1；npm install：通过，up to date。
+8. npm run build：通过，vue-tsc -b && vite build 成功；产物 CSS 28.85 kB，JS 408.67 kB。
