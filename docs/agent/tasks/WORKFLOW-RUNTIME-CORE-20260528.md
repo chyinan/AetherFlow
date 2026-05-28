@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1705-CODEX-WORKFLOW-RUNTIME-CORE
 分支：feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core
-状态：REVIEW
+状态：DONE
 
 任务目标：
 建设 AetherFlow Workflow Runtime Platform Core，拆出独立 workflow-runtime-api 协议模块，并在 workflow-service 内实现 Runtime Core、DAG 调度、状态机、Retry、RuntimeEvent、Metrics 与 Observability。Runtime 必须与业务节点解耦，不能包含 Whisper、Summary、Export、Notify 等节点业务逻辑。
@@ -141,7 +141,7 @@ Agent 编码计划：
 2. 修改范围限定在 backend/workflow-runtime-api/**、backend/workflow-service/**、pom.xml、docs/superpowers/**、docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md、docs/agent/logs/2026-05-28.md、AGENT.md。
 3. 未修改 ai-service、gateway-service、auth-service、file-service、task-service、common、docker、frontend、python-ai-service、performance-test。
 4. 未修改公共 DTO、既有 MQ 契约、数据库结构或 Gateway 路由。
-5. 合入 main：未合入，当前分支等待负责人 review/merge。
+5. 合入 main：已合入，主线合并提交 df6893c。
 6. 统一运行电脑验证：未运行，需补测 workflow-service 启动、Runtime REST API、真实节点注册和真实基础设施连接。
 7. 文件锁：RELEASED。
 
@@ -150,3 +150,11 @@ Agent 编码计划：
 2. 2026-05-28 17:51，已修复：NodeExecutor.nodeType() 改为强制实现；WorkflowCompleted progress 返回 1.0；Rabbit disabled 测试改为 verifyNoInteractions；retry error message 兼容 null。
 3. 2026-05-28 17:51，重新执行 JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test，通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 21 tests；BUILD SUCCESS。
 4. 文件锁：RELEASED。
+
+主线合入记录：
+1. 2026-05-28 18:17，已从 origin/main 同步最新主线，执行 git merge --no-ff feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core -m "merge: workflow runtime core"，无冲突。
+2. 主线合并提交：df6893c merge: workflow runtime core。
+3. 2026-05-28 18:18，在 main 上执行 git diff --check HEAD^..HEAD，通过，无 whitespace error。
+4. 2026-05-28 18:18，在 main 上执行 JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test，通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 21 tests；BUILD SUCCESS。
+5. 合入 main：已合入。
+6. 统一运行电脑验证：未运行，仍需在 192.168.101.68 补测 workflow-service 启动、Runtime REST API、真实节点注册和真实基础设施连接。
