@@ -139,3 +139,5 @@ Review 调整记录：
 4. 调整 Login 默认跳转、根路由重定向和 Sidebar 导航，使 Projects 成为主入口，Workflow 画布作为项目下的具体编排页。
 5. 增强 Workflow 画布背景为 24px 小网格 + 120px 主网格，并保留 Vue Flow Background 网格，便于理解节点编排空间。
 6. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
+7. Review 调整提交已本地完成：2e00329 feat(frontend): add project workspace home；e57370b docs(agent): update FRONTEND-INIT review adjustments。
+8. git push 连续失败，原因分别为 GitHub 连接被重置和无法连接 github.com:443；本地分支当前领先 origin/feature/FRONTEND-INIT-20260528-frontend-init 2 个提交，需要网络恢复后补推。
