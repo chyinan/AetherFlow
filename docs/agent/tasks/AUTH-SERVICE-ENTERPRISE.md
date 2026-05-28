@@ -4,7 +4,7 @@
 Agent ID：codex-auth-20260528-002
 Session ID：SESSION-20260528-AUTH-SERVICE-ENTERPRISE-CODEX
 分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance
-状态：BLOCKED
+状态：IN_PROGRESS
 
 任务目标：
 在 auth-service 内实现企业级认证服务治理能力，包括 Access Token + Refresh Token、Redis Session 管理、Token 黑名单、登录审计日志、TraceId/requestId/userId 日志规范、DTO 参数校验、auth-service 本地统一异常处理、Swagger 完善、Redis Key 规范、Metrics API 和登录安全限制。
@@ -71,3 +71,9 @@ Agent 编码计划：
 3. Test-NetConnection github.com -Port 443 失败，TcpTestSucceeded=False。
 4. github.com:22 可连通，但 ssh -T git@github.com 返回 Permission denied (publickey)，当前机器没有可用 GitHub SSH key。
 5. 按 AGENT.md claim-first 规则，claim push 成功前不得修改 backend/auth-service 业务代码。
+
+恢复记录：
+1. 用户已完成 GitHub SSH 登录配置。
+2. 已将 origin 切换为 git@github.com:chyinan/AetherFlow.git。
+3. 已成功推送 feature/AUTH-SERVICE-ENTERPRISE-auth-governance，claim-first 前置条件已满足。
+4. 任务状态恢复为 IN_PROGRESS。
