@@ -13,6 +13,7 @@ public class WorkflowRuntimeProperties {
     private Retry retry = new Retry();
     private Events events = new Events();
     private Observability observability = new Observability();
+    private Recovery recovery = new Recovery();
 
     @Data
     public static class Retry {
@@ -41,5 +42,11 @@ public class WorkflowRuntimeProperties {
     @Data
     public static class Observability {
         private int maxEventsPerWorkflow = 200;
+    }
+
+    @Data
+    public static class Recovery {
+        private boolean enabled = true;
+        private int scanLimit = 100;
     }
 }

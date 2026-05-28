@@ -61,6 +61,9 @@ aetherflow:
           routing-key: ${WORKFLOW_RUNTIME_EVENT_MQ_ROUTING_KEY:}
       observability:
         max-events-per-workflow: ${WORKFLOW_RUNTIME_OBSERVABILITY_MAX_EVENTS:200}
+      recovery:
+        enabled: ${WORKFLOW_RUNTIME_RECOVERY_ENABLED:true}
+        scan-limit: ${WORKFLOW_RUNTIME_RECOVERY_SCAN_LIMIT:100}
 
 management:
   endpoints:

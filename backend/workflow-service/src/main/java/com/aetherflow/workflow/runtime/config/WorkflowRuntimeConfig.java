@@ -10,6 +10,7 @@ import com.aetherflow.workflow.runtime.event.CompositeRuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.event.RabbitRuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
+import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -69,7 +70,14 @@ public class WorkflowRuntimeConfig {
     public WorkflowRuntimeEngine workflowRuntimeEngine(NodeRegistry nodeRegistry,
                                                        RuntimeStateMachine runtimeStateMachine,
                                                        RuntimeEventPublisher runtimeEventPublisher,
-                                                       RuntimeSleeper runtimeSleeper) {
-        return new WorkflowRuntimeEngine(nodeRegistry, runtimeStateMachine, runtimeEventPublisher, runtimeSleeper);
+                                                       RuntimeSleeper runtimeSleeper,
+                                                       RuntimeSnapshotRepository snapshotRepository) {
+        return new WorkflowRuntimeEngine(
+                nodeRegistry,
+                runtimeStateMachine,
+                runtimeEventPublisher,
+                runtimeSleeper,
+                snapshotRepository
+        );
     }
 }
