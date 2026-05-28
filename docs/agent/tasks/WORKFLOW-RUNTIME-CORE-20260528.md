@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-1705-CODEX-WORKFLOW-RUNTIME-CORE
 分支：feature/WORKFLOW-RUNTIME-CORE-20260528-runtime-core
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 建设 AetherFlow Workflow Runtime Platform Core，拆出独立 workflow-runtime-api 协议模块，并在 workflow-service 内实现 Runtime Core、DAG 调度、状态机、Retry、RuntimeEvent、Metrics 与 Observability。Runtime 必须与业务节点解耦，不能包含 Whisper、Summary、Export、Notify 等节点业务逻辑。
@@ -106,3 +106,41 @@ Agent 编码计划：
 8. 不能执行的命令：无
 9. 是否需要统一运行电脑补测：是，原因是 workflow-service 真实 MySQL/Nacos/Seata/RabbitMQ 链路需要统一运行环境验证。
 
+实施记录：
+1. docs-only claim 已提交并推送：fa92b7c docs(agent): claim WORKFLOW-RUNTIME-CORE-20260528。
+2. Runtime 设计与实施计划已写入 docs/superpowers/specs/2026-05-28-workflow-runtime-core-design.md 和 docs/superpowers/plans/2026-05-28-workflow-runtime-core.md。
+3. 新增 backend/workflow-runtime-api Maven 模块，并加入根 pom.xml modules。
+4. workflow-runtime-api 已提供 NodeExecutor、WorkflowContext、RuntimeEvent、RuntimeEventPublisher、RuntimeEventType、NodeType、NodeResult、RuntimeState、RetryPolicy、NodeRegistry。
+5. WorkflowContext 在 workflow-service 内由 DefaultWorkflowContext 实现，variables 使用 ConcurrentHashMap，nodeOutputs 对 Node 调用方只读。
+6. RuntimeStateMachine 已限制状态推进，只允许 Runtime 从 PENDING/RUNNING/RETRYING 推进到合法目标状态。
+7. WorkflowRuntimeEngine 已支持 DAG 顺序兜底、显式 next/nextNodes、condition branches/defaultNext、NodeRegistry 调度、RetryPolicy 重试、RuntimeEvent 发布和失败状态推进。
+8. RuntimeEvent 发布链路支持 metrics、observability 和可选 RabbitMQ publisher；RabbitMQ 默认关闭，不新增队列或修改既有 MQ 契约。
+9. 新增 /workflow/runtime/metrics、/workflow/runtime/observability/{workflowId}、/workflow/runtime/events/{workflowId}。
+10. WorkflowServiceImpl.startInstance 已由旧 TaskClient 首节点调度改为创建实例后交给 WorkflowRuntimeEngine 推进生命周期，并写回 SUCCESS/FAILED。
+11. RuntimeLogContext 和 application.yml logging pattern 已支持 traceId、workflowId、nodeId、taskId。
+
+验证记录：
+1. 2026-05-28 17:17，先运行 mvn -pl backend/workflow-runtime-api -am test，按 TDD 预期失败：NodeType、NodeExecutor、WorkflowContext、NodeResult、NodeRegistry、RetryPolicy、RuntimeEvent 等协议类型尚不存在。
+2. 2026-05-28 17:19，补齐 workflow-runtime-api 后运行 mvn -pl backend/workflow-runtime-api -am test，通过，workflow-runtime-api 10 tests，BUILD SUCCESS。
+3. 2026-05-28 17:22，Context/状态机测试先失败于 RuntimeStateMachine/DefaultWorkflowContext 尚未实现。
+4. 2026-05-28 17:23，补齐 Context/状态机后运行 mvn -pl backend/workflow-service -am test，通过，workflow-service 7 tests，BUILD SUCCESS。
+5. 2026-05-28 17:24，DAG Engine 测试先失败于 WorkflowRuntimeEngine/WorkflowRuntimeRequest/WorkflowExecutionSnapshot 尚未实现。
+6. 2026-05-28 17:27，DAG Engine 编译后发现 branch 图误走顺序兜底，已修正为只有无显式边时才使用 nodes 顺序兜底；随后测试通过。
+7. 2026-05-28 17:30，Retry/Event/Metrics/Observability 测试先失败于相关类尚未实现。
+8. 2026-05-28 17:33，补齐 Retry/Event/Metrics/Observability 后运行 mvn -pl backend/workflow-service -am test，通过，workflow-service 13 tests，BUILD SUCCESS。
+9. 2026-05-28 17:35，Spring REST/MQ/config 测试先失败于 AMQP 依赖和配置/Controller/Publisher 尚未实现。
+10. 2026-05-28 17:36，补齐 Spring 层后运行 mvn -pl backend/workflow-service -am test，通过，workflow-service 18 tests，BUILD SUCCESS。
+11. 2026-05-28 17:38，WorkflowServiceImpl/RuntimeLogContext 测试先失败于旧 TaskClient 构造器和 RuntimeLogContext 尚未实现。
+12. 2026-05-28 17:41，补齐 WorkflowServiceImpl Runtime 生命周期接入和 MDC helper 后运行 mvn -pl backend/workflow-service -am test，通过，workflow-service 21 tests，BUILD SUCCESS。
+13. 2026-05-28 17:42，执行 git diff --name-only main...HEAD，通过，修改范围符合文件锁。
+14. 2026-05-28 17:42，执行 git diff --check，通过，无 whitespace error。
+15. 2026-05-28 17:46，执行 JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test，通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 21 tests；BUILD SUCCESS。
+
+交接记录：
+1. 完成 Workflow Runtime Platform Core 第一版。
+2. 修改范围限定在 backend/workflow-runtime-api/**、backend/workflow-service/**、pom.xml、docs/superpowers/**、docs/agent/tasks/WORKFLOW-RUNTIME-CORE-20260528.md、docs/agent/logs/2026-05-28.md、AGENT.md。
+3. 未修改 ai-service、gateway-service、auth-service、file-service、task-service、common、docker、frontend、python-ai-service、performance-test。
+4. 未修改公共 DTO、既有 MQ 契约、数据库结构或 Gateway 路由。
+5. 合入 main：未合入，当前分支等待负责人 review/merge。
+6. 统一运行电脑验证：未运行，需补测 workflow-service 启动、Runtime REST API、真实节点注册和真实基础设施连接。
+7. 文件锁：RELEASED。
