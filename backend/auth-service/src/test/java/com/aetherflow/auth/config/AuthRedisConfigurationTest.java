@@ -29,4 +29,23 @@ class AuthRedisConfigurationTest {
         assertThat(properties.getProperty("spring.data.redis.database")).isEqualTo("${REDIS_DATABASE:0}");
         assertThat(properties.getProperty("spring.data.redis.timeout")).isEqualTo("3s");
     }
+
+    @Test
+    void applicationYmlDefinesAuthGovernanceDefaults() {
+        YamlPropertiesFactoryBean yaml = new YamlPropertiesFactoryBean();
+        yaml.setResources(new ClassPathResource("application.yml"));
+        Properties properties = yaml.getObject();
+
+        assertThat(properties).isNotNull();
+        assertThat(properties.getProperty("aetherflow.auth.token.refresh-expire-minutes"))
+                .isEqualTo("${JWT_REFRESH_EXPIRE_MINUTES:10080}");
+        assertThat(properties.getProperty("aetherflow.auth.token.refresh-secret"))
+                .isEqualTo("${JWT_REFRESH_SECRET:aetherflow-refresh-secret-change-me-32bytes-minimum}");
+        assertThat(properties.getProperty("aetherflow.auth.security.login-rate-limit-per-minute"))
+                .isEqualTo("${AUTH_LOGIN_RATE_LIMIT_PER_MINUTE:20}");
+        assertThat(properties.getProperty("aetherflow.auth.security.password-max-failures"))
+                .isEqualTo("${AUTH_PASSWORD_MAX_FAILURES:5}");
+        assertThat(properties.getProperty("logging.pattern.console"))
+                .contains("traceId=%X{traceId}", "userId=%X{userId}", "requestId=%X{requestId}");
+    }
 }

@@ -45,6 +45,15 @@ aetherflow:
       issuer: aetherflow
       secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
       expire-minutes: 120
+  auth:
+    token:
+      refresh-expire-minutes: ${JWT_REFRESH_EXPIRE_MINUTES:10080}
+      refresh-secret: ${JWT_REFRESH_SECRET:aetherflow-refresh-secret-change-me-32bytes-minimum}
+    security:
+      login-rate-limit-per-minute: ${AUTH_LOGIN_RATE_LIMIT_PER_MINUTE:20}
+      login-rate-window-seconds: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:60}
+      password-max-failures: ${AUTH_PASSWORD_MAX_FAILURES:5}
+      password-failure-window-minutes: ${AUTH_PASSWORD_FAILURE_WINDOW_MINUTES:15}
 
 management:
   endpoints:
@@ -64,5 +73,5 @@ springdoc:
 
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level traceId=%X{traceId} userId=%X{userId} requestId=%X{requestId} %logger{36} - %msg%n"
 
