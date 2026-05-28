@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-FILE-SERVICE-GOVERNANCE-INTEGRATION-CODEX
 分支：feature/FILE-SERVICE-GOVERNANCE-main-integration
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 把 feature/FILE-SERVICE-GOVERNANCE-enterprise-review 中的 file-service 治理能力安全集成到最新 main，解决 MinioConfig 和 InternalFileController 冲突，保留主线内部 token 校验，补齐上传进度查询的用户访问边界，避免回退 main 已合入的其他模块。
@@ -65,3 +65,25 @@ Agent 编码计划：
 1. git fetch origin 首次失败：GitHub 连接被重置；当前基于本地 origin/main=6469d1e 开工。
 2. 治理分支基线落后 main，不能直接 merge；必须按文件边界移植。
 3. Redis/MinIO 需要统一运行电脑做集成补测。
+
+实施记录：
+1. docs-only claim 已推送到 GitHub：8ecd37a docs(agent): claim FILE-SERVICE-GOVERNANCE-20260528。
+2. 未直接 merge feature/FILE-SERVICE-GOVERNANCE-enterprise-review，改为基于 main 移植 backend/file-service/** 范围内治理改动。
+3. MinioConfig 已同时保留 FileInternalProperties 和 FileUploadProperties。
+4. InternalFileController 已同时保留 X-Internal-File-Token 校验和 Swagger 示例。
+5. 上传进度查询改为要求 X-User-Id，并在 Redis 进度记录 userId 不匹配时返回 FORBIDDEN。
+6. 新增/保留 20 个 file-service 单元/接口级测试，覆盖上传响应头、文件类型异常、进度用户隔离、内部 token、治理状态、指标、MinIO health、Hash、上传保护、去重和 ownerless 权限保护。
+7. 业务提交：cc7dbdd feat(file): integrate governance on main。
+
+验证记录：
+1. 2026-05-28 16:19，使用本机默认 Maven/Java 运行 mvn -pl backend/file-service -am test，失败；原因是 Maven 使用 Java 11，无法运行 Java 17 编译产物。
+2. 2026-05-28 16:23，设置 JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot 后执行 mvn -pl backend/file-service -am test，通过。common 8 tests；file-service 20 tests；BUILD SUCCESS。
+3. 2026-05-28 16:23，执行 git diff --cached --check，通过，无 whitespace error。
+
+交接记录：
+1. 完成 file-service 治理能力主线集成修复。
+2. 修改范围限定在 backend/file-service/**、AGENT.md、docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md、docs/agent/logs/2026-05-28.md。
+3. 未修改 ai-service、gateway-service、task-service、auth-service、common、frontend、python-ai-service、docker、performance-test。
+4. 合入 main：未合入，当前分支等待负责人 review/merge。
+5. 统一运行电脑验证：未运行，需补测 Redis/MinIO/MySQL/Nacos 以及上传/下载/删除/进度/status/metrics。
+6. 文件锁：RELEASED。
