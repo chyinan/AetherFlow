@@ -62,6 +62,10 @@ public class WorkflowDag {
         return node;
     }
 
+    public int nodeCount() {
+        return orderedNodeIds.size();
+    }
+
     public List<String> nextNodeIds(String nodeId, NodeResult result) {
         WorkflowNodeDTO node = node(nodeId);
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();

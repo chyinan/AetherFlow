@@ -5,15 +5,20 @@ import com.aetherflow.workflow.runtime.api.NodeExecutor;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.NodeType;
+import com.aetherflow.workflow.runtime.api.RuntimeEvent;
+import com.aetherflow.workflow.runtime.api.RuntimeEventPublisher;
+import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
@@ -22,14 +27,27 @@ public class WorkflowRuntimeEngine {
 
     private final NodeRegistry nodeRegistry;
     private final RuntimeStateMachine stateMachine;
+    private final RuntimeEventPublisher eventPublisher;
+    private final RuntimeSleeper runtimeSleeper;
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
-        this(nodeRegistry, new RuntimeStateMachine());
+        this(nodeRegistry, new RuntimeStateMachine(), event -> {
+        }, RuntimeSleeper.threadSleep());
     }
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry, RuntimeStateMachine stateMachine) {
+        this(nodeRegistry, stateMachine, event -> {
+        }, RuntimeSleeper.threadSleep());
+    }
+
+    public WorkflowRuntimeEngine(NodeRegistry nodeRegistry,
+                                 RuntimeStateMachine stateMachine,
+                                 RuntimeEventPublisher eventPublisher,
+                                 RuntimeSleeper runtimeSleeper) {
         this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry must not be null");
         this.stateMachine = Objects.requireNonNull(stateMachine, "stateMachine must not be null");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
+        this.runtimeSleeper = Objects.requireNonNull(runtimeSleeper, "runtimeSleeper must not be null");
     }
 
     public WorkflowExecutionSnapshot execute(WorkflowRuntimeRequest request) {
@@ -42,6 +60,7 @@ public class WorkflowRuntimeEngine {
                 request.variables()
         );
         context.updateRuntimeState(stateMachine.transition(RuntimeState.PENDING, RuntimeState.RUNNING));
+        publish(context, RuntimeEventType.WORKFLOW_STARTED, null, Map.of("totalNodes", dag.nodeCount()));
 
         List<String> completedNodeIds = new ArrayList<>();
         Queue<String> readyQueue = new ArrayDeque<>();
@@ -55,10 +74,12 @@ public class WorkflowRuntimeEngine {
                 WorkflowNodeDTO node = dag.node(nodeId);
                 context.updateCurrentNodeId(nodeId);
                 NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
-                NodeResult result = executeNode(executor, context);
+                publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
+                NodeResult result = executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType());
                 context.recordNodeOutput(nodeId, result);
                 context.variables().putAll(result.variables());
                 completedNodeIds.add(nodeId);
+                publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("nodeType", node.getNodeType()));
 
                 for (String nextNodeId : dag.nextNodeIds(nodeId, result)) {
                     if (scheduledOrCompleted.add(nextNodeId)) {
@@ -67,24 +88,57 @@ public class WorkflowRuntimeEngine {
                 }
             }
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
+            publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of());
             return snapshot(context, completedNodeIds);
         } catch (RuntimeException exception) {
             if (!stateMachine.isTerminal(context.runtimeState())) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
             }
+            publish(context, RuntimeEventType.WORKFLOW_FAILED, context.currentNodeId(),
+                    Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage()));
             throw exception;
         }
     }
 
-    private NodeResult executeNode(NodeExecutor executor, DefaultWorkflowContext context) {
-        try {
-            NodeResult result = executor.execute(context);
-            return result == null ? NodeResult.success(java.util.Map.of()) : result;
-        } catch (RuntimeException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new IllegalStateException("node execution failed", exception);
+    private NodeResult executeNodeWithRetry(NodeExecutor executor,
+                                            DefaultWorkflowContext context,
+                                            WorkflowRuntimeRequest request,
+                                            String nodeId,
+                                            String nodeType) {
+        int attempt = 1;
+        while (true) {
+            try {
+                NodeResult result = executor.execute(context);
+                return result == null ? NodeResult.success(Map.of()) : result;
+            } catch (Exception exception) {
+                RuntimeException runtimeException = toRuntimeException(exception);
+                if (!request.retryPolicy().shouldRetry(attempt, runtimeException)) {
+                    throw runtimeException;
+                }
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RETRYING));
+                publish(context, RuntimeEventType.NODE_RETRYING, nodeId,
+                        Map.of("nodeType", nodeType, "attempt", attempt, "error", runtimeException.getMessage()));
+                sleepBeforeRetry(request, attempt);
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
+                attempt++;
+            }
         }
+    }
+
+    private void sleepBeforeRetry(WorkflowRuntimeRequest request, int attempt) {
+        try {
+            runtimeSleeper.sleep(request.retryPolicy().delayForAttempt(attempt));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("runtime retry sleep interrupted", exception);
+        }
+    }
+
+    private RuntimeException toRuntimeException(Exception exception) {
+        if (exception instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new IllegalStateException("node execution failed", exception);
     }
 
     private WorkflowExecutionSnapshot snapshot(DefaultWorkflowContext context, List<String> completedNodeIds) {
@@ -98,5 +152,21 @@ public class WorkflowRuntimeEngine {
                 context.nodeOutputs(),
                 completedNodeIds
         );
+    }
+
+    private void publish(DefaultWorkflowContext context,
+                         RuntimeEventType eventType,
+                         String nodeId,
+                         Map<String, Object> attributes) {
+        eventPublisher.publish(RuntimeEvent.of(
+                eventType,
+                context.workflowId(),
+                context.traceId(),
+                context.taskId(),
+                nodeId,
+                context.runtimeState(),
+                Instant.now(),
+                attributes
+        ));
     }
 }

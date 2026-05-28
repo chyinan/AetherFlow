@@ -7,13 +7,19 @@ import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.RetryPolicy;
+import com.aetherflow.workflow.runtime.api.RuntimeEvent;
+import com.aetherflow.workflow.runtime.api.RuntimeEventPublisher;
+import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
+import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -107,6 +113,51 @@ class WorkflowRuntimeEngineTest {
                 .hasMessageContaining("WHISPER");
     }
 
+    @Test
+    void retriesNodeExceptionsAndPublishesRetryEvents() {
+        AtomicInteger attempts = new AtomicInteger();
+        RecordingRuntimeEventPublisher publisher = new RecordingRuntimeEventPublisher();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("UNSTABLE", new ArrayList<>(), context -> {
+                    int attempt = attempts.incrementAndGet();
+                    if (attempt < 3) {
+                        throw new IllegalStateException("temporary failure");
+                    }
+                    return NodeResult.success(Map.of("attempt", attempt));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry,
+                new RuntimeStateMachine(),
+                publisher,
+                RuntimeSleeper.noop()
+        );
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-4",
+                "trace-4",
+                "task-4",
+                definition(node("node-unstable", "UNSTABLE", Map.of())),
+                Map.of(),
+                RetryPolicy.of(3, Duration.ZERO, 1.0D, Duration.ZERO)
+        ));
+
+        assertThat(attempts).hasValue(3);
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(publisher.events())
+                .extracting(RuntimeEvent::eventType)
+                .contains(
+                        RuntimeEventType.WORKFLOW_STARTED,
+                        RuntimeEventType.NODE_STARTED,
+                        RuntimeEventType.NODE_RETRYING,
+                        RuntimeEventType.NODE_COMPLETED,
+                        RuntimeEventType.WORKFLOW_COMPLETED
+                );
+        assertThat(publisher.events().stream()
+                .filter(event -> event.eventType() == RuntimeEventType.NODE_RETRYING))
+                .hasSize(2);
+    }
+
     private static NodeExecutor executor(String type,
                                          List<String> executed,
                                          NodeBehavior behavior) {
@@ -143,5 +194,19 @@ class WorkflowRuntimeEngineTest {
     @FunctionalInterface
     private interface NodeBehavior {
         NodeResult execute(WorkflowContext context) throws Exception;
+    }
+
+    private static final class RecordingRuntimeEventPublisher implements RuntimeEventPublisher {
+
+        private final List<RuntimeEvent> events = new ArrayList<>();
+
+        @Override
+        public void publish(RuntimeEvent event) {
+            events.add(event);
+        }
+
+        List<RuntimeEvent> events() {
+            return events;
+        }
     }
 }
