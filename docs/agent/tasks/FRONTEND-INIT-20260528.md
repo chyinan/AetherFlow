@@ -131,3 +131,11 @@ PR/提交/分支：feature/FRONTEND-INIT-20260528-frontend-init，业务提交 b
 遗留问题：FRONTEND DESIGN.md 当前未在 main；后端真实接口完成后需仅替换 services/api 与 services/realtime 内部实现。
 下一步：负责人 Review diff，可创建 PR；后端基础功能完成后进行统一运行电脑前后端联调。
 文件锁：RELEASED
+
+Review 调整记录：
+1. 2026-05-28 用户澄清 AI协同项目进度.md 是旧文件名，实际对应 AGENT.md；本任务继续遵守已读取的 AGENT.md，不新增旧名文件。
+2. 根据用户反馈，将登录后默认首页从单个 Workflow 画布调整为项目管理页 /projects。
+3. 新增 Projects 页面、projectApi、projectStore、projectMock 和 Project 类型，展示多个项目、多个 workflow、active runs 与文件产物摘要。
+4. 调整 Login 默认跳转、根路由重定向和 Sidebar 导航，使 Projects 成为主入口，Workflow 画布作为项目下的具体编排页。
+5. 增强 Workflow 画布背景为 24px 小网格 + 120px 主网格，并保留 Vue Flow Background 网格，便于理解节点编排空间。
+6. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
