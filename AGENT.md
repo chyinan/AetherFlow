@@ -571,6 +571,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | 任务ID | 任务名称 | 状态 | 负责人 | Agent ID | 分支 | 允许修改范围 | 是否允许契约变更 | 验证方式 | 更新时间 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AI-PROVIDER-ORCH-20260528 | 企业级 AI Provider Orchestration System | REVIEW | 陈胤安 | chyinan | feature/AI-PROVIDER-ORCH-20260528-provider-orchestration | backend/ai-service/**；docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md；docs/agent/logs/2026-05-28.md | 否 | git diff --name-only main...HEAD；mvn -pl backend/ai-service -am test | 2026-05-28 12:08 |
+| GW-AI-PROVIDER-ROUTE-20260528 | AI Provider Orchestration 管理 API Gateway 路由接入 | IN_PROGRESS | 陈胤安 | chyinan | feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route | backend/gateway-service/**；backend/gateway-service/src/test/**；backend/gateway-service/src/main/resources/application.yml；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Gateway 路由 /ai/provider/** -> ai-service | git diff --name-only main...HEAD；mvn -pl backend/gateway-service -am test | 2026-05-28 12:20 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -601,6 +602,10 @@ docs/agent/README.md
 | AI-PROVIDER-ORCH-20260528 | chyinan | backend/ai-service/** | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 企业级 AI Provider Orchestration System |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 任务文档 |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 当日执行日志 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | backend/gateway-service/** | 2026-05-28 12:20 | 2026-05-29 00:20 | ACTIVE | ai-service Provider Orchestration 管理 API Gateway 路由接入 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | 2026-05-28 12:20 | 2026-05-29 00:20 | ACTIVE | 任务文档 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 12:20 | 2026-05-29 00:20 | ACTIVE | 当日执行日志 |
+| GW-AI-PROVIDER-ROUTE-20260528 | chyinan | AGENT.md | 2026-05-28 12:20 | 2026-05-29 00:20 | ACTIVE | 任务看板、契约登记与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
@@ -644,6 +649,7 @@ docs/agent/README.md
 
 | 类型 | ID / Key / Event | 服务 | 文件或位置 | 状态 | 负责人 | 批准人 |
 | --- | --- | --- | --- | --- | --- | --- |
+| Gateway 路由 | /ai/provider/** -> ai-service | gateway-service | backend/gateway-service/src/main/resources/application.yml | APPROVED | 陈胤安 | 陈胤安 |
 |  |  |  |  | DRAFT / REVIEW / APPROVED / CHANGED / DEPRECATED |  |  |
 
 ---
