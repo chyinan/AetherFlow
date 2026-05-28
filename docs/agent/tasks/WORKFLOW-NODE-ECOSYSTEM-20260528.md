@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260528-2144-CODEX-WORKFLOW-NODE-ECOSYSTEM
 分支：feature/WORKFLOW-NODE-ECOSYSTEM-20260528-node-ecosystem
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 1. 在不修改 workflow-runtime-api 和 Runtime Core 的前提下，建设 Workflow Node Ecosystem。
@@ -129,8 +129,12 @@ Agent 编码计划：
 2. NodeExecutor 无法直接读取 WorkflowNodeDTO.config；本任务采用 workflow-service 启动实例时把节点 config 注入 variables 的方式解决，不改 WorkflowContext 结构。
 3. Export 节点真实写 MinIO 依赖统一运行环境配置，本地单元测试使用 mock。
 4. AI 内部节点入口需复用 ai-service 现有 ASR/SUMMARY executor，避免重复实现 Provider Router。
+5. 统一运行电脑仍需补测 workflow-service、ai-service、file-service 的真实 Nacos / MinIO / Notify 链路。
 
 执行记录：
 1. 2026-05-28 21:44，docs-only claim 已提交并推送：bd4624f docs(agent): claim WORKFLOW-NODE-ECOSYSTEM-20260528。
 2. 2026-05-28 21:52，已写入设计文档 docs/superpowers/specs/2026-05-28-workflow-node-ecosystem-design.md。
 3. 2026-05-28 21:52，已写入实施计划 docs/superpowers/plans/2026-05-28-workflow-node-ecosystem.md。
+4. 2026-05-28 22:34，业务代码已提交：`f9f87f7 feat(workflow): add node executor ecosystem`。
+5. 2026-05-28 22:34，`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/file-service,backend/ai-service,backend/workflow-service -am test` 通过：common 8 tests、workflow-runtime-api 10 tests、workflow-service 67 tests、ai-service 19 tests、file-service 21 tests。
+6. 2026-05-28 22:34，`git diff --check` 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
