@@ -1,15 +1,31 @@
 package com.aetherflow.ai.provider;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.time.Instant;
 import java.util.Map;
 
+@Schema(description = "AI provider health snapshot.")
 public record AiProviderHealth(
+        @Schema(description = "Provider name.", example = "OPENAI")
         AiProviderType provider,
+
+        @Schema(description = "Provider health status.", example = "UP")
         ProviderHealthStatus status,
+
+        @Schema(description = "Whether provider is currently healthy.", example = "true")
         boolean healthy,
+
+        @Schema(description = "Last health check time.")
         Instant checkedAt,
+
+        @Schema(description = "Health check latency in milliseconds.", example = "120")
         long latencyMillis,
+
+        @Schema(description = "Health check message.", example = "provider health check succeeded")
         String message,
+
+        @Schema(description = "Provider-specific health metadata.", example = "{\"model\":\"gpt-4o-mini\"}")
         Map<String, Object> metadata
 ) {
 
