@@ -124,6 +124,7 @@ Agent 编码计划：
 7. 第一阶段已完成：并行分支失败继续由 Runtime 使用 RetryPolicy 统一 retry；retry 耗尽后 Runtime 进入 FAILED，不调度 join。
 8. 第一阶段已完成：NodeResult.nextNodeId 只能跳转到 DAG 已声明边，不能让业务节点任意控制调度。
 9. 第一阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
+10. 第一阶段代码已提交并推送：dd85e64 feat(workflow): add parallel dag join scheduling。
 
 TDD 记录：
 1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
