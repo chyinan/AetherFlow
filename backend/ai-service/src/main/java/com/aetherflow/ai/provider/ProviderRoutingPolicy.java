@@ -1,5 +1,6 @@
 package com.aetherflow.ai.provider;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.Duration;
@@ -9,16 +10,34 @@ import java.util.List;
 import java.util.Objects;
 
 @Data
+@Schema(description = "AI provider routing, retry, failover and circuit breaker policy.")
 public class ProviderRoutingPolicy {
 
+    @Schema(description = "Whether provider failover is enabled.", example = "true")
     private boolean enableFailover = true;
+
+    @Schema(description = "Whether the primary provider can auto recover after health checks.", example = "true")
     private boolean autoRecoverPrimary = true;
+
+    @Schema(description = "Provider priority list.", example = "[\"OPENAI\",\"OLLAMA\"]")
     private List<AiProviderType> providers = new ArrayList<>(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
+
+    @Schema(description = "Maximum retry attempts per provider request.", example = "2")
     private int maxRetries = 2;
+
+    @Schema(description = "Initial retry backoff duration.", example = "PT0.2S")
     private Duration retryInitialBackoff = Duration.ofMillis(200);
+
+    @Schema(description = "Maximum retry backoff duration.", example = "PT2S")
     private Duration retryMaxBackoff = Duration.ofSeconds(2);
+
+    @Schema(description = "Consecutive failure threshold before opening provider circuit.", example = "5")
     private int circuitFailureThreshold = 5;
+
+    @Schema(description = "Circuit open duration.", example = "PT60S")
     private Duration circuitOpenDuration = Duration.ofSeconds(60);
+
+    @Schema(description = "Provider health check interval.", example = "PT30S")
     private Duration healthCheckInterval = Duration.ofSeconds(30);
 
     public ProviderRoutingPolicy normalized() {

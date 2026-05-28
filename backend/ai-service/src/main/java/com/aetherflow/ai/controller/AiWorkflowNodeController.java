@@ -8,6 +8,12 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +27,7 @@ import java.util.Locale;
 import java.util.Map;
 
 @Slf4j
+@Tag(name = "Internal AI Workflow Node", description = "Internal service-to-service API used by workflow-service. Frontend clients should not call this endpoint directly.")
 @RestController
 @RequestMapping("/ai/internal/workflow/nodes")
 @RequiredArgsConstructor
@@ -28,6 +35,15 @@ public class AiWorkflowNodeController {
 
     private final DefaultAiNodeExecutorRegistry executorRegistry;
 
+    @Operation(summary = "Execute AI workflow node internally",
+            description = "Internal service-to-service endpoint for workflow-service to execute WHISPER/SUMMARY AI nodes. Frontend should use workflow-service APIs and node catalog instead.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "AI workflow node executed.",
+                    content = @Content(schema = @Schema(implementation = AiWorkflowNodeResponseDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid internal node execution request."),
+            @ApiResponse(responseCode = "503", description = "AI provider unavailable."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
     @PostMapping("/execute")
     public Result<AiWorkflowNodeResponseDTO> execute(@Valid @RequestBody AiWorkflowNodeRequestDTO request) {
         String executorType = executorType(request.getNodeType());
