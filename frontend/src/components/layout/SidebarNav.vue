@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Activity, Brain, FileText, Settings, Workflow } from 'lucide-vue-next'
+import { Activity, Brain, FileText, FolderKanban, Settings, Workflow } from 'lucide-vue-next'
 
 const navItems = [
+  { label: 'Projects', to: '/projects', icon: FolderKanban },
   { label: 'Workflows', to: '/workflows/wf-media-digest', icon: Workflow },
   { label: 'Runs', to: '/runs', icon: Activity },
   { label: 'Files', to: '/files', icon: FileText },
@@ -12,8 +13,8 @@ const navItems = [
 
 <template>
   <aside class="row-span-2 flex h-screen w-[72px] flex-col items-center bg-sidebar py-4 text-text-inverse">
-    <RouterLink
-      to="/workflows/wf-media-digest"
+      <RouterLink
+      to="/projects"
       class="mb-6 grid h-10 w-10 place-items-center rounded-lg bg-primary text-white shadow-node"
       title="AetherFlow"
     >

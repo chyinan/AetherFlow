@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
+import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
 import RunsPage from '@/pages/runs/RunsPage.vue'
 import SettingsPage from '@/pages/settings/SettingsPage.vue'
 import WorkflowPage from '@/pages/workflows/WorkflowPage.vue'
@@ -18,7 +19,13 @@ export const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/workflows/wf-media-digest',
+      redirect: '/projects',
+    },
+    {
+      path: '/projects',
+      name: 'projects',
+      component: ProjectsPage,
+      meta: { requiresAuth: true, title: 'Projects', roles: ['owner', 'operator'] },
     },
     {
       path: '/workflows',
@@ -63,7 +70,7 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.name === 'login' && authStore.isAuthenticated) {
-    return { path: '/workflows/wf-media-digest' }
+    return { path: '/projects' }
   }
   return true
 })

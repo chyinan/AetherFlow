@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Play, RotateCcw, Save } from 'lucide-vue-next'
 import { onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 
 import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import NodePalette from '@/components/workflow/NodePalette.vue'
@@ -12,8 +13,10 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
+const route = useRoute()
 
 onMounted(async () => {
+  await workflowStore.loadWorkflow(String(route.params.id || 'wf-media-digest'))
   await runStore.loadRuns()
   runStore.subscribeCurrentRun()
 })

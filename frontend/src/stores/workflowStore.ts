@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 
+import { workflowApi } from '@/services/api/workflowApi'
 import { initialWorkflow, nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
 
@@ -84,6 +85,14 @@ export const useWorkflowStore = defineStore('workflow', {
       this.dirty = false
     },
     markSaved() {
+      this.dirty = false
+    },
+    async loadWorkflow(workflowId: string) {
+      const workflow = await workflowApi.getWorkflow(workflowId)
+      this.workflowId = workflow.id
+      this.workflowName = workflow.name
+      this.nodes = structuredClone(workflow.nodes)
+      this.edges = structuredClone(workflow.edges)
       this.dirty = false
     },
   },

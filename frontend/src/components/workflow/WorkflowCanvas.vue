@@ -53,7 +53,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="h-full min-h-0 bg-app-bg aether-grid" @drop.prevent="onDrop" @dragover.prevent>
+  <div class="workflow-grid-shell h-full min-h-0 bg-app-bg" @drop.prevent="onDrop" @dragover.prevent>
     <VueFlow
       v-model:nodes="nodes"
       v-model:edges="edges"
@@ -65,7 +65,7 @@ onMounted(() => {
       @connect="workflowStore.addConnection"
       @node-click="onNodeClick"
     >
-      <Background pattern-color="#CBD5E1" :gap="18" :size="1" />
+      <Background pattern-color="#94A3B8" :gap="24" :size="1" />
       <MiniMap pannable zoomable node-color="#2563EB" mask-color="rgba(248, 250, 252, 0.72)" />
       <Controls />
 

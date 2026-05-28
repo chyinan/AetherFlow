@@ -17,7 +17,7 @@ const form = reactive({
 
 async function submit() {
   await authStore.login(form.username, form.password)
-  await router.push((route.query.redirect as string) || '/workflows/wf-media-digest')
+  await router.push((route.query.redirect as string) || '/projects')
 }
 </script>
 

@@ -61,3 +61,13 @@ select {
     linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px);
   background-size: 36px 36px;
 }
+
+.workflow-grid-shell {
+  background-color: #f8fafc;
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(100, 116, 139, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(100, 116, 139, 0.16) 1px, transparent 1px);
+  background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
+}
