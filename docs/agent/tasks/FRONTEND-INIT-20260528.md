@@ -141,3 +141,12 @@ Review 调整记录：
 6. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
 7. Review 调整提交已本地完成：2e00329 feat(frontend): add project workspace home；e57370b docs(agent): update FRONTEND-INIT review adjustments。
 8. git push 连续失败，原因分别为 GitHub 连接被重置和无法连接 github.com:443；本地分支当前领先 origin/feature/FRONTEND-INIT-20260528-frontend-init 2 个提交，需要网络恢复后补推。
+
+截图问题修复记录：
+1. 用户截图反馈主区域空白、页面内容从右侧边界溢出、Sidebar 中 Models 与 Settings 两个按钮同时高亮。
+2. 根因定位：AppShell 使用 CSS Grid 但未显式指定 TopStatusBar、main、AICopilotPanel 的 grid-column/grid-row，浏览器自动排布把 main 和右侧面板放入错误网格单元，导致主内容空白和右侧溢出。
+3. 根因定位：Sidebar 中 Models 和 Settings 均指向 /settings，同一路由导致两个 RouterLink 同时 active。
+4. 已修复 AppShell：Sidebar 固定 col1 row1-2，TopStatusBar 固定 col2 row1，main 固定 col2 row2，AICopilotPanel 固定 col3 row1-2。
+5. 已新增 /models 页面和路由，Models 指向 /models，Settings 指向 /settings，避免双高亮。
+6. 复测 npm run build：通过，vue-tsc -b && vite build 成功。
+7. 本地访问 http://127.0.0.1:5173/settings 与 /models：均返回 200。
