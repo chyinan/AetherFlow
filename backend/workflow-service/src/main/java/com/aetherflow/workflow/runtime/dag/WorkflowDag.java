@@ -15,13 +15,22 @@ public class WorkflowDag {
 
     private final Map<String, WorkflowNodeDTO> nodesById;
     private final List<String> orderedNodeIds;
+    private final Map<String, List<String>> outgoingEdges;
+    private final Map<String, List<String>> incomingEdges;
+    private final List<String> startNodeIds;
     private final boolean orderedFallbackEnabled;
 
     private WorkflowDag(Map<String, WorkflowNodeDTO> nodesById,
                         List<String> orderedNodeIds,
+                        Map<String, List<String>> outgoingEdges,
+                        Map<String, List<String>> incomingEdges,
+                        List<String> startNodeIds,
                         boolean orderedFallbackEnabled) {
         this.nodesById = nodesById;
         this.orderedNodeIds = orderedNodeIds;
+        this.outgoingEdges = outgoingEdges;
+        this.incomingEdges = incomingEdges;
+        this.startNodeIds = startNodeIds;
         this.orderedFallbackEnabled = orderedFallbackEnabled;
     }
 
@@ -47,11 +56,24 @@ public class WorkflowDag {
             orderedIds.add(node.getNodeId());
             hasExplicitEdges = hasExplicitEdges || hasExplicitEdgeConfig(node);
         }
-        return new WorkflowDag(Map.copyOf(nodes), List.copyOf(orderedIds), !hasExplicitEdges);
+        Map<String, List<String>> outgoingEdges = buildOutgoingEdges(nodes, orderedIds, !hasExplicitEdges);
+        Map<String, List<String>> incomingEdges = buildIncomingEdges(nodes, outgoingEdges);
+        return new WorkflowDag(
+                Map.copyOf(nodes),
+                List.copyOf(orderedIds),
+                copyEdgeMap(outgoingEdges),
+                copyEdgeMap(incomingEdges),
+                startNodeIds(orderedIds, incomingEdges),
+                !hasExplicitEdges
+        );
     }
 
     public String startNodeId() {
-        return orderedNodeIds.get(0);
+        return startNodeIds.get(0);
+    }
+
+    public List<String> startNodeIds() {
+        return startNodeIds;
     }
 
     public WorkflowNodeDTO node(String nodeId) {
@@ -66,29 +88,42 @@ public class WorkflowDag {
         return orderedNodeIds.size();
     }
 
+    public List<String> nodeIds() {
+        return orderedNodeIds;
+    }
+
+    public List<String> predecessorNodeIds(String nodeId) {
+        node(nodeId);
+        return incomingEdges.getOrDefault(nodeId, List.of());
+    }
+
+    public int requiredPredecessorCount(String nodeId) {
+        return predecessorNodeIds(nodeId).size();
+    }
+
     public List<String> nextNodeIds(String nodeId, NodeResult result) {
         WorkflowNodeDTO node = node(nodeId);
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
 
         if (hasText(result.nextNodeId())) {
-            return validatedTargets(List.of(result.nextNodeId()));
+            return validatedTargets(nodeId, List.of(result.nextNodeId()));
         }
 
         if (hasText(result.branchKey())) {
             Optional<String> branchTarget = branchTarget(config, result.branchKey());
             if (branchTarget.isPresent()) {
-                return validatedTargets(List.of(branchTarget.get()));
+                return validatedTargets(nodeId, List.of(branchTarget.get()));
             }
             Optional<String> defaultNext = stringValue(config.get("defaultNext"));
             if (defaultNext.isPresent()) {
-                return validatedTargets(List.of(defaultNext.get()));
+                return validatedTargets(nodeId, List.of(defaultNext.get()));
             }
             return List.of();
         }
 
         List<String> configuredTargets = configuredTargets(config);
         if (!configuredTargets.isEmpty()) {
-            return validatedTargets(configuredTargets);
+            return validatedTargets(nodeId, configuredTargets);
         }
 
         int currentIndex = orderedNodeIds.indexOf(nodeId);
@@ -96,6 +131,94 @@ public class WorkflowDag {
             return List.of(orderedNodeIds.get(currentIndex + 1));
         }
         return List.of();
+    }
+
+    private static Map<String, List<String>> buildOutgoingEdges(Map<String, WorkflowNodeDTO> nodes,
+                                                                List<String> orderedIds,
+                                                                boolean orderedFallbackEnabled) {
+        Map<String, List<String>> edges = new LinkedHashMap<>();
+        for (String nodeId : orderedIds) {
+            WorkflowNodeDTO node = nodes.get(nodeId);
+            List<String> targets = orderedFallbackEnabled
+                    ? orderedFallbackTargets(orderedIds, nodeId)
+                    : configuredGraphTargets(node);
+            validateTargets(nodes, targets);
+            edges.put(nodeId, List.copyOf(targets));
+        }
+        return edges;
+    }
+
+    private static Map<String, List<String>> buildIncomingEdges(Map<String, WorkflowNodeDTO> nodes,
+                                                                Map<String, List<String>> outgoingEdges) {
+        Map<String, List<String>> incomingEdges = new LinkedHashMap<>();
+        for (String nodeId : nodes.keySet()) {
+            incomingEdges.put(nodeId, new ArrayList<>());
+        }
+        for (Map.Entry<String, List<String>> entry : outgoingEdges.entrySet()) {
+            for (String target : entry.getValue()) {
+                incomingEdges.get(target).add(entry.getKey());
+            }
+        }
+        return incomingEdges;
+    }
+
+    private static Map<String, List<String>> copyEdgeMap(Map<String, List<String>> edges) {
+        Map<String, List<String>> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> entry : edges.entrySet()) {
+            copy.put(entry.getKey(), List.copyOf(entry.getValue()));
+        }
+        return Map.copyOf(copy);
+    }
+
+    private static List<String> startNodeIds(List<String> orderedIds, Map<String, List<String>> incomingEdges) {
+        List<String> starts = new ArrayList<>();
+        for (String nodeId : orderedIds) {
+            if (incomingEdges.getOrDefault(nodeId, List.of()).isEmpty()) {
+                starts.add(nodeId);
+            }
+        }
+        if (starts.isEmpty()) {
+            throw new IllegalArgumentException("workflow dag must contain at least one start node");
+        }
+        return List.copyOf(starts);
+    }
+
+    private static List<String> orderedFallbackTargets(List<String> orderedIds, String nodeId) {
+        int currentIndex = orderedIds.indexOf(nodeId);
+        if (currentIndex >= 0 && currentIndex + 1 < orderedIds.size()) {
+            return List.of(orderedIds.get(currentIndex + 1));
+        }
+        return List.of();
+    }
+
+    private static List<String> configuredGraphTargets(WorkflowNodeDTO node) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        List<String> targets = new ArrayList<>();
+
+        Object nextNodes = config.get("nextNodes");
+        if (nextNodes instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                stringValue(item).ifPresent(targets::add);
+            }
+        }
+        stringValue(config.get("next")).ifPresent(targets::add);
+        stringValue(config.get("defaultNext")).ifPresent(targets::add);
+
+        Object branches = config.get("branches");
+        if (branches instanceof Map<?, ?> branchMap) {
+            for (Object target : branchMap.values()) {
+                stringValue(target).ifPresent(targets::add);
+            }
+        }
+        return targets.stream().distinct().toList();
+    }
+
+    private static void validateTargets(Map<String, WorkflowNodeDTO> nodes, List<String> targets) {
+        for (String target : targets) {
+            if (!nodes.containsKey(target)) {
+                throw new IllegalArgumentException("workflow edge target not found: " + target);
+            }
+        }
     }
 
     private static boolean hasExplicitEdgeConfig(WorkflowNodeDTO node) {
@@ -132,23 +255,27 @@ public class WorkflowDag {
         return stringValue(target);
     }
 
-    private List<String> validatedTargets(List<String> targets) {
+    private List<String> validatedTargets(String nodeId, List<String> targets) {
+        List<String> declaredTargets = outgoingEdges.getOrDefault(nodeId, List.of());
         for (String target : targets) {
             if (!nodesById.containsKey(target)) {
                 throw new IllegalArgumentException("workflow edge target not found: " + target);
+            }
+            if (!declaredTargets.contains(target)) {
+                throw new IllegalArgumentException("workflow edge target is not declared: " + nodeId + " -> " + target);
             }
         }
         return targets;
     }
 
-    private Optional<String> stringValue(Object value) {
+    private static Optional<String> stringValue(Object value) {
         if (value instanceof String text && hasText(text)) {
             return Optional.of(text);
         }
         return Optional.empty();
     }
 
-    private boolean hasText(String value) {
+    private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
 }
