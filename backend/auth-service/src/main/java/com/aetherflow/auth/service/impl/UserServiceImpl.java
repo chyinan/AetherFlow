@@ -2,7 +2,7 @@ package com.aetherflow.auth.service.impl;
 
 import com.aetherflow.auth.entity.User;
 import com.aetherflow.auth.mapper.UserMapper;
-import com.aetherflow.auth.service.AuthService;
+import com.aetherflow.auth.service.UserService;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.AuthLoginResponse;
@@ -24,7 +24,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class AuthServiceImpl implements AuthService {
+public class UserServiceImpl implements UserService {
 
     private static final String ENABLED = "ENABLED";
     private static final List<String> DEFAULT_ROLES = List.of("USER");
@@ -72,7 +72,10 @@ public class AuthServiceImpl implements AuthService {
     public UserPrincipalDTO currentUser(Long userId, String username, String roles) {
         List<String> roleList = roles == null || roles.isBlank()
                 ? DEFAULT_ROLES
-                : Arrays.stream(roles.split(",")).filter(role -> !role.isBlank()).toList();
+                : Arrays.stream(roles.split(","))
+                .map(String::trim)
+                .filter(role -> !role.isBlank())
+                .toList();
         return new UserPrincipalDTO(userId, username, roleList);
     }
 
@@ -89,4 +92,3 @@ public class AuthServiceImpl implements AuthService {
         );
     }
 }
-
