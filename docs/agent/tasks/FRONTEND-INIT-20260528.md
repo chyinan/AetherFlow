@@ -185,3 +185,4 @@ Models / Settings mock 细化记录：
 6. 本地访问 http://127.0.0.1:5173/models：200；http://127.0.0.1:5173/settings：200。
 7. node -v：通过，v24.15.0；npm -v：通过，11.12.1；npm install：通过，up to date。
 8. npm run build：通过，vue-tsc -b && vite build 成功；产物 CSS 28.85 kB，JS 408.67 kB。
+9. Models / Settings mock 细化提交已推送：c64c7f9 feat(frontend): expand models and settings mocks。
