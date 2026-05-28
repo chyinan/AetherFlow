@@ -72,6 +72,20 @@ aetherflow:
     task-qps: ${AI_TASK_QPS:5}
     provider-qps: ${AI_PROVIDER_QPS:2}
     http-qps: ${AI_HTTP_QPS:10}
+    provider-failover-enabled: ${AI_PROVIDER_FAILOVER_ENABLED:true}
+    provider-auto-recover-primary: ${AI_PROVIDER_AUTO_RECOVER_PRIMARY:true}
+    provider-priority:
+      - ${AI_PROVIDER_PRIMARY:OPENAI}
+      - ${AI_PROVIDER_SECONDARY:OLLAMA}
+    provider-retry-max-attempts: ${AI_PROVIDER_RETRY_MAX_ATTEMPTS:2}
+    provider-retry-initial-backoff: ${AI_PROVIDER_RETRY_INITIAL_BACKOFF:200ms}
+    provider-retry-max-backoff: ${AI_PROVIDER_RETRY_MAX_BACKOFF:2s}
+    provider-circuit-failure-threshold: ${AI_PROVIDER_CIRCUIT_FAILURE_THRESHOLD:5}
+    provider-circuit-open-duration: ${AI_PROVIDER_CIRCUIT_OPEN_DURATION:60s}
+    provider-health-check-interval: ${AI_PROVIDER_HEALTH_CHECK_INTERVAL:30s}
+    provider-health-check-interval-millis: ${AI_PROVIDER_HEALTH_CHECK_INTERVAL_MILLIS:30000}
+    provider-recent-log-limit: ${AI_PROVIDER_RECENT_LOG_LIMIT:20}
+    provider-recent-metrics-limit: ${AI_PROVIDER_RECENT_METRICS_LIMIT:20}
     listener-concurrent-consumers: ${AI_LISTENER_CONCURRENT_CONSUMERS:2}
     listener-max-concurrent-consumers: ${AI_LISTENER_MAX_CONCURRENT_CONSUMERS:6}
     listener-prefetch: ${AI_TASK_PREFETCH:2}

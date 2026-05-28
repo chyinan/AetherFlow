@@ -43,7 +43,7 @@ public class TranslateNodeExecutor implements AiNodeExecutor {
                         "targetLanguage", context.payloadString("targetLanguage", "English")
                 ));
         AiProviderResponse response = providerRouter.complete(new AiProviderRequest(
-                AiProviderType.from(context.payloadString("provider", ""), properties.getDefaultProvider()),
+                AiProviderType.from(context.payloadString("provider", ""), null),
                 context.payloadString("model", properties.getDefaultModel()),
                 prompt.content(),
                 Map.of("temperature", 0.1),

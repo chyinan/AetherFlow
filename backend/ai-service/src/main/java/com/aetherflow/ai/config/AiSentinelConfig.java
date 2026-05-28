@@ -27,8 +27,14 @@ public class AiSentinelConfig {
         List<FlowRule> rules = new ArrayList<>();
         rules.add(flowRule("ai-task-process", properties.getTaskQps()));
         rules.add(flowRule("ai-http-transcription", properties.getHttpQps()));
+        rules.add(flowRule("ai-provider-router", properties.getProviderQps()));
         rules.add(flowRule("ai-provider-openai", properties.getProviderQps()));
         rules.add(flowRule("ai-provider-ollama", properties.getProviderQps()));
+        rules.add(flowRule("ai-provider-health-openai", properties.getHttpQps()));
+        rules.add(flowRule("ai-provider-health-ollama", properties.getHttpQps()));
+        rules.add(flowRule("ai-provider-status", properties.getHttpQps()));
+        rules.add(flowRule("ai-provider-policy", properties.getHttpQps()));
+        rules.add(flowRule("ai-provider-metrics", properties.getHttpQps()));
         FlowRuleManager.loadRules(rules);
         log.info("Loaded AI Sentinel flow rules count={}", rules.size());
     }

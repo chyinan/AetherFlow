@@ -40,7 +40,7 @@ public class SummaryNodeExecutor implements AiNodeExecutor {
         PromptRenderResult prompt = promptRenderService.render("summary", context.payloadString("promptVersion", ""),
                 Map.of("text", context.payloadString("text")));
         AiProviderResponse response = providerRouter.complete(new AiProviderRequest(
-                AiProviderType.from(context.payloadString("provider", ""), properties.getDefaultProvider()),
+                AiProviderType.from(context.payloadString("provider", ""), null),
                 context.payloadString("model", properties.getDefaultModel()),
                 prompt.content(),
                 Map.of("temperature", 0.2),

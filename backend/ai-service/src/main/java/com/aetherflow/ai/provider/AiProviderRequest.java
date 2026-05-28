@@ -10,4 +10,8 @@ public record AiProviderRequest(
         Map<String, Object> options,
         Duration timeout
 ) {
+
+    public AiProviderRequest withProvider(AiProviderType providerType) {
+        return new AiProviderRequest(providerType, model, prompt, options, timeout);
+    }
 }

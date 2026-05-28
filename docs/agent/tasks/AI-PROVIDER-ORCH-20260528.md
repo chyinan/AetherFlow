@@ -84,6 +84,19 @@ Agent 编码计划：
 3. Provider health 若复用现有 Python runtime /ai/status，只能证明 Python runtime 可用，不能完全证明 OpenAI API key 或 Ollama model 可推理；本阶段在 Java 层做轻量 health 与调用失败熔断。
 4. 新增 /ai/provider/** 是 ai-service 自有 API，未修改 Gateway；前端若需要通过 Gateway 访问，需要后续单独登记 Gateway 路由任务。
 
+实施记录：
+1. 已将 AiProvider 抽象升级为支持 generate/stream/embedding/health，并保留 complete 向后兼容。
+2. 已新增 ProviderRoutingPolicy、ProviderCircuitBreaker、ProviderStatusService、ProviderRecoveryService、ProviderHealthCheckService、AIInferenceLog、ProviderMetricsService 和 Redis 持久化实现。
+3. 已重写 AiProviderRouter 为 priority routing + retry + failover + circuit breaker + metrics + logs 的 orchestration 核心。
+4. 已将 SUMMARY / TRANSLATE 节点改为仅在 payload 明确指定 provider 时 pin provider，否则交给 Router 按 policy 选择。
+5. 已新增 /ai/provider/status、/ai/provider/policy、/ai/provider/metrics 和 /ai/provider/policy/recover/{provider}。
+6. 已补充 Sentinel 保护资源，覆盖 router、provider、health、status、policy、metrics。
+
+验证结果：
+1. $env:JAVA_HOME='C:\\Program Files\\Microsoft\\jdk-17.0.19.10-hotspot'; $env:Path="$env:JAVA_HOME\\bin;$env:Path"; mvn -pl backend/ai-service -am test：通过。
+2. ai-service 测试结果：新增 3 个 controller 测试和 1 组 router 行为测试，全部通过；总计 ai-service 16 个测试通过。
+3. 当前验证覆盖：priority routing、failover、circuit skip、retry、circuit open、explicit provider pin、status API、policy API、metrics API。
+
 环境检测：
 - git：git version 2.53.0.windows.3
 - java：openjdk version "11.0.31" 2026-04-21 LTS
