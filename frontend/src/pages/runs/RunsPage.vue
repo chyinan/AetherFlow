@@ -1,0 +1,71 @@
+<script setup lang="ts">
+import { Activity, ArrowRight } from 'lucide-vue-next'
+import { onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+import LogStream from '@/components/run/LogStream.vue'
+import RunTimeline from '@/components/run/RunTimeline.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useRunStore } from '@/stores/runStore'
+
+const runStore = useRunStore()
+const { t } = useI18n()
+
+onMounted(async () => {
+  await runStore.loadRuns()
+  runStore.subscribeCurrentRun()
+})
+</script>
+
+<template>
+  <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
+    <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
+      <div class="flex items-center gap-2">
+        <Activity class="h-4 w-4 text-primary" />
+        <div>
+          <p class="text-sm font-semibold text-text-primary">{{ t('runs.title') }}</p>
+          <p class="text-xs text-text-muted">{{ t('runs.subtitle') }}</p>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid min-h-0 min-w-0 grid-cols-[320px_minmax(0,1fr)] gap-4 overflow-hidden p-4">
+      <aside class="min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm">
+        <button
+          v-for="run in runStore.runs"
+          :key="run.id"
+          type="button"
+          class="mb-2 w-full rounded-lg border p-3 text-left transition hover:border-primary/30 hover:bg-primary-soft/40"
+          :class="runStore.currentRun?.id === run.id ? 'border-primary/40 bg-primary-soft/60' : 'border-app-border bg-white'"
+          @click="runStore.selectRun(run.id)"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <p class="truncate text-sm font-semibold text-text-primary">{{ run.id }}</p>
+            <StatusBadge :status="run.status" />
+          </div>
+          <p class="mt-2 text-xs text-text-secondary">{{ run.workflowName }}</p>
+          <p class="mt-1 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} {{ t('runs.artifacts') }}</p>
+        </button>
+      </aside>
+
+      <main class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
+        <div v-if="runStore.currentRun" class="mb-4 rounded-lg border border-app-border bg-white p-4 shadow-sm">
+          <div class="flex min-w-0 items-center justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-text-primary">{{ runStore.currentRun.workflowName }}</p>
+              <p class="mt-1 text-xs text-text-muted">{{ runStore.currentRun.id }} · {{ runStore.currentRun.durationMs }}ms</p>
+            </div>
+            <button class="inline-flex shrink-0 items-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm text-primary">
+              {{ t('runs.openWorkflow') }}
+              <ArrowRight class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div class="grid min-h-0 min-w-0 grid-cols-[minmax(280px,360px)_minmax(0,1fr)] gap-4 overflow-hidden">
+          <RunTimeline class="min-h-0 min-w-0" :nodes="runStore.currentRun?.nodeStates ?? []" />
+          <LogStream class="min-h-0 min-w-0" :logs="runStore.logs" />
+        </div>
+      </main>
+    </div>
+  </section>
+</template>

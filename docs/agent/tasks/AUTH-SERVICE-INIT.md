@@ -52,8 +52,8 @@ Agent 编码计划：
 3. docs/agent/logs/2026-05-28.md
 验证方式：
 1. git diff --name-only main...HEAD
-2. mvn -f backend/auth-service/pom.xml -am test
-3. mvn -f backend/auth-service/pom.xml -am package -DskipTests
+2. mvn -pl backend/auth-service -am test
+3. mvn -pl backend/auth-service -am package -DskipTests
 4. curl /health、/auth/register、/auth/login、/auth/me、/swagger-ui/index.html
 
 当前风险：
@@ -78,8 +78,8 @@ Agent 编码计划：
 
 验证记录：
 1. git diff --check：通过；仅提示 Git 工作区 LF/CRLF 转换 warning，无空白错误。
-2. mvn -f backend/auth-service/pom.xml -am test：通过；common 8 tests，auth-service 12 tests，0 failures，0 errors。
-3. mvn -f backend/auth-service/pom.xml -am package -DskipTests：通过；生成 backend/auth-service/target/auth-service-0.1.0-SNAPSHOT.jar。
+2. mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 12 tests，0 failures，0 errors。
+3. mvn -pl backend/auth-service -am package -DskipTests：通过；生成 backend/auth-service/target/auth-service-0.1.0-SNAPSHOT.jar。
 4. 本地 jar 烟测：使用 JDK 17 启动 auth-service，临时禁用外部 Nacos/Sentinel 连接；/health 返回 200，/v3/api-docs 返回 200。
 5. 统一运行环境 192.168.101.68 未执行拉分支联调；合并 main 前需由负责人在统一环境补测 Nacos 注册、MySQL、Redis 连接和接口调用。
 
@@ -88,3 +88,12 @@ Agent 编码计划：
 2. 当前状态：REVIEW，等待负责人检查 diff 并在统一运行环境补测。
 3. 合并 main：未合并。
 4. 文件锁：本次交接后释放。
+
+合入检查修复记录：
+1. 负责人合入前检查发现 origin/main 与本分支在 docs/agent/logs/2026-05-28.md 存在 add/add Git 冲突。
+2. 已将 origin/main 合入本分支，保留 FRONTEND 与 AUTH 两侧日志内容，移除冲突标记。
+3. 已将 Maven 验证命令修正为从根项目可复现的 reactor 命令：mvn -pl backend/auth-service -am test 与 mvn -pl backend/auth-service -am package -DskipTests。
+4. 2026-05-28 11:27 +08:00 使用 JDK 17 复跑 mvn -pl backend/auth-service -am test：通过；common 8 tests，auth-service 12 tests，0 failures，0 errors。
+5. 2026-05-28 11:27 +08:00 使用 JDK 17 复跑 mvn -pl backend/auth-service -am package -DskipTests：通过；生成 auth-service boot jar。
+6. git diff --check --cached 与 git diff --check：通过。
+7. 统一运行环境 192.168.101.68 仍未执行运行态联调；合入 main 后仍需补测 Nacos/MySQL/Redis 实际连接和接口调用。

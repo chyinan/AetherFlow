@@ -5,6 +5,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.task.config.TaskProperties;
 import com.aetherflow.task.entity.Task;
 import com.aetherflow.task.enums.TaskStatus;
+import com.aetherflow.task.guard.QueueBackpressureGuard;
 import com.aetherflow.task.mapper.TaskMapper;
 import com.aetherflow.task.queue.TaskQueueProducer;
 import com.aetherflow.task.service.RetryManager;
@@ -53,6 +54,9 @@ class TaskDispatchServiceImplTest {
     @Mock
     private TimeoutChecker timeoutChecker;
 
+    @Mock
+    private QueueBackpressureGuard queueBackpressureGuard;
+
     private TaskDispatchServiceImpl taskDispatchService;
 
     @BeforeEach
@@ -65,7 +69,8 @@ class TaskDispatchServiceImplTest {
                 taskMessageFactory,
                 retryManager,
                 timeoutChecker,
-                properties);
+                properties,
+                queueBackpressureGuard);
     }
 
     @AfterEach
@@ -91,6 +96,7 @@ class TaskDispatchServiceImplTest {
         assertThat(message.getTaskId()).isEqualTo(55L);
         assertThat(message.getRetryCount()).isZero();
         verify(taskQueueProducer).publishForDispatch(message);
+        verify(queueBackpressureGuard).assertTaskCreationAllowed(message);
         verify(taskStateService).mark(any(Task.class), eq(TaskStatus.QUEUED), any(LocalDateTime.class));
     }
 
