@@ -1,11 +1,8 @@
 package com.aetherflow.workflow.runtime.api;
 
-@FunctionalInterface
 public interface NodeExecutor {
 
-    NodeResult execute(WorkflowContext context) throws Exception;
+    NodeType nodeType();
 
-    default NodeType nodeType() {
-        throw new UnsupportedOperationException("nodeType must be implemented by node executors");
-    }
+    NodeResult execute(WorkflowContext context) throws Exception;
 }

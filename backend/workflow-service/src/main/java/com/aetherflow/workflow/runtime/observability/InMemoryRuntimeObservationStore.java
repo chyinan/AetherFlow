@@ -72,7 +72,9 @@ public class InMemoryRuntimeObservationStore implements RuntimeEventPublisher {
         if (event.eventType() == RuntimeEventType.NODE_COMPLETED) {
             completedNodeCount++;
         }
-        double progress = totalNodeCount <= 0 ? 0.0D : completedNodeCount / (double) totalNodeCount;
+        double progress = event.eventType() == RuntimeEventType.WORKFLOW_COMPLETED
+                ? 1.0D
+                : totalNodeCount <= 0 ? 0.0D : completedNodeCount / (double) totalNodeCount;
         return new WorkflowRuntimeObservation(
                 event.workflowId(),
                 event.traceId(),

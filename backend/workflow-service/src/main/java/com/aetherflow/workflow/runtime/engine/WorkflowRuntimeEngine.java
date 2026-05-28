@@ -133,9 +133,9 @@ public class WorkflowRuntimeEngine {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RETRYING));
                 RuntimeLogContext.run(context, nodeId,
                         () -> log.warn("workflow node retrying, nodeType={}, attempt={}, reason={}",
-                                nodeType, currentAttempt, runtimeException.getMessage()));
+                                nodeType, currentAttempt, errorMessage(runtimeException)));
                 publish(context, RuntimeEventType.NODE_RETRYING, nodeId,
-                        Map.of("nodeType", nodeType, "attempt", currentAttempt, "error", runtimeException.getMessage()));
+                        Map.of("nodeType", nodeType, "attempt", currentAttempt, "error", errorMessage(runtimeException)));
                 sleepBeforeRetry(request, currentAttempt);
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
                 attempt++;
@@ -157,6 +157,10 @@ public class WorkflowRuntimeEngine {
             return runtimeException;
         }
         return new IllegalStateException("node execution failed", exception);
+    }
+
+    private String errorMessage(RuntimeException exception) {
+        return exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage();
     }
 
     private WorkflowExecutionSnapshot snapshot(DefaultWorkflowContext context, List<String> completedNodeIds) {

@@ -11,8 +11,8 @@ import java.time.Instant;
 import java.util.Map;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class RabbitRuntimeEventPublisherTest {
 
@@ -39,7 +39,7 @@ class RabbitRuntimeEventPublisherTest {
 
         publisher.publish(event());
 
-        verify(rabbitTemplate, never()).convertAndSend("runtime.exchange", "runtime.event", event());
+        verifyNoInteractions(rabbitTemplate);
     }
 
     private static RuntimeEvent event() {

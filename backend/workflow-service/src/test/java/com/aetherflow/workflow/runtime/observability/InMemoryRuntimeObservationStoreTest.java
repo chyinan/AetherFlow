@@ -30,7 +30,7 @@ class InMemoryRuntimeObservationStoreTest {
         assertThat(observation.currentNodeId()).isEqualTo("node-a");
         assertThat(observation.completedNodeCount()).isEqualTo(1);
         assertThat(observation.totalNodeCount()).isEqualTo(2);
-        assertThat(observation.progress()).isEqualTo(0.5D);
+        assertThat(observation.progress()).isEqualTo(1.0D);
         assertThat(events).hasSize(4);
     }
 
