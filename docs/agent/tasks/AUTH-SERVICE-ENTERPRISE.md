@@ -102,7 +102,7 @@ Agent 编码计划：
 
 交接记录：
 1. 当前分支：feature/AUTH-SERVICE-ENTERPRISE-auth-governance。
-2. 当前提交：待本轮 logout review 修复提交；前序 review 修复提交 d35c2d7 fix(auth): align blacklist keys with gateway。
+2. 本轮 logout review 修复提交：d48723e fix(auth): blacklist stored token on logout；前序 review 修复提交 d35c2d7 fix(auth): align blacklist keys with gateway。
 3. PR：https://github.com/chyinan/AetherFlow/pull/1
 4. 合并 main：已合入 origin/main 到当前 feature 分支，docs/agent/logs/2026-05-28.md 冲突已解决。
 5. 统一运行环境 192.168.101.68：未执行联调，需负责人补测 Redis/MySQL/Nacos 和接口实际调用。
