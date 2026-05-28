@@ -1,4 +1,4 @@
-# AI 协同项目进度｜Agent 执行版
+# AI 协同项目进度文档｜Agent 执行版
 
 > 本文档主要给 Agent 阅读和执行。  
 > 项目采用 100% Vibe Coding：人负责定义任务边界，Agent 只负责在边界内生成代码。
@@ -221,7 +221,7 @@ git switch -c feature/{任务ID}-{说明}
 claim commit 只允许修改：
 
 ```text
-AI协同项目进度.md
+AGENT.md
 docs/agent/tasks/{任务ID}.md
 docs/agent/logs/{日期}.md
 ```
@@ -229,7 +229,7 @@ docs/agent/logs/{日期}.md
 claim commit 不允许包含业务代码。
 
 ```shell
-git add AI协同项目进度.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
+git add AGENT.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
 git commit -m "docs(agent): claim {任务ID}"
 git push
 ```
@@ -329,7 +329,7 @@ git commit -m "feat(frontend): update order submit page"
 handoff 提交：
 
 ```shell
-git add AI协同项目进度.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
+git add AGENT.md docs/agent/tasks/{任务ID}.md docs/agent/logs/{日期}.md
 git commit -m "docs(agent): handoff {任务ID}"
 git push
 ```
@@ -587,7 +587,7 @@ docs/agent/tasks/{任务ID}.md
 以下文件只能短事务编辑，不能作为业务文件锁长期占用：
 
 ```text
-AI协同项目进度.md
+AGENT.md
 docs/agent/tasks/**
 docs/agent/logs/**
 docs/agent/README.md
@@ -737,7 +737,7 @@ PR/提交/分支：
 1. 是否已获得任务ID、任务目标、允许修改文件、禁止修改文件；
 2. 是否明确是否允许新增文件、修改接口、修改数据库、修改配置；
 3. 是否明确必须运行的验证；
-4. 是否已读取 AI协同项目进度.md 和 微服务进阶项目编码标准.md；
+4. 是否已读取 AGENT.md 和 docs/COMMON_CONTRACTS.md；
 5. 是否已完成统一环境检测；
 6. 是否已检查目标文件没有 ACTIVE 文件锁冲突；
 7. 是否已完成 docs-only claim，并确认 push 成功。
