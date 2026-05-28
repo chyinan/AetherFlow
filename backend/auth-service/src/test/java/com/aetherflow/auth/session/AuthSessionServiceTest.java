@@ -46,6 +46,10 @@ class AuthSessionServiceTest {
         authSessionService.blacklistToken("access-token", Duration.ofMinutes(30));
 
         verify(valueOperations).set("auth:blacklist:access-token", "revoked", Duration.ofMinutes(30));
+        verify(valueOperations).set(
+                "aetherflow:gateway:token:blacklist:3f16bed7089f4653e5ef21bfd2824d7f3aaaecc7a598e7e89c580e1606a9cc52",
+                "revoked",
+                Duration.ofMinutes(30));
     }
 
     @Test

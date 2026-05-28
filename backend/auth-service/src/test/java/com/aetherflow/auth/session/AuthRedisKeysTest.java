@@ -11,6 +11,8 @@ class AuthRedisKeysTest {
         assertThat(AuthRedisKeys.tokenKey(7L)).isEqualTo("auth:token:7");
         assertThat(AuthRedisKeys.refreshKey(7L)).isEqualTo("auth:refresh:7");
         assertThat(AuthRedisKeys.blacklistKey("access-token")).isEqualTo("auth:blacklist:access-token");
+        assertThat(AuthRedisKeys.gatewayBlacklistKey("Bearer access-token"))
+                .isEqualTo("aetherflow:gateway:token:blacklist:3f16bed7089f4653e5ef21bfd2824d7f3aaaecc7a598e7e89c580e1606a9cc52");
     }
 
     @Test

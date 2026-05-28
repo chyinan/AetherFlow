@@ -46,11 +46,16 @@ public class AuthSessionService {
             return;
         }
         redisTemplate.opsForValue().set(AuthRedisKeys.blacklistKey(token), REVOKED, ttl);
+        // Gateway validates blacklist entries by SHA-256(token), so auth writes both local and gateway contract keys.
+        redisTemplate.opsForValue().set(AuthRedisKeys.gatewayBlacklistKey(token), REVOKED, ttl);
     }
 
     public boolean isBlacklisted(String token) {
         Boolean exists = redisTemplate.hasKey(AuthRedisKeys.blacklistKey(token));
-        return Boolean.TRUE.equals(exists);
+        if (Boolean.TRUE.equals(exists)) {
+            return true;
+        }
+        return Boolean.TRUE.equals(redisTemplate.hasKey(AuthRedisKeys.gatewayBlacklistKey(token)));
     }
 
     public AuthMetricsSnapshot metrics() {
