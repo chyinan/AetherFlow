@@ -5,7 +5,6 @@ import type { ServiceStatus } from '@/types/api'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarCompact: true,
-    copilotCollapsed: false,
     commandMenuOpen: false,
     selectedNodeId: 'node-whisper' as string | null,
     realtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
@@ -17,9 +16,6 @@ export const useUiStore = defineStore('ui', {
     ] as ServiceStatus[],
   }),
   actions: {
-    toggleCopilot() {
-      this.copilotCollapsed = !this.copilotCollapsed
-    },
     setSelectedNode(nodeId: string | null) {
       this.selectedNodeId = nodeId
     },

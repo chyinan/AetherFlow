@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SlidersHorizontal } from 'lucide-vue-next'
+import { SlidersHorizontal, Sparkles, TerminalSquare } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -9,6 +9,10 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 const uiStore = useUiStore()
 const workflowStore = useWorkflowStore()
 const selectedNode = computed(() => workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId))
+const emit = defineEmits<{
+  openCopilot: []
+  openLogs: []
+}>()
 
 function updateConfig(key: string, value: string) {
   if (!selectedNode.value) {
@@ -19,12 +23,32 @@ function updateConfig(key: string, value: string) {
 </script>
 
 <template>
-  <aside class="flex h-full w-80 flex-col border-l border-app-border bg-white">
-    <div class="flex h-14 items-center gap-2 border-b border-app-border px-4">
-      <SlidersHorizontal class="h-4 w-4 text-primary" />
-      <div>
-        <p class="text-sm font-semibold text-text-primary">Node Inspector</p>
-        <p class="text-xs text-text-muted">Inputs, outputs, and runtime</p>
+  <aside class="flex h-full w-[340px] flex-col border-l border-app-border bg-white">
+    <div class="flex h-16 items-center justify-between gap-3 border-b border-app-border px-4">
+      <div class="flex min-w-0 items-center gap-2">
+        <SlidersHorizontal class="h-4 w-4 shrink-0 text-primary" />
+        <div class="min-w-0">
+          <p class="text-sm font-semibold text-text-primary">Node Inspector</p>
+          <p class="truncate text-xs text-text-muted">Inputs, outputs, and runtime</p>
+        </div>
+      </div>
+      <div class="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          class="grid h-8 w-8 place-items-center rounded-md border border-app-border text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai"
+          title="Open AI Copilot"
+          @click="emit('openCopilot')"
+        >
+          <Sparkles class="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          class="grid h-8 w-8 place-items-center rounded-md border border-app-border text-text-secondary transition hover:border-primary/30 hover:bg-primary-soft hover:text-primary"
+          title="Open run logs"
+          @click="emit('openLogs')"
+        >
+          <TerminalSquare class="h-4 w-4" />
+        </button>
       </div>
     </div>
 
@@ -35,6 +59,25 @@ function updateConfig(key: string, value: string) {
           <StatusBadge :status="selectedNode.data.status" />
         </div>
         <p class="mt-2 text-xs leading-5 text-text-secondary">{{ selectedNode.data.description }}</p>
+      </div>
+
+      <div class="mb-5 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          class="inline-flex items-center justify-center gap-2 rounded-md border border-ai/20 bg-ai-soft px-3 py-2 text-sm font-medium text-ai transition hover:border-ai/40"
+          @click="emit('openCopilot')"
+        >
+          <Sparkles class="h-4 w-4" />
+          Copilot
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/20 bg-primary-soft px-3 py-2 text-sm font-medium text-primary transition hover:border-primary/40"
+          @click="emit('openLogs')"
+        >
+          <TerminalSquare class="h-4 w-4" />
+          Logs
+        </button>
       </div>
 
       <section class="mb-5">

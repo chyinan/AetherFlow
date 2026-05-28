@@ -1,25 +1,23 @@
 <script setup lang="ts">
-import { PanelRightClose, PanelRightOpen, Send, Sparkles } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { PanelRightClose, Send, Sparkles } from 'lucide-vue-next'
+import { ref } from 'vue'
 
-import IconButton from '@/components/ui/IconButton.vue'
 import { copilotApi } from '@/services/api/copilotApi'
 import { initialCopilotMessages } from '@/services/mock/copilotMock'
-import { useUiStore } from '@/stores/uiStore'
 import type { CopilotMessage } from '@/types/copilot'
 
-const uiStore = useUiStore()
 const prompt = ref('')
 const loading = ref(false)
 const messages = ref<CopilotMessage[]>([...initialCopilotMessages])
+const emit = defineEmits<{
+  close: []
+}>()
 
 const quickPrompts = [
   'Suggest the next node',
   'Explain the latest error',
   'Draft a media digest workflow',
 ]
-
-const panelTitle = computed(() => (uiStore.copilotCollapsed ? 'Open Copilot' : 'Collapse Copilot'))
 
 async function sendPrompt(value = prompt.value) {
   const text = value.trim()
@@ -47,17 +45,8 @@ async function sendPrompt(value = prompt.value) {
 </script>
 
 <template>
-  <aside class="flex min-h-0 bg-white">
-    <div v-if="uiStore.copilotCollapsed" class="flex w-14 flex-col items-center gap-3 py-4">
-      <IconButton :label="panelTitle" @click="uiStore.toggleCopilot()">
-        <PanelRightOpen class="h-4 w-4" />
-      </IconButton>
-      <div class="mt-2 grid h-9 w-9 place-items-center rounded-md bg-ai-soft text-ai">
-        <Sparkles class="h-4 w-4" />
-      </div>
-    </div>
-
-    <div v-else class="flex min-h-0 w-full flex-col">
+  <aside class="flex h-full min-h-0 bg-white">
+    <div class="flex min-h-0 w-full flex-col">
       <div class="flex h-14 items-center justify-between border-b border-app-border px-4">
         <div class="flex items-center gap-2">
           <span class="grid h-8 w-8 place-items-center rounded-md bg-ai-soft text-ai">
@@ -68,9 +57,14 @@ async function sendPrompt(value = prompt.value) {
             <p class="text-xs text-text-muted">mock advisor</p>
           </div>
         </div>
-        <IconButton :label="panelTitle" @click="uiStore.toggleCopilot()">
+        <button
+          type="button"
+          class="grid h-9 w-9 place-items-center rounded-md border border-transparent text-text-secondary transition hover:border-app-border hover:bg-app-muted hover:text-text-primary"
+          title="Close Copilot"
+          @click="emit('close')"
+        >
           <PanelRightClose class="h-4 w-4" />
-        </IconButton>
+        </button>
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-app-border px-4 py-3">
