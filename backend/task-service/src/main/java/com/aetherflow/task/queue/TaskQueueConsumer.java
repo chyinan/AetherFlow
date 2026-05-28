@@ -5,6 +5,7 @@ import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.task.config.TaskProperties;
 import com.aetherflow.task.entity.Task;
 import com.aetherflow.task.enums.TaskStatus;
+import com.aetherflow.task.guard.AiDispatchSentinelGuard;
 import com.aetherflow.task.service.RetryManager;
 import com.aetherflow.task.service.TaskStateService;
 import com.aetherflow.task.support.TaskMessageFactory;
@@ -27,6 +28,7 @@ public class TaskQueueConsumer {
     private final TaskStateService taskStateService;
     private final TaskMessageFactory taskMessageFactory;
     private final TaskProperties properties;
+    private final AiDispatchSentinelGuard sentinelGuard;
 
     @RabbitListener(queues = "${aetherflow.task.mq.dispatch-queue}",
             autoStartup = "${aetherflow.task.consumer.dispatch-enabled:true}")
@@ -43,6 +45,7 @@ public class TaskQueueConsumer {
         try {
             taskStateService.mark(task, TaskStatus.DISPATCHING, LocalDateTime.now().plus(properties.getDispatchTimeout()));
             TaskMessageDTO workerMessage = taskMessageFactory.from(task);
+            sentinelGuard.checkConsumerDispatch();
             taskQueueProducer.publishToWorker(workerMessage);
             taskStateService.mark(task, TaskStatus.DISPATCHED, LocalDateTime.now().plus(properties.getExecutionTimeout()));
             log.info("task dispatch consumed, taskId={}, workflowInstanceId={}, nodeId={}",

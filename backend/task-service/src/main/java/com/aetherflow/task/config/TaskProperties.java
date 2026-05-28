@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @ConfigurationProperties(prefix = "aetherflow.task")
@@ -19,6 +21,8 @@ public class TaskProperties {
     private Scheduler scheduler = new Scheduler();
     private Consumer consumer = new Consumer();
     private Mq mq = new Mq();
+    private QueueProtection queueProtection = new QueueProtection();
+    private SentinelProtection sentinelProtection = new SentinelProtection();
 
     @Data
     public static class Scheduler {
@@ -38,5 +42,38 @@ public class TaskProperties {
         private String dispatchExchange = "aetherflow.task.scheduler.exchange";
         private String dispatchQueue = "aetherflow.task.scheduler.queue";
         private String dispatchRoutingKey = "task.schedule.dispatch";
+    }
+
+    @Data
+    public static class QueueProtection {
+        private boolean enabled = true;
+        private boolean failClosedOnMonitorError = false;
+        private long busyDepthThreshold = 1000;
+        private long recoveryDepthThreshold = 300;
+        private long busyUnackedThreshold = 500;
+        private long recoveryUnackedThreshold = 100;
+        private boolean busyWhenNoConsumers = true;
+        private Duration cacheTtl = Duration.ofSeconds(30);
+        private long monitorIntervalMs = 10000;
+        private ManagementApi managementApi = new ManagementApi();
+        private List<String> monitorQueues = new ArrayList<>();
+    }
+
+    @Data
+    public static class ManagementApi {
+        private String baseUrl = "http://192.168.101.68:15672";
+        private String username = "aetherflow";
+        private String password = "aetherflow";
+        private String virtualHost = "/";
+        private Duration connectTimeout = Duration.ofSeconds(3);
+    }
+
+    @Data
+    public static class SentinelProtection {
+        private boolean enabled = true;
+        private String dispatchResource = "task-service-ai-dispatch-create";
+        private String consumerDispatchResource = "task-service-ai-consumer-dispatch";
+        private double dispatchQps = 50.0D;
+        private double consumerDispatchQps = 20.0D;
     }
 }

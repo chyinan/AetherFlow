@@ -83,6 +83,30 @@ aetherflow:
       dispatch-exchange: ${TASK_DISPATCH_EXCHANGE:aetherflow.task.scheduler.exchange}
       dispatch-queue: ${TASK_DISPATCH_QUEUE:aetherflow.task.scheduler.queue}
       dispatch-routing-key: ${TASK_DISPATCH_ROUTING_KEY:task.schedule.dispatch}
+    queue-protection:
+      enabled: ${TASK_QUEUE_PROTECTION_ENABLED:true}
+      fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:false}
+      busy-depth-threshold: ${TASK_QUEUE_BUSY_DEPTH_THRESHOLD:1000}
+      recovery-depth-threshold: ${TASK_QUEUE_RECOVERY_DEPTH_THRESHOLD:300}
+      busy-unacked-threshold: ${TASK_QUEUE_BUSY_UNACKED_THRESHOLD:500}
+      recovery-unacked-threshold: ${TASK_QUEUE_RECOVERY_UNACKED_THRESHOLD:100}
+      busy-when-no-consumers: ${TASK_QUEUE_BUSY_WHEN_NO_CONSUMERS:true}
+      cache-ttl: ${TASK_QUEUE_CACHE_TTL:30s}
+      monitor-interval-ms: ${TASK_QUEUE_MONITOR_INTERVAL_MS:10000}
+      management-api:
+        base-url: ${RABBITMQ_MANAGEMENT_URL:http://192.168.101.68:15672}
+        username: ${RABBITMQ_MANAGEMENT_USERNAME:${RABBITMQ_USERNAME:aetherflow}}
+        password: ${RABBITMQ_MANAGEMENT_PASSWORD:${RABBITMQ_PASSWORD:aetherflow}}
+        virtual-host: ${RABBITMQ_MANAGEMENT_VHOST:${RABBITMQ_VHOST:/}}
+      monitor-queues:
+        - ${TASK_DISPATCH_QUEUE:aetherflow.task.scheduler.queue}
+        - ${AI_TASK_QUEUE:aetherflow.ai.task.queue}
+    sentinel-protection:
+      enabled: ${TASK_SENTINEL_PROTECTION_ENABLED:true}
+      dispatch-resource: ${TASK_SENTINEL_DISPATCH_RESOURCE:task-service-ai-dispatch-create}
+      consumer-dispatch-resource: ${TASK_SENTINEL_CONSUMER_DISPATCH_RESOURCE:task-service-ai-consumer-dispatch}
+      dispatch-qps: ${TASK_SENTINEL_DISPATCH_QPS:50}
+      consumer-dispatch-qps: ${TASK_SENTINEL_CONSUMER_DISPATCH_QPS:20}
 
 management:
   endpoints:
