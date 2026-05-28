@@ -93,3 +93,4 @@ Agent 编码计划：
 6. Consumer 转投 AI 队列前接入 Sentinel 资源保护，触发限流后进入既有 retry/DLQ 流程。
 7. 新增 GET /task/metrics，返回队列深度、ready、unacked、consumer 数、Busy 状态、拒绝任务数和最近检查时间。
 8. 当前工作区存在未跟踪 .Rhistory，本任务未修改、未暂存、未提交该文件。
+9. 2026-05-28 10:24 发现分支历史中包含非本任务白名单的 AGENT.md 文档提交 e9ac985，已用 1fb15eb revert 撤回；最终 diff 不包含 AGENT.md。
