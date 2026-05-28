@@ -12,6 +12,8 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.dag.WorkflowDag;
+import com.aetherflow.workflow.runtime.logging.RuntimeLogContext;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -23,6 +25,7 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 
+@Slf4j
 public class WorkflowRuntimeEngine {
 
     private final NodeRegistry nodeRegistry;
@@ -60,6 +63,8 @@ public class WorkflowRuntimeEngine {
                 request.variables()
         );
         context.updateRuntimeState(stateMachine.transition(RuntimeState.PENDING, RuntimeState.RUNNING));
+        RuntimeLogContext.run(context, null,
+                () -> log.info("workflow runtime started, totalNodes={}", dag.nodeCount()));
         publish(context, RuntimeEventType.WORKFLOW_STARTED, null, Map.of("totalNodes", dag.nodeCount()));
 
         List<String> completedNodeIds = new ArrayList<>();
@@ -74,11 +79,16 @@ public class WorkflowRuntimeEngine {
                 WorkflowNodeDTO node = dag.node(nodeId);
                 context.updateCurrentNodeId(nodeId);
                 NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
+                RuntimeLogContext.run(context, nodeId,
+                        () -> log.info("workflow node started, nodeType={}", node.getNodeType()));
                 publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
-                NodeResult result = executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType());
+                NodeResult result = RuntimeLogContext.supply(context, nodeId,
+                        () -> executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType()));
                 context.recordNodeOutput(nodeId, result);
                 context.variables().putAll(result.variables());
                 completedNodeIds.add(nodeId);
+                RuntimeLogContext.run(context, nodeId,
+                        () -> log.info("workflow node completed, nodeType={}", node.getNodeType()));
                 publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("nodeType", node.getNodeType()));
 
                 for (String nextNodeId : dag.nextNodeIds(nodeId, result)) {
@@ -88,12 +98,16 @@ public class WorkflowRuntimeEngine {
                 }
             }
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
+            RuntimeLogContext.run(context, context.currentNodeId(),
+                    () -> log.info("workflow runtime completed, completedNodes={}", completedNodeIds.size()));
             publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of());
             return snapshot(context, completedNodeIds);
         } catch (RuntimeException exception) {
             if (!stateMachine.isTerminal(context.runtimeState())) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
             }
+            RuntimeLogContext.run(context, context.currentNodeId(),
+                    () -> log.error("workflow runtime failed, reason={}", exception.getMessage(), exception));
             publish(context, RuntimeEventType.WORKFLOW_FAILED, context.currentNodeId(),
                     Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage()));
             throw exception;
@@ -115,10 +129,14 @@ public class WorkflowRuntimeEngine {
                 if (!request.retryPolicy().shouldRetry(attempt, runtimeException)) {
                     throw runtimeException;
                 }
+                int currentAttempt = attempt;
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RETRYING));
+                RuntimeLogContext.run(context, nodeId,
+                        () -> log.warn("workflow node retrying, nodeType={}, attempt={}, reason={}",
+                                nodeType, currentAttempt, runtimeException.getMessage()));
                 publish(context, RuntimeEventType.NODE_RETRYING, nodeId,
-                        Map.of("nodeType", nodeType, "attempt", attempt, "error", runtimeException.getMessage()));
-                sleepBeforeRetry(request, attempt);
+                        Map.of("nodeType", nodeType, "attempt", currentAttempt, "error", runtimeException.getMessage()));
+                sleepBeforeRetry(request, currentAttempt);
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
                 attempt++;
             }

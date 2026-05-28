@@ -1,17 +1,18 @@
 package com.aetherflow.workflow.service.impl;
 
-import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
-import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
-import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
-import com.aetherflow.workflow.client.TaskClient;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
+import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
+import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.service.WorkflowService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,18 +21,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class WorkflowServiceImpl implements WorkflowService {
 
     private static final String STATUS_ENABLED = "ENABLED";
-    private static final String STATUS_RUNNING = "RUNNING";
 
     private final WorkflowDefinitionMapper definitionMapper;
     private final WorkflowInstanceMapper instanceMapper;
-    private final TaskClient taskClient;
+    private final WorkflowRuntimeEngine runtimeEngine;
     private final ObjectMapper objectMapper;
+    private final WorkflowRuntimeProperties runtimeProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -57,31 +60,61 @@ public class WorkflowServiceImpl implements WorkflowService {
         }
 
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
-        WorkflowNodeDTO firstNode = definitionDTO.getNodes().get(0);
+        Map<String, Object> input = request == null || request.getInput() == null ? Map.of() : request.getInput();
 
         WorkflowInstance instance = new WorkflowInstance();
         instance.setDefinitionId(definitionId);
-        instance.setUserId(request.getUserId());
-        instance.setInputJson(writeJson(request.getInput()));
-        instance.setStatus(STATUS_RUNNING);
-        instance.setCurrentNodeId(firstNode.getNodeId());
+        instance.setUserId(request == null ? null : request.getUserId());
+        instance.setInputJson(writeJson(input));
+        instance.setStatus(RuntimeState.PENDING.name());
         instance.setStartedAt(LocalDateTime.now());
         instance.setUpdatedAt(LocalDateTime.now());
         instanceMapper.insert(instance);
 
-        TaskMessageDTO taskMessage = new TaskMessageDTO();
-        taskMessage.setWorkflowInstanceId(instance.getId());
-        taskMessage.setNodeId(firstNode.getNodeId());
-        taskMessage.setNodeType(firstNode.getNodeType());
-        taskMessage.setPayload(request.getInput());
-        taskMessage.setRetryCount(0);
-        taskMessage.setCreatedAt(java.time.OffsetDateTime.now());
-        Result<Long> dispatchResult = taskClient.dispatch(taskMessage);
-        if (dispatchResult == null || !dispatchResult.isSuccess()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "task-service dispatch failed");
-        }
+        WorkflowRuntimeRequest runtimeRequest = new WorkflowRuntimeRequest(
+                String.valueOf(instance.getId()),
+                newTraceId(),
+                String.valueOf(instance.getId()),
+                definitionDTO,
+                input,
+                runtimeProperties.getRetry().toRetryPolicy()
+        );
 
-        return instance;
+        try {
+            WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
+            applySnapshot(instance, snapshot);
+            instance.setCompletedAt(LocalDateTime.now());
+            instance.setUpdatedAt(LocalDateTime.now());
+            instanceMapper.updateById(instance);
+            return instance;
+        } catch (RuntimeException exception) {
+            instance.setStatus(RuntimeState.FAILED.name());
+            instance.setCompletedAt(LocalDateTime.now());
+            instance.setUpdatedAt(LocalDateTime.now());
+            instanceMapper.updateById(instance);
+            throw runtimeFailure(exception);
+        }
+    }
+
+    private void applySnapshot(WorkflowInstance instance, WorkflowExecutionSnapshot snapshot) {
+        instance.setStatus(snapshot.runtimeState().name());
+        instance.setCurrentNodeId(snapshot.currentNodeId());
+    }
+
+    private BusinessException runtimeFailure(RuntimeException exception) {
+        if (exception instanceof BusinessException businessException) {
+            return businessException;
+        }
+        if (exception instanceof IllegalArgumentException) {
+            return new BusinessException(ResultCode.BAD_REQUEST,
+                    "workflow runtime execution failed: " + exception.getMessage());
+        }
+        return new BusinessException(ResultCode.INTERNAL_ERROR,
+                "workflow runtime execution failed: " + exception.getMessage());
+    }
+
+    private String newTraceId() {
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     private WorkflowDefinitionDTO readDefinition(String definitionJson) {
