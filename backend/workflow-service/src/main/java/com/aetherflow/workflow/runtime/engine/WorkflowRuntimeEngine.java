@@ -1,0 +1,102 @@
+package com.aetherflow.workflow.runtime.engine;
+
+import com.aetherflow.common.dto.WorkflowNodeDTO;
+import com.aetherflow.workflow.runtime.api.NodeExecutor;
+import com.aetherflow.workflow.runtime.api.NodeRegistry;
+import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeType;
+import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
+import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
+import com.aetherflow.workflow.runtime.dag.WorkflowDag;
+
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.Set;
+
+public class WorkflowRuntimeEngine {
+
+    private final NodeRegistry nodeRegistry;
+    private final RuntimeStateMachine stateMachine;
+
+    public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
+        this(nodeRegistry, new RuntimeStateMachine());
+    }
+
+    public WorkflowRuntimeEngine(NodeRegistry nodeRegistry, RuntimeStateMachine stateMachine) {
+        this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry must not be null");
+        this.stateMachine = Objects.requireNonNull(stateMachine, "stateMachine must not be null");
+    }
+
+    public WorkflowExecutionSnapshot execute(WorkflowRuntimeRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        WorkflowDag dag = WorkflowDag.from(request.definition());
+        DefaultWorkflowContext context = new DefaultWorkflowContext(
+                request.workflowId(),
+                request.traceId(),
+                request.taskId(),
+                request.variables()
+        );
+        context.updateRuntimeState(stateMachine.transition(RuntimeState.PENDING, RuntimeState.RUNNING));
+
+        List<String> completedNodeIds = new ArrayList<>();
+        Queue<String> readyQueue = new ArrayDeque<>();
+        Set<String> scheduledOrCompleted = new LinkedHashSet<>();
+        readyQueue.add(dag.startNodeId());
+        scheduledOrCompleted.add(dag.startNodeId());
+
+        try {
+            while (!readyQueue.isEmpty()) {
+                String nodeId = readyQueue.remove();
+                WorkflowNodeDTO node = dag.node(nodeId);
+                context.updateCurrentNodeId(nodeId);
+                NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
+                NodeResult result = executeNode(executor, context);
+                context.recordNodeOutput(nodeId, result);
+                context.variables().putAll(result.variables());
+                completedNodeIds.add(nodeId);
+
+                for (String nextNodeId : dag.nextNodeIds(nodeId, result)) {
+                    if (scheduledOrCompleted.add(nextNodeId)) {
+                        readyQueue.add(nextNodeId);
+                    }
+                }
+            }
+            context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
+            return snapshot(context, completedNodeIds);
+        } catch (RuntimeException exception) {
+            if (!stateMachine.isTerminal(context.runtimeState())) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
+            }
+            throw exception;
+        }
+    }
+
+    private NodeResult executeNode(NodeExecutor executor, DefaultWorkflowContext context) {
+        try {
+            NodeResult result = executor.execute(context);
+            return result == null ? NodeResult.success(java.util.Map.of()) : result;
+        } catch (RuntimeException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("node execution failed", exception);
+        }
+    }
+
+    private WorkflowExecutionSnapshot snapshot(DefaultWorkflowContext context, List<String> completedNodeIds) {
+        return new WorkflowExecutionSnapshot(
+                context.workflowId(),
+                context.traceId(),
+                context.taskId(),
+                context.runtimeState(),
+                context.currentNodeId(),
+                context.variables(),
+                context.nodeOutputs(),
+                completedNodeIds
+        );
+    }
+}
