@@ -18,12 +18,18 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 public class WorkflowRuntimeEngine {
@@ -68,35 +74,9 @@ public class WorkflowRuntimeEngine {
         publish(context, RuntimeEventType.WORKFLOW_STARTED, null, Map.of("totalNodes", dag.nodeCount()));
 
         List<String> completedNodeIds = new ArrayList<>();
-        Queue<String> readyQueue = new ArrayDeque<>();
-        Set<String> scheduledOrCompleted = new LinkedHashSet<>();
-        readyQueue.add(dag.startNodeId());
-        scheduledOrCompleted.add(dag.startNodeId());
 
         try {
-            while (!readyQueue.isEmpty()) {
-                String nodeId = readyQueue.remove();
-                WorkflowNodeDTO node = dag.node(nodeId);
-                context.updateCurrentNodeId(nodeId);
-                NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
-                RuntimeLogContext.run(context, nodeId,
-                        () -> log.info("workflow node started, nodeType={}", node.getNodeType()));
-                publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
-                NodeResult result = RuntimeLogContext.supply(context, nodeId,
-                        () -> executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType()));
-                context.recordNodeOutput(nodeId, result);
-                context.variables().putAll(result.variables());
-                completedNodeIds.add(nodeId);
-                RuntimeLogContext.run(context, nodeId,
-                        () -> log.info("workflow node completed, nodeType={}", node.getNodeType()));
-                publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("nodeType", node.getNodeType()));
-
-                for (String nextNodeId : dag.nextNodeIds(nodeId, result)) {
-                    if (scheduledOrCompleted.add(nextNodeId)) {
-                        readyQueue.add(nextNodeId);
-                    }
-                }
-            }
+            executeDag(request, dag, context, completedNodeIds);
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime completed, completedNodes={}", completedNodeIds.size()));
@@ -112,6 +92,112 @@ public class WorkflowRuntimeEngine {
                     Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage()));
             throw exception;
         }
+    }
+
+    private void executeDag(WorkflowRuntimeRequest request,
+                            WorkflowDag dag,
+                            DefaultWorkflowContext context,
+                            List<String> completedNodeIds) {
+        ExecutorService executorService = Executors.newFixedThreadPool(workerCount(dag.nodeCount()));
+        CompletionService<NodeExecution> completionService = new ExecutorCompletionService<>(executorService);
+        Map<String, Integer> remainingPredecessors = remainingPredecessors(dag);
+        Queue<String> readyQueue = new ArrayDeque<>(dag.startNodeIds());
+        Set<String> scheduled = new LinkedHashSet<>();
+        int inFlight = 0;
+
+        try {
+            inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, inFlight);
+            while (inFlight > 0) {
+                NodeExecution execution = awaitCompletedNode(completionService);
+                inFlight--;
+                recordCompletedNode(context, completedNodeIds, execution);
+
+                for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
+                    int remaining = remainingPredecessors.compute(nextNodeId, (ignored, current) -> {
+                        int currentCount = current == null ? 0 : current;
+                        return Math.max(0, currentCount - 1);
+                    });
+                    if (remaining == 0 && !scheduled.contains(nextNodeId)) {
+                        readyQueue.add(nextNodeId);
+                    }
+                }
+                inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, inFlight);
+            }
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
+
+    private int submitReadyNodes(WorkflowRuntimeRequest request,
+                                 WorkflowDag dag,
+                                 DefaultWorkflowContext context,
+                                 CompletionService<NodeExecution> completionService,
+                                 Queue<String> readyQueue,
+                                 Set<String> scheduled,
+                                 int inFlight) {
+        int submittedCount = inFlight;
+        while (!readyQueue.isEmpty()) {
+            String nodeId = readyQueue.remove();
+            if (!scheduled.add(nodeId)) {
+                continue;
+            }
+            completionService.submit(() -> executeNode(request, dag, context, nodeId));
+            submittedCount++;
+        }
+        return submittedCount;
+    }
+
+    private NodeExecution executeNode(WorkflowRuntimeRequest request,
+                                      WorkflowDag dag,
+                                      DefaultWorkflowContext context,
+                                      String nodeId) {
+        WorkflowNodeDTO node = dag.node(nodeId);
+        context.updateCurrentNodeId(nodeId);
+        NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
+        RuntimeLogContext.run(context, nodeId,
+                () -> log.info("workflow node started, nodeType={}", node.getNodeType()));
+        publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
+        NodeResult result = RuntimeLogContext.supply(context, nodeId,
+                () -> executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType()));
+        return new NodeExecution(nodeId, node.getNodeType(), result);
+    }
+
+    private NodeExecution awaitCompletedNode(CompletionService<NodeExecution> completionService) {
+        try {
+            return completionService.take().get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("workflow runtime interrupted", exception);
+        } catch (ExecutionException exception) {
+            throw toRuntimeException(exception.getCause());
+        }
+    }
+
+    private void recordCompletedNode(DefaultWorkflowContext context,
+                                     List<String> completedNodeIds,
+                                     NodeExecution execution) {
+        context.recordNodeOutput(execution.nodeId(), execution.result());
+        context.variables().putAll(execution.result().variables());
+        completedNodeIds.add(execution.nodeId());
+        RuntimeLogContext.run(context, execution.nodeId(),
+                () -> log.info("workflow node completed, nodeType={}", execution.nodeType()));
+        publish(context, RuntimeEventType.NODE_COMPLETED, execution.nodeId(), Map.of("nodeType", execution.nodeType()));
+    }
+
+    private Map<String, Integer> remainingPredecessors(WorkflowDag dag) {
+        Map<String, Integer> remainingPredecessors = new HashMap<>();
+        for (String nodeId : dag.nodeIds()) {
+            remainingPredecessors.put(nodeId, dag.requiredPredecessorCount(nodeId));
+        }
+        return remainingPredecessors;
+    }
+
+    private int workerCount(int nodeCount) {
+        if (nodeCount <= 1) {
+            return 1;
+        }
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        return Math.min(nodeCount, Math.max(2, availableProcessors));
     }
 
     private NodeResult executeNodeWithRetry(NodeExecutor executor,
@@ -159,6 +245,16 @@ public class WorkflowRuntimeEngine {
         return new IllegalStateException("node execution failed", exception);
     }
 
+    private RuntimeException toRuntimeException(Throwable throwable) {
+        if (throwable instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        if (throwable instanceof Exception exception) {
+            return toRuntimeException(exception);
+        }
+        return new IllegalStateException("node execution failed", throwable);
+    }
+
     private String errorMessage(RuntimeException exception) {
         return exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage();
     }
@@ -190,5 +286,8 @@ public class WorkflowRuntimeEngine {
                 Instant.now(),
                 attributes
         ));
+    }
+
+    private record NodeExecution(String nodeId, String nodeType, NodeResult result) {
     }
 }

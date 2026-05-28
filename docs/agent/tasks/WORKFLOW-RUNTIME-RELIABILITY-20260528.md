@@ -113,3 +113,42 @@ Agent 编码计划：
 7. 检测时间：2026-05-28 18:36:13 +08:00
 8. 不能执行的命令：无
 9. 是否需要统一运行电脑补测：是，原因是 workflow-service 真实 MySQL/Redis/Nacos/RabbitMQ 链路需要统一运行环境验证。
+
+实施记录：
+1. docs-only claim 已提交并推送：f95a25f docs(agent): claim WORKFLOW-RUNTIME-RELIABILITY-20260528。
+2. Runtime Reliability 设计文档已写入 docs/superpowers/specs/2026-05-28-workflow-runtime-reliability-design.md。
+3. Runtime Reliability 实施计划已写入 docs/superpowers/plans/2026-05-28-workflow-runtime-reliability.md。
+4. 设计与计划提交已推送：03ed440 docs(workflow): plan runtime reliability。
+5. 第一阶段已完成：WorkflowDag 从单纯 next-node resolver 扩展为 DAG 图模型，支持 startNodeIds、nodeIds、predecessorNodeIds、requiredPredecessorCount。
+6. 第一阶段已完成：WorkflowRuntimeEngine 从单线程 readyQueue 改为 Runtime-owned CompletionService 并行调度，fan-out 分支可并发执行，fan-in join 等待所有前置节点完成。
+7. 第一阶段已完成：并行分支失败继续由 Runtime 使用 RetryPolicy 统一 retry；retry 耗尽后 Runtime 进入 FAILED，不调度 join。
+8. 第一阶段已完成：NodeResult.nextNodeId 只能跳转到 DAG 已声明边，不能让业务节点任意控制调度。
+9. 第一阶段未修改公共 DTO、既有 MQ 契约、其他服务或业务节点逻辑。
+
+TDD 记录：
+1. WorkflowDagTest 先失败于 startNodeIds、predecessorNodeIds、requiredPredecessorCount 缺失，随后补齐 DAG 图索引后通过。
+2. WorkflowRuntimeEngineTest#executesFanOutBranchesConcurrently 先失败于 LEFT 完成后 RIGHT 才启动，随后并行调度实现后通过。
+3. 补充 fanInJoinWaitsForEveryPredecessor，验证 join 不会在慢分支完成前启动。
+4. 补充 retriesFailedParallelBranchAndThenRunsJoin，验证并行分支 retry 成功后才运行 join。
+5. 补充 failsWorkflowWhenParallelBranchExhaustsRetryAndDoesNotRunJoin，验证并行分支 retry 耗尽后 workflow 失败且 join 不启动。
+6. 补充 rejectsRuntimeNextNodeThatWasNotDeclaredInDag，验证业务节点不能通过 NodeResult.nextNodeId 跳到未声明边。
+
+验证记录：
+1. 2026-05-28 18:45，mvn -pl backend/workflow-service -am -Dtest=WorkflowDagTest test 首次被 common 模块 surefire 无匹配测试拦截；随后使用 -Dsurefire.failIfNoSpecifiedTests=false 重新运行。
+2. 2026-05-28 18:45，mvn -pl backend/workflow-service -am -Dtest=WorkflowDagTest -Dsurefire.failIfNoSpecifiedTests=false test 按 TDD 预期失败：WorkflowDag 缺少 startNodeIds、predecessorNodeIds、requiredPredecessorCount。
+3. 2026-05-28 18:47，补齐 WorkflowDag 图索引后，WorkflowDagTest 2 tests 通过。
+4. 2026-05-28 19:48，executesFanOutBranchesConcurrently 按 TDD 预期失败：LEFT 完成后 RIGHT 才启动。
+5. 2026-05-28 19:50，补齐并行调度后，executesFanOutBranchesConcurrently 通过。
+6. 2026-05-28 19:51，fanInJoinWaitsForEveryPredecessor 通过。
+7. 2026-05-28 19:52，retriesFailedParallelBranchAndThenRunsJoin 通过。
+8. 2026-05-28 19:52，failsWorkflowWhenParallelBranchExhaustsRetryAndDoesNotRunJoin 通过。
+9. 2026-05-28 19:53，mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeEngineTest,WorkflowDagTest -Dsurefire.failIfNoSpecifiedTests=false test 通过：10 tests，BUILD SUCCESS。
+10. 2026-05-28 19:55，git diff --check 通过，无 whitespace error。
+11. 2026-05-28 19:55，JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test 通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 28 tests；BUILD SUCCESS。
+
+当前阶段状态：
+1. 第一阶段“并行 DAG + join”已完成并验证。
+2. 第二阶段“Runtime 持久化与恢复”未开始。
+3. 第三阶段“Event Stream”未开始。
+4. 第四阶段“分布式锁”未开始。
+5. 任务整体保持 IN_PROGRESS，不标记 DONE。
