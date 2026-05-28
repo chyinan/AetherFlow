@@ -14,6 +14,7 @@ public class WorkflowRuntimeProperties {
     private Events events = new Events();
     private Observability observability = new Observability();
     private Recovery recovery = new Recovery();
+    private Lock lock = new Lock();
 
     @Data
     public static class Retry {
@@ -48,5 +49,12 @@ public class WorkflowRuntimeProperties {
     public static class Recovery {
         private boolean enabled = true;
         private int scanLimit = 100;
+    }
+
+    @Data
+    public static class Lock {
+        private boolean enabled = true;
+        private Duration ttl = Duration.ofSeconds(60);
+        private String keyPrefix = "aetherflow:workflow:runtime:lock:";
     }
 }

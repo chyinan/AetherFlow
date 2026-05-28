@@ -13,10 +13,13 @@ import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 import com.aetherflow.workflow.runtime.logging.RuntimeLogContext;
+import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
+import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLockLease;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -34,6 +37,9 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 @Slf4j
 public class WorkflowRuntimeEngine {
@@ -43,6 +49,7 @@ public class WorkflowRuntimeEngine {
     private final RuntimeEventPublisher eventPublisher;
     private final RuntimeSleeper runtimeSleeper;
     private final RuntimeSnapshotRepository snapshotRepository;
+    private final WorkflowRuntimeLock workflowRuntimeLock;
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
         this(nodeRegistry, new RuntimeStateMachine(), event -> {
@@ -66,15 +73,29 @@ public class WorkflowRuntimeEngine {
                                  RuntimeEventPublisher eventPublisher,
                                  RuntimeSleeper runtimeSleeper,
                                  RuntimeSnapshotRepository snapshotRepository) {
+        this(nodeRegistry, stateMachine, eventPublisher, runtimeSleeper, snapshotRepository, WorkflowRuntimeLock.noop());
+    }
+
+    public WorkflowRuntimeEngine(NodeRegistry nodeRegistry,
+                                 RuntimeStateMachine stateMachine,
+                                 RuntimeEventPublisher eventPublisher,
+                                 RuntimeSleeper runtimeSleeper,
+                                 RuntimeSnapshotRepository snapshotRepository,
+                                 WorkflowRuntimeLock workflowRuntimeLock) {
         this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry must not be null");
         this.stateMachine = Objects.requireNonNull(stateMachine, "stateMachine must not be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
         this.runtimeSleeper = Objects.requireNonNull(runtimeSleeper, "runtimeSleeper must not be null");
         this.snapshotRepository = Objects.requireNonNull(snapshotRepository, "snapshotRepository must not be null");
+        this.workflowRuntimeLock = Objects.requireNonNull(workflowRuntimeLock, "workflowRuntimeLock must not be null");
     }
 
     public WorkflowExecutionSnapshot execute(WorkflowRuntimeRequest request) {
         Objects.requireNonNull(request, "request must not be null");
+        return withWorkflowLock(request.workflowId(), () -> executeLocked(request));
+    }
+
+    private WorkflowExecutionSnapshot executeLocked(WorkflowRuntimeRequest request) {
         WorkflowDag dag = WorkflowDag.from(request.definition());
         DefaultWorkflowContext context = new DefaultWorkflowContext(
                 request.workflowId(),
@@ -116,6 +137,11 @@ public class WorkflowRuntimeEngine {
         if (stateMachine.isTerminal(recoverySnapshot.runtimeState())) {
             return recoverySnapshot;
         }
+        return withWorkflowLock(request.workflowId(), () -> resumeLocked(request, recoverySnapshot));
+    }
+
+    private WorkflowExecutionSnapshot resumeLocked(WorkflowRuntimeRequest request,
+                                                   WorkflowExecutionSnapshot recoverySnapshot) {
         WorkflowDag dag = WorkflowDag.from(request.definition());
         DefaultWorkflowContext context = contextFromSnapshot(recoverySnapshot);
         context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
@@ -145,6 +171,75 @@ public class WorkflowRuntimeEngine {
                             "recovered", true));
             saveSnapshot(request, context, tracker);
             throw exception;
+        }
+    }
+
+    private WorkflowExecutionSnapshot withWorkflowLock(String workflowId,
+                                                       Supplier<WorkflowExecutionSnapshot> execution) {
+        WorkflowRuntimeLockLease lease = workflowRuntimeLock.acquire(workflowId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "workflow runtime lock already held for workflowId " + workflowId));
+        ScheduledExecutorService renewalExecutor = startLockRenewal(lease);
+        try {
+            return execution.get();
+        } finally {
+            if (renewalExecutor != null) {
+                renewalExecutor.shutdownNow();
+            }
+            releaseLock(lease);
+        }
+    }
+
+    private ScheduledExecutorService startLockRenewal(WorkflowRuntimeLockLease lease) {
+        Duration interval = renewalInterval(lease.ttl());
+        if (interval.isZero() || interval.isNegative()) {
+            return null;
+        }
+        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "workflow-runtime-lock-renewal-" + lease.workflowId());
+            thread.setDaemon(true);
+            return thread;
+        });
+        executor.scheduleAtFixedRate(
+                () -> renewLock(lease),
+                interval.toMillis(),
+                interval.toMillis(),
+                TimeUnit.MILLISECONDS
+        );
+        return executor;
+    }
+
+    private Duration renewalInterval(Duration ttl) {
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            return Duration.ZERO;
+        }
+        long ttlMillis = ttl.toMillis();
+        if (ttlMillis <= 1L) {
+            return Duration.ofMillis(1L);
+        }
+        long intervalMillis = Math.max(100L, ttlMillis / 3L);
+        return Duration.ofMillis(Math.min(intervalMillis, ttlMillis - 1L));
+    }
+
+    private void renewLock(WorkflowRuntimeLockLease lease) {
+        try {
+            if (!workflowRuntimeLock.renew(lease)) {
+                log.warn("workflow runtime lock renew rejected, workflowId={}", lease.workflowId());
+            }
+        } catch (RuntimeException exception) {
+            log.warn("workflow runtime lock renew failed, workflowId={}, reason={}",
+                    lease.workflowId(), exception.getMessage());
+        }
+    }
+
+    private void releaseLock(WorkflowRuntimeLockLease lease) {
+        try {
+            if (!workflowRuntimeLock.release(lease)) {
+                log.warn("workflow runtime lock release rejected, workflowId={}", lease.workflowId());
+            }
+        } catch (RuntimeException exception) {
+            log.warn("workflow runtime lock release failed, workflowId={}, reason={}",
+                    lease.workflowId(), exception.getMessage());
         }
     }
 

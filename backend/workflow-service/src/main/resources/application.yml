@@ -6,6 +6,12 @@ spring:
     name: workflow-service
   config:
     import: optional:nacos:${spring.application.name}.yml?group=DEFAULT_GROUP&refreshEnabled=true
+  data:
+    redis:
+      host: ${REDIS_HOST:192.168.101.68}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      timeout: 3s
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -64,6 +70,10 @@ aetherflow:
       recovery:
         enabled: ${WORKFLOW_RUNTIME_RECOVERY_ENABLED:true}
         scan-limit: ${WORKFLOW_RUNTIME_RECOVERY_SCAN_LIMIT:100}
+      lock:
+        enabled: ${WORKFLOW_RUNTIME_LOCK_ENABLED:true}
+        ttl: ${WORKFLOW_RUNTIME_LOCK_TTL:60s}
+        key-prefix: ${WORKFLOW_RUNTIME_LOCK_KEY_PREFIX:aetherflow:workflow:runtime:lock:}
 
 management:
   endpoints:

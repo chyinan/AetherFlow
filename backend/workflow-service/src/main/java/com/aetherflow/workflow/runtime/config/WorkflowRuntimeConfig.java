@@ -13,11 +13,14 @@ import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.lock.RedisWorkflowRuntimeLock;
+import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +61,19 @@ public class WorkflowRuntimeConfig {
     }
 
     @Bean
+    public WorkflowRuntimeLock workflowRuntimeLock(ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+                                                   WorkflowRuntimeProperties properties) {
+        if (!properties.getLock().isEnabled()) {
+            return WorkflowRuntimeLock.noop();
+        }
+        StringRedisTemplate redisTemplate = redisTemplateProvider.getIfAvailable();
+        if (redisTemplate == null) {
+            return WorkflowRuntimeLock.noop();
+        }
+        return new RedisWorkflowRuntimeLock(redisTemplate, properties.getLock());
+    }
+
+    @Bean
     public PersistentRuntimeEventPublisher persistentRuntimeEventPublisher(RuntimeEventStore runtimeEventStore) {
         return new PersistentRuntimeEventPublisher(runtimeEventStore);
     }
@@ -80,13 +96,15 @@ public class WorkflowRuntimeConfig {
                                                        RuntimeStateMachine runtimeStateMachine,
                                                        RuntimeEventPublisher runtimeEventPublisher,
                                                        RuntimeSleeper runtimeSleeper,
-                                                       RuntimeSnapshotRepository snapshotRepository) {
+                                                       RuntimeSnapshotRepository snapshotRepository,
+                                                       WorkflowRuntimeLock workflowRuntimeLock) {
         return new WorkflowRuntimeEngine(
                 nodeRegistry,
                 runtimeStateMachine,
                 runtimeEventPublisher,
                 runtimeSleeper,
-                snapshotRepository
+                snapshotRepository,
+                workflowRuntimeLock
         );
     }
 }
