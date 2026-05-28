@@ -129,3 +129,8 @@ Agent 编码计划：
 2. NodeExecutor 无法直接读取 WorkflowNodeDTO.config；本任务采用 workflow-service 启动实例时把节点 config 注入 variables 的方式解决，不改 WorkflowContext 结构。
 3. Export 节点真实写 MinIO 依赖统一运行环境配置，本地单元测试使用 mock。
 4. AI 内部节点入口需复用 ai-service 现有 ASR/SUMMARY executor，避免重复实现 Provider Router。
+
+执行记录：
+1. 2026-05-28 21:44，docs-only claim 已提交并推送：bd4624f docs(agent): claim WORKFLOW-NODE-ECOSYSTEM-20260528。
+2. 2026-05-28 21:52，已写入设计文档 docs/superpowers/specs/2026-05-28-workflow-node-ecosystem-design.md。
+3. 2026-05-28 21:52，已写入实施计划 docs/superpowers/plans/2026-05-28-workflow-node-ecosystem.md。
