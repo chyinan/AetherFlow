@@ -46,6 +46,22 @@ feign:
   sentinel:
     enabled: true
 
+aetherflow:
+  workflow:
+    runtime:
+      retry:
+        max-attempts: ${WORKFLOW_RUNTIME_RETRY_MAX_ATTEMPTS:3}
+        initial-delay: ${WORKFLOW_RUNTIME_RETRY_INITIAL_DELAY:0s}
+        backoff-multiplier: ${WORKFLOW_RUNTIME_RETRY_BACKOFF_MULTIPLIER:2.0}
+        max-delay: ${WORKFLOW_RUNTIME_RETRY_MAX_DELAY:30s}
+      events:
+        mq:
+          enabled: ${WORKFLOW_RUNTIME_EVENT_MQ_ENABLED:false}
+          exchange: ${WORKFLOW_RUNTIME_EVENT_MQ_EXCHANGE:}
+          routing-key: ${WORKFLOW_RUNTIME_EVENT_MQ_ROUTING_KEY:}
+      observability:
+        max-events-per-workflow: ${WORKFLOW_RUNTIME_OBSERVABILITY_MAX_EVENTS:200}
+
 management:
   endpoints:
     web:
@@ -64,5 +80,5 @@ springdoc:
 
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} [traceId=%X{traceId:-} workflowId=%X{workflowId:-} nodeId=%X{nodeId:-} taskId=%X{taskId:-}] - %msg%n"
 

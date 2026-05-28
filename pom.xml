@@ -20,6 +20,7 @@
 
     <modules>
         <module>backend/common</module>
+        <module>backend/workflow-runtime-api</module>
         <module>backend/gateway-service</module>
         <module>backend/auth-service</module>
         <module>backend/workflow-service</module>
