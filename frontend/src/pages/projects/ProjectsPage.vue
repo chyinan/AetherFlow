@@ -87,7 +87,7 @@ onMounted(() => {
                   <p class="truncate text-base font-semibold text-text-primary">{{ project.name }}</p>
                   <p class="mt-2 min-h-10 text-sm leading-5 text-text-secondary">{{ project.description }}</p>
                 </div>
-                <span class="rounded-md border px-2 py-1 text-[11px] font-medium" :class="healthClass[project.health]">
+                <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium" :class="healthClass[project.health]">
                   {{ t(`projects.health.${project.health}`) }}
                 </span>
               </div>
