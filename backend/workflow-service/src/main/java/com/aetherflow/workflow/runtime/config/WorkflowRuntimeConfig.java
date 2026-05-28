@@ -7,7 +7,9 @@ import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.engine.RuntimeSleeper;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.event.CompositeRuntimeEventPublisher;
+import com.aetherflow.workflow.runtime.event.PersistentRuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.event.RabbitRuntimeEventPublisher;
+import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
@@ -56,12 +58,19 @@ public class WorkflowRuntimeConfig {
     }
 
     @Bean
+    public PersistentRuntimeEventPublisher persistentRuntimeEventPublisher(RuntimeEventStore runtimeEventStore) {
+        return new PersistentRuntimeEventPublisher(runtimeEventStore);
+    }
+
+    @Bean
     public RuntimeEventPublisher runtimeEventPublisher(WorkflowRuntimeMetrics metrics,
                                                        InMemoryRuntimeObservationStore observationStore,
+                                                       PersistentRuntimeEventPublisher persistentRuntimeEventPublisher,
                                                        RabbitRuntimeEventPublisher rabbitRuntimeEventPublisher) {
         List<RuntimeEventPublisher> publishers = new ArrayList<>();
         publishers.add(metrics);
         publishers.add(observationStore);
+        publishers.add(persistentRuntimeEventPublisher);
         publishers.add(rabbitRuntimeEventPublisher);
         return new CompositeRuntimeEventPublisher(publishers);
     }
