@@ -4,6 +4,7 @@ import { i18n } from '@/i18n/index'
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
 import KnowledgePage from '@/pages/knowledge/KnowledgePage.vue'
+import LandingPage from '@/pages/landing/LandingPage.vue'
 import ModelsPage from '@/pages/models/ModelsPage.vue'
 import MonitorPage from '@/pages/monitor/MonitorPage.vue'
 import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
@@ -44,7 +45,9 @@ export const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/projects',
+      name: 'landing',
+      component: LandingPage,
+      meta: { layout: 'auth', titleKey: 'landing.title' },
     },
     {
       path: '/projects',
