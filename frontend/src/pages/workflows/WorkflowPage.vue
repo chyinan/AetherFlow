@@ -48,8 +48,12 @@ watch(
 )
 
 async function saveWorkflow() {
-  await workflowStore.saveCurrentWorkflow()
-  projectStore.updateWorkflowStatus(workflowStore.workflowId, 'ready')
+  try {
+    await workflowStore.saveCurrentWorkflow()
+    projectStore.updateWorkflowStatus(workflowStore.workflowId, 'ready')
+  } catch {
+    // The store exposes the localized save error for the page banner.
+  }
 }
 
 async function startRun() {
@@ -92,6 +96,9 @@ function openRunConsole() {
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
+        <p v-if="workflowStore.savingError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error">
+          {{ workflowStore.savingError }}
+        </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="workflowStore.resetMockWorkflow()">
