@@ -8,7 +8,7 @@ Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-DOCKER
 
 任务目标：
 
-1. Docker demo 环境默认启用可控 AI fallback，降低 Whisper/OCR/LLM/Ollama 异常导致演示中断的风险。
+1. Docker demo 环境默认保持 Whisper/LLM 主线能力真实运行，同时保留可通过环境变量显式关闭的 fallback 开关。
 2. 将 `MINIO_PUBLIC_ENDPOINT` 从固定内网 IP 改为可配置默认 localhost，避免统一运行电脑外的演示环境返回不可访问 URL。
 3. 给 workflow-service / Java 服务补齐 `OLLAMA_BASE_URL`，避免容器内默认 localhost 指向自己。
 4. 前端 Docker build 传入 SSE、mock fallback、notify WS fallback、timeout 等已有 Vite 环境变量。
@@ -39,7 +39,7 @@ Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-DOCKER
 
 Agent 编码计划：
 
-1. docker-compose.yml 中将 demo AI/fallback 环境变量改为 `${VAR:-safe-default}`。
+1. docker-compose.yml 中将 demo AI/fallback 环境变量改为 `${VAR:-safe-default}`，其中 Whisper/LLM 默认启用。
 2. Java 服务公共 env 增加 `OLLAMA_BASE_URL`、`WORKFLOW_OCR_MOCK`、`WORKFLOW_OCR_MOCK_TEXT`，并将 `MINIO_PUBLIC_ENDPOINT` 改为可配置默认 localhost。
 3. frontend/nginx/Dockerfile 与 compose build args 增加 VITE_SSE_BASE / VITE_MOCK_FALLBACK / VITE_NOTIFY_WS_FALLBACK / VITE_API_TIMEOUT_MS。
 4. `.env.example` 增加 demo safe mode 环境变量示例。
@@ -76,5 +76,4 @@ Agent 编码计划：
 
 1. 本任务只能保证 compose 配置可解析，不能证明所有容器真实启动成功。
 2. OCR mock 默认仅用于 demo 稳定，生产环境必须显式关闭。
-3. Whisper/LLM 默认 safe fallback 会降低真实性，但可避免演示阶段 AI 依赖异常中断。
-
+3. Whisper/LLM 默认真实运行；如统一运行电脑资源不足，可通过环境变量显式关闭。

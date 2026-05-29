@@ -96,8 +96,8 @@ services:
       dockerfile: python-ai-service/Dockerfile
     container_name: aetherflow-python-ai-service
     environment:
-      ENABLE_WHISPER: ${ENABLE_WHISPER:-false}
-      ENABLE_LLM: ${ENABLE_LLM:-false}
+      ENABLE_WHISPER: ${ENABLE_WHISPER:-true}
+      ENABLE_LLM: ${ENABLE_LLM:-true}
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
