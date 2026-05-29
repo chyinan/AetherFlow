@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { setUnauthorizedSessionRefresher } from '@/api/client/apiClient'
 import { tokenManager, type AuthSession, type AuthSessionUserSnapshot } from '@/api/client/tokenManager'
 import { authApi, type AuthUser } from '@/services/api/authApi'
 
@@ -181,4 +182,9 @@ export const useAuthStore = defineStore('auth', {
       }
     },
   },
+})
+
+setUnauthorizedSessionRefresher(async () => {
+  const authStore = useAuthStore()
+  return authStore.refreshSession()
 })
