@@ -14,6 +14,9 @@ import { runtimeEnv } from '@/config/runtimeEnv'
 import { mockFiles } from '../mock/fileMock'
 import { delay } from '../mock/timing'
 
+const unavailableStatuses = new Set([0, 404, 502, 503, 504])
+const unavailableCodeTokens = ['GATEWAY', 'UNAVAILABLE', 'TIMEOUT', 'NETWORK', 'ECONNREFUSED', 'ECONNABORTED', 'ERR_NETWORK']
+
 export interface FileUploadOptions {
   onProgress?: (percentage: number, progress?: UploadProgressView) => void
   taskId?: string
@@ -42,11 +45,26 @@ function shouldUseMockFallback(error: unknown) {
   }
 
   const apiError = isApiError(error) ? error : toApiError(error, 'file')
-  if ([400, 401, 403, 409, 422].includes(apiError.status ?? 0)) {
+  const status = apiError.status
+  const numericCode = typeof apiError.code === 'number' ? apiError.code : Number(apiError.code)
+  const codeText = String(apiError.code ?? '').trim().toUpperCase()
+  const codeIndicatesUnavailable =
+    (Number.isFinite(numericCode) && unavailableStatuses.has(numericCode)) ||
+    unavailableCodeTokens.some((token) => codeText.includes(token))
+
+  if ([400, 401, 403, 409, 422].includes(status ?? 0) || apiError.source === 'auth') {
     return false
   }
 
-  return apiError.retryable || apiError.status === 404 || apiError.status === undefined
+  if (apiError.source === 'network') {
+    return true
+  }
+
+  if (apiError.source !== 'gateway') {
+    return status !== undefined && [502, 503, 504].includes(status)
+  }
+
+  return (status !== undefined && unavailableStatuses.has(status)) || (status === undefined && codeIndicatesUnavailable)
 }
 
 function createUploadTaskId() {

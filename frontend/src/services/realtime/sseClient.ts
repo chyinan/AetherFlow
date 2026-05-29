@@ -54,6 +54,11 @@ function parseData(rawData: string) {
   }
 }
 
+function looksLikeRawJsonFrame(rawFrame: string) {
+  const trimmed = rawFrame.trim()
+  return (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))
+}
+
 function parseFrame(rawFrame: string): ParsedFrame | null {
   const lines = rawFrame.split('\n')
   const frame: ParsedFrame = {}
@@ -90,6 +95,8 @@ function parseFrame(rawFrame: string): ParsedFrame | null {
 
   if (dataLines.length > 0) {
     frame.data = dataLines.join('\n')
+  } else if (looksLikeRawJsonFrame(rawFrame)) {
+    frame.data = rawFrame.trim()
   } else if (rawJsonLines.length > 0) {
     frame.data = rawJsonLines.join('\n')
   }
