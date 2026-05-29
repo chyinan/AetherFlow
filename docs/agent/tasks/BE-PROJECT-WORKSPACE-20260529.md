@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1848-BE-PROJECT-WORKSPACE
 分支：feature/BE-PROJECT-WORKSPACE-20260529-project-workspace
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -163,3 +163,43 @@ Session ID：SESSION-20260529-1848-BE-PROJECT-WORKSPACE
 1. 2026-05-29 18:48，从 main 创建 feature/BE-PROJECT-WORKSPACE-20260529-project-workspace。
 2. 2026-05-29 18:48，已检查 AGENT.md 文件锁表，目标 project/workspace、Gateway route、docker init 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 18:48，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 19:00 +08:00
+
+完成内容：
+
+1. workflow-service 新增 `/projects` list/create、`/projects/{id}` detail/update/delete、`/projects/{id}/stats`。
+2. workflow-service 新增 `/workspaces` list/create、`/workspaces/{id}` detail/update/delete。
+3. 新增 `ProjectWorkspaceDtos`、Project/Workspace entity、mapper、service 和 controller。
+4. 新增 `af_workspace`、`af_project` SQL，并同步 `docker/mysql/init/01-aetherflow.sql`。
+5. Gateway route 将 `/projects`、`/projects/**`、`/workspaces`、`/workspaces/**` 转发到 workflow-service，并加入 workflow-api Sentinel pattern。
+6. 补齐 controller/service/schema/gateway route contract 测试。
+
+验证记录：
+
+1. TDD Red：实现前 workflow-service 目标测试因缺少 Project/Workspace 类编译失败；GatewayRouteConfigurationTest 因缺少 `/projects`/`/workspaces` route 失败，符合预期。
+2. workflow-service 目标测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=ProjectWorkspaceControllerTest,ProjectWorkspaceServiceImplTest,ProjectWorkspaceSchemaTest -Dsurefire.failIfNoSpecifiedTests=false test` 通过；11 tests。
+3. gateway-service 目标测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test` 通过；5 tests。
+4. 相关模块测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service,backend/gateway-service -am test` 通过；common 8 tests，workflow-runtime-api 10 tests，gateway-service 17 tests，workflow-service 105 tests。
+5. 静态检查：`git diff --check` 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+
+提交：
+
+1. e27a656 docs(agent): claim BE-PROJECT-WORKSPACE-20260529
+2. 13c2927 feat(workflow): add project workspace APIs
+
+状态：REVIEW
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测 Gateway 路由、workflow-service 启动、真实 MySQL 表初始化和项目首页 API 链路。
+2. 当前项目统计由 `af_project` 自身字段承载，暂未与 WorkflowDefinition/WorkflowInstance 表做关联；后续 Workflow definition CRUD 合入后可补项目关联。
+3. Workspace member 管理、billing、audit 仍属于后续 Settings/Admin API 任务。
+
+文件锁：RELEASED。
