@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-0845-WORKFLOW-OCR
 分支：feature/WORKFLOW-OCR-NODE-20260529-ocr-node
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -130,3 +130,52 @@ Session ID：SESSION-20260529-0845-WORKFLOW-OCR
 1. Tess4J 依赖需要本机或统一运行环境安装 Tesseract native binary / traineddata；mock=true 可用于演示环境。
 2. PDF OCR 简单支持依赖 PDF 渲染/抽取策略，复杂扫描 PDF 的识别质量取决于 Tesseract 环境。
 3. Maven 默认 Java 当前检测到绑定 JDK 11，验证时必须显式设置 JAVA_HOME 到 JDK 17。
+
+## 完成内容
+
+1. 新增 file-service GET /internal/files/{fileId}/download，受 X-Internal-File-Token 保护。
+2. 新增 workflow-service OCRProvider 抽象、OCRProviderRegistry、MockOCRProvider、TesseractOCRProvider。
+3. TesseractOCRProvider 支持 PNG/JPG/JPEG/PDF；文本型 PDF 优先用 PDFBox 提取文本层，扫描 PDF 回退 Tesseract。
+4. 新增 OCRNodeExecutor，读取 fileId / fileIdVariable，调用 file-service 内部下载，调用 OCRProvider，并写入 ocrText、ocrLanguage、ocrConfidence、ocrPageCount。
+5. 新增 OCRNodeConfig、OCRRequest、OCRInputFile、OCRResult。
+6. 新增 /workflow/ocr/metrics，返回 ocrCount、failCount、averageDurationMs。
+7. 新增 mock=true OCR 演示模式。
+8. 更新 Workflow Node Catalog，新增 OCR 节点。
+9. 更新 Swagger/OpenAPI 测试覆盖 OCR metrics controller。
+10. 未修改 workflow-runtime-api、RuntimeState、DAG Runtime Engine 或 Workflow 生命周期。
+
+## 测试与验证
+
+1. git diff --check
+   - 结果：通过
+   - 证据：无 whitespace error，仅 Windows LF/CRLF 提示
+2. JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=OCRNodeConfigTest,OCRProviderRegistryTest,TesseractOCRProviderTest,OCRNodeExecutorTest,OCRMetricsControllerTest,WorkflowNodeCatalogControllerTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test
+   - 结果：通过
+   - 证据：OCR 相关 12 tests；BUILD SUCCESS
+3. JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/file-service,backend/workflow-service -am test
+   - 结果：通过
+   - 证据：common 8 tests；workflow-runtime-api 10 tests；workflow-service 80 tests；file-service 23 tests；BUILD SUCCESS
+
+## PR / 提交
+
+1. 3926346 docs(agent): claim WORKFLOW-OCR-NODE-20260529
+2. e95dd4b feat(workflow): add ocr node system
+
+## 合入 main
+
+未合入。
+
+## 统一运行电脑验证
+
+未运行。
+
+需要统一运行电脑补测：
+
+1. workflow-service / file-service 启动。
+2. file-service GET /internal/files/{fileId}/download 真实 MinIO 下载。
+3. workflow OCR mock=true DAG 链路。
+4. Tesseract native binary、tessdata 路径和真实 PNG/JPG/PDF OCR。
+
+## 文件锁
+
+RELEASED
