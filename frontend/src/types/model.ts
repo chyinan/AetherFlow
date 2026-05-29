@@ -3,9 +3,11 @@ export type ModelKind = 'chat' | 'asr' | 'embedding' | 'media'
 
 export interface ModelProvider {
   id: string
+  providerType?: string
   name: string
   runtime: string
   status: ModelProviderStatus
+  active?: boolean
   endpoint: string
   defaultModel: string
   latencyMs: number
@@ -13,6 +15,9 @@ export interface ModelProvider {
   quotaLimit: number
   capabilities: string[]
   lastCheckedAt: string
+  healthStatus?: string
+  circuitState?: string
+  statusMessage?: string
 }
 
 export interface ModelCatalogItem {
@@ -34,6 +39,9 @@ export interface ModelRoutingPolicy {
   fallbackModels: string[]
   timeoutMs: number
   retryCount: number
+  providerOrder?: string[]
+  failoverEnabled?: boolean
+  autoRecoverPrimary?: boolean
 }
 
 export interface ModelRuntimeLog {

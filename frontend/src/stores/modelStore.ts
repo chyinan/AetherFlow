@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { i18n } from '@/i18n'
+import { toApiError } from '@/api/client/apiError'
 import { modelApi, type ModelApiSnapshot } from '@/services/api/modelApi'
 import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
 
@@ -9,6 +9,16 @@ interface ModelSnapshotState {
   models: ModelCatalogItem[]
   policies: ModelRoutingPolicy[]
   logs: ModelRuntimeLog[]
+}
+
+function errorMessage(error: unknown) {
+  const apiError = toApiError(error, 'ai')
+  const status = apiError.status ? `HTTP ${apiError.status}: ` : ''
+  return `${status}${apiError.message}`
+}
+
+function providerTypeOf(provider: ModelProvider) {
+  return (provider.providerType || provider.id.replace(/^provider-/, '').replace(/-/g, '_')).toUpperCase()
 }
 
 export const useModelStore = defineStore('model', {
@@ -20,12 +30,17 @@ export const useModelStore = defineStore('model', {
     selectedProviderId: 'provider-openai',
     snapshotSource: 'mock' as ModelApiSnapshot['source'],
     loading: false,
+    error: null as string | null,
+    operationError: null as string | null,
+    switchingProviderId: null as string | null,
+    recoveringProviderId: null as string | null,
   }),
   getters: {
     selectedProvider: (state) =>
       state.providers.find((provider) => provider.id === state.selectedProviderId) ?? state.providers[0],
     selectedProviderModels: (state) =>
       state.models.filter((model) => model.providerId === state.selectedProviderId),
+    activePolicy: (state) => state.policies[0],
     readyModelCount: (state) => state.models.filter((model) => model.status === 'ready').length,
     onlineProviderCount: (state) => state.providers.filter((provider) => provider.status === 'online').length,
   },
@@ -34,13 +49,7 @@ export const useModelStore = defineStore('model', {
       if (this.providers.length > 0) {
         return
       }
-      this.loading = true
-      try {
-        const snapshot = await modelApi.refreshSnapshot()
-        this.applySnapshot(snapshot, snapshot.source)
-      } finally {
-        this.loading = false
-      }
+      await this.refreshStatus()
     },
     applySnapshot(snapshot: ModelSnapshotState, source: ModelApiSnapshot['source'] = 'mock') {
       this.providers = snapshot.providers
@@ -48,73 +57,86 @@ export const useModelStore = defineStore('model', {
       this.policies = snapshot.policies
       this.logs = snapshot.logs
       this.snapshotSource = source
+      this.error = null
+      this.operationError = null
+
       if (!this.providers.some((provider) => provider.id === this.selectedProviderId)) {
-        this.selectedProviderId = this.providers[0]?.id || 'provider-openai'
+        this.selectedProviderId = this.providers.find((provider) => provider.active)?.id || this.providers[0]?.id || 'provider-openai'
       }
     },
     selectProvider(providerId: string) {
       this.selectedProviderId = providerId
     },
-    applyMockProbe() {
+    appendOperationLog(message: string, level: ModelRuntimeLog['level'] = 'warn') {
       const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      this.providers = this.providers.map((provider, index) => {
-        const selected = provider.id === this.selectedProviderId
-        const latencyDelta = selected ? -35 + Math.round(Math.random() * 140) : Math.round(Math.random() * 60)
-        const quotaDelta = selected ? 1200 + Math.round(Math.random() * 3600) : Math.round(Math.random() * 800)
-        return {
-          ...provider,
-          latencyMs: Math.max(180, provider.latencyMs + latencyDelta),
-          quotaUsed: Math.min(provider.quotaLimit, provider.quotaUsed + quotaDelta),
-          status: selected && index % 2 === 1 ? 'online' : provider.status,
-          lastCheckedAt: now,
-        }
-      })
-      const provider = this.selectedProvider
-      const level: ModelRuntimeLog['level'] = provider?.status === 'degraded' ? 'warn' : 'info'
       this.logs = [
         {
-          id: `model-log-${Date.now()}`,
+          id: `model-ui-log-${Date.now()}`,
           time: now,
           level,
-          message: i18n.global.t('models.mockLogs.refreshed', {
-            provider: provider?.name ?? i18n.global.t('models.providers'),
-            latency: provider?.latencyMs ?? '--',
-          }),
+          message,
         },
         ...this.logs,
-      ].slice(0, 8)
+      ].slice(0, 30)
     },
-    appendStaleRealSnapshotLog() {
-      const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-      const logEntry: ModelRuntimeLog = {
-        id: `model-log-stale-real-${Date.now()}`,
-        time: now,
-        level: 'warn',
-        message: 'AI provider backend refresh unavailable; retained stale real provider snapshot.',
-      }
-      this.logs = [
-        logEntry,
-        ...this.logs,
-      ].slice(0, 8)
-    },
-    async refreshMockProbe() {
+    async refreshStatus() {
       this.loading = true
+      this.error = null
       try {
         const snapshot = await modelApi.refreshSnapshot()
-        if (snapshot.source === 'real') {
-          this.applySnapshot(snapshot, 'real')
-          return
+        this.applySnapshot(snapshot, snapshot.source)
+      } catch (error) {
+        const message = errorMessage(error)
+        this.error = message
+        if (this.providers.length > 0) {
+          this.appendOperationLog(`AI provider backend refresh failed; retained current snapshot. ${message}`, 'error')
         }
-
-        if (this.providers.length > 0 && this.snapshotSource === 'real') {
-          this.appendStaleRealSnapshotLog()
-          return
-        }
-
-        this.applySnapshot(snapshot, 'mock')
-        this.applyMockProbe()
       } finally {
         this.loading = false
+      }
+    },
+    async switchSelectedProviderToPrimary() {
+      const provider = this.selectedProvider
+      if (!provider) {
+        return
+      }
+
+      this.switchingProviderId = provider.id
+      this.operationError = null
+
+      try {
+        const providerType = providerTypeOf(provider)
+        const snapshot = await modelApi.switchPrimaryProvider(providerType)
+        this.applySnapshot(snapshot, snapshot.source)
+        this.selectedProviderId = snapshot.providers.find((entry) => providerTypeOf(entry) === providerType)?.id ?? provider.id
+      } catch (error) {
+        const message = errorMessage(error)
+        this.operationError = message
+        this.appendOperationLog(`Provider switch failed for ${providerTypeOf(provider)}. ${message}`, 'error')
+      } finally {
+        this.switchingProviderId = null
+      }
+    },
+    async recoverSelectedProvider() {
+      const provider = this.selectedProvider
+      if (!provider) {
+        return
+      }
+
+      this.recoveringProviderId = provider.id
+      this.operationError = null
+
+      try {
+        const providerType = providerTypeOf(provider)
+        const snapshot = await modelApi.recoverProvider(providerType)
+        this.applySnapshot(snapshot, snapshot.source)
+        this.selectedProviderId = snapshot.providers.find((entry) => providerTypeOf(entry) === providerType)?.id ?? provider.id
+      } catch (error) {
+        const message = errorMessage(error)
+        this.operationError = message
+        this.appendOperationLog(`Provider recovery failed for ${providerTypeOf(provider)}. ${message}`, 'error')
+      } finally {
+        this.recoveringProviderId = null
       }
     },
   },

@@ -23,6 +23,7 @@ export interface ProviderRoutingPolicy {
   maxRetries?: number
   retryInitialBackoff?: string | number | Record<string, unknown> | null
   retryMaxBackoff?: string | number | Record<string, unknown> | null
+  requestTimeout?: string | number | Record<string, unknown> | null
   circuitFailureThreshold?: number
   circuitOpenDuration?: string | number | Record<string, unknown> | null
   healthCheckInterval?: string | number | Record<string, unknown> | null
@@ -90,6 +91,66 @@ export interface ProviderMetricsResponse {
   recentLogs?: AIInferenceLog[] | null
 }
 
+export interface ProviderCatalogPricing {
+  unit?: string | null
+  inputUsdPerMillionTokens?: number | string | null
+  outputUsdPerMillionTokens?: number | string | null
+  priceHint?: string | null
+  source?: string | null
+}
+
+export interface ProviderCatalogProvider {
+  id?: string
+  provider?: AiProviderType
+  name?: string
+  runtime?: string
+  endpointLabel?: string
+  endpoint?: string
+  defaultModel?: string
+  capabilities?: string[]
+  metadata?: Record<string, unknown>
+}
+
+export interface ProviderCatalogModel {
+  id?: string
+  providerId?: string
+  provider?: AiProviderType
+  name?: string
+  kind?: string
+  contextWindow?: string
+  contextWindowTokens?: number | null
+  pricing?: ProviderCatalogPricing | null
+  capabilities?: string[]
+  tags?: string[]
+  status?: string
+}
+
+export interface ProviderCatalogResponse {
+  providers?: ProviderCatalogProvider[] | null
+  models?: ProviderCatalogModel[] | null
+}
+
+export interface ProviderRuntimeLogEntry {
+  id?: string
+  level?: string
+  time?: string
+  eventType?: string
+  provider?: AiProviderType
+  fromProvider?: AiProviderType
+  toProvider?: AiProviderType
+  model?: string
+  message?: string
+  latencyMillis?: number
+  attempt?: number
+  errorMessage?: string
+  occurredAt?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface ProviderRuntimeLogResponse {
+  logs?: ProviderRuntimeLogEntry[] | null
+}
+
 export function getAiStatus() {
   return apiClient.get<AiServiceStatusResponse>('/ai/status', { source: 'ai' })
 }
@@ -118,6 +179,17 @@ export function getProviderMetrics() {
   return apiClient.get<ProviderMetricsResponse>('/ai/provider/metrics', { source: 'ai' })
 }
 
+export function getProviderCatalog() {
+  return apiClient.get<ProviderCatalogResponse>('/ai/provider/catalog', { source: 'ai' })
+}
+
+export function getProviderLogs(limit = 50) {
+  return apiClient.get<ProviderRuntimeLogResponse>('/ai/provider/logs', {
+    params: { limit },
+    source: 'ai',
+  })
+}
+
 export const aiModuleApi = {
   getAiStatus,
   getProviderStatus,
@@ -125,4 +197,6 @@ export const aiModuleApi = {
   updateProviderPolicy,
   recoverProvider,
   getProviderMetrics,
+  getProviderCatalog,
+  getProviderLogs,
 }
