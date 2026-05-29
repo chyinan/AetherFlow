@@ -20,17 +20,18 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 1. `frontend/src/pages/workflows/WorkflowPage.vue`
 2. `frontend/src/stores/workflowStore.ts`
-3. `frontend/src/i18n/locales/zh-CN.ts`
-4. `frontend/src/i18n/locales/en-US.ts`
-5. `docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD.md`
-6. `docs/agent/logs/2026-05-30.md`
-7. `AGENT.md`
+3. `frontend/src/services/api/workflowApi.ts`
+4. `frontend/src/i18n/locales/zh-CN.ts`
+5. `frontend/src/i18n/locales/en-US.ts`
+6. `docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD.md`
+7. `docs/agent/logs/2026-05-30.md`
+8. `AGENT.md`
 
 ## 禁止修改文件
 
 1. `backend/**`
 2. `frontend/src/api/**`
-3. `frontend/src/services/**`
+3. `frontend/src/services/**`，但允许 `frontend/src/services/api/workflowApi.ts`
 4. `frontend/src/stores/runStore.ts`
 5. `frontend/src/stores/fileStore.ts`
 6. `frontend/package.json`
@@ -59,13 +60,14 @@ Session ID：SESSION-20260524-2202-cdx7a9
 1. 给 workflow store 增加运行错误状态，复用页面现有 banner 展示。
 2. WorkflowPage Run 流程先清理运行错误、加载文件、校验真实 `fileId`。
 3. Run 前调用 `saveCurrentWorkflow()`，保存成功后再调用 backend start。
-4. Run 按钮在保存中禁用，避免重复提交。
+4. 禁止 Workflow Run 在后端保存/启动不可用时回退到 mock run。
+5. Run 按钮在保存中禁用，避免重复提交。
 
 ## 不会修改
 
 1. 不修改后端 Workflow start 接口。
 2. 不修改 Workflow Runtime Core。
-3. 不改变 mock fallback 配置。
+3. 不改变全局 mock fallback 配置，仅让 Workflow Run 主线必须真实启动后端实例。
 4. 不修改上传模块或文件列表接口。
 
 ## 是否涉及契约变更
@@ -80,7 +82,7 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 1. `cd frontend; npm run build`
 2. `git diff --check`
-3. 冲突标记扫描：`rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-30.md docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD.md frontend/src/pages/workflows/WorkflowPage.vue frontend/src/stores/workflowStore.ts frontend/src/i18n/locales/zh-CN.ts frontend/src/i18n/locales/en-US.ts`
+3. 冲突标记扫描：`rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-30.md docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD.md frontend/src/pages/workflows/WorkflowPage.vue frontend/src/stores/workflowStore.ts frontend/src/services/api/workflowApi.ts frontend/src/i18n/locales/zh-CN.ts frontend/src/i18n/locales/en-US.ts`
 
 ## 当前风险
 
