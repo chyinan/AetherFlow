@@ -369,7 +369,7 @@ Result: passed on 2026-05-29 after AI Provider integration. Models page compiles
 - Modify: `docs/agent/logs/2026-05-29.md`
 - Modify: `AGENT.md`
 
-- [ ] **Step 1: Run SDK generation check**
+- [x] **Step 1: Run SDK generation check**
 
 Run:
 
@@ -379,7 +379,9 @@ npm run api:generate
 
 Expected: If Gateway OpenAPI is not running, record exact failure and mark as requiring unified environment validation; do not fake success.
 
-- [ ] **Step 2: Run frontend build**
+Result: failed on 2026-05-29 because Gateway/OpenAPI was not running locally. Orval could not parse `http://localhost:8080/auth/v3/api-docs`, `/workflows/v3/api-docs`, `/ai/v3/api-docs`, `/files/v3/api-docs`, or `/notify/v3/api-docs`. This requires unified environment validation.
+
+- [x] **Step 2: Run frontend build**
 
 Run:
 
@@ -389,7 +391,9 @@ npm run build
 
 Expected: TypeScript and Vite build pass.
 
-- [ ] **Step 3: Run repository static check**
+Result: passed on 2026-05-29. Vite reported the existing large chunk warning only.
+
+- [x] **Step 3: Run repository static check**
 
 Run:
 
@@ -400,7 +404,9 @@ git diff --name-only main...HEAD
 
 Expected: no whitespace errors; changed files stay within task lock.
 
-- [ ] **Step 4: Update task docs and AGENT.md**
+Result: `git diff --check` passed; `git diff --name-only origin/main...HEAD` stayed within the task's frontend integration and docs scope.
+
+- [x] **Step 4: Update task docs and AGENT.md**
 
 Mark task `REVIEW`, record validation results, commit IDs, unified environment gaps, and set file locks to `RELEASED`.
 

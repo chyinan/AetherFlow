@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 分支：feature/FE-API-INTEGRATION-20260529-frontend-integration
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -21,14 +21,15 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 5. frontend/src/stores/**
 6. frontend/src/types/**
 7. frontend/src/config/**
-8. frontend/package.json
-9. frontend/package-lock.json
-10. frontend/.env.example
-11. docs/frontend-backend-missing-apis.md
-12. docs/superpowers/plans/2026-05-29-frontend-api-integration.md
-13. docs/agent/tasks/FE-API-INTEGRATION-20260529.md
-14. docs/agent/logs/2026-05-29.md
-15. AGENT.md
+8. frontend/src/router/index.ts
+9. frontend/package.json
+10. frontend/package-lock.json
+11. frontend/.env.example
+12. docs/frontend-backend-missing-apis.md
+13. docs/superpowers/plans/2026-05-29-frontend-api-integration.md
+14. docs/agent/tasks/FE-API-INTEGRATION-20260529.md
+15. docs/agent/logs/2026-05-29.md
+16. AGENT.md
 
 ## 禁止修改文件
 
@@ -88,14 +89,15 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 5. frontend/src/stores/**
 6. frontend/src/types/**
 7. frontend/src/config/**
-8. frontend/package.json
-9. frontend/package-lock.json
-10. frontend/.env.example
-11. docs/frontend-backend-missing-apis.md
-12. docs/superpowers/plans/2026-05-29-frontend-api-integration.md
-13. docs/agent/tasks/FE-API-INTEGRATION-20260529.md
-14. docs/agent/logs/2026-05-29.md
-15. AGENT.md
+8. frontend/src/router/index.ts
+9. frontend/package.json
+10. frontend/package-lock.json
+11. frontend/.env.example
+12. docs/frontend-backend-missing-apis.md
+13. docs/superpowers/plans/2026-05-29-frontend-api-integration.md
+14. docs/agent/tasks/FE-API-INTEGRATION-20260529.md
+15. docs/agent/logs/2026-05-29.md
+16. AGENT.md
 
 ## 验证方式
 
@@ -138,3 +140,33 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 10. 2026-05-29，Task 5 完成：新增 AI Provider API module、AI Provider mapper，Models facade 改为 `/ai/status` 与 `/ai/provider/**` real-first，`refreshMockProbe()` 优先刷新真实 Provider 数据。
 11. 2026-05-29，Task 5 缺口清单完成：新增 `docs/frontend-backend-missing-apis.md`，记录 Workflow/Gateway/Runtime/File/Project/AI/Knowledge/Settings/Copilot 后端 backlog。
 12. 2026-05-29，Task 5 验证：`cd frontend; npm run build` 通过；`git diff --check` 通过，仅 Windows LF/CRLF 提示；`git diff --check HEAD^..HEAD` 通过；`git diff --name-only HEAD^..HEAD` 仅包含任务允许范围文件。
+13. 2026-05-29 16:11，最终验证：`cd frontend; npm run build` 通过，Vite 仅输出既有 chunk size warning。
+14. 2026-05-29 16:11，最终验证：`git diff --check` 通过，无 whitespace error。
+15. 2026-05-29 15:58，最终验证：`cd frontend; npm run api:generate` 未通过；原因是本机未启动 Gateway/OpenAPI，`http://localhost:8080/{auth,workflows,ai,files,notify}/v3/api-docs` 均无法解析，需统一运行电脑启动后补测。
+16. 2026-05-29 15:58，最终范围检查：`git diff --name-only origin/main...HEAD` 仅包含任务允许的前端 API/Service/Realtime/Store/Types/Config/Router、frontend package/env 与 docs/AGENT 文件。
+17. 2026-05-29 16:11，最终 review 修复：补齐 API 401 后的 refresh-token 队列与原请求重放，提交 `4534993 fix(frontend): refresh session on unauthorized api calls`。
+
+## 最终交接
+
+状态：REVIEW
+
+完成内容：
+1. 建立 Enterprise API Integration Layer：Axios client、tokenManager、错误归一化、traceId、retry、401 refresh/replay、OpenAPI/Orval 生成配置。
+2. 接入 Auth、Workflow create/start、Runtime REST recovery、Node Catalog、File upload/progress/download/delete、Notify fetch-SSE、可选 WS fallback、AI Provider governance API。
+3. 保留缺失后端能力的 Mock fallback：Workflow list/get/update、Run list/detail/log、File list、Runtime streaming 等。
+4. 新增 `docs/frontend-backend-missing-apis.md`，为后续后端补齐任务提供 P0/P1/P2 backlog。
+
+验证结果：
+1. `cd frontend; npm run build`：通过。
+2. `git diff --check`：通过。
+3. `cd frontend; npm run api:generate`：未通过，Gateway/OpenAPI 未启动，需统一运行电脑补测。
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需统一运行电脑启动 Gateway 与 auth/workflow/file/notify/ai 服务后补测真实链路。
+2. 需后端后续补齐 `docs/frontend-backend-missing-apis.md` 中的 P0/P1 缺口，尤其 `/workflow/**` Gateway route、Workflow list/detail/update、Run list/detail/log、Runtime SSE stream、File list、secure WS stream auth。
+
+文件锁：RELEASED。
