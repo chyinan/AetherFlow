@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p0-auth-demo-user-seed
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -104,7 +104,7 @@ P0 Auth 登录稳定化：补齐真实后端默认演示账号，不改变登录
 
 ## 验证方式
 
-1. Red：`$env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'; $env:Path=\"$env:JAVA_HOME\bin;$env:Path\"; mvn -pl backend/auth-service -Dtest=DemoUserInitializerTest test`
+1. Red：`$env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'; $env:Path=\"$env:JAVA_HOME\bin;$env:Path\"; mvn -pl backend/auth-service -am "-Dtest=DemoUserInitializerTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
 2. Green：同上目标测试通过。
 3. 回归：`$env:JAVA_HOME='C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'; $env:Path=\"$env:JAVA_HOME\bin;$env:Path\"; mvn -pl backend/auth-service -am test`
 4. `git diff --check`
@@ -114,3 +114,36 @@ P0 Auth 登录稳定化：补齐真实后端默认演示账号，不改变登录
 
 1. 本任务不直接启动 MySQL/Auth/Gateway，端到端登录需统一运行电脑补测。
 2. 默认 demo seed 会在 Auth 服务启动时创建用户；如统一运行环境需要关闭，可通过配置属性关闭。
+
+## 完成内容
+
+1. `AuthProperties` 增加 `demoUser` 配置，默认启用 `aether.operator / mock-password`。
+2. 新增 `DemoUserInitializer`，Auth 服务启动时查询默认用户名，不存在时用 `PasswordEncoder` 写入 ENABLED 用户。
+3. 已有同名用户不覆盖、不重置密码。
+4. demo user 配置关闭时不查询、不插入。
+5. 未修改登录接口、JWT、Refresh Token、Gateway、Workflow/Runtime/Whisper/LLM 主线。
+
+## TDD 记录
+
+1. Red：新增 `DemoUserInitializerTest` 后运行目标测试，失败于 `AuthProperties#getDemoUser()` 和 `DemoUserInitializer` 不存在，符合预期。
+2. Green：补最小生产代码后，`DemoUserInitializerTest` 3 tests 通过。
+
+## 验证记录
+
+1. 目标测试：`mvn -pl backend/auth-service -am "-Dtest=DemoUserInitializerTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：通过，3 tests，0 failures。
+2. 回归测试：`mvn -pl backend/auth-service -am test`：通过，common 8 tests、auth-service 43 tests，0 failures。
+3. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+4. 冲突标记扫描：通过，无输出。
+
+## 提交记录
+
+- claim：392cd0b docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED
+- business：50da750 fix(auth): seed default demo operator
+
+## 交接说明
+
+当前分支已确保真实 Auth 服务启动后会在用户不存在时创建默认演示账号。统一运行电脑需要补测：
+
+1. 清空或新建 MySQL volume 后启动 Auth 服务，确认 `af_user` 中出现 `aether.operator`。
+2. 通过 Gateway 调用 `/auth/login`，使用 `aether.operator / mock-password` 应返回真实 JWT。
+3. 已存在同名用户时重启 Auth 服务，密码不应被覆盖。
