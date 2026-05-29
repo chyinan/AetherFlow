@@ -7,6 +7,7 @@ import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 import type { WorkflowGraphNode } from '@/types/workflow'
 
+import { useAuthStore } from './authStore'
 import { useFileStore } from './fileStore'
 import { useUiStore } from './uiStore'
 import { useWorkflowStore } from './workflowStore'
@@ -204,6 +205,11 @@ export const useRunStore = defineStore('run', {
       }
       stopRealtime?.()
       const uiStore = useUiStore()
+      const authStore = useAuthStore()
+      const userId = authStore.user?.userId ?? authStore.user?.id
+      if (userId) {
+        uiStore.startNotificationStream(userId)
+      }
       stopRealtime = realtimeClient.subscribeRun(this.currentRun.id, {
         onLog: (entry) => this.appendLog(entry),
         onNodePatch: (patch) => this.patchNodeState(patch),
@@ -213,6 +219,7 @@ export const useRunStore = defineStore('run', {
     stopRealtime() {
       stopRealtime?.()
       stopRealtime = null
+      useUiStore().stopNotificationStream()
     },
   },
 })

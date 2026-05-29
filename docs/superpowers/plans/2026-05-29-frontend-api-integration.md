@@ -269,7 +269,7 @@ Expected: build passes and Workflow/Runs pages compile without page rewrites.
 - Modify: `frontend/src/types/file.ts`
 - Modify: `frontend/src/types/run.ts`
 
-- [ ] **Step 1: Implement file module**
+- [x] **Step 1: Implement file module**
 
 Call:
 
@@ -280,27 +280,27 @@ Call:
 
 Expose upload progress callback from Axios `onUploadProgress` and server progress polling helper.
 
-- [ ] **Step 2: Implement file mapper**
+- [x] **Step 2: Implement file mapper**
 
 Map `FileMetadataDTO` plus `UploadProgressView` to `FileAsset`, preserving frontend fields like `source`, `artifactKind`, `workflowId`, and `result`.
 
-- [ ] **Step 3: Implement fetch-based SSE client**
+- [x] **Step 3: Implement fetch-based SSE client**
 
 Use `fetch()` with `Authorization` header, stream `text/event-stream`, parse event frames, detect heartbeat timeout, and reconnect with backoff. Native `EventSource` must not be used for authenticated streams.
 
-- [ ] **Step 4: Implement WebSocket client**
+- [x] **Step 4: Implement WebSocket client**
 
 Connect to `${runtimeEnv.wsBase}/notify/ws?userId=${userId}`. Handle `open`, `message`, `close`, `error`, exponential reconnect, and manual `close()`.
 
-- [ ] **Step 5: Update realtime facade**
+- [x] **Step 5: Update realtime facade**
 
 `realtimeClient.subscribeRun()` must continue emitting run log/node patches. Use Notify SSE/WS for notifications and keep existing scripted Mock realtime as fallback when real stream cannot provide RuntimeEvent frames.
 
-- [ ] **Step 6: Update stores**
+- [x] **Step 6: Update stores**
 
 `fileStore.upload()` must use real upload when enabled and update progress from browser upload + server polling. `uiStore` must expose realtime transport state and notifications from notify events.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 Run:
 
@@ -308,7 +308,7 @@ Run:
 npm run build
 ```
 
-Expected: build passes and Files/Runs pages compile without component rewrites.
+Result: passed on 2026-05-29 14:44 +08:00. Files/Runs pages compile without component rewrites.
 
 ## Task 5: AI Provider Integration And Backend Gap Inventory
 

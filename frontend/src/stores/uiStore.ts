@@ -2,6 +2,8 @@ import { defineStore } from 'pinia'
 
 import { getStoredLocale, setStoredLocale, type AppLocale } from '@/i18n/locale'
 import { i18n } from '@/i18n/index'
+import type { NotifyMessageDTO } from '@/api/modules/notify'
+import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { ServiceStatus } from '@/types/api'
 
 interface UiNotification {
@@ -33,6 +35,29 @@ function applyTheme(theme: 'light' | 'dark') {
 
 const initialTheme = readTheme()
 applyTheme(initialTheme)
+let stopNotifications: (() => void) | null = null
+let activeNotificationUserId: string | null = null
+
+function notificationTitle(message: NotifyMessageDTO) {
+  return message.eventType || message.channel || 'Notify'
+}
+
+function notificationServiceLabel(message: NotifyMessageDTO) {
+  const channel = message.channel ?? 'notify'
+  const eventType = message.eventType ?? 'message'
+  return `${channel}/${eventType}`
+}
+
+function notificationTime(occurredAt: string | undefined) {
+  if (!occurredAt) {
+    return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  }
+
+  const date = new Date(occurredAt)
+  return Number.isNaN(date.getTime())
+    ? new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    : date.toLocaleTimeString('zh-CN', { hour12: false })
+}
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
@@ -59,7 +84,7 @@ export const useUiStore = defineStore('ui', {
       const realtime = this.statuses.find((item) => item.name === 'Realtime')
       if (realtime) {
         realtime.state = state === 'online' ? 'online' : state === 'reconnecting' ? 'degraded' : 'offline'
-        realtime.detail = state === 'online' ? 'mock stream connected' : state
+        realtime.detail = state === 'online' ? 'notify stream connected' : state
       }
       if (state !== this.lastRealtimeNoticeState) {
         if (state === 'online' && this.lastRealtimeNoticeState !== 'online') {
@@ -101,6 +126,38 @@ export const useUiStore = defineStore('ui', {
     },
     toggleTheme() {
       this.setTheme(this.theme === 'light' ? 'dark' : 'light')
+    },
+    addNotifyMessage(message: NotifyMessageDTO) {
+      this.notifications.unshift({
+        id: `notify-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        time: notificationTime(message.occurredAt),
+        title: notificationTitle(message),
+        messageKey: 'notifications.connectionIssue',
+        messageParams: {
+          service: notificationServiceLabel(message),
+        },
+        statusKey: 'status.online',
+        tone: 'online',
+      })
+      this.notifications = this.notifications.slice(0, 8)
+    },
+    startNotificationStream(userId: number | string) {
+      const normalizedUserId = String(userId)
+      if (activeNotificationUserId === normalizedUserId && stopNotifications) {
+        return
+      }
+
+      stopNotifications?.()
+      activeNotificationUserId = normalizedUserId
+      stopNotifications = realtimeClient.subscribeNotifications(normalizedUserId, {
+        onMessage: (message) => this.addNotifyMessage(message),
+        onConnectionChange: (state) => this.setRealtimeState(state),
+      })
+    },
+    stopNotificationStream() {
+      stopNotifications?.()
+      stopNotifications = null
+      activeNotificationUserId = null
     },
   },
 })

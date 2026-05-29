@@ -132,3 +132,6 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 4. 2026-05-29 12:47，当前进行 docs-only claim；claim push 成功前不修改业务代码。
 5. 2026-05-29 12:50，docs-only claim 已提交并推送：`3713838 docs(agent): claim FE-API-INTEGRATION-20260529`。
 6. 2026-05-29 12:53，已按 Superpowers writing-plans 写入实施计划：`docs/superpowers/plans/2026-05-29-frontend-api-integration.md`。
+7. 2026-05-29 14:44，Task 4 完成：接入 File 上传/进度/下载/删除 API、Notify SSE/WebSocket transport、文件上传进度 store wiring；Runtime run log/node state stream 仍保留 scripted mock。
+8. 2026-05-29 14:44，验证：`cd frontend; npm run build` 通过；Vite chunk size warning 为既有打包体积提示。
+9. 2026-05-29 14:44，已知检查项：本 Task 4 未修改 `frontend/src/router/index.ts`，但该文件已存在于本分支早前提交中，`git diff --name-only origin/main...HEAD` 会继续显示该历史变更。
