@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-0845-WORKFLOW-OCR
 分支：feature/WORKFLOW-OCR-NODE-20260529-ocr-node
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -163,7 +163,12 @@ Session ID：SESSION-20260529-0845-WORKFLOW-OCR
 
 ## 合入 main
 
-未合入。
+已合入。
+
+1. 主线提交：d87922a merge: workflow ocr node system
+2. main 合入检查：git diff --check HEAD^1..HEAD 通过，无 whitespace error
+3. main 相关模块测试：JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/file-service,backend/workflow-service -am test 通过
+4. 证据：common 8 tests；workflow-runtime-api 10 tests；workflow-service 94 tests；file-service 23 tests；BUILD SUCCESS
 
 ## 统一运行电脑验证
 
