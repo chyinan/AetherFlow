@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1936-BE-COPILOT-CHAT
 分支：feature/BE-COPILOT-CHAT-20260529-copilot-chat
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -174,9 +174,9 @@ Gateway 需要将 `/copilot/**` 路由到 ai-service，并纳入 ai-api Sentinel
 1. b531eb6 docs(agent): claim BE-COPILOT-CHAT-20260529
 2. 55d7a6f feat(ai): add copilot chat APIs
 
-状态：REVIEW
+状态：DONE
 
-合入 main：未合入
+合入 main：已合入。
 
 统一运行电脑验证：未运行
 
@@ -187,3 +187,20 @@ Gateway 需要将 `/copilot/**` 路由到 ai-service，并纳入 ai-api Sentinel
 3. 本任务未实现流式 Copilot、外部 LLM Provider 接入或权限细化。
 
 文件锁：RELEASED
+## Main Merge
+
+时间：2026-05-29 20:09 +08:00
+
+记录：
+
+1. 已按负责人指令将该任务 feature 分支合入 main。
+2. 主线合入提交：39937cc merge: backend copilot chat。
+3. 主线静态检查通过：git diff --check。
+4. 主线后端相关模块测试通过：JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/auth-service,backend/workflow-service,backend/file-service,backend/ai-service,backend/notify-service,backend/gateway-service -am test。
+5. 测试证据：common 9 tests；workflow-runtime-api 10 tests；gateway-service 24 tests；auth-service 40 tests；workflow-service 135 tests；ai-service 32 tests；file-service 35 tests；notify-service 6 tests；BUILD SUCCESS。
+
+合入 main：已合入。
+
+统一运行电脑验证：未运行。
+
+文件锁：RELEASED。

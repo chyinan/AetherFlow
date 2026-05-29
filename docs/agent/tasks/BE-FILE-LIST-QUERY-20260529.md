@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1755-BE-FILE-LIST-QUERY
 分支：feature/BE-FILE-LIST-QUERY-20260529-file-list-query
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -157,12 +157,29 @@ Session ID：SESSION-20260529-1755-BE-FILE-LIST-QUERY
 1. `56438c1 docs(agent): claim BE-FILE-LIST-QUERY-20260529`
 2. `a3ecc36 feat(file): add file asset list query`
 
-合入 main：未合入。
+合入 main：已合入。
 
 统一运行电脑验证：未运行。
 
 遗留问题：
 1. 需统一运行电脑补测真实 MySQL 分页、query/type/source/artifactKind/workflowId 过滤。
 2. workflowId/source/artifactKind 真实持久化需要后续 DB schema 任务单独登记。
+
+文件锁：RELEASED。
+## Main Merge
+
+时间：2026-05-29 20:09 +08:00
+
+记录：
+
+1. 已按负责人指令将该任务 feature 分支合入 main。
+2. 主线合入提交：a0eec0b merge: backend file list query。
+3. 主线静态检查通过：git diff --check。
+4. 主线后端相关模块测试通过：JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/auth-service,backend/workflow-service,backend/file-service,backend/ai-service,backend/notify-service,backend/gateway-service -am test。
+5. 测试证据：common 9 tests；workflow-runtime-api 10 tests；gateway-service 24 tests；auth-service 40 tests；workflow-service 135 tests；ai-service 32 tests；file-service 35 tests；notify-service 6 tests；BUILD SUCCESS。
+
+合入 main：已合入。
+
+统一运行电脑验证：未运行。
 
 文件锁：RELEASED。
