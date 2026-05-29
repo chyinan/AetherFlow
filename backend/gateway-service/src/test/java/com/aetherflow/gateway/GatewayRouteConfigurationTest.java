@@ -1,5 +1,6 @@
 package com.aetherflow.gateway;
 
+import com.aetherflow.gateway.config.GatewaySentinelProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +31,9 @@ class GatewayRouteConfigurationTest {
 
     @Autowired
     private RouteLocator routeLocator;
+
+    @Autowired
+    private GatewaySentinelProperties sentinelProperties;
 
     @Test
     void openApiAggregationRoutesRewriteGatewayPrefixesToServiceApiDocs() {
@@ -87,6 +91,35 @@ class GatewayRouteConfigurationTest {
             assertThat(route.getUri().toString()).as(path).isEqualTo("lb://ai-service");
             assertThat(route.getOrder()).as(path).isEqualTo(-50);
         });
+    }
+
+    @Test
+    void workflowRuntimeAndNodePathsSelectWorkflowServiceRoute() {
+        List.of(
+                "/workflow/runtime/metrics",
+                "/workflow/runtime/observability/1001",
+                "/workflow/runtime/events/1001",
+                "/workflow/node/catalog",
+                "/workflow/node/metrics"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("workflow-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://workflow-service");
+        });
+    }
+
+    @Test
+    void workflowApiSentinelGroupIncludesSingularWorkflowPrefix() {
+        GatewaySentinelProperties.ApiGroup workflowApi = sentinelProperties.getApiGroups().stream()
+                .filter(apiGroup -> "workflow-api".equals(apiGroup.getName()))
+                .findFirst()
+                .orElse(null);
+
+        assertThat(workflowApi).isNotNull();
+        assertThat(workflowApi.getPatterns())
+                .contains("/workflows", "/workflow-instances", "/workflow");
     }
 
     private Route firstMatchingRoute(String path) {
