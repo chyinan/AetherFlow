@@ -14,6 +14,7 @@ import { useUiStore } from './uiStore'
 import { useWorkflowStore } from './workflowStore'
 
 let stopRealtime: (() => void) | null = null
+const refreshedArtifactRuns = new Set<string>()
 
 function mergeLogs(currentLogs: RunLogEntry[], recoveredLogs: RunLogEntry[]) {
   const merged = new Map(currentLogs.map((log) => [log.id, log]))
@@ -25,6 +26,16 @@ function errorMessage(error: unknown) {
   const apiError = toApiError(error, 'runtime')
   const status = apiError.status ? `HTTP ${apiError.status}: ` : ''
   return `${status}${apiError.message}`
+}
+
+function refreshArtifactsForRun(runId: string) {
+  const fileStore = useFileStore()
+  fileStore.markRunArtifactsReady(runId)
+  if (refreshedArtifactRuns.has(runId)) {
+    return
+  }
+  refreshedArtifactRuns.add(runId)
+  void fileStore.refreshArtifactsFromBackend()
 }
 
 export const useRunStore = defineStore('run', {
@@ -141,7 +152,7 @@ export const useRunStore = defineStore('run', {
         this.currentRun.status = 'failed'
       } else if (this.currentRun.progress >= 100) {
         this.currentRun.status = 'success'
-        useFileStore().markRunArtifactsReady(this.currentRun.id)
+        refreshArtifactsForRun(this.currentRun.id)
       } else if (this.currentRun.nodeStates.some((node) => node.status === 'running')) {
         this.currentRun.status = 'running'
       }
@@ -163,7 +174,7 @@ export const useRunStore = defineStore('run', {
         Object.assign(runInList, this.currentRun)
       }
       if (this.currentRun.status === 'success') {
-        useFileStore().markRunArtifactsReady(this.currentRun.id)
+        refreshArtifactsForRun(this.currentRun.id)
       }
     },
     createRunFromWorkflow(payload: {

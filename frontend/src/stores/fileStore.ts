@@ -27,6 +27,13 @@ export const useFileStore = defineStore('file', {
       const existingIds = new Set(this.files.map((file) => file.id))
       this.files = [...this.files, ...loadedFiles.filter((file) => !existingIds.has(file.id))]
     },
+    async refreshArtifactsFromBackend() {
+      try {
+        await this.loadFiles()
+      } catch {
+        // Runtime success should stay visible even if a file-list refresh is temporarily unavailable.
+      }
+    },
     async upload(file: File) {
       this.uploading = true
       this.uploadProgress = 1

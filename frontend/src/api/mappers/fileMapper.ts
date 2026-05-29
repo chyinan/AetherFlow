@@ -88,6 +88,18 @@ function normalizeArtifactKind(kind?: string): FileAsset['artifactKind'] {
   return 'input'
 }
 
+function isWorkflowExportObject(objectKey?: string) {
+  return String(objectKey ?? '').trim().toLowerCase().startsWith('workflow/exports/')
+}
+
+function inferExportArtifactKind(name: string): FileAsset['artifactKind'] {
+  const lowerName = name.toLowerCase()
+  if (/\.(md|markdown|txt|json)$/i.test(lowerName)) {
+    return 'summary'
+  }
+  return 'document'
+}
+
 function normalizeFileType(type?: string, mime?: string, name?: string): FileAsset['type'] {
   const normalized = String(type ?? '').trim().toLowerCase()
   if (['audio', 'video', 'document', 'artifact'].includes(normalized)) {
@@ -115,20 +127,21 @@ export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset 
   const backendFileId = view.backendFileId ?? view.id
   const name = view.name?.trim() || view.originalName?.trim() || view.objectKey?.split('/').pop() || `file-${id}`
   const mime = view.mime?.trim() || 'application/octet-stream'
-  const source = normalizeSource(view.source)
+  const isExportArtifact = isWorkflowExportObject(view.objectKey)
+  const source: FileAsset['source'] = isExportArtifact ? 'artifact' : normalizeSource(view.source)
 
   return {
     id,
     backendFileId: backendFileId === undefined || backendFileId === null ? undefined : String(backendFileId),
     name,
-    type: normalizeFileType(view.type, mime, name),
+    type: isExportArtifact ? 'artifact' : normalizeFileType(view.type, mime, name),
     source,
-    artifactKind: source === 'input' ? 'input' : normalizeArtifactKind(view.artifactKind),
+    artifactKind: isExportArtifact ? inferExportArtifactKind(name) : source === 'input' ? 'input' : normalizeArtifactKind(view.artifactKind),
     size: formatSize(view.size),
     mime,
     status: mapUploadStatus(view.status ?? 'READY') as FileStatus,
     workflowId: view.workflowId,
-    result: view.result || i18n.global.t('files.mockResults.readyInput'),
+    result: isExportArtifact ? i18n.global.t('files.mockResults.generatedByRun') : view.result || i18n.global.t('files.mockResults.readyInput'),
     downloadUrl: view.downloadUrl,
     objectKey: view.objectKey,
     updatedAt: formatDateTime(view.updatedAt ?? view.createdAt),
