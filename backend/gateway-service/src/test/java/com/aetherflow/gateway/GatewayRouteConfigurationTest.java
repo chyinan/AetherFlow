@@ -106,4 +106,28 @@ class GatewayRouteConfigurationTest {
                 .findFirst()
                 .orElse(null);
     }
+
+    @Test
+    void knowledgePathsRouteToWorkflowService() {
+        RouteDefinition workflowServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "workflow-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(workflowServiceRoute).isNotNull();
+        assertThat(workflowServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString())
+                        .contains("Path", "/knowledge/**"));
+
+        List.of(
+                "/knowledge/datasets",
+                "/knowledge/datasets/11/documents",
+                "/knowledge/documents/21/chunks"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("workflow-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://workflow-service");
+        });
+    }
 }
