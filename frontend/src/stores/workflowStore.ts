@@ -50,20 +50,26 @@ export const useWorkflowStore = defineStore('workflow', {
     dirty: false,
     saving: false,
     savingError: null as string | null,
+    runError: null as string | null,
   }),
   actions: {
+    setRunError(message: string | null) {
+      this.runError = message
+    },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
       this.nodes = nodes
       if (changed) {
         this.dirty = true
         this.savingError = null
+        this.runError = null
       }
     },
     setEdges(edges: WorkflowGraphEdge[]) {
       this.edges = edges
       this.dirty = true
       this.savingError = null
+      this.runError = null
     },
     addConnection(connection: Connection) {
       if (!connection.source || !connection.target) {
@@ -76,12 +82,14 @@ export const useWorkflowStore = defineStore('workflow', {
       })
       this.dirty = true
       this.savingError = null
+      this.runError = null
     },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
       const node = createNodeFromTemplate(template, position)
       this.nodes.push(node)
       this.dirty = true
       this.savingError = null
+      this.runError = null
       return node
     },
     addNodeAfter(sourceNodeId: string, template: NodeTemplate) {
@@ -110,6 +118,7 @@ export const useWorkflowStore = defineStore('workflow', {
       })
       this.dirty = true
       this.savingError = null
+      this.runError = null
       return node
     },
     updateNodeStatus(nodeId: string, status: WorkflowNodeStatus, durationMs?: number) {
@@ -133,6 +142,7 @@ export const useWorkflowStore = defineStore('workflow', {
         }
         this.dirty = true
         this.savingError = null
+        this.runError = null
       }
     },
     resetMockWorkflow() {
@@ -140,10 +150,12 @@ export const useWorkflowStore = defineStore('workflow', {
       this.edges = cloneEdges()
       this.dirty = false
       this.savingError = null
+      this.runError = null
     },
     markSaved() {
       this.dirty = false
       this.savingError = null
+      this.runError = null
     },
     async loadWorkflow(workflowId: string) {
       const workflow = await workflowApi.getWorkflow(workflowId)
@@ -154,8 +166,9 @@ export const useWorkflowStore = defineStore('workflow', {
       this.edges = structuredClone(workflow.edges)
       this.dirty = false
       this.savingError = null
+      this.runError = null
     },
-    async saveCurrentWorkflow() {
+    async saveCurrentWorkflow(options: { allowMockFallback?: boolean } = {}) {
       this.saving = true
       this.savingError = null
       try {
@@ -165,7 +178,7 @@ export const useWorkflowStore = defineStore('workflow', {
           backendDefinitionId: this.backendDefinitionId ?? undefined,
           nodes: this.nodes,
           edges: this.edges,
-        })
+        }, options)
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.markSaved()
       } catch (error) {
