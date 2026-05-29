@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1835-BE-FILE-CHUNK-UPLOAD
 分支：feature/BE-FILE-CHUNK-UPLOAD-20260529-chunk-upload
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -145,3 +145,42 @@ Session ID：SESSION-20260529-1835-BE-FILE-CHUNK-UPLOAD
 1. 2026-05-29 18:35，从 main 创建 feature/BE-FILE-CHUNK-UPLOAD-20260529-chunk-upload。
 2. 2026-05-29 18:35，已检查 AGENT.md 文件锁表，目标 file-service 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 18:35，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 18:43 +08:00
+
+完成内容：
+
+1. 新增 `POST /files/uploads` 初始化分片上传会话。
+2. 新增 `PUT /files/uploads/{uploadId}/parts/{partNumber}` 上传单个分片。
+3. 新增 `POST /files/uploads/{uploadId}/complete` 按 partNumber 合并分片，并复用既有 `FileInfoService.upload` 写入 MinIO 和 metadata。
+4. 新增 `DELETE /files/uploads/{uploadId}` 清理未完成分片会话。
+5. 新增 file-service 内部 `ChunkUploadDtos`、`ChunkUploadService`、`LocalChunkUploadService` 和 `PathMultipartFile`。
+6. 补齐 controller/service 测试，覆盖 init、part、complete、abort、hash mismatch 和 missing part 场景。
+
+验证记录：
+
+1. TDD Red：实现前运行目标测试，因缺少 `ChunkUploadDtos` / `ChunkUploadService` 编译失败，符合预期。
+2. 目标测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am -Dtest=FileControllerTest,LocalChunkUploadServiceTest -Dsurefire.failIfNoSpecifiedTests=false test` 通过；`FileControllerTest` 7 tests，`LocalChunkUploadServiceTest` 2 tests。
+3. 模块测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am test` 通过；common 8 tests，file-service 29 tests。
+4. 静态检查：`git diff --check` 通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+
+提交：
+
+1. dc5f385 docs(agent): claim BE-FILE-CHUNK-UPLOAD-20260529
+2. f2a3592 feat(file): add chunk upload APIs
+
+状态：REVIEW
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测真实大文件分片、磁盘空间、MinIO 上传链路。
+2. 当前分片会话为进程内存和本地临时目录，服务重启后未完成会话不会恢复；生产级断点续传需后续引入 Redis/DB。
+3. complete 阶段没有直接使用 MinIO multipart API，而是服务端合并后复用既有上传链路。
+
+文件锁：RELEASED。
