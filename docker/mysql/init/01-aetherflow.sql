@@ -38,6 +38,50 @@ CREATE TABLE IF NOT EXISTS af_workflow_instance (
     KEY idx_af_workflow_instance_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS af_workspace (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(128) NOT NULL,
+    slug VARCHAR(128) NOT NULL,
+    region VARCHAR(64) NOT NULL,
+    environment VARCHAR(32) NOT NULL,
+    owner_user_id BIGINT,
+    owner_name VARCHAR(128),
+    member_count INT NOT NULL DEFAULT 1,
+    default_timeout_min INT NOT NULL DEFAULT 45,
+    retention_days INT NOT NULL DEFAULT 30,
+    status VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_af_workspace_slug (slug),
+    KEY idx_af_workspace_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS af_project (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    workspace_id BIGINT,
+    workspace_name VARCHAR(128),
+    name VARCHAR(128) NOT NULL,
+    description VARCHAR(512),
+    owner_user_id BIGINT,
+    owner_name VARCHAR(128),
+    environment VARCHAR(32) NOT NULL,
+    health VARCHAR(32) NOT NULL,
+    scenario VARCHAR(32) NOT NULL,
+    sla_target VARCHAR(64),
+    queue_depth INT NOT NULL DEFAULT 0,
+    knowledge_count INT NOT NULL DEFAULT 0,
+    last_run_status VARCHAR(32) NOT NULL,
+    workflow_count INT NOT NULL DEFAULT 0,
+    active_run_count INT NOT NULL DEFAULT 0,
+    file_count INT NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    KEY idx_af_project_workspace (workspace_id),
+    KEY idx_af_project_status (status),
+    KEY idx_af_project_updated (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS af_task_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     workflow_instance_id BIGINT NOT NULL,

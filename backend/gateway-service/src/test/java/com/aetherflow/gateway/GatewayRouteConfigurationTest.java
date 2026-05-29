@@ -106,4 +106,30 @@ class GatewayRouteConfigurationTest {
                 .findFirst()
                 .orElse(null);
     }
+
+    @Test
+    void projectAndWorkspacePathsRouteToWorkflowService() {
+        RouteDefinition workflowServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "workflow-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(workflowServiceRoute).isNotNull();
+        assertThat(workflowServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString())
+                        .contains("Path", "/projects", "/projects/**", "/workspaces", "/workspaces/**"));
+
+        List.of(
+                "/projects",
+                "/projects/7",
+                "/projects/7/stats",
+                "/workspaces",
+                "/workspaces/5"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("workflow-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://workflow-service");
+        });
+    }
 }
