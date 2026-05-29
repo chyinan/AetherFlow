@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1704-BE-GW-WORKFLOW-ROUTE
 分支：feature/BE-GW-WORKFLOW-ROUTE-20260529-workflow-route
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -96,7 +96,7 @@ Session ID：SESSION-20260529-1704-BE-GW-WORKFLOW-ROUTE
 ## 验证方式
 
 1. `git diff --check`
-2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest test`
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest '-Dsurefire.failIfNoSpecifiedTests=false' test`
 3. 如时间允许：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test`
 
 ## 环境检测
@@ -115,3 +115,44 @@ Session ID：SESSION-20260529-1704-BE-GW-WORKFLOW-ROUTE
 2. 2026-05-29 17:04，已确认 `main` 工作区干净，`git pull origin main` 返回 Already up to date。
 3. 2026-05-29 17:04，已创建分支 `feature/BE-GW-WORKFLOW-ROUTE-20260529-workflow-route`。
 4. 2026-05-29 17:04，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+5. 2026-05-29 17:08，docs-only claim 已提交并推送：`e82e8b0 docs(agent): claim BE-GW-WORKFLOW-ROUTE-20260529`。
+6. 2026-05-29 17:08，TDD RED 1：新增 `/workflow/runtime/**` 与 `/workflow/node/**` route contract 测试；当前 Gateway 无匹配路由，`GatewayRouteConfigurationTest.workflowRuntimeAndNodePathsSelectWorkflowServiceRoute` 按预期失败。
+7. 2026-05-29 17:09，GREEN 1：`workflow-service` Gateway route 增加 `/workflow/**`；目标测试通过。
+8. 2026-05-29 17:09，TDD RED 2：新增 Sentinel `workflow-api` 分组包含 `/workflow` 的测试；当前 pattern 缺失 `/workflow`，按预期失败。
+9. 2026-05-29 17:10，GREEN 2：Sentinel `workflow-api` pattern 增加 `/workflow`；目标测试通过。
+
+## 完成内容
+
+1. Gateway `workflow-service` route 从 `/workflows/**,/workflow-instances/**` 扩展为 `/workflows/**,/workflow-instances/**,/workflow/**`。
+2. Sentinel `workflow-api` API group 增加 `/workflow` prefix，使 `/workflow/runtime/**` 与 `/workflow/node/**` 使用已有 workflow-api 限流/熔断分组。
+3. `GatewayRouteConfigurationTest` 增加路由契约覆盖：
+   - `/workflow/runtime/metrics`
+   - `/workflow/runtime/observability/1001`
+   - `/workflow/runtime/events/1001`
+   - `/workflow/node/catalog`
+   - `/workflow/node/metrics`
+4. `GatewayRouteConfigurationTest` 增加 Sentinel 配置契约覆盖，确认 `workflow-api` patterns 包含 `/workflows`、`/workflow-instances`、`/workflow`。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest '-Dsurefire.failIfNoSpecifiedTests=false' test`：通过，GatewayRouteConfigurationTest 6 tests，BUILD SUCCESS。
+3. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test`：通过，common 8 tests；gateway-service 18 tests；BUILD SUCCESS。
+
+## 最终交接
+
+状态：REVIEW
+
+提交：
+1. `e82e8b0 docs(agent): claim BE-GW-WORKFLOW-ROUTE-20260529`
+2. `feat(gateway): add workflow route`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需要统一运行电脑启动 Gateway、Nacos、workflow-service 后补测真实 `/workflow/runtime/**` 与 `/workflow/node/**` 转发。
+2. P0 中 Workflow definitions CRUD 和 Workflow run list/detail/log 仍未实现，需按后续任务继续补齐。
+
+文件锁：RELEASED。
