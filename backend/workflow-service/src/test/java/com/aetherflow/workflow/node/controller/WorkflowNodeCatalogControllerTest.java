@@ -28,6 +28,7 @@ class WorkflowNodeCatalogControllerTest {
                         "UPLOAD",
                         "WHISPER",
                         "SUMMARY",
+                        "EMBEDDING",
                         "EXPORT",
                         "NOTIFY",
                         "CONDITION",
@@ -42,6 +43,16 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("fileUrl", "fileObjectKey", "fileSize");
         assertThat(upload.exampleConfig()).containsEntry("fileIdVariable", "fileId");
+
+        WorkflowNodeCatalogItem embedding = item(result.getData(), "EMBEDDING");
+        assertThat(embedding.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("provider", "model", "chunkSize", "overlap", "textVariable", "vectorCollection");
+        assertThat(embedding.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("embeddingResults", "embeddingVectors", "embeddingVectorCount", "embeddingModel");
+        assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
+        assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
 
         WorkflowNodeCatalogItem condition = item(result.getData(), "CONDITION");
         assertThat(condition.configSchema())

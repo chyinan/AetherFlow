@@ -3,6 +3,7 @@ package com.aetherflow.workflow.openapi;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.controller.WorkflowController;
+import com.aetherflow.workflow.embedding.controller.EmbeddingMetricsController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeCatalogController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeMetricsController;
 import com.aetherflow.workflow.runtime.controller.WorkflowRuntimeController;
@@ -33,6 +34,9 @@ class WorkflowOpenApiContractTest {
 
         assertControllerDocumented(WorkflowNodeCatalogController.class);
         assertOperationDocumented(WorkflowNodeCatalogController.class, "catalog");
+
+        assertControllerDocumented(EmbeddingMetricsController.class);
+        assertOperationDocumented(EmbeddingMetricsController.class, "metrics");
     }
 
     private static void assertControllerDocumented(Class<?> controllerType) {
