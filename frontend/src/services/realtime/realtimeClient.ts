@@ -78,12 +78,13 @@ export const realtimeClient = {
     let socket: NotificationSocketConnection | null = null
 
     const startSocket = () => {
-      if (closed || socket) {
+      if (closed || socket || !runtimeEnv.notifyWebSocketFallback) {
         return
       }
 
       socket = createNotificationSocket({
         userId,
+        maxReconnectAttempts: 5,
         onMessage: (message) => handlers.onMessage?.(message),
         onConnectionChange: (state) => {
           if (!sseOnline) {

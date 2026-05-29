@@ -39,7 +39,10 @@ let stopNotifications: (() => void) | null = null
 let activeNotificationUserId: string | null = null
 
 function notificationTitle(message: NotifyMessageDTO) {
-  return message.eventType || message.channel || 'Notify'
+  const title = typeof message.payload.title === 'string' ? message.payload.title.trim() : ''
+  return title
+    ? title
+    : message.eventType || message.channel || 'Notify'
 }
 
 function notificationServiceLabel(message: NotifyMessageDTO) {
@@ -57,6 +60,20 @@ function notificationTime(occurredAt: string | undefined) {
   return Number.isNaN(date.getTime())
     ? new Date().toLocaleTimeString('zh-CN', { hour12: false })
     : date.toLocaleTimeString('zh-CN', { hour12: false })
+}
+
+function notificationMessageKey(message: NotifyMessageDTO) {
+  const messageKey = typeof message.payload.messageKey === 'string' ? message.payload.messageKey.trim() : ''
+  if (messageKey) {
+    return messageKey
+  }
+
+  const rawMessage = typeof message.payload.message === 'string' ? message.payload.message.trim() : ''
+  if (rawMessage) {
+    return rawMessage
+  }
+
+  return 'notifications.connectionIssue'
 }
 
 export const useUiStore = defineStore('ui', {
@@ -133,15 +150,16 @@ export const useUiStore = defineStore('ui', {
       this.setTheme(this.theme === 'light' ? 'dark' : 'light')
     },
     addNotifyMessage(message: NotifyMessageDTO) {
+      const messageKey = notificationMessageKey(message)
       this.notifications.unshift({
         id: `notify-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         time: notificationTime(message.occurredAt),
         title: notificationTitle(message),
-        messageKey: 'notifications.connectionIssue',
+        messageKey,
         messageParams: {
           service: notificationServiceLabel(message),
         },
-        statusKey: 'status.online',
+        statusKey: messageKey === 'notifications.connectionIssue' ? 'status.online' : undefined,
         tone: 'online',
       })
       this.notifications = this.notifications.slice(0, 8)

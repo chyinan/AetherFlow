@@ -43,5 +43,6 @@ export const runtimeEnv = {
   sseBase: normalizeBase(import.meta.env.VITE_SSE_BASE, '/sse'),
   openApiBase: normalizeBase(import.meta.env.VITE_OPENAPI_BASE, '/api'),
   mockFallback: normalizeBoolean(import.meta.env.VITE_MOCK_FALLBACK, true),
+  notifyWebSocketFallback: normalizeBoolean(import.meta.env.VITE_NOTIFY_WS_FALLBACK, false),
   requestTimeoutMs: normalizeNumber(import.meta.env.VITE_API_TIMEOUT_MS, 15000),
 } as const

@@ -21,7 +21,7 @@ export interface NotificationSocketConnection {
 
 const defaultReconnectBaseMs = 600
 const defaultReconnectMaxMs = 12_000
-const defaultMaxReconnectAttempts = Number.POSITIVE_INFINITY
+const defaultMaxReconnectAttempts = 5
 
 function jitteredDelay(baseMs: number, maxMs: number, attempt: number) {
   const exponential = Math.min(maxMs, baseMs * 2 ** Math.max(0, attempt - 1))
