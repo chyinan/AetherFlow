@@ -2,11 +2,14 @@ package com.aetherflow.ai.controller;
 
 import com.aetherflow.ai.config.AiTaskProperties;
 import com.aetherflow.ai.provider.AiProviderType;
+import com.aetherflow.ai.provider.ProviderCatalogResponse;
+import com.aetherflow.ai.provider.ProviderCatalogService;
 import com.aetherflow.ai.provider.ProviderMetricsResponse;
 import com.aetherflow.ai.provider.ProviderMetricsService;
 import com.aetherflow.ai.provider.ProviderRecoveryService;
 import com.aetherflow.ai.provider.ProviderRoutingPolicy;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
+import com.aetherflow.ai.provider.ProviderRuntimeLogResponse;
 import com.aetherflow.ai.provider.ProviderStatusResponse;
 import com.aetherflow.ai.provider.ProviderStatusService;
 import com.aetherflow.ai.provider.AIInferenceLogService;
@@ -27,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "AI Provider", description = "Frontend public AI provider routing, health, policy and metrics management APIs.")
@@ -40,6 +44,7 @@ public class AiProviderController {
     private final ProviderMetricsService metricsService;
     private final AIInferenceLogService logService;
     private final ProviderRecoveryService recoveryService;
+    private final ProviderCatalogService catalogService;
     private final AiTaskProperties properties;
     private final SentinelAiGuard sentinelAiGuard;
 
@@ -114,5 +119,34 @@ public class AiProviderController {
                     logService.recent(properties.getProviderRecentMetricsLimit())
             );
         }));
+    }
+
+    @Operation(summary = "Get AI provider model catalog",
+            description = "Returns frontend-shaped provider cards and model catalog metadata.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Provider catalog returned.",
+                    content = @Content(schema = @Schema(implementation = ProviderCatalogResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @GetMapping("/catalog")
+    public Result<ProviderCatalogResponse> catalog() {
+        return Result.success(sentinelAiGuard.execute("ai-provider-catalog",
+                () -> catalogService.catalog(policyService.currentPolicy())));
+    }
+
+    @Operation(summary = "Get AI provider runtime logs",
+            description = "Returns frontend-shaped AI provider runtime log feed.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Provider runtime logs returned.",
+                    content = @Content(schema = @Schema(implementation = ProviderRuntimeLogResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @GetMapping("/logs")
+    public Result<ProviderRuntimeLogResponse> logs(
+            @Parameter(description = "Maximum number of recent log entries, capped at 100.", example = "50")
+            @RequestParam(defaultValue = "20") int limit) {
+        int boundedLimit = Math.max(1, Math.min(limit, 100));
+        return Result.success(sentinelAiGuard.execute("ai-provider-logs",
+                () -> ProviderRuntimeLogResponse.from(logService.recent(boundedLimit))));
     }
 }
