@@ -135,3 +135,6 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 7. 2026-05-29 14:44，Task 4 完成：接入 File 上传/进度/下载/删除 API、Notify SSE/WebSocket transport、文件上传进度 store wiring；Runtime run log/node state stream 仍保留 scripted mock。
 8. 2026-05-29 14:44，验证：`cd frontend; npm run build` 通过；Vite chunk size warning 为既有打包体积提示。
 9. 2026-05-29 14:44，已知检查项：本 Task 4 未修改 `frontend/src/router/index.ts`，但该文件已存在于本分支早前提交中，`git diff --name-only origin/main...HEAD` 会继续显示该历史变更。
+10. 2026-05-29，Task 5 完成：新增 AI Provider API module、AI Provider mapper，Models facade 改为 `/ai/status` 与 `/ai/provider/**` real-first，`refreshMockProbe()` 优先刷新真实 Provider 数据。
+11. 2026-05-29，Task 5 缺口清单完成：新增 `docs/frontend-backend-missing-apis.md`，记录 Workflow/Gateway/Runtime/File/Project/AI/Knowledge/Settings/Copilot 后端 backlog。
+12. 2026-05-29，Task 5 验证：`cd frontend; npm run build` 通过；`git diff --check` 通过，仅 Windows LF/CRLF 提示；`git diff --check HEAD^..HEAD` 通过；`git diff --name-only HEAD^..HEAD` 仅包含任务允许范围文件。

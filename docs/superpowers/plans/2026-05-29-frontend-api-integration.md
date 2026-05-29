@@ -321,7 +321,7 @@ Result: passed on 2026-05-29 14:44 +08:00. Files/Runs pages compile without comp
 - Modify: `docs/agent/tasks/FE-API-INTEGRATION-20260529.md`
 - Modify: `docs/agent/logs/2026-05-29.md`
 
-- [ ] **Step 1: Implement AI module**
+- [x] **Step 1: Implement AI module**
 
 Call:
 
@@ -332,11 +332,11 @@ Call:
 - `POST /ai/provider/policy/recover/{provider}`
 - `GET /ai/provider/metrics`
 
-- [ ] **Step 2: Map provider status to existing model page types**
+- [x] **Step 2: Map provider status to existing model page types**
 
 Map backend provider names and health/metrics to `ModelProvider`, `ModelCatalogItem`, `ModelRoutingPolicy`, and `ModelRuntimeLog` with clear fallback values where backend does not expose a direct catalog.
 
-- [ ] **Step 3: Write missing API inventory**
+- [x] **Step 3: Write missing API inventory**
 
 `docs/frontend-backend-missing-apis.md` must include at least:
 
@@ -352,7 +352,7 @@ Map backend provider names and health/metrics to `ModelProvider`, `ModelCatalogI
 - Settings/member/billing/audit APIs.
 - Copilot chat API.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run:
 
@@ -360,7 +360,7 @@ Run:
 npm run build
 ```
 
-Expected: build passes and Models page compiles.
+Result: passed on 2026-05-29 after AI Provider integration. Models page compiles.
 
 ## Task 6: Final Verification And Handoff
 

@@ -1,19 +1,163 @@
+import { isApiError, toApiError } from '@/api/client/apiError'
+import { mapAiProviderData, type AiModelSnapshot } from '@/api/mappers/aiMapper'
+import {
+  getAiStatus,
+  getProviderMetrics,
+  getProviderPolicy,
+  getProviderStatus,
+  recoverProvider as recoverProviderCircuit,
+  updateProviderPolicy as updateProviderRoutingPolicy,
+  type AiProviderType,
+  type ProviderRoutingPolicy,
+} from '@/api/modules/ai'
+import { runtimeEnv } from '@/config/runtimeEnv'
 import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
 
 import { mockModelCatalog, mockModelProviders, mockModelRuntimeLogs, mockRoutingPolicies } from '../mock/modelMock'
 import { delay } from '../mock/timing'
 
+const unavailableStatuses = new Set([0, 404, 502, 503, 504])
+const unavailableCodeTokens = ['GATEWAY', 'UNAVAILABLE', 'TIMEOUT', 'NETWORK', 'ECONNREFUSED', 'ECONNABORTED', 'ERR_NETWORK']
+
+export interface ModelApiSnapshot extends AiModelSnapshot {
+  source: 'real' | 'mock'
+}
+
+let snapshotPromise: Promise<AiModelSnapshot> | null = null
+let cachedSnapshot: AiModelSnapshot | null = null
+
+function mockSnapshot(): AiModelSnapshot {
+  return {
+    providers: mockModelProviders,
+    models: mockModelCatalog,
+    policies: mockRoutingPolicies,
+    logs: mockModelRuntimeLogs,
+  }
+}
+
+function shouldUseMockFallback(error: unknown) {
+  if (!runtimeEnv.mockFallback) {
+    return false
+  }
+
+  const apiError = isApiError(error) ? error : toApiError(error, 'ai')
+  const status = apiError.status
+  const numericCode = typeof apiError.code === 'number' ? apiError.code : Number(apiError.code)
+  const codeText = String(apiError.code ?? '').trim().toUpperCase()
+  const messageText = apiError.message.trim().toUpperCase()
+  const codeIndicatesUnavailable =
+    (Number.isFinite(numericCode) && unavailableStatuses.has(numericCode)) ||
+    unavailableCodeTokens.some((token) => codeText.includes(token) || messageText.includes(token))
+
+  if ([400, 401, 403, 409, 422].includes(status ?? 0) || apiError.source === 'auth') {
+    return false
+  }
+
+  if (apiError.source === 'network') {
+    return true
+  }
+
+  return (
+    (status !== undefined && unavailableStatuses.has(status)) ||
+    (status === undefined && codeIndicatesUnavailable)
+  )
+}
+
+async function loadRealSnapshot(force = false) {
+  if (!force && cachedSnapshot) {
+    return cachedSnapshot
+  }
+
+  if (!force && snapshotPromise) {
+    return snapshotPromise
+  }
+
+  snapshotPromise = (async () => {
+    const [serviceStatus, providerStatus, metricsResponse, policy] = await Promise.all([
+      getAiStatus(),
+      getProviderStatus(),
+      getProviderMetrics(),
+      getProviderPolicy(),
+    ])
+    const snapshot = mapAiProviderData({
+      serviceStatus,
+      providerStatus,
+      metricsResponse,
+      policy,
+    })
+
+    cachedSnapshot = snapshot
+    return snapshot
+  })()
+
+  try {
+    return await snapshotPromise
+  } catch (error) {
+    if (snapshotPromise) {
+      snapshotPromise = null
+    }
+    throw error
+  }
+}
+
+async function loadSnapshot(force = false): Promise<ModelApiSnapshot> {
+  try {
+    const snapshot = await loadRealSnapshot(force)
+    return { ...snapshot, source: 'real' }
+  } catch (error) {
+    if (!shouldUseMockFallback(error)) {
+      throw error
+    }
+
+    const snapshot = await delay<AiModelSnapshot>(mockSnapshot(), 260)
+    return { ...snapshot, source: 'mock' }
+  }
+}
+
 export const modelApi = {
-  listProviders() {
-    return delay<ModelProvider[]>(mockModelProviders)
+  async listProviders() {
+    const snapshot = await loadSnapshot()
+    return snapshot.providers
   },
-  listModels() {
-    return delay<ModelCatalogItem[]>(mockModelCatalog)
+  async listModels() {
+    const snapshot = await loadSnapshot()
+    return snapshot.models
   },
-  listRoutingPolicies() {
-    return delay<ModelRoutingPolicy[]>(mockRoutingPolicies)
+  async listRoutingPolicies() {
+    const snapshot = await loadSnapshot()
+    return snapshot.policies
   },
-  listRuntimeLogs() {
-    return delay<ModelRuntimeLog[]>(mockModelRuntimeLogs)
+  async listRuntimeLogs() {
+    const snapshot = await loadSnapshot()
+    return snapshot.logs
+  },
+  refreshSnapshot() {
+    cachedSnapshot = null
+    snapshotPromise = null
+    return loadSnapshot(true)
+  },
+  updateProviderPolicy(policy: ProviderRoutingPolicy) {
+    cachedSnapshot = null
+    snapshotPromise = null
+    return updateProviderRoutingPolicy(policy)
+  },
+  async recoverProvider(provider: AiProviderType) {
+    cachedSnapshot = null
+    snapshotPromise = null
+    const providerStatus = await recoverProviderCircuit(provider)
+    const [serviceStatus, metricsResponse, policy] = await Promise.all([
+      getAiStatus(),
+      getProviderMetrics(),
+      getProviderPolicy(),
+    ])
+    cachedSnapshot = mapAiProviderData({
+      serviceStatus,
+      providerStatus,
+      metricsResponse,
+      policy,
+    })
+    return cachedSnapshot
   },
 }
+
+export type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog }
