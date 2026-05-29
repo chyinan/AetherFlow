@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, ArrowRight, Boxes, Clock3, ListChecks, RadioTower } from 'lucide-vue-next'
+import { Activity, AlertTriangle, ArrowRight, Boxes, Clock3, ListChecks, RadioTower, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -53,6 +53,10 @@ function openRunWorkflow() {
 function selectRun(runId: string) {
   void router.push(`/runs/${runId}`)
 }
+
+function refreshRuns() {
+  void runStore.refreshRuns()
+}
 </script>
 
 <template>
@@ -65,10 +69,18 @@ function selectRun(runId: string) {
           <p class="text-xs text-text-muted">{{ t('runs.subtitle') }}</p>
         </div>
       </div>
+      <button
+        class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+        :disabled="runStore.loading"
+        @click="refreshRuns"
+      >
+        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': runStore.loading }" />
+        {{ runStore.loading ? t('runs.loading') : t('runs.refresh') }}
+      </button>
     </header>
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="grid min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
+      <div class="grid min-h-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
@@ -78,6 +90,26 @@ function selectRun(runId: string) {
             <p class="mt-3 text-2xl font-semibold text-text-primary">{{ card.value }}</p>
             <p class="mt-1 text-xs text-text-muted">{{ card.hint }}</p>
           </article>
+        </section>
+
+        <section v-if="runStore.error" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex min-w-0 items-start gap-2">
+              <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+              <div class="min-w-0">
+                <p class="font-semibold">{{ t('runs.loadErrorTitle') }}</p>
+                <p class="mt-1 break-words text-xs">{{ runStore.error }}</p>
+              </div>
+            </div>
+            <button
+              class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="runStore.loading"
+              @click="refreshRuns"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': runStore.loading }" />
+              {{ t('runs.retryLoad') }}
+            </button>
+          </div>
         </section>
 
         <section class="grid min-h-0 min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -104,6 +136,9 @@ function selectRun(runId: string) {
               </div>
               <p class="mt-2 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} {{ t('runs.artifacts') }}</p>
             </button>
+            <p v-if="runStore.runs.length === 0 && !runStore.loading" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
+              {{ t('runs.noRuns') }}
+            </p>
           </aside>
 
           <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4">

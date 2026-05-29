@@ -41,6 +41,53 @@ export interface WorkflowInstanceEntity {
   updatedAt?: string
 }
 
+export interface WorkflowRunNodeSummaryDTO {
+  nodeId?: string
+  status?: string
+  latestEventType?: string
+  startedAt?: string
+  completedAt?: string
+  attributes?: Record<string, unknown>
+}
+
+export interface WorkflowRunViewDTO {
+  id: number
+  definitionId?: number
+  workflowId?: string
+  runtimeWorkflowId?: string
+  userId?: number
+  status?: string
+  currentNodeId?: string
+  traceId?: string
+  startedAt?: string
+  completedAt?: string
+  updatedAt?: string
+  durationMs?: number
+  nodes?: WorkflowRunNodeSummaryDTO[]
+}
+
+export interface WorkflowRunPageResponse {
+  page?: number
+  pageSize?: number
+  total?: number
+  items?: WorkflowRunViewDTO[]
+}
+
+export interface WorkflowRunLogFrameDTO {
+  id?: string
+  eventId?: string
+  level?: string
+  message?: string
+  workflowId?: string
+  traceId?: string
+  taskId?: string
+  nodeId?: string
+  eventType?: string
+  runtimeState?: string
+  occurredAt?: string
+  attributes?: Record<string, unknown>
+}
+
 export function createDefinition(payload: WorkflowDefinitionDTO) {
   return apiClient.post<WorkflowDefinitionEntity>('/workflows/definitions', payload, {
     source: 'workflow',
@@ -53,4 +100,30 @@ export function startInstance(definitionId: number, payload: StartWorkflowReques
     payload,
     { source: 'workflow' },
   )
+}
+
+export interface ListWorkflowInstancesParams {
+  workflowId?: string
+  status?: string
+  page?: number
+  pageSize?: number
+}
+
+export function listWorkflowInstances(params: ListWorkflowInstancesParams = {}) {
+  return apiClient.get<WorkflowRunPageResponse>('/workflow-instances', {
+    params,
+    source: 'workflow',
+  })
+}
+
+export function getWorkflowInstance(id: number | string) {
+  return apiClient.get<WorkflowRunViewDTO>(`/workflow-instances/${encodeURIComponent(String(id))}`, {
+    source: 'workflow',
+  })
+}
+
+export function getWorkflowInstanceLogs(id: number | string) {
+  return apiClient.get<WorkflowRunLogFrameDTO[]>(`/workflow-instances/${encodeURIComponent(String(id))}/logs`, {
+    source: 'workflow',
+  })
 }
