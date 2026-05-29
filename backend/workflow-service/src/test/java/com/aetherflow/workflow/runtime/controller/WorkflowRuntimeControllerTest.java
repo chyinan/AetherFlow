@@ -6,17 +6,24 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
+import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class WorkflowRuntimeControllerTest {
@@ -86,6 +93,29 @@ class WorkflowRuntimeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(3)))
                 .andExpect(jsonPath("$.data[2].eventType").value("WORKFLOW_COMPLETED"));
+    }
+
+    @Test
+    void opensRuntimeEventStreamWithCursorRecovery() throws Exception {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        RuntimeEventStreamService streamService = mock(RuntimeEventStreamService.class);
+        SseEmitter emitter = new SseEmitter(1000L);
+        when(streamService.stream("workflow-1", "event-1", "event-2")).thenReturn(emitter);
+
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
+                new WorkflowRuntimeController(metrics, store, eventStore, streamService)
+        ).build();
+
+        mockMvc.perform(get("/workflow/runtime/stream/workflow-1")
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .header("Last-Event-ID", "event-1")
+                        .param("cursor", "event-2"))
+                .andExpect(request().asyncStarted());
+
+        verify(streamService).stream("workflow-1", "event-1", "event-2");
+        emitter.complete();
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

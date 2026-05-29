@@ -29,6 +29,7 @@ class WorkflowOpenApiContractTest {
         assertOperationDocumented(WorkflowRuntimeController.class, "metrics");
         assertOperationDocumented(WorkflowRuntimeController.class, "observability", String.class);
         assertOperationDocumented(WorkflowRuntimeController.class, "events", String.class);
+        assertOperationDocumented(WorkflowRuntimeController.class, "stream", String.class, String.class, String.class);
 
         assertControllerDocumented(WorkflowNodeMetricsController.class);
         assertOperationDocumented(WorkflowNodeMetricsController.class, "metrics");

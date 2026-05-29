@@ -8,6 +8,7 @@ import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationS
 import com.aetherflow.workflow.runtime.observability.RuntimeObservationRebuilder;
 import com.aetherflow.workflow.runtime.observability.WorkflowRuntimeObservation;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
+import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -16,10 +17,15 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -31,13 +37,23 @@ public class WorkflowRuntimeController {
     private final WorkflowRuntimeMetrics metrics;
     private final InMemoryRuntimeObservationStore observationStore;
     private final RuntimeEventStore runtimeEventStore;
+    private final RuntimeEventStreamService streamService;
+
+    @Autowired
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     RuntimeEventStreamService streamService) {
+        this.metrics = metrics;
+        this.observationStore = observationStore;
+        this.runtimeEventStore = runtimeEventStore;
+        this.streamService = streamService;
+    }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore) {
-        this.metrics = metrics;
-        this.observationStore = observationStore;
-        this.runtimeEventStore = runtimeEventStore;
+        this(metrics, observationStore, runtimeEventStore, new RuntimeEventStreamService(runtimeEventStore));
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -93,5 +109,23 @@ public class WorkflowRuntimeController {
     public Result<List<RuntimeEvent>> events(@Parameter(description = "Workflow instance id.", example = "workflow-1001")
                                              @PathVariable String workflowId) {
         return Result.success(runtimeEventStore.safeEvents(workflowId));
+    }
+
+    @Operation(summary = "Stream workflow runtime events",
+            description = "Streams RuntimeEvent frames as Server-Sent Events. The stream supports heartbeat and recovery via Last-Event-ID or cursor.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Runtime event stream opened.",
+                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = RuntimeEvent.class)))),
+            @ApiResponse(responseCode = "400", description = "Invalid workflow id."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @GetMapping(value = "/stream/{workflowId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@Parameter(description = "Workflow instance id.", example = "workflow-1001")
+                             @PathVariable String workflowId,
+                             @Parameter(description = "Last SSE event id observed by the client.", example = "event-1")
+                             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+                             @Parameter(description = "Explicit event cursor. Takes precedence over Last-Event-ID.", example = "event-1")
+                             @RequestParam(required = false) String cursor) {
+        return streamService.stream(workflowId, lastEventId, cursor);
     }
 }
