@@ -26,24 +26,24 @@ export const useFileStore = defineStore('file', {
     },
     async upload(file: File) {
       this.uploading = true
-      this.uploadProgress = 16
-      const progressTimer = window.setInterval(() => {
-        this.uploadProgress = Math.min(92, this.uploadProgress + 14)
-      }, 120)
+      this.uploadProgress = 1
       try {
-        const asset = await fileApi.uploadFile(file)
+        const asset = await fileApi.uploadFile(file, {
+          onProgress: (percentage) => {
+            this.uploadProgress = Math.max(this.uploadProgress, Math.min(100, percentage))
+          },
+        })
         this.files.unshift(asset)
         this.uploadProgress = 100
         window.setTimeout(() => {
           const uploaded = this.files.find((item) => item.id === asset.id)
-          if (uploaded && uploaded.status === 'processing') {
+          if (uploaded && !uploaded.backendFileId && uploaded.status === 'processing') {
             uploaded.status = 'ready'
             uploaded.result = i18n.global.t('files.mockResults.readyInput')
             uploaded.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false })
           }
         }, 900)
       } finally {
-        window.clearInterval(progressTimer)
         window.setTimeout(() => {
           this.uploading = false
           this.uploadProgress = 0

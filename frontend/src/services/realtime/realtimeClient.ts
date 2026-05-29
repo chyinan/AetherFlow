@@ -1,10 +1,24 @@
 import { runtimeEnv } from '@/config/runtimeEnv'
+import {
+  buildNotifySseUrl,
+  safeParseNotifyMessage,
+  type NotifyMessageDTO,
+} from '@/api/modules/notify'
 import type { RunLogEntry, RunNodeState } from '@/types/run'
+import { createNotificationSocket, type NotificationSocketConnection } from './notificationSocket'
+import { createSseClient, SseHttpError, type SseConnection } from './sseClient'
 
 type RunHandlers = {
   onLog?: (entry: RunLogEntry) => void
   onNodePatch?: (patch: RunNodeState) => void
   onConnectionChange?: (state: 'online' | 'reconnecting' | 'offline') => void
+}
+
+type NotificationHandlers = {
+  onMessage?: (message: NotifyMessageDTO) => void
+  onConnectionChange?: (state: 'online' | 'reconnecting' | 'offline') => void
+  onError?: (error: unknown) => void
+  onReconnect?: (transport: 'sse' | 'websocket', attempt: number, delayMs: number) => void
 }
 
 const script = [
@@ -54,6 +68,82 @@ export const realtimeClient = {
 
     return () => {
       window.clearInterval(timer)
+      handlers.onConnectionChange?.('offline')
+    }
+  },
+  subscribeNotifications(userId: number | string, handlers: NotificationHandlers) {
+    let closed = false
+    let sseOnline = false
+    let ssePermanentlyUnavailable = false
+    let socket: NotificationSocketConnection | null = null
+
+    const startSocket = () => {
+      if (closed || socket || !runtimeEnv.notifyWebSocketFallback) {
+        return
+      }
+
+      socket = createNotificationSocket({
+        userId,
+        maxReconnectAttempts: 5,
+        onMessage: (message) => handlers.onMessage?.(message),
+        onConnectionChange: (state) => {
+          if (!sseOnline) {
+            handlers.onConnectionChange?.(state)
+          }
+        },
+        onError: (error) => handlers.onError?.(error),
+        onReconnect: (attempt, delayMs) => handlers.onReconnect?.('websocket', attempt, delayMs),
+      })
+      socket.connect()
+    }
+
+    const sse: SseConnection = createSseClient({
+      url: buildNotifySseUrl(userId),
+      idleTimeoutMs: 30_000,
+      onOpen: () => {
+        sseOnline = true
+        socket?.close()
+        socket = null
+      },
+      onMessage: (message) => {
+        const notifyMessage = safeParseNotifyMessage(message.data)
+        if (notifyMessage) {
+          handlers.onMessage?.(notifyMessage)
+        }
+      },
+      onConnectionChange: (state) => {
+        sseOnline = state === 'online'
+        handlers.onConnectionChange?.(state)
+      },
+      onError: (error) => {
+        handlers.onError?.(error)
+        ssePermanentlyUnavailable = error instanceof SseHttpError && !error.retryable
+        if (!sseOnline && !ssePermanentlyUnavailable) {
+          startSocket()
+        }
+      },
+      onReconnect: (attempt, delayMs) => {
+        handlers.onReconnect?.('sse', attempt, delayMs)
+        if (attempt >= 2) {
+          startSocket()
+        }
+      },
+    })
+
+    sse.connect()
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (!sseOnline && !ssePermanentlyUnavailable) {
+        startSocket()
+      }
+    }, 3000)
+
+    return () => {
+      closed = true
+      window.clearTimeout(fallbackTimer)
+      sse.close()
+      socket?.close()
+      socket = null
       handlers.onConnectionChange?.('offline')
     }
   },

@@ -10,7 +10,28 @@ import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
 import RunsPage from '@/pages/runs/RunsPage.vue'
 import SettingsPage from '@/pages/settings/SettingsPage.vue'
 import WorkflowPage from '@/pages/workflows/WorkflowPage.vue'
+import type { AuthUser } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
+
+type RouteRole = AuthUser['role']
+
+function isRouteRole(role: unknown): role is RouteRole {
+  return role === 'owner' || role === 'operator'
+}
+
+function readRouteRoles(to: { matched: Array<{ meta: Record<string | number | symbol, unknown> }> }) {
+  return to.matched.flatMap((record) => {
+    const roles = record.meta.roles
+    return Array.isArray(roles) ? roles.filter(isRouteRole) : []
+  })
+}
+
+function readNamedRouteRoles(name: string) {
+  const route = router.getRoutes().find((item) => item.name === name)
+  const roles = route?.meta.roles
+
+  return Array.isArray(roles) ? roles.filter(isRouteRole) : []
+}
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -86,14 +107,37 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+
+  if (to.name === 'login') {
+    if (await authStore.ensureFreshSession()) {
+      return { path: '/projects' }
+    }
+
+    return true
+  }
+
+  const requiresAuth = to.matched.some((record) => Boolean(record.meta.requiresAuth))
+  if (!requiresAuth) {
+    return true
+  }
+
+  if (!(await authStore.ensureFreshSession())) {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
-  if (to.name === 'login' && authStore.isAuthenticated) {
+
+  const roles = readRouteRoles(to)
+  if (!authStore.hasAnyRole(roles)) {
+    const projectRoles = readNamedRouteRoles('projects')
+    if (to.name === 'projects' || !authStore.hasAnyRole(projectRoles)) {
+      authStore.clearLocalSession()
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+
     return { path: '/projects' }
   }
+
   return true
 })
 

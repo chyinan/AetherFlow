@@ -1,8 +1,15 @@
 import { defineStore } from 'pinia'
 
 import { i18n } from '@/i18n'
-import { modelApi } from '@/services/api/modelApi'
+import { modelApi, type ModelApiSnapshot } from '@/services/api/modelApi'
 import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
+
+interface ModelSnapshotState {
+  providers: ModelProvider[]
+  models: ModelCatalogItem[]
+  policies: ModelRoutingPolicy[]
+  logs: ModelRuntimeLog[]
+}
 
 export const useModelStore = defineStore('model', {
   state: () => ({
@@ -11,6 +18,7 @@ export const useModelStore = defineStore('model', {
     policies: [] as ModelRoutingPolicy[],
     logs: [] as ModelRuntimeLog[],
     selectedProviderId: 'provider-openai',
+    snapshotSource: 'mock' as ModelApiSnapshot['source'],
     loading: false,
   }),
   getters: {
@@ -28,25 +36,26 @@ export const useModelStore = defineStore('model', {
       }
       this.loading = true
       try {
-        const [providers, models, policies, logs] = await Promise.all([
-          modelApi.listProviders(),
-          modelApi.listModels(),
-          modelApi.listRoutingPolicies(),
-          modelApi.listRuntimeLogs(),
-        ])
-        this.providers = providers
-        this.models = models
-        this.policies = policies
-        this.logs = logs
-        this.selectedProviderId = this.selectedProviderId || providers[0]?.id || 'provider-openai'
+        const snapshot = await modelApi.refreshSnapshot()
+        this.applySnapshot(snapshot, snapshot.source)
       } finally {
         this.loading = false
+      }
+    },
+    applySnapshot(snapshot: ModelSnapshotState, source: ModelApiSnapshot['source'] = 'mock') {
+      this.providers = snapshot.providers
+      this.models = snapshot.models
+      this.policies = snapshot.policies
+      this.logs = snapshot.logs
+      this.snapshotSource = source
+      if (!this.providers.some((provider) => provider.id === this.selectedProviderId)) {
+        this.selectedProviderId = this.providers[0]?.id || 'provider-openai'
       }
     },
     selectProvider(providerId: string) {
       this.selectedProviderId = providerId
     },
-    refreshMockProbe() {
+    applyMockProbe() {
       const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
       this.providers = this.providers.map((provider, index) => {
         const selected = provider.id === this.selectedProviderId
@@ -74,6 +83,39 @@ export const useModelStore = defineStore('model', {
         },
         ...this.logs,
       ].slice(0, 8)
+    },
+    appendStaleRealSnapshotLog() {
+      const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      const logEntry: ModelRuntimeLog = {
+        id: `model-log-stale-real-${Date.now()}`,
+        time: now,
+        level: 'warn',
+        message: 'AI provider backend refresh unavailable; retained stale real provider snapshot.',
+      }
+      this.logs = [
+        logEntry,
+        ...this.logs,
+      ].slice(0, 8)
+    },
+    async refreshMockProbe() {
+      this.loading = true
+      try {
+        const snapshot = await modelApi.refreshSnapshot()
+        if (snapshot.source === 'real') {
+          this.applySnapshot(snapshot, 'real')
+          return
+        }
+
+        if (this.providers.length > 0 && this.snapshotSource === 'real') {
+          this.appendStaleRealSnapshotLog()
+          return
+        }
+
+        this.applySnapshot(snapshot, 'mock')
+        this.applyMockProbe()
+      } finally {
+        this.loading = false
+      }
     },
   },
 })

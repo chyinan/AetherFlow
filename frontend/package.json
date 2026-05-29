@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -b && vite build",
+    "api:generate": "orval --config src/api/openapi/orval.config.ts",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "6.0.7",
     "autoprefixer": "^10.4.22",
+    "orval": "^8.13.0",
     "postcss": "^8.5.6",
     "tailwindcss": "3.4.19",
     "typescript": "^5.9.3",

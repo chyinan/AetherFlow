@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 
 import { i18n } from '@/i18n'
-import { workflowApi } from '@/services/api/workflowApi'
+import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { initialWorkflow, nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
 
@@ -43,6 +43,7 @@ export const useWorkflowStore = defineStore('workflow', {
   state: () => ({
     workflowId: initialWorkflow.id,
     workflowName: initialWorkflow.name,
+    backendDefinitionId: getBackendDefinitionId(initialWorkflow.id) ?? initialWorkflow.backendDefinitionId ?? null as number | null,
     templates: nodeTemplates,
     nodes: cloneNodes(),
     edges: cloneEdges(),
@@ -139,6 +140,7 @@ export const useWorkflowStore = defineStore('workflow', {
       const workflow = await workflowApi.getWorkflow(workflowId)
       this.workflowId = workflow.id
       this.workflowName = workflow.name
+      this.backendDefinitionId = workflow.backendDefinitionId ?? getBackendDefinitionId(workflow.id) ?? null
       this.nodes = structuredClone(workflow.nodes)
       this.edges = structuredClone(workflow.edges)
       this.dirty = false
@@ -146,12 +148,14 @@ export const useWorkflowStore = defineStore('workflow', {
     async saveCurrentWorkflow() {
       this.saving = true
       try {
-        await workflowApi.saveWorkflow({
+        const savedWorkflow = await workflowApi.saveWorkflow({
           id: this.workflowId,
           name: this.workflowName,
+          backendDefinitionId: this.backendDefinitionId ?? undefined,
           nodes: this.nodes,
           edges: this.edges,
         })
+        this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.markSaved()
       } finally {
         this.saving = false
