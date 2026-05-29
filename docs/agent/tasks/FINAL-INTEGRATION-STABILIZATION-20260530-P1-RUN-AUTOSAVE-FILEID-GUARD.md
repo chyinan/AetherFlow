@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-run-autosave-fileid-guard
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -103,12 +103,17 @@ Session ID：SESSION-20260524-2202-cdx7a9
 1. `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
 2. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 3. 冲突标记扫描：通过，无输出。
+4. main 合入后 `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+5. main 合入后 `git diff --check HEAD^1..HEAD`：通过。
+6. main 合入后冲突标记扫描：通过，无输出。
 
 ## 提交记录
 
 - claim：e6efd2a
 - scope：a0b0cf0
 - business：5878d82 fix(frontend): require real workflow run inputs
+- handoff：82d5add docs(agent): handoff FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD
+- main merge：0cd563c merge: FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUN-AUTOSAVE-FILEID-GUARD
 
 ## 交接说明
 
