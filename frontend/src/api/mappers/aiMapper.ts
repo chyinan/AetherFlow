@@ -24,23 +24,20 @@ export interface AiModelSnapshot {
   logs: ModelRuntimeLog[]
 }
 
-const providerMetadata: Record<string, { name: string; runtime: string; fallbackModel: string; capabilities: string[] }> = {
+const providerMetadata: Record<string, { name: string; runtime: string; capabilities: string[] }> = {
   OPENAI: {
     name: 'OpenAI Gateway',
     runtime: 'cloud llm',
-    fallbackModel: 'gpt-4o-mini',
     capabilities: ['chat', 'summary', 'translate', 'subtitle', 'governed failover'],
   },
   OLLAMA: {
     name: 'Ollama Local',
     runtime: 'local llm',
-    fallbackModel: 'llama3',
     capabilities: ['chat', 'summary', 'local fallback', 'offline capable'],
   },
   LOCAL_MODEL: {
     name: 'Local Model Runtime',
     runtime: 'local runtime',
-    fallbackModel: 'runtime default',
     capabilities: ['chat', 'private runtime', 'contract pending'],
   },
 }
@@ -163,10 +160,9 @@ function defaultModelForProvider(
   logs: AIInferenceLog[],
 ) {
   const serviceDefaultProvider = normalizeProvider(input.serviceStatus?.defaultProvider)
-  const activeProvider = normalizeProvider(input.providerStatus?.activeProvider)
   const serviceDefaultModel = input.serviceStatus?.defaultModel?.trim()
 
-  if ((provider === serviceDefaultProvider || provider === activeProvider) && serviceDefaultModel) {
+  if (provider === serviceDefaultProvider && serviceDefaultModel) {
     return serviceDefaultModel
   }
 
@@ -175,7 +171,7 @@ function defaultModelForProvider(
     return logModel
   }
 
-  return providerMetadata[provider]?.fallbackModel ?? 'runtime default'
+  return 'runtime default'
 }
 
 function capabilitySet(provider: string, serviceStatus?: AiServiceStatusResponse | null) {
