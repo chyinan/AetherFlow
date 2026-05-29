@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-runtime-log-cap
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -96,3 +96,34 @@ P1 Demo 性能稳定：降低长视频 Whisper 任务日志接口拖慢 UI 的�
 
 1. 本任务不验证真实 SSE 高频推送，仅降低历史日志加载负载。
 2. 完整端到端仍需统一运行电脑补测长视频 Workflow Run。
+
+## 完成内容
+
+1. `WorkflowInstanceQueryServiceImpl.logs()` 只返回最近 200 条 `LogFrame`。
+2. `listInstances()` / `getInstance()` 的节点汇总仍基于完整 RuntimeEvent，不受日志裁剪影响。
+3. 新增长任务日志测试，250 条事件时日志接口返回 `node-50` 到 `node-249`。
+4. 未修改 Runtime Core、SSE、事件持久化、前端日志面板和 Whisper/LLM 主线。
+
+## TDD 记录
+
+1. Red：新增 `logsReturnOnlyMostRecentFramesForLongRunningInstances` 后运行目标测试，失败于返回 250 条而非 200 条，符合预期。
+2. Green：实现响应裁剪后目标测试通过。
+
+## 验证记录
+
+1. 目标测试：`mvn -pl backend/workflow-service -am "-Dtest=WorkflowInstanceQueryServiceImplTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：通过，5 tests，0 failures。
+2. 回归组合：`mvn -pl backend/workflow-service -am "-Dtest=WorkflowInstanceQueryServiceImplTest,WorkflowInstanceControllerTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：通过，8 tests，0 failures。
+3. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+4. 冲突标记扫描：通过，无输出。
+
+## 提交记录
+
+- claim：e823c99 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP
+- business：ed7e16c fix(workflow): cap runtime log history response
+
+## 交接说明
+
+当前分支已降低长 Whisper 任务历史日志加载风险。统一运行电脑需要补测：
+
+1. 运行 TED 视频 Workflow，Runtime Monitor 日志持续刷新不应明显卡顿。
+2. 已完成长任务的 Runs 日志页只显示最近日志，最终失败/成功状态仍可见。
