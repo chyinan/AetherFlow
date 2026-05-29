@@ -12,6 +12,42 @@ export interface FileMetadataDTO {
   url?: string
 }
 
+export interface FileAssetMetadataView {
+  id: number | string
+  backendFileId?: number | string
+  name?: string
+  originalName?: string
+  type?: string
+  source?: string
+  artifactKind?: string
+  size?: number | string
+  mime?: string
+  status?: string
+  workflowId?: string
+  result?: string
+  downloadUrl?: string
+  objectKey?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface FileAssetPageResponse {
+  page: number
+  pageSize: number
+  total: number
+  items: FileAssetMetadataView[]
+}
+
+export interface ListFilesParams {
+  query?: string
+  type?: string
+  source?: string
+  artifactKind?: string
+  workflowId?: string
+  page?: number
+  pageSize?: number
+}
+
 export type UploadProgressStatus =
   | 'PENDING'
   | 'UPLOADING'
@@ -116,6 +152,17 @@ export async function uploadFile(
   }
 }
 
+export function listFiles(params: ListFilesParams = {}) {
+  return apiClient.get<FileAssetPageResponse>('/files', {
+    source: 'file',
+    params: {
+      page: 1,
+      pageSize: 100,
+      ...params,
+    },
+  })
+}
+
 export function getUploadProgress(taskId: string) {
   return apiClient.get<UploadProgressView>(`/files/progress/${encodeURIComponent(taskId)}`, {
     source: 'file',
@@ -138,6 +185,7 @@ export function deleteFile(id: number | string) {
 }
 
 export const fileModuleApi = {
+  listFiles,
   uploadFile,
   getUploadProgress,
   downloadFileBlob,

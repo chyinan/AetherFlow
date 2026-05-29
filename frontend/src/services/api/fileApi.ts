@@ -1,10 +1,11 @@
 import type { FileAsset } from '@/types/file'
 import { i18n } from '@/i18n'
-import { mapFileMetadataToAsset } from '@/api/mappers/fileMapper'
+import { mapFileAssetViewToAsset, mapFileMetadataToAsset } from '@/api/mappers/fileMapper'
 import {
   deleteFile,
   downloadFileBlob,
   getUploadProgress,
+  listFiles,
   uploadFile,
   type UploadProgressView,
 } from '@/api/modules/file'
@@ -91,8 +92,18 @@ async function pollUploadProgress(
 }
 
 export const fileApi = {
-  listFiles() {
-    return delay<FileAsset[]>(mockFiles)
+  async listFiles() {
+    try {
+      const response = await listFiles({ page: 1, pageSize: 100 })
+      const items = Array.isArray(response.items) ? response.items : []
+      return items.map(mapFileAssetViewToAsset)
+    } catch (error) {
+      if (!shouldUseMockFallback(error)) {
+        throw error
+      }
+
+      return delay<FileAsset[]>(mockFiles)
+    }
   },
   async uploadFile(file: File, options: FileUploadOptions = {}) {
     let lastProgress: UploadProgressView | null = null

@@ -35,7 +35,7 @@ async function loadRouteWorkflow(workflowId: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([projectStore.loadProjects(), runStore.loadRuns()])
+  await Promise.all([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles()])
   await loadRouteWorkflow(String(route.params.id || 'wf-media-digest'))
   runStore.subscribeCurrentRun()
 })
@@ -54,6 +54,7 @@ async function saveWorkflow() {
 
 async function startRun() {
   await runStore.loadRuns()
+  await fileStore.loadFiles()
   const fileId = fileStore.latestBackendInputFileId
   const result = await workflowApi.startRun(
     workflowStore.workflowId,
