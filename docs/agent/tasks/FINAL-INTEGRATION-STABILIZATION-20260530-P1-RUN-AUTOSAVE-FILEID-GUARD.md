@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-run-autosave-fileid-guard
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -88,3 +88,32 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 1. 本机无法证明真实 TED 视频端到端成功，仍需统一运行环境补测。
 2. 运行前自动保存会让后端定义增加新版本/记录，但这比演示时启动旧 DAG 或 mock run 更稳定。
+
+## 完成内容
+
+1. WorkflowPage 点击 Run 时先加载运行和文件列表，并校验真实后端 `fileId`。
+2. 缺少真实上传文件 ID 时阻止运行，页面显示明确错误。
+3. Run 前使用 `allowMockFallback: false` 自动保存当前 DAG。
+4. 保存后必须存在真实 `backendDefinitionId` 才允许启动。
+5. Workflow Run 调用 `workflowApi.startRun(..., { allowMockFallback: false })`，后端启动不可用时不再回退到 mock run。
+6. Run 按钮在保存/启动中禁用并显示启动中状态。
+
+## 验证记录
+
+1. `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+3. 冲突标记扫描：通过，无输出。
+
+## 提交记录
+
+- claim：e6efd2a
+- scope：a0b0cf0
+- business：5878d82 fix(frontend): require real workflow run inputs
+
+## 交接说明
+
+本分支已完成前端构建与静态验证。统一运行电脑需要补测：
+
+1. 未上传 TED 视频时点击 Run，页面应提示必须先上传文件，不应启动后端实例。
+2. 上传 TED 视频完成后点击 Run，应先保存当前 DAG，再启动真实后端 Workflow Instance。
+3. 关闭 Gateway/workflow-service 时点击 Run，应显示真实错误，不应进入 mock run。
