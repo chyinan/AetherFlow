@@ -85,6 +85,36 @@ export interface UploadFileResult {
   taskId: string
 }
 
+export interface ChunkUploadInitRequest {
+  originalName: string
+  contentType: string
+  size: number
+  totalParts: number
+  checksum?: string
+}
+
+export interface ChunkUploadInitResponse {
+  uploadId: string
+  originalName: string
+  contentType?: string
+  size?: number
+  totalParts: number
+  createdAt?: string
+}
+
+export interface ChunkUploadPartResponse {
+  uploadId: string
+  partNumber: number
+  size: number
+  receivedParts: number
+  totalParts: number
+  complete: boolean
+}
+
+export interface ChunkUploadCompleteRequest {
+  checksum?: string
+}
+
 function createUploadTaskId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
@@ -163,6 +193,60 @@ export function listFiles(params: ListFilesParams = {}) {
   })
 }
 
+export function initChunkUpload(payload: ChunkUploadInitRequest) {
+  return apiClient.post<ChunkUploadInitResponse>('/files/uploads', payload, {
+    source: 'file',
+  })
+}
+
+export function uploadChunkPart(
+  uploadId: string,
+  partNumber: number,
+  chunk: Blob,
+  options: { filename?: string; onUploadProgress?: (progress: FileUploadProgress) => void } = {},
+) {
+  const formData = new FormData()
+  formData.append('file', chunk, options.filename ?? `part-${partNumber}`)
+
+  return apiClient.request<ChunkUploadPartResponse>({
+    method: 'PUT',
+    url: `/files/uploads/${encodeURIComponent(uploadId)}/parts/${partNumber}`,
+    data: formData,
+    source: 'file',
+    headers: {
+      'Content-Type': undefined,
+    },
+    transformRequest: [
+      (data, headers) => {
+        stripContentType(headers)
+        return data
+      },
+    ],
+    onUploadProgress: (event) => {
+      const total = event.total ?? chunk.size
+      options.onUploadProgress?.({
+        loaded: event.loaded,
+        total,
+        percentage: total ? Math.round((event.loaded / total) * 100) : undefined,
+      })
+    },
+  })
+}
+
+export function completeChunkUpload(uploadId: string, payload: ChunkUploadCompleteRequest = {}) {
+  return apiClient.post<FileMetadataDTO>(
+    `/files/uploads/${encodeURIComponent(uploadId)}/complete`,
+    payload,
+    { source: 'file' },
+  )
+}
+
+export function abortChunkUpload(uploadId: string) {
+  return apiClient.delete<void>(`/files/uploads/${encodeURIComponent(uploadId)}`, {
+    source: 'file',
+  })
+}
+
 export function getUploadProgress(taskId: string) {
   return apiClient.get<UploadProgressView>(`/files/progress/${encodeURIComponent(taskId)}`, {
     source: 'file',
@@ -187,6 +271,10 @@ export function deleteFile(id: number | string) {
 export const fileModuleApi = {
   listFiles,
   uploadFile,
+  initChunkUpload,
+  uploadChunkPart,
+  completeChunkUpload,
+  abortChunkUpload,
   getUploadProgress,
   downloadFileBlob,
   deleteFile,
