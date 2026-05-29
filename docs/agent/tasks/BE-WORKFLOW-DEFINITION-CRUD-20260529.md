@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1715-BE-WORKFLOW-DEFINITION-CRUD
 分支：feature/BE-WORKFLOW-DEFINITION-CRUD-20260529-definition-crud
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -125,3 +125,42 @@ Session ID：SESSION-20260529-1715-BE-WORKFLOW-DEFINITION-CRUD
 1. 2026-05-29 17:15，已从最新 `main` 创建分支 `feature/BE-WORKFLOW-DEFINITION-CRUD-20260529-definition-crud`。
 2. 2026-05-29 17:15，已确认目标文件锁无 ACTIVE 冲突。
 3. 2026-05-29 17:15，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+4. 2026-05-29 17:15，docs-only claim 已提交并推送：`8ea899d docs(agent): claim BE-WORKFLOW-DEFINITION-CRUD-20260529`。
+5. 2026-05-29 17:21，TDD RED：新增 controller/service/OpenAPI tests 后目标测试编译失败，缺少 `listDefinitions`、`getDefinition`、`updateDefinition`、`deleteDefinition`。
+6. 2026-05-29 17:22，GREEN：补齐 controller/service/service impl 后目标测试通过。
+
+## 完成内容
+
+1. 新增 `GET /workflows/definitions`，返回非 DELETED workflow definitions。
+2. 新增 `GET /workflows/definitions/{id}`，返回单个 definition detail，包括 `definitionJson`。
+3. 新增 `PUT /workflows/definitions/{id}`，按 `WorkflowDefinitionDTO` 更新 name、description、definitionJson，并递增 version。
+4. 新增 `DELETE /workflows/definitions/{id}`，通过 `status=DELETED` 软删除，不改 DB 表结构。
+5. `startInstance` 复用 definition 存在性检查，已软删除 definition 不允许启动。
+6. 新增 `WorkflowControllerTest`，覆盖 list/detail/update/delete HTTP contract。
+7. 扩展 `WorkflowServiceImplTest`，覆盖 list/detail/update/delete service 行为。
+8. 扩展 `WorkflowOpenApiContractTest`，覆盖新增 API 的 `@Operation` / `@ApiResponse`。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=WorkflowControllerTest,WorkflowServiceImplTest,WorkflowOpenApiContractTest '-Dsurefire.failIfNoSpecifiedTests=false' test`：通过，12 tests；BUILD SUCCESS。
+3. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am test`：通过，common 8 tests；workflow-runtime-api 10 tests；workflow-service 103 tests；BUILD SUCCESS。
+
+## 最终交接
+
+状态：REVIEW
+
+提交：
+1. `8ea899d docs(agent): claim BE-WORKFLOW-DEFINITION-CRUD-20260529`
+2. `feat(workflow): add definition crud APIs`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需统一运行电脑启动 workflow-service 和 MySQL 后补测真实 CRUD 持久化。
+2. `GET /workflow-instances`、`GET /workflow-instances/{id}`、`GET /workflow-instances/{id}/logs` 仍待后续 P0 任务。
+3. 本任务未新增 definition owner 字段，因当前 `af_workflow_definition` 表无 owner/user 字段；后续如需 workspace ownership 需单独 DB/契约任务。
+
+文件锁：RELEASED。

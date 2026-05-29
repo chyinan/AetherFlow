@@ -16,6 +16,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.service.WorkflowService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,6 +34,7 @@ import java.util.UUID;
 public class WorkflowServiceImpl implements WorkflowService {
 
     private static final String STATUS_ENABLED = "ENABLED";
+    private static final String STATUS_DELETED = "DELETED";
 
     private final WorkflowDefinitionMapper definitionMapper;
     private final WorkflowInstanceMapper instanceMapper;
@@ -55,12 +58,44 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     @Override
+    public List<WorkflowDefinition> listDefinitions() {
+        return definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinition>()
+                .ne(WorkflowDefinition::getStatus, STATUS_DELETED)
+                .orderByDesc(WorkflowDefinition::getUpdatedAt)
+                .orderByDesc(WorkflowDefinition::getId));
+    }
+
+    @Override
+    public WorkflowDefinition getDefinition(Long definitionId) {
+        return getExistingDefinition(definitionId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public WorkflowDefinition updateDefinition(Long definitionId, WorkflowDefinitionDTO request) {
+        WorkflowDefinition definition = getExistingDefinition(definitionId);
+        definition.setName(request.getName());
+        definition.setDescription(request.getDescription());
+        definition.setDefinitionJson(writeJson(request));
+        definition.setVersion(nextVersion(definition.getVersion()));
+        definition.setUpdatedAt(LocalDateTime.now());
+        definitionMapper.updateById(definition);
+        return definition;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteDefinition(Long definitionId) {
+        WorkflowDefinition definition = getExistingDefinition(definitionId);
+        definition.setStatus(STATUS_DELETED);
+        definition.setUpdatedAt(LocalDateTime.now());
+        definitionMapper.updateById(definition);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request) {
-        WorkflowDefinition definition = definitionMapper.selectById(definitionId);
-        if (definition == null) {
-            throw new BusinessException(ResultCode.NOT_FOUND, "workflow definition not found");
-        }
+        WorkflowDefinition definition = getExistingDefinition(definitionId);
 
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
         Map<String, Object> input = request == null || request.getInput() == null ? Map.of() : request.getInput();
@@ -97,6 +132,21 @@ public class WorkflowServiceImpl implements WorkflowService {
             instanceMapper.updateById(instance);
             throw runtimeFailure(exception);
         }
+    }
+
+    private WorkflowDefinition getExistingDefinition(Long definitionId) {
+        if (definitionId == null || definitionId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow definition id is invalid");
+        }
+        WorkflowDefinition definition = definitionMapper.selectById(definitionId);
+        if (definition == null || STATUS_DELETED.equals(definition.getStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "workflow definition not found");
+        }
+        return definition;
+    }
+
+    private int nextVersion(Integer currentVersion) {
+        return (currentVersion == null ? 0 : currentVersion) + 1;
     }
 
     private void applySnapshot(WorkflowInstance instance, WorkflowExecutionSnapshot snapshot) {

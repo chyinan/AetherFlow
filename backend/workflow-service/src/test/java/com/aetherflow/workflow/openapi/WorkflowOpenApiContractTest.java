@@ -23,6 +23,10 @@ class WorkflowOpenApiContractTest {
     void workflowControllersExposeOperationDocumentation() throws NoSuchMethodException {
         assertControllerDocumented(WorkflowController.class);
         assertOperationDocumented(WorkflowController.class, "createDefinition", WorkflowDefinitionDTO.class);
+        assertOperationDocumented(WorkflowController.class, "listDefinitions");
+        assertOperationDocumented(WorkflowController.class, "getDefinition", Long.class);
+        assertOperationDocumented(WorkflowController.class, "updateDefinition", Long.class, WorkflowDefinitionDTO.class);
+        assertOperationDocumented(WorkflowController.class, "deleteDefinition", Long.class);
         assertOperationDocumented(WorkflowController.class, "startInstance", Long.class, StartWorkflowRequest.class);
 
         assertControllerDocumented(WorkflowRuntimeController.class);
