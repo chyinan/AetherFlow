@@ -1,4 +1,5 @@
 import { apiClient } from '@/api/client/apiClient'
+import { runtimeEnv } from '@/config/runtimeEnv'
 
 export type RuntimeState =
   | 'PENDING'
@@ -44,6 +45,15 @@ export interface RuntimeEvent {
   attributes?: Record<string, unknown>
 }
 
+function trimSlashes(value: string) {
+  return value.replace(/^\/+|\/+$/g, '')
+}
+
+function resolveUrl(base: string, path: string) {
+  const normalizedPath = `/${trimSlashes(path)}`
+  return `${base.replace(/\/+$/, '')}${normalizedPath}`
+}
+
 export function getRuntimeMetrics() {
   return apiClient.get<RuntimeMetrics>('/workflow/runtime/metrics', { source: 'runtime' })
 }
@@ -59,5 +69,12 @@ export function getRuntimeEvents(workflowId: string) {
   return apiClient.get<RuntimeEvent[]>(
     `/workflow/runtime/events/${encodeURIComponent(workflowId)}`,
     { source: 'runtime' },
+  )
+}
+
+export function buildRuntimeSseUrl(workflowId: string) {
+  return resolveUrl(
+    runtimeEnv.sseBase,
+    `/workflow/runtime/stream/${encodeURIComponent(workflowId)}`,
   )
 }

@@ -112,6 +112,20 @@ export const useRunStore = defineStore('run', {
       const workflowStore = useWorkflowStore()
       workflowStore.updateNodeStatus(patch.nodeId, patch.status, patch.durationMs)
     },
+    patchCurrentRun(patch: Partial<WorkflowRun>) {
+      if (!this.currentRun) {
+        return
+      }
+
+      Object.assign(this.currentRun, patch)
+      const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
+      if (runInList) {
+        Object.assign(runInList, this.currentRun)
+      }
+      if (this.currentRun.status === 'success') {
+        useFileStore().markRunArtifactsReady(this.currentRun.id)
+      }
+    },
     createRunFromWorkflow(payload: {
       runId: string
       workflowId: string
@@ -186,11 +200,7 @@ export const useRunStore = defineStore('run', {
       recovery.nodePatches.forEach((patch) => this.patchNodeState(patch))
 
       if (this.currentRun && recovery.runPatch) {
-        Object.assign(this.currentRun, recovery.runPatch)
-        const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
-        if (runInList) {
-          Object.assign(runInList, this.currentRun)
-        }
+        this.patchCurrentRun(recovery.runPatch)
       }
 
       if (recovery.logs.length > 0) {
@@ -211,9 +221,13 @@ export const useRunStore = defineStore('run', {
       if (userId) {
         uiStore.startNotificationStream(userId)
       }
-      stopRealtime = realtimeClient.subscribeRun(this.currentRun.id, {
+      stopRealtime = realtimeClient.subscribeRun({
+        runId: this.currentRun.id,
+        runtimeWorkflowId: runtimeWorkflowIdFromRun(this.currentRun),
+      }, {
         onLog: (entry) => this.appendLog(entry),
         onNodePatch: (patch) => this.patchNodeState(patch),
+        onRunPatch: (patch) => this.patchCurrentRun(patch),
         onConnectionChange: (state) => {
           this.runRealtimeState = state
         },

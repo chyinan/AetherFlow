@@ -22,6 +22,8 @@ export interface StartedRunLink {
   backendStatus?: string
 }
 
+export type WorkflowRunInput = Record<string, unknown>
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -127,8 +129,14 @@ function currentUserId() {
   }
 }
 
-function startMockRun(workflowId: string) {
+function startMockRun(workflowId: string): Promise<StartedRunLink> {
   return delay({ runId: `run-${Date.now()}`, workflowId }, 220)
+}
+
+function normalizeRunInput(input: WorkflowRunInput = {}) {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
 }
 
 export const workflowApi = {
@@ -159,7 +167,7 @@ export const workflowApi = {
       throw error
     }
   },
-  async startRun(workflowId: string) {
+  async startRun(workflowId: string, input: WorkflowRunInput = {}): Promise<StartedRunLink> {
     const backendDefinitionId = getBackendDefinitionId(workflowId)
 
     if (!backendDefinitionId) {
@@ -167,7 +175,11 @@ export const workflowApi = {
     }
 
     try {
-      const instance = await startInstance(backendDefinitionId, { userId: currentUserId() })
+      const normalizedInput = normalizeRunInput(input)
+      const instance = await startInstance(backendDefinitionId, {
+        userId: currentUserId(),
+        input: normalizedInput,
+      })
       const runId = `run-${instance.id}`
       const link: StartedRunLink = {
         runId,

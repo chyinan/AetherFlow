@@ -17,6 +17,9 @@ export const useFileStore = defineStore('file', {
     processingCount: (state) => state.files.filter((file) => file.status === 'processing').length,
     failedCount: (state) => state.files.filter((file) => file.status === 'failed').length,
     readyCount: (state) => state.files.filter((file) => file.status === 'ready').length,
+    latestBackendInputFileId: (state) =>
+      state.files.find((file) => file.source === 'input' && file.backendFileId && file.status !== 'failed')
+        ?.backendFileId,
   },
   actions: {
     async loadFiles() {
