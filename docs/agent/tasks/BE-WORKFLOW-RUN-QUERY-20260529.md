@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1728-BE-WORKFLOW-RUN-QUERY
 分支：feature/BE-WORKFLOW-RUN-QUERY-20260529-run-query
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -127,3 +127,39 @@ Session ID：SESSION-20260529-1728-BE-WORKFLOW-RUN-QUERY
 1. 2026-05-29 17:28，已从最新 `main` 创建分支 `feature/BE-WORKFLOW-RUN-QUERY-20260529-run-query`。
 2. 2026-05-29 17:28，已确认目标文件锁无 ACTIVE 冲突。
 3. 2026-05-29 17:28，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+4. 2026-05-29 17:33，TDD RED 已确认：目标测试因缺少 `WorkflowInstanceController`、`WorkflowInstanceQueryService`、`WorkflowInstanceRunDtos` 编译失败。
+5. 2026-05-29 17:37，已新增 workflow instance query controller/service/DTO 与 controller/service/OpenAPI contract tests。
+6. 2026-05-29 17:38，业务提交：`5b0fbef feat(workflow): add instance run query APIs`。
+
+## 完成内容
+
+1. 新增 `GET /workflow-instances`，支持 `workflowId`、`status`、`page`、`pageSize` 查询。
+2. 新增 `GET /workflow-instances/{id}`，返回 run detail、traceId、timestamps、duration、node summaries。
+3. 新增 `GET /workflow-instances/{id}/logs`，从 `RuntimeEventStore` 派生前端可消费的 log frames。
+4. 新增 workflow-service 本模块 `WorkflowInstanceRunDtos`，不新增 common DTO。
+5. 未改 DB、Redis、MQ、Gateway、runtime engine、workflow-runtime-api。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=WorkflowInstanceControllerTest,WorkflowInstanceQueryServiceImplTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过；8 tests；BUILD SUCCESS。
+3. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am test`：通过；common 8 tests；workflow-runtime-api 10 tests；workflow-service 101 tests；BUILD SUCCESS。
+4. `git diff --cached --check`：通过，无 whitespace error。
+
+## 交接
+
+分支：`feature/BE-WORKFLOW-RUN-QUERY-20260529-run-query`
+
+提交：
+1. `752126e docs(agent): claim BE-WORKFLOW-RUN-QUERY-20260529`
+2. `5b0fbef feat(workflow): add instance run query APIs`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需统一运行电脑启动 workflow-service、MySQL 后补测真实 `af_workflow_instance` 与 `af_workflow_runtime_event` 聚合。
+2. 当前 `workflowId` 查询按现有后端数据模型仅支持 numeric definitionId / instanceId；前端本地字符串 id 的映射需要后续设计正式定义字段或项目/workspace 维度。
+
+文件锁：RELEASED。
