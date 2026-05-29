@@ -101,6 +101,8 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      FILE_URL_REWRITE_FROM: ${FILE_URL_REWRITE_FROM:-http://localhost:9000}
+      FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
     ports:
       - "8200:8200"
     networks:

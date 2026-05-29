@@ -25,8 +25,8 @@ export const nodeTemplates: NodeTemplate[] = [
   },
   {
     kind: 'ffmpeg',
-    label: 'FFmpeg',
-    description: 'Transcode, extract audio, or cut media segments.',
+    label: 'FFmpeg Prep',
+    description: 'Pass uploaded video file URL to Whisper Runtime; audio extraction runs inside FFmpeg.',
     category: 'Media',
     catalog: 'node',
     group: 'recommended',
@@ -55,6 +55,17 @@ export const nodeTemplates: NodeTemplate[] = [
     config: { textVariable: 'transcription', language: 'Chinese', prompt: 'Focus on action items' },
     inputs: ['transcription'],
     outputs: ['summary'],
+  },
+  {
+    kind: 'export',
+    label: 'Export Document',
+    description: 'Write summary output to a Markdown document artifact.',
+    category: 'Output',
+    catalog: 'node',
+    group: 'recommended',
+    config: { format: 'MARKDOWN', sourceVariable: 'summary', fileName: 'ted-summary.md' },
+    inputs: ['summary'],
+    outputs: ['exportFileUrl', 'exportObjectKey', 'exportFileId'],
   },
   {
     kind: 'knowledge-retrieval',
@@ -360,6 +371,14 @@ export const nodeTemplates: NodeTemplate[] = [
   },
 ]
 
+const templateByKind = Object.fromEntries(
+  nodeTemplates.map((template) => [template.kind, template]),
+) as Record<NodeTemplate['kind'], NodeTemplate>
+
+function template(kind: NodeTemplate['kind']) {
+  return templateByKind[kind]
+}
+
 export const workflowSummaries: WorkflowSummary[] = [
   {
     id: 'wf-media-digest',
@@ -415,7 +434,7 @@ export function createWorkflow(id: string, name: string): WorkflowDefinition {
         type: 'workflow',
         position: { x: 80, y: 160 },
         data: {
-          ...nodeTemplates[2],
+          ...template('ffmpeg'),
           status: 'success',
           runtime: { durationMs: 420, lastResult: 'fileUrl ready' },
         },
@@ -425,7 +444,7 @@ export function createWorkflow(id: string, name: string): WorkflowDefinition {
         type: 'workflow',
         position: { x: 380, y: 110 },
         data: {
-          ...nodeTemplates[0],
+          ...template('whisper'),
           status: 'running',
           runtime: { durationMs: 8200, lastResult: 'transcribing segment 4/8' },
         },
@@ -435,39 +454,29 @@ export function createWorkflow(id: string, name: string): WorkflowDefinition {
         type: 'workflow',
         position: { x: 690, y: 220 },
         data: {
-          ...nodeTemplates[4],
+          ...template('summary'),
           status: 'queued',
           runtime: { lastResult: 'waiting for transcription' },
         },
       },
       {
-        id: 'node-ocr',
+        id: 'node-export',
         type: 'workflow',
-        position: { x: 380, y: 330 },
+        position: { x: 1010, y: 220 },
         data: {
-          ...nodeTemplates[17],
+          ...template('export'),
           status: 'idle',
-          runtime: { lastResult: 'waiting for fileId' },
-        },
-      },
-      {
-        id: 'node-embedding',
-        type: 'workflow',
-        position: { x: 690, y: 390 },
-        data: {
-          ...nodeTemplates[5],
-          status: 'idle',
-          runtime: { lastResult: 'waiting for ocrText' },
+          runtime: { lastResult: 'waiting for summary' },
         },
       },
       {
         id: 'node-output',
         type: 'workflow',
-        position: { x: 1010, y: 245 },
+        position: { x: 1310, y: 220 },
         data: {
-          ...nodeTemplates[6],
+          ...template('output'),
           status: 'idle',
-          runtime: { lastResult: 'waiting for summary and embeddings' },
+          runtime: { lastResult: 'waiting for export document' },
         },
       },
     ],
@@ -487,30 +496,17 @@ export function createWorkflow(id: string, name: string): WorkflowDefinition {
         label: 'transcription',
       },
       {
-        id: 'edge-ffmpeg-ocr',
-        source: 'node-ffmpeg',
-        target: 'node-ocr',
-        animated: true,
-        label: 'fileId',
-      },
-      {
-        id: 'edge-ocr-embedding',
-        source: 'node-ocr',
-        target: 'node-embedding',
-        animated: true,
-        label: 'ocrText',
-      },
-      {
-        id: 'edge-summary-output',
+        id: 'edge-summary-export',
         source: 'node-summary',
-        target: 'node-output',
+        target: 'node-export',
+        animated: true,
         label: 'summary',
       },
       {
-        id: 'edge-embedding-output',
-        source: 'node-embedding',
+        id: 'edge-export-output',
+        source: 'node-export',
         target: 'node-output',
-        label: 'embeddingVectorStore',
+        label: 'exportFileUrl',
       },
     ],
   }

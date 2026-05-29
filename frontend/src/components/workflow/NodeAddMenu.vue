@@ -55,6 +55,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   translate: Languages,
   summary: MessageSquare,
   'knowledge-retrieval': BookOpen,
+  export: FileText,
   output: MessageSquare,
   agent: Brain,
   'question-understand': MessageSquare,

@@ -5,6 +5,7 @@ export type WorkflowNodeKind =
   | 'translate'
   | 'summary'
   | 'knowledge-retrieval'
+  | 'export'
   | 'output'
   | 'agent'
   | 'question-understand'

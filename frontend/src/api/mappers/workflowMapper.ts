@@ -7,6 +7,7 @@ type BackendNodeType =
   | 'WHISPER'
   | 'SUMMARY'
   | 'EMBEDDING'
+  | 'EXPORT'
   | 'END'
   | 'CONDITION'
 
@@ -14,6 +15,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   whisper: 'WHISPER',
   summary: 'SUMMARY',
   output: 'END',
+  export: 'EXPORT',
   condition: 'CONDITION',
   'document-extractor': 'OCR',
   'knowledge-retrieval': 'EMBEDDING',
@@ -142,6 +144,23 @@ function normalizeEmbeddingConfig(config: Record<string, unknown>, nextNodes: st
   }, nextNodes)
 }
 
+function normalizeExportConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const requestedFormat = stringValue(config.format, 'MARKDOWN').toUpperCase()
+  const format = requestedFormat === 'TXT' || requestedFormat === 'JSON' ? requestedFormat : 'MARKDOWN'
+  const defaultFileName = format === 'JSON'
+    ? 'workflow-summary.json'
+    : format === 'TXT'
+      ? 'workflow-summary.txt'
+      : 'workflow-summary.md'
+
+  return withNextNodes({
+    format,
+    sourceVariable: stringValue(config.sourceVariable, 'summary'),
+    fileName: stringValue(config.fileName, defaultFileName),
+    ...(optionalString(config.objectKey) ? { objectKey: optionalString(config.objectKey) } : {}),
+  }, nextNodes)
+}
+
 function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const output = toRecord(config.output)
   const outputName = stringValue(config.outputName, 'result')
@@ -179,6 +198,8 @@ function normalizeNodeConfig(node: WorkflowGraphNode, nodeType: BackendNodeType,
       return normalizeSummaryConfig(config, nextNodes)
     case 'EMBEDDING':
       return normalizeEmbeddingConfig(config, nextNodes)
+    case 'EXPORT':
+      return normalizeExportConfig(config, nextNodes)
     case 'END':
       return normalizeEndConfig(config, nextNodes)
     case 'CONDITION':

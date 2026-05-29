@@ -400,8 +400,8 @@ export const zhCN = {
           description: '调用大模型进行推理、抽取和结构化生成。',
         },
         ffmpeg: {
-          label: 'FFmpeg',
-          description: '转码、提取音频或裁剪媒体片段。',
+          label: 'FFmpeg 预处理',
+          description: '上传视频后把文件 URL 交给 Whisper Runtime，音频分离由 Runtime 内部 FFmpeg 执行。',
         },
         translate: {
           label: '翻译',
@@ -414,6 +414,10 @@ export const zhCN = {
         'knowledge-retrieval': {
           label: '知识检索',
           description: '从知识库召回 Top-K 上下文。',
+        },
+        export: {
+          label: '导出文档',
+          description: '将摘要写入 Markdown 文档产物。',
         },
         output: {
           label: '输出',
