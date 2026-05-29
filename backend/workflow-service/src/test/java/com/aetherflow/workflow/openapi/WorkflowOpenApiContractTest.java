@@ -3,6 +3,7 @@ package com.aetherflow.workflow.openapi;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.controller.WorkflowController;
+import com.aetherflow.workflow.controller.WorkflowInstanceController;
 import com.aetherflow.workflow.embedding.controller.EmbeddingMetricsController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeCatalogController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeMetricsController;
@@ -28,6 +29,11 @@ class WorkflowOpenApiContractTest {
         assertOperationDocumented(WorkflowController.class, "updateDefinition", Long.class, WorkflowDefinitionDTO.class);
         assertOperationDocumented(WorkflowController.class, "deleteDefinition", Long.class);
         assertOperationDocumented(WorkflowController.class, "startInstance", Long.class, StartWorkflowRequest.class);
+
+        assertControllerDocumented(WorkflowInstanceController.class);
+        assertOperationDocumented(WorkflowInstanceController.class, "listInstances", String.class, String.class, int.class, int.class);
+        assertOperationDocumented(WorkflowInstanceController.class, "getInstance", Long.class);
+        assertOperationDocumented(WorkflowInstanceController.class, "logs", Long.class);
 
         assertControllerDocumented(WorkflowRuntimeController.class);
         assertOperationDocumented(WorkflowRuntimeController.class, "metrics");
