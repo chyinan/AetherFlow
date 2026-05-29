@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P0
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p0-runtime-fileid-sse-ws
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 
@@ -88,3 +88,37 @@ Agent 编码计划：
 2. 如果现有文件 store 没有稳定保存 backend file id，需要在允许范围内补齐字段传递。
 3. Runtime SSE 真实端到端需要后端、Gateway、Nacos、数据库与 runtime event 表在统一运行环境一起验证。
 
+## 完成记录
+
+时间：2026-05-29 21:20:00 +08:00
+状态：REVIEW
+
+完成内容：
+
+1. Workflow 启动已支持传入 runtime input，并从 WorkflowPage 读取最近上传 input 文件的 `backendFileId` 作为 `input.fileId`。
+2. Workflow 启动返回的 `backendInstanceId`、`runtimeWorkflowId`、`definitionId`、`backendStatus` 已直接传给 runStore，减少本地 storage 推断。
+3. Runtime SSE 已接入 `/workflow/runtime/stream/{workflowId}`，支持 heartbeat 忽略、runtime event 映射、终态关闭、`Last-Event-ID` 断线恢复和两次重连后的显式 demo fallback。
+4. Notify WebSocket 已改为先调用 `POST /notify/stream-token`，再使用 `?streamToken=` 建连；重连会重新获取短期 token。
+5. 未修改 backend、docker、配置、DTO、数据库、Gateway、Runtime Core。
+
+验证记录：
+
+1. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --check`：通过。无 whitespace error，仅 Windows LF/CRLF 提示。
+3. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src`：通过。无冲突标记输出。
+4. 修改范围检查：限定在本任务文件锁范围。
+
+提交：
+
+1. 406faf5 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P0
+2. 159b818 fix(frontend): stabilize runtime demo integrations
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 真实 Gateway -> workflow-service SSE、notify-service WS stream token、Workflow run fileId 端到端需统一运行电脑补测。
+2. `fileApi.listFiles()` 仍未在本任务接真实 `GET /files`，刷新页面后的历史上传文件恢复属于下一阶段 Upload Review。
+3. Docker Demo Safe Mode、AI Failover UI、大文件分片上传属于后续任务。
+
+文件锁：RELEASED。
