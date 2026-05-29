@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1905-BE-KNOWLEDGE-DATASET
 分支：feature/BE-KNOWLEDGE-DATASET-20260529-knowledge-dataset
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -158,3 +158,40 @@ Session ID：SESSION-20260529-1905-BE-KNOWLEDGE-DATASET
 1. 2026-05-29 19:05，从 main 创建 feature/BE-KNOWLEDGE-DATASET-20260529-knowledge-dataset。
 2. 2026-05-29 19:05，已检查 AGENT.md 文件锁表，目标 knowledge、Gateway route、docker init 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 19:05，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 19:22 +08:00
+
+完成内容：
+
+1. 新增 workflow-service `/knowledge/**` REST API：dataset list/create/detail、document list/create、document chunks、retrieval-test。
+2. 新增 `KnowledgeDtos`、Knowledge dataset/document/chunk entity、mapper、service 与 controller。
+3. 文档创建复用 `SimpleTextSplitter` 生成 chunks，并更新 dataset document/chunk counters。
+4. 新增 `af_knowledge_dataset`、`af_knowledge_document`、`af_knowledge_chunk` SQL，并同步 docker MySQL init SQL。
+5. Gateway `workflow-service` route 增加 `/knowledge/**`，Sentinel workflow-api pattern 同步增加 `/knowledge`。
+6. 补齐 controller/service/schema/gateway route contract 测试。
+
+验证结果：
+
+1. TDD Red：目标 workflow 测试在实现前编译失败，缺少 `com.aetherflow.workflow.knowledge.*`；Gateway route 测试在实现前失败，`/knowledge/**` 未路由到 workflow-service。
+2. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+3. `mvn -pl backend/workflow-service -am -Dtest=KnowledgeControllerTest,KnowledgeServiceImplTest,KnowledgeSchemaTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过，Knowledge 9 tests。
+4. `mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过，GatewayRouteConfigurationTest 5 tests。
+5. `mvn -pl backend/workflow-service,backend/gateway-service -am test`：通过，common 8 tests；workflow-runtime-api 10 tests；gateway-service 17 tests；workflow-service 103 tests。
+
+提交：
+
+1. `326e4dc docs(agent): claim BE-KNOWLEDGE-DATASET-20260529`
+2. `2a9091f feat(workflow): add knowledge dataset APIs`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需在统一运行电脑应用 knowledge SQL，并补测 workflow-service 启动、Gateway `/knowledge/**` 路由、真实 MySQL 持久化链路。
+2. 本任务只提供本地 SQL 和文本检索预览，不替代正式向量库 / 语义召回。
+
+文件锁：RELEASED。
