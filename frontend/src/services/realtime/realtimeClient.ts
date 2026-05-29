@@ -1,3 +1,4 @@
+import { runtimeEnv } from '@/config/runtimeEnv'
 import type { RunLogEntry, RunNodeState } from '@/types/run'
 
 type RunHandlers = {
@@ -18,6 +19,7 @@ const script = [
 export const realtimeClient = {
   subscribeRun(runId: string, handlers: RunHandlers) {
     let index = 0
+    const streamIdPrefix = `${runId}-${runtimeEnv.wsBase.replace(/[^a-zA-Z0-9_-]/g, '-')}`
     handlers.onConnectionChange?.('online')
 
     const timer = window.setInterval(() => {
@@ -36,7 +38,7 @@ export const realtimeClient = {
         durationMs: 1200 + index * 930,
       })
       handlers.onLog?.({
-        id: `${runId}-stream-${Date.now()}-${index}`,
+        id: `${streamIdPrefix}-stream-${Date.now()}-${index}`,
         time,
         level: item.status === 'running' ? 'info' : 'debug',
         nodeId: item.nodeId,

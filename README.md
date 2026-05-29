@@ -57,6 +57,7 @@ docker compose up -d --build
 
 | 服务 | 端口 |
 | --- | --- |
+| nginx | 80 |
 | gateway-service | 8080 |
 | auth-service | 8101 |
 | workflow-service | 8102 |
@@ -71,6 +72,61 @@ docker compose up -d --build
 | RabbitMQ | 5672 / 15672 |
 | MinIO | 9000 / 9001 |
 | Seata | 8091 |
+
+## Nginx 企业部署层
+
+前端正式入口由 `frontend/nginx/nginx.conf` 提供，Nginx 只负责静态资源托管和反向代理，不替代 Spring Cloud Gateway。
+
+### 构建流程
+
+```powershell
+cd frontend
+npm run build
+```
+
+`Vite` 会把 `frontend/dist/` 作为静态产物输出，生产容器由 `frontend/nginx/Dockerfile` 构建。
+
+### 统一入口
+
+```text
+http://localhost
+```
+
+路由规则：
+
+- `/` 和 Vue Router history 路由 -> `frontend/dist/index.html`
+- `/api/*` -> `gateway-service:8080`
+- `/ws/*` -> `gateway-service:8080`
+- `/sse/*` -> `gateway-service:8080`
+
+`/api`、`/ws`、`/sse` 是 Nginx 部署层前缀，转发前会剥离；业务路由仍由 Spring Cloud Gateway 按 `/auth`、`/workflows`、`/notify` 等后端路径处理。
+
+### WebSocket / SSE
+
+- WebSocket 使用 `proxy_http_version 1.1`、`Upgrade`、`Connection: upgrade`
+- SSE 使用 `proxy_buffering off`、长连接超时、`X-Accel-Buffering: no`
+
+### Docker 运行
+
+```powershell
+docker compose up -d --build
+```
+
+如果本机 80 端口已占用，修改根目录 `.env`：
+
+```dotenv
+NGINX_HTTP_PORT=8088
+VITE_API_BASE=/api
+VITE_WS_BASE=/ws
+```
+
+### 健康检查
+
+```text
+GET /health
+```
+
+返回 `200 ok`，用于确认 Nginx 入口层可用。
 
 ## 健康检查
 

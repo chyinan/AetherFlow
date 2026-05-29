@@ -1,10 +1,11 @@
 import axios from 'axios'
 import type { AxiosError, AxiosInstance, AxiosResponse } from 'axios'
 
+import { runtimeEnv } from '@/config/runtimeEnv'
 import type { Result } from '@/types/api'
 
 const httpClient: AxiosInstance = axios.create({
-  baseURL: '/api',
+  baseURL: runtimeEnv.apiBase,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',

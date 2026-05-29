@@ -105,6 +105,46 @@ services:
     networks:
       - aetherflow
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: nginx/Dockerfile
+      target: frontend-dist
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
+    container_name: aetherflow-frontend
+    volumes:
+      - frontend-dist:/output
+    restart: "no"
+    networks:
+      - aetherflow
+
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: nginx/Dockerfile
+      target: nginx-runtime
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
+    container_name: aetherflow-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    depends_on:
+      gateway-service:
+        condition: service_started
+      frontend:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - aetherflow
+
   gateway-service:
     build:
       context: .
@@ -265,4 +305,5 @@ volumes:
   redis-data:
   rabbitmq-data:
   minio-data:
+  frontend-dist:
 

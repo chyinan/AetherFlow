@@ -22,3 +22,14 @@ npm run build
 
 All pages call `src/services/api/**` or `src/services/realtime/**`. They do not call Axios directly.
 
+## Deployment
+
+Frontend build and deployment are driven by Nginx:
+
+- `VITE_API_BASE` defaults to `/api`
+- `VITE_WS_BASE` defaults to `/ws`
+- static output is written to `dist/`
+- `frontend/nginx/nginx.conf` serves Vue Router history fallback with `try_files $uri /index.html`
+
+The production container is built from `frontend/nginx/Dockerfile`.
+
