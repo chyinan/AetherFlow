@@ -72,8 +72,12 @@ export interface NodeTemplate {
 export interface WorkflowSummary {
   id: string
   name: string
+  description?: string
   updatedAt: string
   status: 'draft' | 'ready' | 'running'
+  backendDefinitionId?: number
+  backendStatus?: string
+  savedAt?: string
 }
 
 export interface CanvasPosition {
@@ -100,6 +104,10 @@ export interface WorkflowGraphEdge {
 export interface WorkflowDefinition {
   id: string
   name: string
+  description?: string
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
+  backendDefinitionId?: number
+  backendStatus?: string
+  savedAt?: string
 }

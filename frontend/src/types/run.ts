@@ -23,6 +23,11 @@ export interface WorkflowRun {
   id: string
   workflowId: string
   workflowName: string
+  backendInstanceId?: number
+  runtimeWorkflowId?: string
+  definitionId?: number
+  currentNodeId?: string
+  backendStatus?: string
   status: RunStatus
   startedAt: string
   durationMs: number
