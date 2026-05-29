@@ -122,3 +122,18 @@ Agent 编码计划：
 3. Docker Demo Safe Mode、AI Failover UI、大文件分片上传属于后续任务。
 
 文件锁：RELEASED。
+
+## 主线合入记录
+
+时间：2026-05-29 21:32:00 +08:00
+状态：DONE
+
+记录：
+
+1. 已按负责人指令合入 `main`。
+2. main 上执行 `cd frontend; npm run build` 通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+3. main merge diff 执行 `git diff --check HEAD^..HEAD` 通过。
+4. main 上冲突标记扫描通过：`rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src` 无输出。
+5. 统一运行电脑验证未运行，仍需补测真实 Gateway/SSE/WS/Workflow run。
+
+文件锁：RELEASED。
