@@ -100,6 +100,18 @@ class WorkflowInstanceQueryServiceImplTest {
         assertThat(logs.get(2).message()).isEqualTo("Runtime completed node node-summary.");
     }
 
+    @Test
+    void logsReturnOnlyMostRecentFramesForLongRunningInstances() {
+        when(instanceMapper.selectById(99L)).thenReturn(instance());
+        when(runtimeEventStore.findByWorkflowId("99")).thenReturn(manyEvents(250));
+
+        List<LogFrame> logs = queryService.logs(99L);
+
+        assertThat(logs).hasSize(200);
+        assertThat(logs.get(0).nodeId()).isEqualTo("node-50");
+        assertThat(logs.get(199).nodeId()).isEqualTo("node-249");
+    }
+
     private static WorkflowInstance instance() {
         WorkflowInstance instance = new WorkflowInstance();
         instance.setId(99L);
@@ -122,5 +134,19 @@ class WorkflowInstanceQueryServiceImplTest {
                 RuntimeEvent.of(RuntimeEventType.NODE_COMPLETED, "99", "trace-1", "99", "node-summary",
                         RuntimeState.SUCCESS, Instant.parse("2026-05-29T01:01:00Z"), Map.of("nodeType", "SUMMARY"))
         );
+    }
+
+    private static List<RuntimeEvent> manyEvents(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(index -> RuntimeEvent.of(
+                        RuntimeEventType.NODE_COMPLETED,
+                        "99",
+                        "trace-1",
+                        "99",
+                        "node-" + index,
+                        RuntimeState.SUCCESS,
+                        Instant.parse("2026-05-29T01:00:00Z").plusSeconds(index),
+                        Map.of("index", index)))
+                .toList();
     }
 }
