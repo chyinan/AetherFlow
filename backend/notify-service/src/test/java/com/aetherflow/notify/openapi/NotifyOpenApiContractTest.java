@@ -18,6 +18,7 @@ class NotifyOpenApiContractTest {
         assertThat(tag.description()).containsIgnoringCase("Internal");
 
         assertOperationDocumented("subscribe", Long.class);
+        assertOperationDocumented("streamToken", Long.class, String.class);
         assertOperationDocumented("send", NotifyMessageDTO.class);
     }
 

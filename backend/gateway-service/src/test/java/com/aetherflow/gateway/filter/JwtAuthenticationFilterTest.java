@@ -50,6 +50,37 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void permitsNotifyWebSocketPathWithoutBearerTokenForStreamTokenHandshake() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/notify/ws?streamToken=short-lived").build()
+        );
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.filter(exchange, chain(exchange1 -> {
+            called.set(true);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        assertThat(called).isTrue();
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    void stillRejectsNotifySseWithoutBearerToken() throws Exception {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/notify/sse/7").build()
+        );
+
+        filter.filter(exchange, chain(exchange1 -> Mono.empty())).block(Duration.ofSeconds(1));
+
+        JsonNode json = readBody(exchange);
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(json.get("message").asText()).isEqualTo("missing bearer token");
+    }
+
+    @Test
     void rejectsMissingBearerToken() throws Exception {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
         MockServerWebExchange exchange = MockServerWebExchange.from(

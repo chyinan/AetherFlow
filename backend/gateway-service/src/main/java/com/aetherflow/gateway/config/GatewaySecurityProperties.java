@@ -20,6 +20,7 @@ public class GatewaySecurityProperties {
             "/actuator/**",
             "/health",
             "/gateway/status",
+            "/notify/ws",
             "/swagger-ui/**",
             "/webjars/**",
             "/v3/api-docs/**"

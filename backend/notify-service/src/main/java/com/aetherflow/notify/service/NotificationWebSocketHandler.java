@@ -7,9 +7,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-import org.springframework.web.util.UriComponentsBuilder;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,9 +21,12 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
     private final Map<Long, List<WebSocketSession>> sessions = new ConcurrentHashMap<>();
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
-        Long userId = resolveUserId(session.getUri());
-        session.getAttributes().put("userId", userId);
+    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        Object userIdValue = session.getAttributes().get("userId");
+        if (!(userIdValue instanceof Long userId)) {
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("missing stream token"));
+            return;
+        }
         sessions.computeIfAbsent(userId, ignored -> new CopyOnWriteArrayList<>()).add(session);
     }
 
@@ -60,12 +61,5 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private Long resolveUserId(URI uri) {
-        if (uri == null) {
-            return 0L;
-        }
-        String userId = UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst("userId");
-        return userId == null ? 0L : Long.parseLong(userId);
-    }
 }
 
