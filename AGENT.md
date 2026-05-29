@@ -579,6 +579,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | API-SWAGGER-CONTRACT-20260528 | API Contract / Swagger Documentation | REVIEW | 陈胤安 | chyinan | feature/API-SWAGGER-CONTRACT-20260528-swagger-contract | backend/workflow-service/**；backend/ai-service/**；backend/notify-service/**；backend/common/src/main/java/com/aetherflow/common/dto/**；docs/agent/tasks/API-SWAGGER-CONTRACT-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 OpenAPI 文档与 GET /workflow/node/catalog 只读 API，不改 Runtime Core、MQ、DB | git diff --check；mvn -pl backend/common,backend/workflow-service,backend/ai-service,backend/notify-service -am test | 2026-05-28 23:16 |
 | WORKFLOW-EMBEDDING-NODE-20260529 | Workflow Embedding Node System | DONE | 陈胤安 | chyinan | feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；docs/agent/tasks/WORKFLOW-EMBEDDING-NODE-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 是，仅 workflow-service Embedding Node / Provider / Metrics / 配置，不改 Runtime Core、DB、MQ、Redis、Gateway | git diff --check；mvn -pl backend/workflow-service -am -Dtest=EmbeddingNodeConfigTest,SimpleTextSplitterTest,EmbeddingProviderRegistryTest,EmbeddingNodeExecutorTest,EmbeddingMetricsControllerTest,WorkflowNodeCatalogControllerTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test；mvn -pl backend/common,backend/workflow-service -am test | 2026-05-29 10:48 |
 | WORKFLOW-OCR-NODE-20260529 | Workflow OCR Node System | DONE | 陈胤安 | chyinan | feature/WORKFLOW-OCR-NODE-20260529-ocr-node | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；backend/file-service/**；docs/agent/tasks/WORKFLOW-OCR-NODE-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 是，仅 file-service 内部下载接口、workflow-service OCR Node / Provider / Metrics / 配置，不改 Runtime Core、DB、MQ、Redis、Gateway | git diff --check；mvn -pl backend/common,backend/file-service,backend/workflow-service -am test | 2026-05-29 11:02 |
+| FE-API-INTEGRATION-20260529 | AetherFlow Enterprise Frontend API Integration Layer | IN_PROGRESS | 陈胤安 | chyinan | feature/FE-API-INTEGRATION-20260529-frontend-integration | frontend/src/api/**；frontend/src/services/api/**；frontend/src/services/http/**；frontend/src/services/realtime/**；frontend/src/stores/**；frontend/src/types/**；frontend/src/config/**；frontend/package.json；frontend/package-lock.json；frontend/.env.example；docs/frontend-backend-missing-apis.md；docs/superpowers/plans/2026-05-29-frontend-api-integration.md；docs/agent/tasks/FE-API-INTEGRATION-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 否 | npm run build（frontend）；git diff --check；如新增 SDK 生成脚本则 npm run api:generate | 2026-05-29 12:47 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -665,6 +666,21 @@ docs/agent/README.md
 | WORKFLOW-OCR-NODE-20260529 | chyinan | docs/agent/tasks/WORKFLOW-OCR-NODE-20260529.md | 2026-05-29 08:45 | 2026-05-29 09:09 | RELEASED | 任务文档 |
 | WORKFLOW-OCR-NODE-20260529 | chyinan | docs/agent/logs/2026-05-29.md | 2026-05-29 08:45 | 2026-05-29 09:09 | RELEASED | 当日执行日志 |
 | WORKFLOW-OCR-NODE-20260529 | chyinan | AGENT.md | 2026-05-29 08:45 | 2026-05-29 09:09 | RELEASED | 任务看板、契约登记与文件锁 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/api/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 企业级前端 API Layer、模块 API、mapper、SDK 生成配置 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/services/api/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 现有 Mock API facade 渐进替换真实后端 API |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/services/http/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | Axios 封装、错误归一化、兼容导出 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/services/realtime/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | SSE / WebSocket realtime client |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/stores/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | Auth、Workflow、Run、File、UI store 对接 API Layer |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/types/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 前端稳定类型与后端 DTO adapter 类型 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/src/config/** | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | runtime env 增加 API / WS / SSE / mock fallback 配置 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/package.json | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | OpenAPI SDK 生成脚本与依赖 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/package-lock.json | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 前端依赖锁定 |
+| FE-API-INTEGRATION-20260529 | chyinan | frontend/.env.example | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | VITE_API_BASE / VITE_WS_BASE / VITE_SSE_BASE / mock fallback 示例 |
+| FE-API-INTEGRATION-20260529 | chyinan | docs/frontend-backend-missing-apis.md | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 前端需求但后端未实现 API 清单 |
+| FE-API-INTEGRATION-20260529 | chyinan | docs/superpowers/plans/2026-05-29-frontend-api-integration.md | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | Superpowers 实施计划 |
+| FE-API-INTEGRATION-20260529 | chyinan | docs/agent/tasks/FE-API-INTEGRATION-20260529.md | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 任务文档 |
+| FE-API-INTEGRATION-20260529 | chyinan | docs/agent/logs/2026-05-29.md | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 当日执行日志 |
+| FE-API-INTEGRATION-20260529 | chyinan | AGENT.md | 2026-05-29 12:47 | 2026-05-29 20:47 | ACTIVE | 任务看板与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
