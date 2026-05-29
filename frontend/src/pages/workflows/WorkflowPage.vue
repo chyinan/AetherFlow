@@ -23,6 +23,7 @@ const router = useRouter()
 const { t } = useI18n()
 const showCopilot = ref(false)
 const showRunConsole = ref(false)
+const startingRun = ref(false)
 
 async function loadRouteWorkflow(workflowId: string) {
   await workflowStore.loadWorkflow(workflowId)
@@ -57,26 +58,50 @@ async function saveWorkflow() {
 }
 
 async function startRun() {
-  await runStore.loadRuns()
-  await fileStore.loadFiles()
-  const fileId = fileStore.latestBackendInputFileId
-  const result = await workflowApi.startRun(
-    workflowStore.workflowId,
-    fileId ? { fileId } : {},
-  )
-  const run = runStore.createRunFromWorkflow({
-    runId: result.runId,
-    workflowId: workflowStore.workflowId,
-    workflowName: workflowStore.workflowName,
-    nodes: workflowStore.nodes,
-    backendInstanceId: result.backendInstanceId,
-    runtimeWorkflowId: result.runtimeWorkflowId,
-    definitionId: result.definitionId,
-    backendStatus: result.backendStatus,
-  })
-  projectStore.updateWorkflowStatus(workflowStore.workflowId, 'running')
-  runStore.subscribeCurrentRun()
-  await router.push(`/runs/${run.id}`)
+  if (startingRun.value || workflowStore.saving) {
+    return
+  }
+
+  startingRun.value = true
+  workflowStore.setRunError(null)
+  try {
+    await runStore.loadRuns()
+    await fileStore.loadFiles()
+    const fileId = fileStore.latestBackendInputFileId
+    if (!fileId) {
+      workflowStore.setRunError(t('workflow.runRequiresFileId'))
+      return
+    }
+
+    await workflowStore.saveCurrentWorkflow({ allowMockFallback: false })
+    if (!workflowStore.backendDefinitionId) {
+      workflowStore.setRunError(t('workflow.runRequiresBackendDefinition'))
+      return
+    }
+    const result = await workflowApi.startRun(
+      workflowStore.workflowId,
+      { fileId },
+      { allowMockFallback: false },
+    )
+    const run = runStore.createRunFromWorkflow({
+      runId: result.runId,
+      workflowId: workflowStore.workflowId,
+      workflowName: workflowStore.workflowName,
+      nodes: workflowStore.nodes,
+      backendInstanceId: result.backendInstanceId,
+      runtimeWorkflowId: result.runtimeWorkflowId,
+      definitionId: result.definitionId,
+      backendStatus: result.backendStatus,
+    })
+    projectStore.updateWorkflowStatus(workflowStore.workflowId, 'running')
+    runStore.subscribeCurrentRun()
+    await router.push(`/runs/${run.id}`)
+  } catch (error) {
+    const details = error instanceof Error && error.message ? error.message : t('workflow.runFailedUnknown')
+    workflowStore.setRunError(`${t('workflow.runFailed')}: ${details}`)
+  } finally {
+    startingRun.value = false
+  }
 }
 
 function openCopilot() {
@@ -96,8 +121,8 @@ function openRunConsole() {
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
-        <p v-if="workflowStore.savingError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error">
-          {{ workflowStore.savingError }}
+        <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error">
+          {{ workflowStore.savingError || workflowStore.runError }}
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
@@ -109,9 +134,9 @@ function openRunConsole() {
           <Save class="h-4 w-4" />
           {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveMock') : t('workflow.saved') }}
         </button>
-        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark" @click="startRun">
+        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:opacity-60" :disabled="startingRun || workflowStore.saving" @click="startRun">
           <Play class="h-4 w-4" />
-          {{ t('workflow.run') }}
+          {{ startingRun ? t('workflow.startingRun') : t('workflow.run') }}
         </button>
       </div>
     </header>

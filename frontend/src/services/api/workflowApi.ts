@@ -24,6 +24,10 @@ export interface StartedRunLink {
 
 export type WorkflowRunInput = Record<string, unknown>
 
+interface RealBackendOptions {
+  allowMockFallback?: boolean
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -149,7 +153,7 @@ export const workflowApi = {
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     workflowDefinitions[workflowId] = createWorkflow(workflowId, workflowName)
   },
-  async saveWorkflow(workflow: WorkflowDefinition) {
+  async saveWorkflow(workflow: WorkflowDefinition, options: RealBackendOptions = {}) {
     try {
       const entity = await createDefinition(mapWorkflowToDefinitionDTO(workflow))
       setBackendDefinitionId(workflow.id, entity.id)
@@ -161,16 +165,19 @@ export const workflowApi = {
         savedAt: savedWorkflow.savedAt ?? new Date().toISOString(),
       }
     } catch (error) {
-      if (shouldUseMockFallback(error, 'workflow')) {
+      if (options.allowMockFallback !== false && shouldUseMockFallback(error, 'workflow')) {
         return delay(updateMockWorkflowCache(workflow), 260)
       }
       throw error
     }
   },
-  async startRun(workflowId: string, input: WorkflowRunInput = {}): Promise<StartedRunLink> {
+  async startRun(workflowId: string, input: WorkflowRunInput = {}, options: RealBackendOptions = {}): Promise<StartedRunLink> {
     const backendDefinitionId = getBackendDefinitionId(workflowId)
 
     if (!backendDefinitionId) {
+      if (options.allowMockFallback === false) {
+        throw new Error('backend workflow definition is required before starting a real run')
+      }
       return startMockRun(workflowId)
     }
 
@@ -198,7 +205,7 @@ export const workflowApi = {
         workflowId,
       }
     } catch (error) {
-      if (shouldUseMockFallback(error, 'workflow')) {
+      if (options.allowMockFallback !== false && shouldUseMockFallback(error, 'workflow')) {
         return startMockRun(workflowId)
       }
       throw error
