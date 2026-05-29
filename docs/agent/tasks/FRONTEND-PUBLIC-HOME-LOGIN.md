@@ -90,3 +90,5 @@ Agent 编码计划：
 2. 2026-05-29 17:39，已同步 origin/main 并从最新 main 创建任务分支。
 3. 2026-05-29 17:39，已检查目标文件锁，未发现重叠 ACTIVE 锁。
 4. 2026-05-29 17:39，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+5. 2026-05-29 17:45，claim 已提交并推送：`2840be1 docs(agent): claim FRONTEND-PUBLIC-HOME-LOGIN`。
+6. 2026-05-29 17:45，已写入设计文档 `docs/superpowers/specs/2026-05-29-public-home-login-design.md` 和实施计划 `docs/superpowers/plans/2026-05-29-public-home-login.md`。
