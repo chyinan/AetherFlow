@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-export-artifact-visibility
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -102,3 +102,5 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 - claim：62bf17e
 - business：81a17b1 fix(frontend): surface export artifacts after runs
+- handoff：02a25a2
+- main merge：238b987
