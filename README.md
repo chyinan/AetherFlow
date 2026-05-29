@@ -33,6 +33,7 @@ backend/
   notify-service/
 frontend/
 python-ai-service/
+ai-runtime/
 docker/
 docker-compose.yml
 ```
@@ -142,6 +143,12 @@ Python AI 服务提供：
 ```text
 GET /health
 ```
+
+## 本机演示 runtime
+
+`ai-runtime/` 是本机 Demo 工具，不是注册到 Nacos 的微服务。它用于在 Windows 开发机上准备模型、验证 CUDA / FFmpeg / Ollama，并一键跑通
+`视频 -> 转录 -> 总结 -> SRT` 的本地演示流程。
+正式业务链路中的 Python AI 接口仍由 `python-ai-service/` 提供，`ai-runtime/` 不替代它。
 
 ## 核心链路
 

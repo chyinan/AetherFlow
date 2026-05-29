@@ -27,6 +27,10 @@ AetherFlow/
     Dockerfile
     requirements.txt
     app/main.py
+  ai-runtime/
+    requirements.txt
+    ai_runtime/
+    scripts/
 ```
 
 ## Service Responsibility
@@ -40,7 +44,11 @@ AetherFlow/
 | ai-service | AI task consumer, Python FastAPI bridge, result metadata and notification publishing |
 | file-service | MinIO upload and file metadata persistence |
 | notify-service | WebSocket/SSE push and notification persistence |
-| python-ai-service | FastAPI AI runtime wrapper for Whisper/OpenAI/Ollama/FFmpeg |
+| python-ai-service | Service-facing FastAPI AI runtime wrapper for Whisper/OpenAI/Ollama/FFmpeg |
+| ai-runtime | Local Windows demo runtime and benchmark toolkit for Whisper/Summary workflows |
+
+`python-ai-service` is the service boundary consumed by `backend/ai-service`.
+`ai-runtime` is local-only and does not register as a deployed microservice.
 
 ## Default Runtime Host
 
