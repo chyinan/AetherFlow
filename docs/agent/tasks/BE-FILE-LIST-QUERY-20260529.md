@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1755-BE-FILE-LIST-QUERY
 分支：feature/BE-FILE-LIST-QUERY-20260529-file-list-query
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -130,3 +130,39 @@ Session ID：SESSION-20260529-1755-BE-FILE-LIST-QUERY
 1. 2026-05-29 17:55，已从最新 `main` 创建分支 `feature/BE-FILE-LIST-QUERY-20260529-file-list-query`。
 2. 2026-05-29 17:55，已确认目标文件锁无 ACTIVE 冲突。
 3. 2026-05-29 17:55，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+4. 2026-05-29 17:58，TDD RED 已确认：目标测试因缺少 `FileAssetDtos` 和 `listAssets` 编译失败。
+5. 2026-05-29 18:00，已新增 `GET /files` list/query API、FileAsset response model、controller/service/OpenAPI tests。
+6. 2026-05-29 18:01，业务提交：`a3ecc36 feat(file): add file asset list query`。
+
+## 完成内容
+
+1. 新增 `GET /files`，支持 `query`、`type`、`source`、`artifactKind`、`workflowId`、`page`、`pageSize`。
+2. 新增 file-service 本模块 `FileAssetDtos`，返回前端可映射的 FileAsset metadata。
+3. 列表只返回当前用户 `AVAILABLE` 文件。
+4. `source` / `artifactKind` 当前保守支持 `input`；`workflowId` 非空返回空页，避免伪关联。
+5. 未修改 DB、Redis、MQ、Gateway、common DTO、前端代码。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am -Dtest=FileControllerTest,FileInfoServiceImplListTest,FileOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过；9 tests；BUILD SUCCESS。
+3. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am test`：通过；common 8 tests；file-service 29 tests；BUILD SUCCESS。
+4. `git diff --cached --check`：通过，无 whitespace error。
+
+## 交接
+
+分支：`feature/BE-FILE-LIST-QUERY-20260529-file-list-query`
+
+提交：
+1. `56438c1 docs(agent): claim BE-FILE-LIST-QUERY-20260529`
+2. `a3ecc36 feat(file): add file asset list query`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需统一运行电脑补测真实 MySQL 分页、query/type/source/artifactKind/workflowId 过滤。
+2. workflowId/source/artifactKind 真实持久化需要后续 DB schema 任务单独登记。
+
+文件锁：RELEASED。
