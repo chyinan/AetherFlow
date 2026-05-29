@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 分支：feature/FE-API-INTEGRATION-20260529-frontend-integration
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -148,7 +148,7 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 
 ## 最终交接
 
-状态：REVIEW
+状态：DONE
 
 完成内容：
 1. 建立 Enterprise API Integration Layer：Axios client、tokenManager、错误归一化、traceId、retry、401 refresh/replay、OpenAPI/Orval 生成配置。
@@ -161,7 +161,7 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 2. `git diff --check`：通过。
 3. `cd frontend; npm run api:generate`：未通过，Gateway/OpenAPI 未启动，需统一运行电脑补测。
 
-合入 main：未合入。
+合入 main：已合入，main 合入提交 `92ced64`。
 
 统一运行电脑验证：未运行。
 
@@ -170,3 +170,23 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 2. 需后端后续补齐 `docs/frontend-backend-missing-apis.md` 中的 P0/P1 缺口，尤其 `/workflow/**` Gateway route、Workflow list/detail/update、Run list/detail/log、Runtime SSE stream、File list、secure WS stream auth。
 
 文件锁：RELEASED。
+
+## Main 合入记录
+
+时间：2026-05-29 16:50 +08:00
+
+状态：DONE
+
+记录：
+1. 已按用户指令将 `feature/FE-API-INTEGRATION-20260529-frontend-integration` 合入 `main`。
+2. main 合入提交：`92ced64 merge: frontend api integration layer`。
+3. main 上 `cd frontend; npm run build` 通过，Vite 仅输出既有 chunk size warning。
+4. main 上 `git diff --check HEAD^1..HEAD` 通过，无 whitespace error。
+
+合入 main：已合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 仍需统一运行电脑补测 Gateway OpenAPI、Auth、Workflow create/start、Runtime recovery、File upload、Notify SSE、AI Provider。
+2. `npm run api:generate` 仍需在 Gateway/OpenAPI 可访问后重跑。
