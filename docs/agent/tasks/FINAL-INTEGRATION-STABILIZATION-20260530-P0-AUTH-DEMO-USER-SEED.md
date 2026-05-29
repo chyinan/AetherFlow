@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p0-auth-demo-user-seed
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -134,11 +134,16 @@ P0 Auth 登录稳定化：补齐真实后端默认演示账号，不改变登录
 2. 回归测试：`mvn -pl backend/auth-service -am test`：通过，common 8 tests、auth-service 43 tests，0 failures。
 3. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 4. 冲突标记扫描：通过，无输出。
+5. main 合入后 `mvn -pl backend/auth-service -am test`：通过，common 8 tests、auth-service 43 tests，0 failures。
+6. main 合入后 `git diff --check HEAD^1..HEAD`：通过。
+7. main 合入后冲突标记扫描：通过，无输出。
 
 ## 提交记录
 
 - claim：392cd0b docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED
 - business：50da750 fix(auth): seed default demo operator
+- handoff：35ebc7e docs(agent): handoff FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED
+- main merge：b42568f merge: FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED
 
 ## 交接说明
 
