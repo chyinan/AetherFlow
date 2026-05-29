@@ -107,7 +107,7 @@ spring:
         - id: ai-service
           uri: lb://ai-service
           predicates:
-            - Path=/ai/**
+            - Path=/ai/**,/copilot/**
         - id: file-service
           uri: lb://file-service
           predicates:
@@ -157,6 +157,7 @@ aetherflow:
         - name: ai-api
           patterns:
             - /ai
+            - /copilot
           match-strategy: prefix
         - name: file-api
           patterns:

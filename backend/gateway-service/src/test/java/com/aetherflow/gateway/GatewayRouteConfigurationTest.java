@@ -89,6 +89,30 @@ class GatewayRouteConfigurationTest {
         });
     }
 
+    @Test
+    void copilotPathsRouteToAiService() {
+        RouteDefinition aiServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "ai-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(aiServiceRoute).isNotNull();
+        assertThat(aiServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString())
+                        .contains("Path", "/copilot/**"));
+
+        List.of(
+                "/copilot/chat",
+                "/copilot/conversations",
+                "/copilot/conversations/11/messages"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("ai-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://ai-service");
+        });
+    }
+
     private Route firstMatchingRoute(String path) {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get(path).build()
