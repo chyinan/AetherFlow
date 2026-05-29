@@ -4,6 +4,36 @@ import { getStoredLocale, setStoredLocale, type AppLocale } from '@/i18n/locale'
 import { i18n } from '@/i18n/index'
 import type { ServiceStatus } from '@/types/api'
 
+interface UiNotification {
+  id: string
+  time: string
+  title: string
+  messageKey: string
+  messageParams?: Record<string, string>
+  statusKey?: string
+  tone: 'online' | 'degraded' | 'offline'
+}
+
+const themeStorageKey = 'aetherflow.theme'
+
+function readTheme(): 'light' | 'dark' {
+  if (typeof window === 'undefined') {
+    return 'light'
+  }
+  const stored = window.localStorage.getItem(themeStorageKey)
+  return stored === 'dark' ? 'dark' : 'light'
+}
+
+function applyTheme(theme: 'light' | 'dark') {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.document.documentElement.dataset.theme = theme
+}
+
+const initialTheme = readTheme()
+applyTheme(initialTheme)
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarCompact: true,
@@ -11,7 +41,9 @@ export const useUiStore = defineStore('ui', {
     selectedNodeId: 'node-whisper' as string | null,
     realtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
     locale: getStoredLocale() as AppLocale,
-    theme: 'light' as 'light' | 'dark',
+    theme: initialTheme as 'light' | 'dark',
+    notifications: [] as UiNotification[],
+    lastRealtimeNoticeState: 'online' as 'online' | 'reconnecting' | 'offline',
     statuses: [
       { name: 'Gateway', state: 'online', detail: 'mock gateway ready' },
       { name: 'Realtime', state: 'online', detail: 'mock stream connected' },
@@ -29,11 +61,46 @@ export const useUiStore = defineStore('ui', {
         realtime.state = state === 'online' ? 'online' : state === 'reconnecting' ? 'degraded' : 'offline'
         realtime.detail = state === 'online' ? 'mock stream connected' : state
       }
+      if (state !== this.lastRealtimeNoticeState) {
+        if (state === 'online' && this.lastRealtimeNoticeState !== 'online') {
+          this.notifications.unshift({
+            id: `notice-${Date.now()}`,
+            time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            title: 'Realtime',
+            messageKey: 'notifications.realtimeRestored',
+            tone: 'online',
+          })
+        } else if (state !== 'online') {
+          this.notifications.unshift({
+            id: `notice-${Date.now()}`,
+            time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            title: 'Realtime',
+            messageKey: 'notifications.connectionIssue',
+            messageParams: {
+              service: 'Realtime',
+            },
+            statusKey: state === 'offline' ? 'status.offline' : 'status.degraded',
+            tone: state === 'offline' ? 'offline' : 'degraded',
+          })
+        }
+        this.notifications = this.notifications.slice(0, 8)
+        this.lastRealtimeNoticeState = state
+      }
     },
     setLocale(locale: AppLocale) {
       this.locale = locale
       i18n.global.locale.value = locale
       setStoredLocale(locale)
+    },
+    setTheme(theme: 'light' | 'dark') {
+      this.theme = theme
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(themeStorageKey, theme)
+      }
+      applyTheme(theme)
+    },
+    toggleTheme() {
+      this.setTheme(this.theme === 'light' ? 'dark' : 'light')
     },
   },
 })

@@ -14,6 +14,11 @@ export interface ProjectSummary {
   owner: string
   environment: 'dev' | 'staging' | 'prod'
   health: ProjectHealth
+  scenario: 'media' | 'document' | 'knowledge' | 'support'
+  slaTarget: string
+  queueDepth: number
+  knowledgeCount: number
+  lastRunStatus: 'queued' | 'running' | 'success' | 'failed' | 'paused'
   workflowCount: number
   activeRunCount: number
   fileCount: number

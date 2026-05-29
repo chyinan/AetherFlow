@@ -1,14 +1,32 @@
 <script setup lang="ts">
 import {
+  AudioLines,
+  BookOpen,
   Brain,
+  Braces,
   CheckCircle2,
+  Clock3,
+  Code2,
   Copy,
+  Database,
   Film,
+  FileJson,
+  FileText,
+  GitBranch,
+  Globe2,
+  Hand,
   Languages,
+  ListChecks,
   MessageSquare,
   Mic,
+  Plus,
   Play,
+  Repeat2,
+  RotateCcw,
+  Split,
   Trash2,
+  Variable,
+  Wrench,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { computed } from 'vue'
@@ -25,6 +43,10 @@ const props = defineProps<{
   selected?: boolean
 }>()
 
+const emit = defineEmits<{
+  addAfter: [nodeId: string, event: MouseEvent]
+}>()
+
 const uiStore = useUiStore()
 const { t } = useI18n()
 
@@ -34,15 +56,66 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   ffmpeg: Film,
   translate: Languages,
   summary: MessageSquare,
+  'knowledge-retrieval': BookOpen,
+  output: MessageSquare,
+  agent: Brain,
+  'question-understand': MessageSquare,
+  'question-classifier': Split,
+  condition: GitBranch,
+  human: Hand,
+  iteration: Repeat2,
+  loop: RotateCcw,
+  code: Code2,
+  'template-transform': FileText,
+  'variable-aggregate': Database,
+  'document-extractor': FileText,
+  'variable-assigner': Variable,
+  'parameter-extractor': Braces,
+  http: Globe2,
+  'list-operator': ListChecks,
+  audio: AudioLines,
+  'code-interpreter': Code2,
+  time: Clock3,
+  'web-scraper': Globe2,
+  json: FileJson,
+  markdown: FileText,
+  tavily: Globe2,
+  firecrawl: Wrench,
+  mineru: FileText,
 }
 
 const icon = computed(() => iconMap[props.data.kind])
 const isActive = computed(() => props.selected || props.data.status === 'running')
+const displayLabel = computed(() => t(`workflow.catalog.items.${props.data.kind}.label`))
+const displayDescription = computed(() => t(`workflow.catalog.items.${props.data.kind}.description`))
+const nodeRows = computed(() => {
+  switch (props.data.kind) {
+    case 'question-classifier':
+      return [t('workflow.nodeCard.class', { index: 1 }), t('workflow.nodeCard.class', { index: 2 })]
+    case 'condition':
+      return [
+        t('workflow.nodeCard.caseIf', { index: 1 }),
+        t('workflow.nodeCard.caseElif', { index: 2 }),
+        t('workflow.nodeCard.else'),
+      ]
+    case 'human':
+      return ['ACTION_1', 'TIMEOUT']
+    case 'iteration':
+    case 'loop':
+      return [t('workflow.nodeCard.parallelMode')]
+    case 'agent':
+      return [t('workflow.nodeCard.agentNotSet')]
+    case 'http':
+      return [t('workflow.nodeCard.retryTimes', { count: Number(props.data.config.retries ?? 3) })]
+    default:
+      return []
+  }
+})
 </script>
 
 <template>
   <div
-    class="group w-[244px] rounded-lg border bg-white shadow-sm transition"
+    class="group relative w-[244px] rounded-lg border bg-white shadow-sm transition"
     :class="isActive ? 'border-primary shadow-node' : 'border-app-border hover:border-primary/30 hover:shadow-node'"
     @click="uiStore.setSelectedNode(id)"
   >
@@ -54,30 +127,37 @@ const isActive = computed(() => props.selected || props.data.status === 'running
             <component :is="icon" class="h-4 w-4" />
           </span>
           <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-text-primary">{{ data.label }}</p>
+            <p class="truncate text-sm font-semibold text-text-primary">{{ displayLabel }}</p>
             <p class="truncate text-[11px] text-text-muted">{{ data.kind }}</p>
           </div>
         </div>
         <StatusBadge :status="data.status" />
       </div>
-      <p class="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary">{{ data.description }}</p>
+      <p class="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary">{{ displayDescription }}</p>
     </div>
 
     <div class="space-y-2 p-3">
-      <div class="flex items-center justify-between text-[11px] text-text-muted">
-        <span>{{ t('common.inputs') }}</span>
-        <span>{{ data.inputs.length }}</span>
-      </div>
-      <div class="flex flex-wrap gap-1">
-        <span v-for="input in data.inputs" :key="input" class="rounded bg-app-muted px-1.5 py-0.5 text-[11px] text-text-secondary">
-          {{ input }}
-        </span>
-      </div>
-        <div class="flex items-center gap-1 text-[11px] text-text-secondary">
-          <CheckCircle2 class="h-3 w-3 text-status-success" />
-          <span>{{ data.runtime?.lastResult ?? t('workflow.waiting') }}</span>
+      <template v-if="nodeRows.length > 0">
+        <div v-for="row in nodeRows" :key="row" class="rounded-md bg-app-muted px-2 py-1.5 text-xs font-semibold text-text-secondary">
+          {{ row }}
         </div>
+      </template>
+      <template v-else>
+        <div class="flex items-center justify-between text-[11px] text-text-muted">
+          <span>{{ t('common.inputs') }}</span>
+          <span>{{ data.inputs.length }}</span>
+        </div>
+        <div class="flex flex-wrap gap-1">
+          <span v-for="input in data.inputs" :key="input" class="rounded bg-app-muted px-1.5 py-0.5 text-[11px] text-text-secondary">
+            {{ input }}
+          </span>
+        </div>
+      </template>
+      <div class="flex items-center gap-1 text-[11px] text-text-secondary">
+        <CheckCircle2 class="h-3 w-3 text-status-success" />
+        <span class="truncate">{{ data.runtime?.lastResult ?? t('workflow.waiting') }}</span>
       </div>
+    </div>
 
     <div class="flex items-center justify-end gap-1 border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
       <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" :title="t('workflow.testNode')">
@@ -91,5 +171,13 @@ const isActive = computed(() => props.selected || props.data.status === 'running
       </button>
     </div>
     <Handle type="source" :position="Position.Right" class="!h-3 !w-3 !border-2 !border-white !bg-primary" />
+    <button
+      type="button"
+      class="absolute right-[-13px] top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full border border-primary bg-primary text-white opacity-0 shadow-node transition hover:bg-primary-dark group-hover:opacity-100"
+      :title="t('workflow.addNextNode')"
+      @click.stop="emit('addAfter', id, $event)"
+    >
+      <Plus class="h-3.5 w-3.5" />
+    </button>
   </div>
 </template>

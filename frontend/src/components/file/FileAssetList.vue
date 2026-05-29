@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { FileAudio, FileText, FileVideo, PackageCheck } from 'lucide-vue-next'
 import type { Component } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { FileAsset } from '@/types/file'
 
-defineProps<{
+const props = defineProps<{
   files: FileAsset[]
+  layout?: 'grid' | 'single'
+}>()
+
+const emit = defineEmits<{
+  toggleSource: [fileId: string]
 }>()
 
 const { t } = useI18n()
@@ -18,10 +24,15 @@ const iconMap: Record<FileAsset['type'], Component> = {
   document: FileText,
   artifact: PackageCheck,
 }
+
+const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'grid gap-3 lg:grid-cols-2'))
 </script>
 
 <template>
-  <div class="grid gap-3 lg:grid-cols-2">
+  <div v-if="files.length === 0" class="rounded-lg border border-dashed border-app-border bg-white p-6 text-center text-sm text-text-muted">
+    {{ t('common.noResult') }}
+  </div>
+  <div v-else :class="gridClass">
     <article v-for="file in files" :key="file.id" class="rounded-lg border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/25 hover:shadow-node">
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 items-center gap-3">
@@ -30,14 +41,37 @@ const iconMap: Record<FileAsset['type'], Component> = {
           </span>
           <div class="min-w-0">
             <p class="truncate text-sm font-semibold text-text-primary">{{ file.name }}</p>
-            <p class="text-xs text-text-muted">{{ file.size }} · {{ file.updatedAt }}</p>
+            <p class="truncate text-xs text-text-muted">{{ file.size }} · {{ file.mime }} · {{ file.updatedAt }}</p>
           </div>
         </div>
         <StatusBadge :status="file.status === 'ready' ? 'success' : file.status === 'processing' ? 'running' : 'failed'" />
       </div>
       <div class="mt-4 rounded-md bg-app-bg2 p-3 text-xs leading-5 text-text-secondary">
         <p>{{ file.result ?? t('files.noResult') }}</p>
-        <p v-if="file.linkedRunId" class="mt-1 text-primary">{{ t('files.run') }}: {{ file.linkedRunId }}</p>
+        <div class="mt-3 grid gap-2 sm:grid-cols-2">
+          <p v-if="file.workflowName" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
+            {{ t('files.workflow') }}: {{ file.workflowName }}
+          </p>
+          <p v-if="file.workflowId" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
+            {{ t('files.workflowId') }}: {{ file.workflowId }}
+          </p>
+          <RouterLink v-if="file.linkedRunId" :to="`/runs/${file.linkedRunId}`" class="truncate rounded bg-white px-2 py-1 text-primary transition hover:bg-primary-soft">
+            {{ t('files.run') }}: {{ file.linkedRunId }}
+          </RouterLink>
+          <p v-if="file.artifactKind" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
+            {{ t('files.artifactType') }}: {{ file.artifactKind }}
+          </p>
+          <p v-if="file.producerNode" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
+            {{ t('files.producer') }}: {{ file.producerNode }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="mt-3 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-primary transition hover:border-primary/30 hover:bg-primary-soft"
+          @click="emit('toggleSource', file.id)"
+        >
+          {{ file.source === 'input' ? t('files.markAsArtifact') : t('files.markAsInput') }}
+        </button>
       </div>
     </article>
   </div>

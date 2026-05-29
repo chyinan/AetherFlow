@@ -30,7 +30,7 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
 </script>
 
 <template>
-  <aside class="flex h-full w-64 flex-col border-r border-app-border bg-white">
+  <aside class="flex h-full min-h-0 w-full flex-col border-r border-app-border bg-white lg:w-64">
     <div class="border-b border-app-border p-4">
       <p class="text-sm font-semibold text-text-primary">{{ t('workflow.nodePalette') }}</p>
       <p class="mt-1 text-xs text-text-muted">{{ t('workflow.dragHint') }}</p>

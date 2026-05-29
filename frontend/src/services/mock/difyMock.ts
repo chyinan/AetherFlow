@@ -1,0 +1,110 @@
+import type {
+  ConversationLog,
+  KnowledgeDataset,
+  KnowledgeSegment,
+  MonitorMetric,
+} from '@/types/dify'
+
+export const mockKnowledgeDatasets: KnowledgeDataset[] = [
+  {
+    id: 'kb-product-docs',
+    name: 'Product Docs RAG',
+    description: 'Public help center, onboarding docs, and release notes for app answers.',
+    status: 'ready',
+    documentCount: 186,
+    processingDocumentCount: 0,
+    chunkCount: 3842,
+    failedChunkCount: 2,
+    hitRate: 92,
+    embeddingModel: 'nomic-embed-text',
+    retrievalMode: 'hybrid search + rerank',
+    owner: 'knowledge.ops',
+    updatedAt: '2026-05-28 10:22',
+    tags: ['docs', 'hybrid', 'rerank'],
+  },
+  {
+    id: 'kb-support-cases',
+    name: 'Support Case Memory',
+    description: 'Resolved ticket snippets and internal handling guidelines.',
+    status: 'running',
+    documentCount: 74,
+    processingDocumentCount: 9,
+    chunkCount: 1280,
+    failedChunkCount: 0,
+    hitRate: 86,
+    embeddingModel: 'text-embedding-3-small',
+    retrievalMode: 'semantic top-k',
+    owner: 'support.ai',
+    updatedAt: '2026-05-28 09:50',
+    tags: ['tickets', 'private'],
+  },
+  {
+    id: 'kb-media-briefs',
+    name: 'Media Brief Library',
+    description: 'Indexed transcripts, subtitles, summaries, and translation memories.',
+    status: 'warning',
+    documentCount: 42,
+    processingDocumentCount: 3,
+    chunkCount: 713,
+    failedChunkCount: 17,
+    hitRate: 71,
+    embeddingModel: 'bge-m3',
+    retrievalMode: 'parent-child chunks',
+    owner: 'media.ops',
+    updatedAt: '2026-05-27 18:41',
+    tags: ['media', 'transcript'],
+  },
+]
+
+export const mockKnowledgeSegments: KnowledgeSegment[] = [
+  {
+    id: 'seg-001',
+    datasetId: 'kb-product-docs',
+    source: 'workflow-runbook.md',
+    preview: 'Workflow apps can combine LLM nodes, knowledge retrieval, conditions, and structured outputs.',
+    tokens: 146,
+    score: 0.93,
+    status: 'ready',
+  },
+  {
+    id: 'seg-002',
+    datasetId: 'kb-product-docs',
+    source: 'api-access.md',
+    preview: 'Applications expose web app URLs, signed API keys, and server-side streaming endpoints.',
+    tokens: 128,
+    score: 0.89,
+    status: 'ready',
+  },
+  {
+    id: 'seg-003',
+    datasetId: 'kb-support-cases',
+    source: 'ticket-routing.csv',
+    preview: 'Escalate billing, quota, and provider timeout cases to owner role after two failed retries.',
+    tokens: 92,
+    score: 0.84,
+    status: 'running',
+  },
+  {
+    id: 'seg-004',
+    datasetId: 'kb-media-briefs',
+    source: 'weekly-media-transcripts.jsonl',
+    preview: 'Long media transcripts should use parent chunks for context and child chunks for high precision retrieval.',
+    tokens: 211,
+    score: 0.78,
+    status: 'warning',
+  },
+]
+
+export const mockMonitorMetrics: MonitorMetric[] = [
+  { id: 'metric-requests', label: 'Requests', value: '11.6k', delta: '+18%', tone: 'online' },
+  { id: 'metric-latency', label: 'P95 latency', value: '1.42s', delta: '-9%', tone: 'online' },
+  { id: 'metric-cost', label: 'Token cost', value: '$42.18', delta: '+6%', tone: 'degraded' },
+  { id: 'metric-errors', label: 'Error rate', value: '0.8%', delta: '-0.3%', tone: 'online' },
+]
+
+export const mockConversationLogs: ConversationLog[] = [
+  { id: 'conv-001', time: '11:18:02', app: 'Support AI Desk', user: 'user_2048', channel: 'web', intent: 'quota question', status: 'success', tokens: 1840, cost: '$0.09', feedback: 'like', reviewRequired: false, latencyMs: 1380 },
+  { id: 'conv-002', time: '11:16:44', app: 'Media Digest Agent', user: 'ops.media', channel: 'console', intent: 'subtitle export', status: 'running', tokens: 920, cost: '$0.04', feedback: 'none', reviewRequired: false, latencyMs: 2240 },
+  { id: 'conv-003', time: '11:12:19', app: 'Support AI Desk', user: 'user_1187', channel: 'web', intent: 'billing case', status: 'success', tokens: 2460, cost: '$0.13', feedback: 'dislike', reviewRequired: true, reviewReason: 'negative feedback', latencyMs: 1710 },
+  { id: 'conv-004', time: '10:58:36', app: 'Research Digest', user: 'research.bot', channel: 'api', intent: 'weekly brief', status: 'failed', tokens: 510, cost: '$0.02', feedback: 'none', reviewRequired: true, reviewReason: 'workflow failed', latencyMs: 860 },
+]

@@ -1,4 +1,35 @@
-export type WorkflowNodeKind = 'whisper' | 'llm' | 'ffmpeg' | 'translate' | 'summary'
+export type WorkflowNodeKind =
+  | 'whisper'
+  | 'llm'
+  | 'ffmpeg'
+  | 'translate'
+  | 'summary'
+  | 'knowledge-retrieval'
+  | 'output'
+  | 'agent'
+  | 'question-understand'
+  | 'question-classifier'
+  | 'condition'
+  | 'human'
+  | 'iteration'
+  | 'loop'
+  | 'code'
+  | 'template-transform'
+  | 'variable-aggregate'
+  | 'document-extractor'
+  | 'variable-assigner'
+  | 'parameter-extractor'
+  | 'http'
+  | 'list-operator'
+  | 'audio'
+  | 'code-interpreter'
+  | 'time'
+  | 'web-scraper'
+  | 'json'
+  | 'markdown'
+  | 'tavily'
+  | 'firecrawl'
+  | 'mineru'
 
 export type WorkflowNodeStatus =
   | 'idle'
@@ -28,7 +59,11 @@ export interface NodeTemplate {
   kind: WorkflowNodeKind
   label: string
   description: string
-  category: 'Input' | 'AI' | 'Media' | 'Transform' | 'Output'
+  category: 'Input' | 'AI' | 'Media' | 'Transform' | 'Output' | 'Logic' | 'Tool' | 'Plugin' | 'Workflow' | 'MCP'
+  catalog?: 'node' | 'tool'
+  group?: 'recommended' | 'logic' | 'transform' | 'allTools' | 'plugin' | 'custom' | 'workflow' | 'mcp'
+  provider?: string
+  installCount?: string
   config: Record<string, string | number | boolean>
   inputs: string[]
   outputs: string[]

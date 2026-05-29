@@ -3,7 +3,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { i18n } from '@/i18n/index'
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
+import KnowledgePage from '@/pages/knowledge/KnowledgePage.vue'
 import ModelsPage from '@/pages/models/ModelsPage.vue'
+import MonitorPage from '@/pages/monitor/MonitorPage.vue'
 import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
 import RunsPage from '@/pages/runs/RunsPage.vue'
 import SettingsPage from '@/pages/settings/SettingsPage.vue'
@@ -58,10 +60,22 @@ export const router = createRouter({
       meta: { requiresAuth: true, titleKey: 'files.title', roles: ['owner', 'operator'] },
     },
     {
+      path: '/knowledge',
+      name: 'knowledge',
+      component: KnowledgePage,
+      meta: { requiresAuth: true, titleKey: 'knowledge.title', roles: ['owner', 'operator'] },
+    },
+    {
       path: '/models',
       name: 'models',
       component: ModelsPage,
       meta: { requiresAuth: true, titleKey: 'models.title', roles: ['owner', 'operator'] },
+    },
+    {
+      path: '/monitor',
+      name: 'monitor',
+      component: MonitorPage,
+      meta: { requiresAuth: true, titleKey: 'monitor.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/settings',

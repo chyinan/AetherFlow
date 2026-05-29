@@ -46,6 +46,10 @@ function providerTone(status: string) {
   return 'offline'
 }
 
+function quotaPercent(quotaUsed: number, quotaLimit: number) {
+  return Math.min(100, Math.round((quotaUsed / Math.max(quotaLimit, 1)) * 100))
+}
+
 onMounted(() => {
   void modelStore.loadModels()
 })
@@ -61,14 +65,14 @@ onMounted(() => {
           <p class="text-xs text-text-muted">{{ t('models.subtitle') }}</p>
         </div>
       </div>
-      <button class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai">
+      <button class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai" @click="modelStore.refreshMockProbe">
         <RefreshCw class="h-4 w-4" />
         {{ t('models.refreshMock') }}
       </button>
     </header>
 
-    <main class="min-h-0 overflow-hidden bg-app-bg p-5">
-      <div class="mx-auto grid h-full max-w-7xl grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+    <main class="min-h-0 overflow-y-auto bg-app-bg py-5 xl:overflow-hidden">
+      <div class="grid h-full w-full grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article
             v-for="card in summaryCards"
@@ -85,7 +89,7 @@ onMounted(() => {
         </section>
 
         <section class="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <aside class="min-h-0 rounded-lg border border-app-border bg-white shadow-sm">
+          <aside class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
                 <div>
@@ -96,7 +100,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="space-y-3 p-3">
+            <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
               <button
                 v-for="provider in modelStore.providers"
                 :key="provider.id"
@@ -122,6 +126,15 @@ onMounted(() => {
                     <p class="mt-1 font-medium text-text-primary">{{ provider.latencyMs }}ms</p>
                   </div>
                 </div>
+                <div class="mt-3">
+                  <div class="mb-1 flex items-center justify-between text-[11px] text-text-muted">
+                    <span>{{ t('models.quotaUsage') }}</span>
+                    <span>{{ quotaPercent(provider.quotaUsed, provider.quotaLimit) }}%</span>
+                  </div>
+                  <div class="h-1.5 rounded-full bg-app-muted">
+                    <div class="h-1.5 rounded-full bg-ai" :style="{ width: `${quotaPercent(provider.quotaUsed, provider.quotaLimit)}%` }" />
+                  </div>
+                </div>
               </button>
 
               <section class="rounded-lg border border-app-border bg-app-bg2 p-3">
@@ -140,6 +153,16 @@ onMounted(() => {
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.fallback') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ policy.fallbackModels.join(' → ') }}</p>
+                    </div>
+                  </div>
+                  <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div class="rounded bg-app-bg2 p-2">
+                      <p class="text-text-muted">{{ t('models.timeout') }}</p>
+                      <p class="mt-1 font-medium text-text-primary">{{ policy.timeoutMs }}ms</p>
+                    </div>
+                    <div class="rounded bg-app-bg2 p-2">
+                      <p class="text-text-muted">{{ t('models.retries') }}</p>
+                      <p class="mt-1 font-medium text-text-primary">{{ policy.retryCount }}</p>
                     </div>
                   </div>
                 </div>
@@ -234,6 +257,12 @@ onMounted(() => {
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.quota') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ modelStore.selectedProvider.quotaUsed }} / {{ modelStore.selectedProvider.quotaLimit }}</p>
+                      <div class="mt-2 h-1.5 rounded-full bg-white">
+                        <div
+                          class="h-1.5 rounded-full bg-ai"
+                          :style="{ width: `${quotaPercent(modelStore.selectedProvider.quotaUsed, modelStore.selectedProvider.quotaLimit)}%` }"
+                        />
+                      </div>
                     </div>
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.checked') }}</p>

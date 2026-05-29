@@ -24,17 +24,18 @@ function onFileChange(event: Event) {
 <template>
   <section class="rounded-lg border border-dashed border-primary/30 bg-white p-5 shadow-sm">
     <input ref="input" type="file" class="hidden" @change="onFileChange" />
-    <div class="flex items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex min-w-0 items-center gap-3">
         <span class="grid h-11 w-11 place-items-center rounded-lg bg-primary-soft text-primary">
           <Upload class="h-5 w-5" />
         </span>
-        <div>
+        <div class="min-w-0">
           <p class="text-sm font-semibold text-text-primary">{{ t('files.uploadInput') }}</p>
           <p class="text-xs text-text-muted">{{ t('files.uploadDescription') }}</p>
         </div>
       </div>
-      <button type="button" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node transition hover:bg-primary-dark" @click="browse">
+      <button type="button" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node transition hover:bg-primary-dark" @click="browse">
+        <Upload class="h-4 w-4" />
         {{ t('files.upload') }}
       </button>
     </div>

@@ -1,15 +1,23 @@
 import type {
   AuditEvent,
+  ApiExtensionSetting,
+  BillingSnapshot,
+  DataSourceProvider,
   EnvironmentVariable,
   IntegrationSetting,
+  SettingsModelProvider,
   WorkspaceMember,
   WorkspaceSettings,
 } from '@/types/settings'
 
 import {
+  mockApiExtensions,
   mockAuditEvents,
+  mockBillingSnapshot,
+  mockDataSourceProviders,
   mockEnvironmentVariables,
   mockIntegrations,
+  mockSettingsModelProviders,
   mockWorkspaceMembers,
   mockWorkspaceSettings,
 } from '../mock/settingsMock'
@@ -21,6 +29,18 @@ export const settingsApi = {
   },
   listMembers() {
     return delay<WorkspaceMember[]>(mockWorkspaceMembers)
+  },
+  listModelProviders() {
+    return delay<SettingsModelProvider[]>(mockSettingsModelProviders)
+  },
+  listDataSources() {
+    return delay<DataSourceProvider[]>(mockDataSourceProviders)
+  },
+  listApiExtensions() {
+    return delay<ApiExtensionSetting[]>(mockApiExtensions)
+  },
+  getBillingSnapshot() {
+    return delay<BillingSnapshot>(mockBillingSnapshot)
   },
   listEnvironmentVariables() {
     return delay<EnvironmentVariable[]>(mockEnvironmentVariables)

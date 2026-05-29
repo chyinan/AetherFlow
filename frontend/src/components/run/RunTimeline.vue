@@ -26,7 +26,13 @@ const { t } = useI18n()
             <p class="truncate text-sm font-medium text-text-primary">{{ node.label }}</p>
             <StatusBadge :status="node.status" />
           </div>
-          <p class="mt-1 text-xs text-text-muted">{{ node.durationMs ? `${node.durationMs}ms` : t('workflow.waiting') }}</p>
+          <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+            <span>{{ node.durationMs ? `${node.durationMs}ms` : t('workflow.waiting') }}</span>
+            <span v-if="node.retryCount !== undefined">{{ t('runs.retry') }} {{ node.retryCount }}</span>
+          </div>
+          <p v-if="node.output" class="mt-2 truncate rounded bg-white px-2 py-1 text-xs text-text-secondary">
+            {{ node.output }}
+          </p>
         </div>
       </div>
     </div>

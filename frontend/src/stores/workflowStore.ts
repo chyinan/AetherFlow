@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 
+import { i18n } from '@/i18n'
 import { workflowApi } from '@/services/api/workflowApi'
 import { initialWorkflow, nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
@@ -13,8 +14,30 @@ function cloneEdges() {
   return structuredClone(initialWorkflow.edges) as WorkflowGraphEdge[]
 }
 
+function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
+  return JSON.stringify(nodes.map((node) => ({
+    id: node.id,
+    type: node.type,
+    position: node.position,
+    data: node.data,
+  })))
+}
+
 let nodeCounter = 10
 let edgeCounter = 10
+
+function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition): WorkflowGraphNode {
+  return {
+    id: `node-${template.kind}-${nodeCounter++}`,
+    type: 'workflow',
+    position,
+    data: {
+      ...template,
+      status: 'idle',
+      runtime: { lastResult: i18n.global.t('workflow.mockResults.newNode') },
+    },
+  }
+}
 
 export const useWorkflowStore = defineStore('workflow', {
   state: () => ({
@@ -28,8 +51,11 @@ export const useWorkflowStore = defineStore('workflow', {
   }),
   actions: {
     setNodes(nodes: WorkflowGraphNode[]) {
+      const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
       this.nodes = nodes
-      this.dirty = true
+      if (changed) {
+        this.dirty = true
+      }
     },
     setEdges(edges: WorkflowGraphEdge[]) {
       this.edges = edges
@@ -47,17 +73,35 @@ export const useWorkflowStore = defineStore('workflow', {
       this.dirty = true
     },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
-      const node: WorkflowGraphNode = {
-        id: `node-${template.kind}-${nodeCounter++}`,
-        type: 'workflow',
-        position,
-        data: {
-          ...template,
-          status: 'idle',
-          runtime: { lastResult: 'new node' },
-        },
-      }
+      const node = createNodeFromTemplate(template, position)
       this.nodes.push(node)
+      this.dirty = true
+      return node
+    },
+    addNodeAfter(sourceNodeId: string, template: NodeTemplate) {
+      const source = this.nodes.find((node) => node.id === sourceNodeId)
+      if (!source) {
+        return null
+      }
+      const outgoingCount = this.edges.filter((edge) => edge.source === sourceNodeId).length
+      const yOffsets = [0, 150, -150, 300, -300]
+      const basePosition = {
+        x: source.position.x + 320,
+        y: source.position.y + yOffsets[outgoingCount % yOffsets.length] + Math.floor(outgoingCount / yOffsets.length) * 150,
+      }
+      const position = { ...basePosition }
+      while (this.nodes.some((node) => Math.abs(node.position.x - position.x) < 260 && Math.abs(node.position.y - position.y) < 130)) {
+        position.y += 150
+      }
+      const node = createNodeFromTemplate(template, position)
+      this.nodes.push(node)
+      this.edges.push({
+        id: `edge-${edgeCounter++}`,
+        source: source.id,
+        target: node.id,
+        animated: true,
+        label: source.data.outputs[0],
+      })
       this.dirty = true
       return node
     },
@@ -76,6 +120,10 @@ export const useWorkflowStore = defineStore('workflow', {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
         node.data.config[key] = value
+        node.data.runtime = {
+          ...node.data.runtime,
+          lastResult: i18n.global.t('workflow.mockResults.configUpdated'),
+        }
         this.dirty = true
       }
     },
@@ -94,6 +142,20 @@ export const useWorkflowStore = defineStore('workflow', {
       this.nodes = structuredClone(workflow.nodes)
       this.edges = structuredClone(workflow.edges)
       this.dirty = false
+    },
+    async saveCurrentWorkflow() {
+      this.saving = true
+      try {
+        await workflowApi.saveWorkflow({
+          id: this.workflowId,
+          name: this.workflowName,
+          nodes: this.nodes,
+          edges: this.edges,
+        })
+        this.markSaved()
+      } finally {
+        this.saving = false
+      }
     },
   },
 })

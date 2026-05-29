@@ -71,3 +71,46 @@ select {
     linear-gradient(90deg, rgba(100, 116, 139, 0.16) 1px, transparent 1px);
   background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px;
 }
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  background: #0b1120;
+}
+
+html[data-theme='dark'] body,
+html[data-theme='dark'] .bg-app-bg {
+  background-color: #0b1120 !important;
+}
+
+html[data-theme='dark'] .bg-white,
+html[data-theme='dark'] .bg-white\/90,
+html[data-theme='dark'] .bg-app-surface {
+  background-color: #111827 !important;
+}
+
+html[data-theme='dark'] .bg-app-bg2,
+html[data-theme='dark'] .bg-app-muted {
+  background-color: #1f2937 !important;
+}
+
+html[data-theme='dark'] .border-app-border {
+  border-color: #334155 !important;
+}
+
+html[data-theme='dark'] .text-text-primary {
+  color: #f8fafc !important;
+}
+
+html[data-theme='dark'] .text-text-secondary {
+  color: #cbd5e1 !important;
+}
+
+html[data-theme='dark'] .text-text-muted {
+  color: #94a3b8 !important;
+}
+
+html[data-theme='dark'] .hover\:bg-app-bg2:hover,
+html[data-theme='dark'] .hover\:bg-app-muted:hover,
+html[data-theme='dark'] .hover\:bg-white:hover {
+  background-color: #1f2937 !important;
+}

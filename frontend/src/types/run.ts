@@ -7,6 +7,8 @@ export interface RunNodeState {
   label: string
   status: WorkflowNodeStatus
   durationMs?: number
+  output?: string
+  retryCount?: number
 }
 
 export interface RunLogEntry {
@@ -24,6 +26,12 @@ export interface WorkflowRun {
   status: RunStatus
   startedAt: string
   durationMs: number
+  trigger: 'manual' | 'schedule' | 'api'
+  owner: string
+  traceId: string
+  queueName: string
+  progress: number
   nodeStates: RunNodeState[]
   artifactCount: number
+  artifactNames: string[]
 }

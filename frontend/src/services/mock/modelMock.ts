@@ -11,7 +11,7 @@ export const mockModelProviders: ModelProvider[] = [
     latencyMs: 420,
     quotaUsed: 128000,
     quotaLimit: 300000,
-    capabilities: ['chat', 'json mode', 'tool calling', 'summary'],
+    capabilities: ['chat', 'json mode', 'function calling', 'summary'],
     lastCheckedAt: '2026-05-28 02:32',
   },
   {

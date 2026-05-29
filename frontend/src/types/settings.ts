@@ -32,6 +32,46 @@ export interface IntegrationSetting {
   endpoint: string
 }
 
+export interface SettingsModelProvider {
+  id: string
+  name: string
+  maintainer: string
+  region: 'global' | 'domestic'
+  status: 'installed' | 'available'
+  description: string
+  defaultModel: string
+  installCount: string
+  tags: string[]
+}
+
+export interface DataSourceProvider {
+  id: string
+  name: string
+  maintainer: string
+  description: string
+  installCount: string
+  status: 'connected' | 'available'
+  tags: string[]
+}
+
+export interface ApiExtensionSetting {
+  id: string
+  name: string
+  description: string
+  endpoint: string
+  status: 'connected' | 'configured' | 'disabled'
+  scope: 'Gateway' | 'Realtime' | 'AI Runtime' | 'Webhook'
+}
+
+export interface BillingSnapshot {
+  plan: string
+  aiCredits: number
+  monthlyBudget: string
+  currentSpend: string
+  renewalAt: string
+  seats: string
+}
+
 export interface AuditEvent {
   id: string
   time: string
