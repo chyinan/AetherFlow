@@ -2,8 +2,10 @@ package com.aetherflow.notify.controller;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.NotifyMessageDTO;
+import com.aetherflow.notify.dto.StreamTokenResponse;
 import com.aetherflow.notify.service.NotificationService;
 import com.aetherflow.notify.service.SseEmitterRegistry;
+import com.aetherflow.notify.service.StreamTokenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -28,6 +31,7 @@ public class NotifyController {
 
     private final SseEmitterRegistry sseEmitterRegistry;
     private final NotificationService notificationService;
+    private final StreamTokenService streamTokenService;
 
     @Operation(summary = "Subscribe notification SSE stream",
             description = "Frontend public Server-Sent Events endpoint for receiving user notification events.")
@@ -40,6 +44,22 @@ public class NotifyController {
     public SseEmitter subscribe(@Parameter(description = "Target user id.", example = "10001")
                                 @PathVariable Long userId) {
         return sseEmitterRegistry.register(userId);
+    }
+
+    @Operation(summary = "Issue short-lived stream token",
+            description = "Issues a short-lived token for browser realtime transports that cannot send Authorization headers.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Stream token issued."),
+            @ApiResponse(responseCode = "401", description = "Missing authenticated user."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @PostMapping("/stream-token")
+    public Result<StreamTokenResponse> streamToken(
+            @Parameter(description = "Authenticated user id forwarded by Gateway.", example = "10001")
+            @RequestHeader("X-User-Id") Long userId,
+            @Parameter(description = "Authenticated username forwarded by Gateway.", example = "alice")
+            @RequestHeader(value = "X-Username", required = false) String username) {
+        return Result.success(streamTokenService.issue(userId, username));
     }
 
     @Operation(summary = "Send notification internally",
