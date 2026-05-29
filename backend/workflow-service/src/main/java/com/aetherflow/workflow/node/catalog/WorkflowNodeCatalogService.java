@@ -15,6 +15,7 @@ public class WorkflowNodeCatalogService {
                 start(),
                 end(),
                 upload(),
+                ocr(),
                 whisper(),
                 summary(),
                 embedding(),
@@ -77,6 +78,32 @@ public class WorkflowNodeCatalogService {
                         variable("fileSize", "NUMBER", "File size in bytes.", 1048576)
                 ),
                 mapOf("fileIdVariable", "fileId")
+        );
+    }
+
+    private WorkflowNodeCatalogItem ocr() {
+        return item(
+                "OCR",
+                "OCR",
+                "File",
+                "Recognizes text from document images or PDFs through the configured OCR provider and exposes OCR variables.",
+                List.of(
+                        field("fileId", "NUMBER", false, "Fixed file id. Prefer fileIdVariable when binding from workflow input.", 1001),
+                        field("fileIdVariable", "STRING", false, "Workflow variable name that contains the file id.", "fileId"),
+                        field("language", "STRING", false, "OCR language hint. Use auto when unknown.", "auto"),
+                        field("enableTable", "BOOLEAN", false, "Whether table extraction should be enabled by providers that support it.", true),
+                        field("enableLayout", "BOOLEAN", false, "Whether layout analysis should be enabled by providers that support it.", false),
+                        field("mock", "BOOLEAN", false, "Use mock OCR provider for demos without native OCR binaries.", false),
+                        field("provider", "STRING", false, "Optional OCR provider override.", "tesseract", List.of("tesseract", "mock"))
+                ),
+                List.of(variable("fileId", "NUMBER", "Uploaded file id from workflow input or UPLOAD node.", 1001)),
+                List.of(
+                        variable("ocrText", "STRING", "Recognized OCR text.", "Invoice total: 100.00"),
+                        variable("ocrLanguage", "STRING", "OCR language used by the provider.", "eng"),
+                        variable("ocrConfidence", "NUMBER", "OCR confidence from 0 to 1 when available.", 0.91),
+                        variable("ocrPageCount", "NUMBER", "Recognized page count.", 1)
+                ),
+                mapOf("fileIdVariable", "fileId", "language", "auto", "enableTable", true, "enableLayout", false)
         );
     }
 
