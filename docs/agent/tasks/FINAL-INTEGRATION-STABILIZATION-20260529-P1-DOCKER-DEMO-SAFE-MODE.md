@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-DOCKER
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-docker-demo-safe-mode
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 
@@ -77,3 +77,41 @@ Agent 编码计划：
 1. 本任务只能保证 compose 配置可解析，不能证明所有容器真实启动成功。
 2. OCR mock 默认仅用于 demo 稳定，生产环境必须显式关闭。
 3. Whisper/LLM 默认真实运行；如统一运行电脑资源不足，可通过环境变量显式关闭。
+
+## 完成记录
+
+时间：2026-05-29 22:40:00 +08:00
+状态：REVIEW
+
+完成内容：
+
+1. `python-ai-service` 默认 `ENABLE_WHISPER=true`、`ENABLE_LLM=true`，保持主线 Whisper/LLM 演示真实运行；仍可通过环境变量显式关闭。
+2. Java 服务公共 env 增加 `OLLAMA_BASE_URL`，workflow-service 容器默认指向 `http://host.docker.internal:11434`，避免容器内 localhost 错误。
+3. `MINIO_PUBLIC_ENDPOINT` 改为 `${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}`，避免固定内网 IP。
+4. workflow-service 默认 `WORKFLOW_OCR_MOCK=true`，仅用于当前 Java 容器无 Tesseract 时保护 OCR 演示；真实 OCR 容器化拆后续任务。
+5. 前端 Docker build args 补齐 `VITE_SSE_BASE`、`VITE_MOCK_FALLBACK`、`VITE_NOTIFY_WS_FALLBACK`、`VITE_API_TIMEOUT_MS`。
+6. `.env.example` 补充 demo safe-mode 示例，明确 Whisper/LLM 默认真实运行。
+7. 未修改 backend、python-ai-service、业务 UI、接口、DTO、数据库、Gateway、Runtime Core。
+
+验证记录：
+
+1. `docker compose config --quiet`：通过。
+2. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+3. `git diff --check`：通过。无 whitespace error，仅 Windows LF/CRLF 提示。
+4. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md docker-compose.yml frontend/nginx/Dockerfile frontend/.env.example`：通过。无冲突标记输出。
+5. `docker compose config | rg -n "ENABLE_WHISPER|ENABLE_LLM|MINIO_PUBLIC_ENDPOINT|OLLAMA_BASE_URL|WORKFLOW_OCR_MOCK|VITE_NOTIFY_WS_FALLBACK|VITE_SSE_BASE"`：确认 Whisper/LLM 默认 true，MinIO/Ollama/OCR/Vite 参数按预期展开。
+
+提交：
+
+1. c030102 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-docker-demo
+2. f56615e chore(docker): add demo safe mode defaults
+3. c8e2483 chore(docker): keep whisper and llm enabled by default
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测 `docker compose up`、Whisper/LLM 真实链路、Ollama reachable、MinIO URL 可访问。
+2. 真实 OCR 容器化/Tesseract 安装仍未做，当前 OCR demo 默认 mock。
+
+文件锁：RELEASED。
