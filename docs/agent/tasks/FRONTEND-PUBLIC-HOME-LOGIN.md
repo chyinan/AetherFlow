@@ -4,7 +4,7 @@
 Agent ID：001CYZ
 Session ID：SESSION-20260529-1739-FRONTEND-PUBLIC-HOME
 分支：feature/FRONTEND-PUBLIC-HOME-LOGIN-public-home-login
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 新增 AetherFlow 公开首页 `/`，视觉参考 Dify 的留白、蓝色网格和鼠标跟随蓝色圆点；点击“立即开始”进入 `/login`。将 `/login` 改造为 GitHub 风格居中登录模板，第三方登录按钮只保留 GitHub 和 Google，并沿用当前 mock 登录流程。
@@ -92,3 +92,21 @@ Agent 编码计划：
 4. 2026-05-29 17:39，当前进行 docs-only claim；claim push 成功前不修改业务代码。
 5. 2026-05-29 17:45，claim 已提交并推送：`2840be1 docs(agent): claim FRONTEND-PUBLIC-HOME-LOGIN`。
 6. 2026-05-29 17:45，已写入设计文档 `docs/superpowers/specs/2026-05-29-public-home-login-design.md` 和实施计划 `docs/superpowers/plans/2026-05-29-public-home-login.md`。
+7. 2026-05-29 18:05，业务提交已完成：`68ff5cd feat(frontend): add public home and login template`。
+8. 2026-05-29 18:05，Edge 本地浏览器验证通过：`/` 首页渲染正常、蓝色圆点跟随鼠标、“立即开始”进入 `/login`、登录页无 Apple 按钮、GitHub 模板入口进入 `/projects`。
+
+验证结果：
+1. `cd frontend && npm run build`：通过。Vite 仅输出 chunk size warning。
+2. `git diff --check HEAD~1..HEAD`：通过，无 whitespace error。
+3. `git diff --name-only origin/main...HEAD`：通过，变更文件限定在任务边界内。
+
+提交记录：
+1. `2840be1 docs(agent): claim FRONTEND-PUBLIC-HOME-LOGIN`
+2. `2cd568a docs(frontend): plan public home login`
+3. `68ff5cd feat(frontend): add public home and login template`
+
+交接：
+1. 当前状态：REVIEW。
+2. 合入 main：未合入。
+3. 统一运行电脑验证：未运行。
+4. 文件锁：本次 handoff 提交后释放。
