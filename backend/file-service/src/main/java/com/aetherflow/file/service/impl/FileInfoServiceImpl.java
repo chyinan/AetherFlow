@@ -9,6 +9,8 @@ import com.aetherflow.file.entity.FileInfo;
 import com.aetherflow.file.exception.StorageException;
 import com.aetherflow.file.exception.UploadException;
 import com.aetherflow.file.mapper.FileInfoMapper;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetMetadataView;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
 import com.aetherflow.file.model.FileMetricsResponse;
 import com.aetherflow.file.model.FileStatusResponse;
 import com.aetherflow.file.model.FileUploadProfile;
@@ -32,6 +34,7 @@ import io.minio.RemoveObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -40,6 +43,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -51,6 +55,11 @@ public class FileInfoServiceImpl implements FileInfoService {
     private static final String STATUS_AVAILABLE = "AVAILABLE";
     private static final String STATUS_DELETED = "DELETED";
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
+    private static final String FRONTEND_STATUS_READY = "ready";
+    private static final String DEFAULT_SOURCE = "input";
+    private static final String DEFAULT_ARTIFACT_KIND = "input";
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
@@ -227,6 +236,43 @@ public class FileInfoServiceImpl implements FileInfoService {
     }
 
     @Override
+    public FileAssetPageResponse listAssets(Long userId,
+                                            String query,
+                                            String type,
+                                            String source,
+                                            String artifactKind,
+                                            String workflowId,
+                                            int page,
+                                            int pageSize) {
+        requireUserId(userId);
+        FileLogContext.putUserId(userId);
+
+        int normalizedPage = Math.max(1, page);
+        int normalizedPageSize = normalizePageSize(pageSize);
+        if (unsupportedSource(source) || unsupportedArtifactKind(artifactKind) || StringUtils.hasText(workflowId)
+                || unsupportedType(type)) {
+            return emptyPage(normalizedPage, normalizedPageSize);
+        }
+
+        String normalizedType = normalize(type);
+        LambdaQueryWrapper<FileInfo> countQuery = listQuery(userId, query, normalizedType);
+        long total = safeLong(fileInfoMapper.selectCount(countQuery));
+        if (total == 0) {
+            return emptyPage(normalizedPage, normalizedPageSize);
+        }
+
+        long offset = (long) (normalizedPage - 1) * normalizedPageSize;
+        LambdaQueryWrapper<FileInfo> pageQuery = listQuery(userId, query, normalizedType)
+                .orderByDesc(FileInfo::getUpdatedAt)
+                .orderByDesc(FileInfo::getId)
+                .last("LIMIT " + offset + ", " + normalizedPageSize);
+        List<FileAssetMetadataView> items = fileInfoMapper.selectList(pageQuery).stream()
+                .map(this::toAsset)
+                .toList();
+        return new FileAssetPageResponse(normalizedPage, normalizedPageSize, total, items);
+    }
+
+    @Override
     public UploadProgressView getUploadProgress(Long userId, String taskId) {
         requireUserId(userId);
         FileLogContext.putUserId(userId);
@@ -388,6 +434,131 @@ public class FileInfoServiceImpl implements FileInfoService {
         if (fileInfo.getUserId() != null && !fileInfo.getUserId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "file does not belong to current user");
         }
+    }
+
+    private LambdaQueryWrapper<FileInfo> listQuery(Long userId, String queryText, String type) {
+        LambdaQueryWrapper<FileInfo> query = new LambdaQueryWrapper<FileInfo>()
+                .eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getStatus, STATUS_AVAILABLE);
+        if (StringUtils.hasText(queryText)) {
+            String keyword = queryText.trim();
+            query.and(wrapper -> wrapper.like(FileInfo::getOriginalName, keyword)
+                    .or()
+                    .like(FileInfo::getObjectKey, keyword)
+                    .or()
+                    .like(FileInfo::getContentType, keyword)
+                    .or()
+                    .like(FileInfo::getMimeType, keyword));
+        }
+        applyTypeFilter(query, type);
+        return query;
+    }
+
+    private void applyTypeFilter(LambdaQueryWrapper<FileInfo> query, String type) {
+        if (!StringUtils.hasText(type)) {
+            return;
+        }
+        if ("audio".equals(type)) {
+            query.and(wrapper -> wrapper.likeRight(FileInfo::getContentType, "audio/")
+                    .or()
+                    .likeRight(FileInfo::getMimeType, "audio/")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".mp3")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".wav")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".m4a"));
+            return;
+        }
+        if ("video".equals(type)) {
+            query.and(wrapper -> wrapper.likeRight(FileInfo::getContentType, "video/")
+                    .or()
+                    .likeRight(FileInfo::getMimeType, "video/")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".mp4")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".mov")
+                    .or()
+                    .like(FileInfo::getOriginalName, ".mkv"));
+        }
+    }
+
+    private FileAssetPageResponse emptyPage(int page, int pageSize) {
+        return new FileAssetPageResponse(page, pageSize, 0, List.of());
+    }
+
+    private FileAssetMetadataView toAsset(FileInfo fileInfo) {
+        String mime = resolveContentType(resolveMimeType(fileInfo));
+        String name = StringUtils.hasText(fileInfo.getOriginalName())
+                ? fileInfo.getOriginalName()
+                : objectName(fileInfo.getObjectKey(), fileInfo.getId());
+        return new FileAssetMetadataView(
+                fileInfo.getId(),
+                String.valueOf(fileInfo.getId()),
+                name,
+                fileInfo.getOriginalName(),
+                inferType(mime, name),
+                DEFAULT_SOURCE,
+                DEFAULT_ARTIFACT_KIND,
+                fileInfo.getFileSize(),
+                mime,
+                FRONTEND_STATUS_READY,
+                null,
+                "File ready",
+                fileInfo.getFileUrl(),
+                fileInfo.getObjectKey(),
+                fileInfo.getCreatedAt(),
+                fileInfo.getUpdatedAt()
+        );
+    }
+
+    private String objectName(String objectKey, Long id) {
+        if (!StringUtils.hasText(objectKey)) {
+            return "file-" + id;
+        }
+        int index = objectKey.lastIndexOf('/');
+        return index >= 0 ? objectKey.substring(index + 1) : objectKey;
+    }
+
+    private String inferType(String mime, String name) {
+        String normalizedMime = mime == null ? "" : mime.toLowerCase(Locale.ROOT);
+        String normalizedName = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (normalizedMime.startsWith("audio/") || normalizedName.matches(".*\\.(mp3|wav|m4a|aac|flac|ogg)$")) {
+            return "audio";
+        }
+        if (normalizedMime.startsWith("video/") || normalizedName.matches(".*\\.(mp4|mov|mkv|avi|webm)$")) {
+            return "video";
+        }
+        return "document";
+    }
+
+    private boolean unsupportedSource(String source) {
+        String normalized = normalize(source);
+        return StringUtils.hasText(normalized) && !DEFAULT_SOURCE.equals(normalized);
+    }
+
+    private boolean unsupportedArtifactKind(String artifactKind) {
+        String normalized = normalize(artifactKind);
+        return StringUtils.hasText(normalized) && !DEFAULT_ARTIFACT_KIND.equals(normalized);
+    }
+
+    private boolean unsupportedType(String type) {
+        String normalized = normalize(type);
+        return StringUtils.hasText(normalized)
+                && !"audio".equals(normalized)
+                && !"video".equals(normalized)
+                && !"document".equals(normalized);
+    }
+
+    private int normalizePageSize(int pageSize) {
+        if (pageSize <= 0) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_PAGE_SIZE);
+    }
+
+    private String normalize(String value) {
+        return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : null;
     }
 
     private void requireUserId(Long userId) {

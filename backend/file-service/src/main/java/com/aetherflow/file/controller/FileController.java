@@ -2,6 +2,7 @@ package com.aetherflow.file.controller;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.FileMetadataDTO;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
 import com.aetherflow.file.model.UploadProgressView;
 import com.aetherflow.file.service.FileDownload;
 import com.aetherflow.file.service.FileInfoService;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,6 +41,33 @@ import java.util.UUID;
 public class FileController {
 
     private final FileInfoService fileInfoService;
+
+    @Operation(summary = "List files",
+            description = "List current user's available file assets with query, type and frontend metadata filters.")
+    @ApiResponse(responseCode = "200", description = "File assets returned.",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = FileAssetPageResponse.class)))
+    @GetMapping
+    public Result<FileAssetPageResponse> listFiles(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Parameter(description = "Search text for original name, object key or MIME.", example = "demo")
+            @RequestParam(required = false) String query,
+            @Parameter(description = "Frontend file type filter.", example = "audio")
+            @RequestParam(required = false) String type,
+            @Parameter(description = "File source filter. Current model supports input.", example = "input")
+            @RequestParam(required = false) String source,
+            @Parameter(description = "Artifact kind filter. Current model supports input.", example = "input")
+            @RequestParam(required = false) String artifactKind,
+            @Parameter(description = "Workflow id filter. Returns an empty page until workflow linkage is persisted.", example = "wf-1")
+            @RequestParam(required = false) String workflowId,
+            @Parameter(description = "Page number, starting from 1.", example = "1")
+            @RequestParam(defaultValue = "1") int page,
+            @Parameter(description = "Page size.", example = "20")
+            @RequestParam(defaultValue = "20") int pageSize) {
+        return Result.success(fileInfoService.listAssets(userId, query, type, source, artifactKind, workflowId,
+                page, pageSize));
+    }
 
     @Operation(
             summary = "Upload file with governance",
