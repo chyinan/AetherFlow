@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-export-artifact-visibility
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -84,3 +84,21 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 1. 真实 Export 文件是否出现仍依赖后端 ExportNode、file-service metadata 注册和 MinIO 成功。
 2. 由于本任务不改后端，运行日志仍不会直接包含下载链接；可见性通过 Files 页面真实刷新补足。
+
+## 完成内容
+
+1. 前端 file mapper 识别 `workflow/exports/**` objectKey，将生成文件归类为 `artifact`。
+2. Export 生成的 Markdown/TXT/JSON 文档归类为 `artifactKind=summary`，并使用已有 generated-by-run 文案。
+3. file store 新增 `refreshArtifactsFromBackend()`，在文件列表短暂不可用时不影响 Runtime 成功态。
+4. run store 在 run 成功时仅触发一次后台文件列表刷新，补足 Export 生成文档在 Files 页的可见性。
+
+## 验证记录
+
+1. `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+3. 冲突标记扫描：通过，无输出。
+
+## 提交记录
+
+- claim：62bf17e
+- business：81a17b1 fix(frontend): surface export artifacts after runs
