@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-RUNTIME-ERROR
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-runtime-error-ui
-状态：REVIEW
+状态：DONE
 
 任务目标：
 
@@ -122,3 +122,22 @@ Agent 编码计划：
 2. 后端 run list 当前无 workflowName，前端使用 definition/runtime id 生成显示名。
 
 文件锁：RELEASED。
+
+## Main 合入记录
+
+时间：2026-05-29 23:20:00 +08:00
+状态：DONE
+分支：main
+
+合入结果：
+
+1. feature 分支已通过 `--no-ff` 合入 main。
+2. main merge commit：1d7dc2b。
+
+main 验证记录：
+
+1. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --check HEAD^1..HEAD`：通过。
+3. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src`：通过。无冲突标记输出。
+
+统一运行电脑验证：未运行。
