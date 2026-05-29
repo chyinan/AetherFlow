@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1001-CODEX-WORKFLOW-EMBEDDING
 分支：feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 1. 在不修改 workflow-runtime-api 和 Runtime Core 的前提下，新增企业级 Embedding Workflow Node。
@@ -131,3 +131,35 @@ Agent 编码计划：
 2. 2026-05-29 10:01，已确认当前任务边界和验证方式，用户回复“按你的意思来吧，我没意见”。
 3. 2026-05-29 10:01，已从 origin/main 创建隔离 worktree 分支 feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node。
 4. 2026-05-29 10:01，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+5. 2026-05-29 10:22，完成 TDD 红灯：目标测试因 Embedding 生产类和 Spring AI Ollama 依赖缺失失败。
+6. 2026-05-29 10:28，完成 Embedding Provider、Ollama Provider、Text Splitter、EmbeddingNodeExecutor、Mock Vector Store、Metrics API、Catalog/Swagger 和配置实现。
+7. 2026-05-29 10:28，目标测试通过：workflow-service 16 tests，BUILD SUCCESS。
+8. 2026-05-29 10:29，相关模块测试通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 84 tests；BUILD SUCCESS。
+9. 2026-05-29 10:30，业务提交 cdb99ec feat(workflow): add embedding node system，任务进入 REVIEW，文件锁释放。
+
+实现结果：
+1. Embedding Node 架构：新增 workflow-service 内部 Embedding 子系统，NodeExecutor 只依赖 Runtime API 暴露的 WorkflowContext 和 NodeResult，不修改 Runtime Core。
+2. EmbeddingProvider：新增 provider 抽象和 registry，通过 provider 名称选择实现，支持后续 OpenAI / HuggingFace 扩展。
+3. OllamaEmbeddingProvider：基于 Spring AI Ollama EmbeddingClient，按请求模型设置 OllamaOptions，默认适配本地 http://localhost:11434。
+4. Text Splitter：实现 SimpleTextSplitter，支持 chunkSize / overlap 校验和重叠切块。
+5. EmbeddingNodeExecutor：读取 config.text 或 WorkflowContext.variables 文本，切分后调用 provider，写入 embeddingResults、embeddingVectors、embeddingVectorCount、embeddingModel、embeddingProvider 和 vector store 信息。
+6. EmbeddingResult：统一返回 vector、dimension、model、chunkIndex。
+7. Mock Vector Store：新增内存 MockVectorStore 和 MockVectorRecord，用于演示知识库加工链路。
+8. Metrics API：新增 GET /workflow/embedding/metrics，返回 embeddingCount、averageDurationMs、vectorCount、currentModel 和 failCount，并补齐 Swagger summary、description、example。
+9. application.yml：新增 Spring AI Ollama 和 aetherflow.workflow.embedding 默认配置，默认模型 nomic-embed-text，默认 chunkSize 512、overlap 128。
+10. 测试方案：覆盖配置解析、切分器、provider registry、Ollama provider 调用、Mock Vector Store、NodeExecutor、Metrics API、Catalog 和 OpenAPI 合约。
+11. 风险分析：真实 Ollama 模型、workflow-service 启动、Nacos/MySQL/Redis 需要统一运行电脑补测；Mock Vector Store 不替代 Milvus/PgVector；向量进入 Runtime variables 仅适合当前演示链路，生产向量库接入后应避免长期存储大向量。
+
+验证结果：
+1. git diff --check：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. git diff --cached --check：通过。
+3. 目标测试：JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=EmbeddingNodeConfigTest,SimpleTextSplitterTest,EmbeddingProviderRegistryTest,OllamaEmbeddingProviderTest,MockVectorStoreTest,EmbeddingNodeExecutorTest,EmbeddingMetricsControllerTest,WorkflowNodeCatalogControllerTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test，通过，workflow-service 16 tests，BUILD SUCCESS。
+4. 相关模块测试：JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/common,backend/workflow-service -am test，通过，common 8 tests；workflow-runtime-api 10 tests；workflow-service 84 tests；BUILD SUCCESS。
+5. 禁止路径扫描：未修改 workflow-runtime-api、Runtime Core、DB、MQ、Redis、Gateway。
+
+交接记录：
+1. 分支：feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node。
+2. 提交：093f1c7 docs(agent): claim WORKFLOW-EMBEDDING-NODE-20260529；cdb99ec feat(workflow): add embedding node system。
+3. 合入 main：未合入。
+4. 统一运行电脑验证：未运行，需要补测真实 Ollama、workflow-service 启动、Nacos/MySQL/Redis 链路。
+5. 文件锁：RELEASED。
