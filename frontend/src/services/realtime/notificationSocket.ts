@@ -1,4 +1,9 @@
-import { buildNotifyWebSocketUrl, safeParseNotifyMessage, type NotifyMessageDTO } from '@/api/modules/notify'
+import {
+  buildNotifyWebSocketUrl,
+  issueNotifyStreamToken,
+  safeParseNotifyMessage,
+  type NotifyMessageDTO,
+} from '@/api/modules/notify'
 import type { RealtimeConnectionState } from '@/services/realtime/sseClient'
 
 export interface NotificationSocketOptions {
@@ -8,7 +13,7 @@ export interface NotificationSocketOptions {
   maxReconnectAttempts?: number
   onOpen?: () => void
   onMessage?: (message: NotifyMessageDTO) => void
-  onError?: (error: Event | Error) => void
+  onError?: (error: unknown) => void
   onClose?: (event?: CloseEvent) => void
   onReconnect?: (attempt: number, delayMs: number) => void
   onConnectionChange?: (state: RealtimeConnectionState) => void
@@ -44,6 +49,7 @@ function parseSocketData(data: unknown) {
 export function createNotificationSocket(options: NotificationSocketOptions): NotificationSocketConnection {
   let socket: WebSocket | null = null
   let closedManually = false
+  let connecting = false
   let reconnectAttempt = 0
   let reconnectTimer: number | null = null
 
@@ -75,13 +81,60 @@ export function createNotificationSocket(options: NotificationSocketOptions): No
     }, delayMs)
   }
 
+  async function openSocket() {
+    connecting = true
+    try {
+      const streamToken = await issueNotifyStreamToken()
+      if (closedManually) {
+        return
+      }
+
+      const nextSocket = new WebSocket(buildNotifyWebSocketUrl(
+        streamToken.token,
+        streamToken.queryParam || 'streamToken',
+      ))
+      socket = nextSocket
+
+      nextSocket.onopen = () => {
+        reconnectAttempt = 0
+        options.onConnectionChange?.('online')
+        options.onOpen?.()
+      }
+
+      nextSocket.onmessage = (event) => {
+        const message = parseSocketData(event.data)
+        if (message) {
+          options.onMessage?.(message)
+        }
+      }
+
+      nextSocket.onerror = (event) => {
+        options.onError?.(event)
+      }
+
+      nextSocket.onclose = (event) => {
+        options.onClose?.(event)
+        if (!closedManually) {
+          scheduleReconnect()
+        }
+      }
+    } catch (error) {
+      options.onError?.(error)
+      if (!closedManually) {
+        scheduleReconnect()
+      }
+    } finally {
+      connecting = false
+    }
+  }
+
   function connect() {
     if (closedManually || typeof WebSocket === 'undefined') {
       return
     }
 
     clearReconnectTimer()
-    if (socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN) {
+    if (connecting || socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN) {
       return
     }
 
@@ -91,36 +144,12 @@ export function createNotificationSocket(options: NotificationSocketOptions): No
       socket.close()
     }
 
-    const nextSocket = new WebSocket(buildNotifyWebSocketUrl(options.userId))
-    socket = nextSocket
-
-    nextSocket.onopen = () => {
-      reconnectAttempt = 0
-      options.onConnectionChange?.('online')
-      options.onOpen?.()
-    }
-
-    nextSocket.onmessage = (event) => {
-      const message = parseSocketData(event.data)
-      if (message) {
-        options.onMessage?.(message)
-      }
-    }
-
-    nextSocket.onerror = (event) => {
-      options.onError?.(event)
-    }
-
-    nextSocket.onclose = (event) => {
-      options.onClose?.(event)
-      if (!closedManually) {
-        scheduleReconnect()
-      }
-    }
+    void openSocket()
   }
 
   function close() {
     closedManually = true
+    connecting = false
     clearReconnectTimer()
 
     if (socket && socket.readyState !== WebSocket.CLOSED) {

@@ -9,12 +9,14 @@ import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { workflowApi } from '@/services/api/workflowApi'
+import { useFileStore } from '@/stores/fileStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
+const fileStore = useFileStore()
 const projectStore = useProjectStore()
 const route = useRoute()
 const router = useRouter()
@@ -52,12 +54,20 @@ async function saveWorkflow() {
 
 async function startRun() {
   await runStore.loadRuns()
-  const result = await workflowApi.startRun(workflowStore.workflowId)
+  const fileId = fileStore.latestBackendInputFileId
+  const result = await workflowApi.startRun(
+    workflowStore.workflowId,
+    fileId ? { fileId } : {},
+  )
   const run = runStore.createRunFromWorkflow({
     runId: result.runId,
     workflowId: workflowStore.workflowId,
     workflowName: workflowStore.workflowName,
     nodes: workflowStore.nodes,
+    backendInstanceId: result.backendInstanceId,
+    runtimeWorkflowId: result.runtimeWorkflowId,
+    definitionId: result.definitionId,
+    backendStatus: result.backendStatus,
   })
   projectStore.updateWorkflowStatus(workflowStore.workflowId, 'running')
   runStore.subscribeCurrentRun()

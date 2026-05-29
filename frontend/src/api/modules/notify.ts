@@ -1,3 +1,4 @@
+import { apiClient } from '@/api/client/apiClient'
 import { runtimeEnv } from '@/config/runtimeEnv'
 
 export interface NotifyMessageDTO {
@@ -6,6 +7,16 @@ export interface NotifyMessageDTO {
   eventType?: string
   payload: Record<string, unknown>
   occurredAt?: string
+}
+
+export interface NotifyStreamTokenResponse {
+  token: string
+  tokenType?: string
+  userId?: number | string
+  expiresAt?: string
+  expiresInSeconds?: number
+  transports?: string[]
+  queryParam?: string
 }
 
 function trimSlashes(value: string) {
@@ -51,10 +62,16 @@ export function buildNotifySseUrl(userId: number | string) {
   return resolveUrl(runtimeEnv.sseBase, `/notify/sse/${encodeURIComponent(String(userId))}`)
 }
 
-export function buildNotifyWebSocketUrl(userId: number | string) {
+export function issueNotifyStreamToken() {
+  return apiClient.post<NotifyStreamTokenResponse>('/notify/stream-token', undefined, {
+    source: 'notify',
+  })
+}
+
+export function buildNotifyWebSocketUrl(streamToken: string, queryParam = 'streamToken') {
   const baseUrl = resolveUrl(runtimeEnv.wsBase, '/notify/ws')
   const separator = baseUrl.includes('?') ? '&' : '?'
-  return toWebSocketUrl(`${baseUrl}${separator}userId=${encodeURIComponent(String(userId))}`)
+  return toWebSocketUrl(`${baseUrl}${separator}${encodeURIComponent(queryParam)}=${encodeURIComponent(streamToken)}`)
 }
 
 export function safeParseNotifyMessage(value: unknown): NotifyMessageDTO | null {

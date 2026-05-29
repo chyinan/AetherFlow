@@ -137,6 +137,7 @@ export function createSseClient(options: SseClientOptions): SseConnection {
   let reconnectTimer: number | null = null
   let heartbeatTimer: number | null = null
   let lastActivityAt = Date.now()
+  let lastEventId: string | undefined
   let retryOverrideMs: number | null = null
 
   const idleTimeoutMs = options.idleTimeoutMs ?? defaultIdleTimeoutMs
@@ -194,6 +195,10 @@ export function createSseClient(options: SseClientOptions): SseConnection {
 
     if (frame.retry) {
       retryOverrideMs = frame.retry
+    }
+
+    if (frame.id) {
+      lastEventId = frame.id
     }
 
     if (!frame.data) {
@@ -271,13 +276,16 @@ export function createSseClient(options: SseClientOptions): SseConnection {
 
     try {
       const token = tokenManager.getAccessToken()
-      const headers: HeadersInit = {
+      const headers: Record<string, string> = {
         Accept: 'text/event-stream',
         'Cache-Control': 'no-cache',
       }
 
       if (token) {
         headers.Authorization = `Bearer ${token}`
+      }
+      if (lastEventId) {
+        headers['Last-Event-ID'] = lastEventId
       }
 
       const response = await fetch(options.url, {
