@@ -2,6 +2,7 @@ package com.aetherflow.file.service;
 
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
 import com.aetherflow.file.model.FileMetricsResponse;
 import com.aetherflow.file.model.FileStatusResponse;
 import com.aetherflow.file.model.UploadProgressView;
@@ -20,6 +21,15 @@ public interface FileInfoService {
     FileMetadataDTO getMetadata(Long fileId);
 
     FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request);
+
+    FileAssetPageResponse listAssets(Long userId,
+                                     String query,
+                                     String type,
+                                     String source,
+                                     String artifactKind,
+                                     String workflowId,
+                                     int page,
+                                     int pageSize);
 
     UploadProgressView getUploadProgress(Long userId, String taskId);
 

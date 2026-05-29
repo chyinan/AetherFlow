@@ -5,6 +5,8 @@ import com.aetherflow.file.exception.FileExceptionHandler;
 import com.aetherflow.file.exception.FileTypeException;
 import com.aetherflow.file.filter.FileResultAdvice;
 import com.aetherflow.file.filter.FileTraceFilter;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetMetadataView;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
 import com.aetherflow.file.model.UploadProgressView;
 import com.aetherflow.file.service.FileInfoService;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +17,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -39,6 +43,53 @@ class FileControllerTest {
                 .setControllerAdvice(new FileExceptionHandler(), new FileResultAdvice())
                 .addFilters(new FileTraceFilter())
                 .build();
+    }
+
+    @Test
+    void listFilesShouldForwardQueryAndUserContext() throws Exception {
+        when(fileInfoService.listAssets(1001L, "demo", "audio", "input", "input", null, 2, 20))
+                .thenReturn(new FileAssetPageResponse(
+                        2,
+                        20,
+                        1,
+                        List.of(new FileAssetMetadataView(
+                                101L,
+                                "101",
+                                "demo.mp3",
+                                "demo.mp3",
+                                "audio",
+                                "input",
+                                "input",
+                                2048L,
+                                "audio/mpeg",
+                                "ready",
+                                null,
+                                "File ready",
+                                "http://minio/aetherflow/demo.mp3",
+                                "objects/demo.mp3",
+                                LocalDateTime.parse("2026-05-29T09:00:00"),
+                                LocalDateTime.parse("2026-05-29T09:30:00")
+                        ))
+                ));
+
+        mockMvc.perform(get("/files")
+                        .header(FileTraceFilter.USER_ID_HEADER, "1001")
+                        .header(FileTraceFilter.TRACE_ID_HEADER, "trace-list")
+                        .param("query", "demo")
+                        .param("type", "audio")
+                        .param("source", "input")
+                        .param("artifactKind", "input")
+                        .param("page", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(101))
+                .andExpect(jsonPath("$.data.items[0].type").value("audio"))
+                .andExpect(jsonPath("$.data.items[0].source").value("input"))
+                .andExpect(jsonPath("$.traceId").value("trace-list"))
+                .andExpect(jsonPath("$.path").value("/files"));
+
+        verify(fileInfoService).listAssets(1001L, "demo", "audio", "input", "input", null, 2, 20);
     }
 
     @Test
