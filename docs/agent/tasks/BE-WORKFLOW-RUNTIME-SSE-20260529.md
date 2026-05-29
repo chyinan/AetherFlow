@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1742-BE-WORKFLOW-RUNTIME-SSE
 分支：feature/BE-WORKFLOW-RUNTIME-SSE-20260529-runtime-sse
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -124,3 +124,39 @@ Session ID：SESSION-20260529-1742-BE-WORKFLOW-RUNTIME-SSE
 1. 2026-05-29 17:42，已从最新 `main` 创建分支 `feature/BE-WORKFLOW-RUNTIME-SSE-20260529-runtime-sse`。
 2. 2026-05-29 17:42，已确认目标文件锁无 ACTIVE 冲突。
 3. 2026-05-29 17:42，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+4. 2026-05-29 17:48，TDD RED 已确认：目标测试因缺少 `RuntimeEventStreamService` 编译失败。
+5. 2026-05-29 17:50，已新增 Runtime SSE controller endpoint、stream service、cursor/heartbeat 逻辑与测试。
+6. 2026-05-29 17:51，业务提交：`418284e feat(workflow): add runtime event sse stream`。
+
+## 完成内容
+
+1. 新增 `GET /workflow/runtime/stream/{workflowId}`，返回 `text/event-stream`。
+2. SSE `runtime-event` 使用 `RuntimeEvent.eventId` 作为 event id，payload 复用 `RuntimeEvent`。
+3. 新增 heartbeat 事件，包含 workflowId、cursor、occurredAt。
+4. 支持 `Last-Event-ID` header 和 `cursor` query 参数恢复；`cursor` 优先。
+5. 使用已有 `RuntimeEventStore` 轮询持久化事件，不改 DB、Redis、MQ、Gateway 或 runtime engine。
+
+## 验证结果
+
+1. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+2. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am -Dtest=WorkflowRuntimeControllerTest,RuntimeEventStreamServiceTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过；9 tests；BUILD SUCCESS。
+3. `JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/workflow-service -am test`：通过；common 8 tests；workflow-runtime-api 10 tests；workflow-service 99 tests；BUILD SUCCESS。
+4. `git diff --cached --check`：通过，无 whitespace error。
+
+## 交接
+
+分支：`feature/BE-WORKFLOW-RUNTIME-SSE-20260529-runtime-sse`
+
+提交：
+1. `eadeaad docs(agent): claim BE-WORKFLOW-RUNTIME-SSE-20260529`
+2. `418284e feat(workflow): add runtime event sse stream`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+1. 需统一运行电脑补测真实 workflow-service + MySQL 下的 SSE 连接、heartbeat、Last-Event-ID reconnect。
+2. 本任务未修改 Gateway；必须与 `BE-GW-WORKFLOW-ROUTE-20260529` 合入后，前端才能经 Gateway 访问 `/workflow/runtime/stream/{workflowId}`。
+
+文件锁：RELEASED。
