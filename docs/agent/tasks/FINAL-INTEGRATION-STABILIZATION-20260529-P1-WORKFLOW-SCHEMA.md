@@ -12,7 +12,7 @@ Session ID：SESSION-20260529-2340-FINAL-INTEGRATION-WORKFLOW-SCHEMA
 
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-workflow-schema
 
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -104,3 +104,41 @@ Session ID：SESSION-20260529-2340-FINAL-INTEGRATION-WORKFLOW-SCHEMA
 1. 真实 Gateway / workflow-service 未在本机启动，保存 API 需统一运行电脑补测。
 2. 后端当前无 VideoGenerate catalog / executor，本任务只阻止静默误存，不实现 VideoGenerate 主链路。
 3. OCR 在 Docker Demo Safe Mode 中允许受控 Mock；Whisper / LLM 默认保持真实服务。
+
+## 完成记录
+
+完成时间：2026-05-29 23:50:50 +08:00
+
+完成内容：
+
+1. `workflowMapper.ts` 从未知节点默认 `MOCK` 改为显式后端支持清单，未支持节点保存前直接失败；`video-generate` 给出明确 unsupported 提示。
+2. 对 `UPLOAD/OCR/WHISPER/SUMMARY/EMBEDDING/END/CONDITION` 做保存 config 归一化，保留 `nextNodes` 并对齐后端 NodeConfig 字段。
+3. 默认 Workflow 模板改为后端支持的演示 DAG：Upload Metadata -> Whisper -> Summary，并并行 OCR -> Embedding -> Output。
+4. OCR / Embedding 默认模板字段对齐后端 catalog；OCR 使用受控 demo mock，Whisper / Summary/LLM 主线不 mock。
+5. Workflow 保存失败进入 Pinia 错误状态，并在 WorkflowPage 显示错误提示，避免按钮无响应。
+
+验证记录：
+
+1. `npm run build`（frontend）：通过。
+   - 证据：`vue-tsc -b && vite build` 成功，仅既有 chunk size warning。
+2. `git diff --check`：通过。
+   - 证据：无 whitespace error，仅 Windows LF/CRLF 提示。
+3. `rg -n "^(<<<<<<<|=======|>>>>>>>)" ...`：通过。
+   - 证据：无冲突标记输出。
+
+提交：
+
+1. `0f5eadb docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-workflow-schema`
+2. `d4b3286 fix(frontend): stabilize workflow builder schema mapping`
+
+合入 main：未合入
+
+统一运行电脑验证：未运行
+
+遗留问题：
+
+1. 需统一运行电脑补测真实 Gateway / workflow-service 的 Workflow save/run。
+2. 后端当前无 VideoGenerate executor/catalog，当前行为是阻止静默误存；如要演示 VideoGenerate，需要独立后端节点任务。
+3. OCR 仍依赖 Docker Demo Safe Mode 的受控 mock 或统一运行电脑安装 Tesseract；Whisper / LLM 默认保持真实服务。
+
+文件锁：RELEASED
