@@ -20,11 +20,12 @@ Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-RUNTIME-ERROR
 3. frontend/src/stores/runStore.ts
 4. frontend/src/pages/runs/RunsPage.vue
 5. frontend/src/components/workflow/RunConsole.vue
-6. frontend/src/i18n/locales/zh-CN.ts
-7. frontend/src/i18n/locales/en-US.ts
-8. docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260529-P1-RUNTIME-ERROR-UI.md
-9. docs/agent/logs/2026-05-29.md
-10. AGENT.md
+6. frontend/src/components/run/LogStream.vue
+7. frontend/src/i18n/locales/zh-CN.ts
+8. frontend/src/i18n/locales/en-US.ts
+9. docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260529-P1-RUNTIME-ERROR-UI.md
+10. docs/agent/logs/2026-05-29.md
+11. AGENT.md
 
 禁止修改文件：
 
@@ -45,7 +46,7 @@ Agent 编码计划：
 1. 在 `workflow.ts` 增加 `/workflow-instances` list/detail/logs DTO 与 API 函数。
 2. 在 `runApi` 做 real-first list/detail/logs，后端不可用时才保留 UI mock fallback。
 3. 在 `runStore` 增加 error、logsLoading、refresh/select 错误保护和 runtime recovery 错误日志。
-4. 在 `RunsPage` 与 `RunConsole` 增加 loading、empty、error、retry UI。
+4. 在 `RunsPage`、`LogStream` 与 `RunConsole` 增加 loading、empty、error、retry UI。
 5. 同步中英文文案，去掉 Runs 页面 mock-only 描述。
 
 不会修改：
@@ -64,11 +65,12 @@ Agent 编码计划：
 3. frontend/src/stores/runStore.ts
 4. frontend/src/pages/runs/RunsPage.vue
 5. frontend/src/components/workflow/RunConsole.vue
-6. frontend/src/i18n/locales/zh-CN.ts
-7. frontend/src/i18n/locales/en-US.ts
-8. docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260529-P1-RUNTIME-ERROR-UI.md
-9. docs/agent/logs/2026-05-29.md
-10. AGENT.md
+6. frontend/src/components/run/LogStream.vue
+7. frontend/src/i18n/locales/zh-CN.ts
+8. frontend/src/i18n/locales/en-US.ts
+9. docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260529-P1-RUNTIME-ERROR-UI.md
+10. docs/agent/logs/2026-05-29.md
+11. AGENT.md
 
 验证方式：
 
