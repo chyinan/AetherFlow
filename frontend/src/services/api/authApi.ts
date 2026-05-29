@@ -16,6 +16,8 @@ import { delay } from '../mock/timing'
 const DEFAULT_WORKSPACE = 'AetherFlow Lab'
 const MOCK_LOGIN_USERNAME = 'aether.operator'
 const MOCK_LOGIN_PASSWORD = 'mock-password'
+const AUTH_FALLBACK_SOURCES = new Set(['auth', 'gateway'])
+const AUTH_FALLBACK_UNAVAILABLE_STATUSES = new Set([0, 404, 500, 502, 503, 504])
 
 export interface LoginPayload {
   username: string
@@ -109,12 +111,17 @@ function shouldUseMockFallback(error: unknown) {
   }
 
   const apiError = toApiError(error, 'auth')
-  const gatewayUnavailableStatuses = new Set([0, 404, 502, 503, 504])
 
-  return apiError.source === 'network' || (
-    apiError.source === 'gateway' &&
-    typeof apiError.status === 'number' &&
-    gatewayUnavailableStatuses.has(apiError.status)
+  if (apiError.source === 'network') {
+    return true
+  }
+
+  const status = typeof apiError.status === 'number' ? apiError.status : Number(apiError.code)
+
+  return (
+    AUTH_FALLBACK_SOURCES.has(apiError.source) &&
+    Number.isFinite(status) &&
+    AUTH_FALLBACK_UNAVAILABLE_STATUSES.has(status)
   )
 }
 
