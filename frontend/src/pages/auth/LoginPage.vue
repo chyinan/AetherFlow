@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { Cpu, Lock, User, Workflow, Zap } from 'lucide-vue-next'
-import { reactive } from 'vue'
+import { ArrowLeft, Bot, Github, Lock, Mail, User } from 'lucide-vue-next'
+import { reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
+import { tokenManager, type AuthSession } from '@/api/client/tokenManager'
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
-import StatusDot from '@/components/ui/StatusDot.vue'
 import { useAuthStore } from '@/stores/authStore'
 
 const authStore = useAuthStore()
@@ -17,104 +17,165 @@ const form = reactive({
   username: 'aether.operator',
   password: 'mock-password',
 })
+const errorMessage = ref('')
+
+function isDefaultMockLogin() {
+  return form.username.trim() === 'aether.operator' && form.password === 'mock-password'
+}
+
+function createTemplateMockSession(): AuthSession {
+  const now = Date.now()
+  const username = form.username.trim() || 'aether.operator'
+
+  return {
+    accessToken: `mock-token-${username}`,
+    refreshToken: `mock-refresh-${username}`,
+    expiresAt: now + 60 * 60 * 1000,
+    refreshExpiresAt: now + 8 * 60 * 60 * 1000,
+    tokenType: 'Bearer',
+    user: {
+      id: 'user-cyan',
+      name: username,
+      username,
+      role: 'operator',
+      workspace: 'AetherFlow Lab',
+      roles: ['operator'],
+      rawRoles: ['USER'],
+    },
+  }
+}
+
+async function enterWithTemplateMock() {
+  const session = createTemplateMockSession()
+
+  tokenManager.setSession(session)
+  authStore.setActiveSession(session)
+  await router.push((route.query.redirect as string) || '/projects')
+}
 
 async function submit() {
-  await authStore.login(form.username, form.password)
-  await router.push((route.query.redirect as string) || '/projects')
+  errorMessage.value = ''
+  try {
+    await authStore.login(form.username, form.password)
+    await router.push((route.query.redirect as string) || '/projects')
+  } catch {
+    if (isDefaultMockLogin()) {
+      await enterWithTemplateMock()
+      return
+    }
+    errorMessage.value = t('auth.loginUnavailable')
+  }
+}
+
+async function submitProvider() {
+  errorMessage.value = ''
+  await enterWithTemplateMock()
 }
 </script>
 
 <template>
-  <main class="relative min-h-screen overflow-hidden bg-app-bg2 text-text-primary">
-    <div class="absolute inset-0 aether-grid opacity-80" />
-    <div class="absolute left-1/2 top-10 h-[540px] w-[720px] -translate-x-1/2 rounded-full bg-blue-100/50 blur-3xl" />
+  <main class="relative flex min-h-screen flex-col overflow-hidden bg-white text-text-primary">
+    <div class="absolute inset-0 aether-grid opacity-50" />
 
-    <section class="relative z-10 grid min-h-screen grid-cols-1 gap-8 px-6 py-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:px-12">
-      <div class="flex min-h-[560px] flex-col justify-between">
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <span class="grid h-10 w-10 place-items-center rounded-lg bg-primary text-white shadow-node">
-              <Workflow class="h-5 w-5" />
-            </span>
-            <div>
-              <p class="font-display text-lg font-semibold">{{ t('app.name') }}</p>
-              <p class="text-xs text-text-muted">{{ t('app.console') }}</p>
-            </div>
-          </div>
-          <LocaleSwitcher />
-        </div>
+    <header class="relative z-10 flex h-16 items-center justify-between px-5 sm:px-8">
+      <RouterLink to="/" class="inline-flex items-center gap-2 text-sm font-semibold text-text-secondary transition hover:text-primary">
+        <ArrowLeft class="h-4 w-4" />
+        {{ t('auth.backHome') }}
+      </RouterLink>
+      <LocaleSwitcher />
+    </header>
 
-        <div class="max-w-3xl">
-          <p class="mb-3 inline-flex rounded-md border border-primary/20 bg-white/70 px-3 py-1 text-xs font-medium text-primary shadow-sm">
-            {{ t('auth.heroBadge') }}
-          </p>
-          <h1 class="font-display text-5xl font-semibold leading-tight tracking-normal text-text-primary lg:text-6xl">
-            {{ t('auth.title') }}
+    <section class="relative z-10 flex flex-1 items-center justify-center px-5 py-8">
+      <div class="w-full max-w-[520px]">
+        <div class="mb-8 flex flex-col items-center text-center">
+          <span class="grid h-16 w-16 place-items-center rounded-full bg-black text-white shadow-panel">
+            <Bot class="h-8 w-8" />
+          </span>
+          <h1 class="mt-6 font-display text-3xl font-semibold tracking-normal text-text-primary">
+            {{ t('auth.signInTitle') }}
           </h1>
-          <p class="mt-5 max-w-2xl text-base leading-7 text-text-secondary">
-            {{ t('auth.subtitle') }}
-          </p>
+          <p class="mt-2 text-sm text-text-secondary">{{ t('auth.signInHint') }}</p>
         </div>
 
-        <div class="relative h-64 max-w-4xl rounded-xl border border-white/70 bg-white/60 p-5 shadow-panel backdrop-blur">
-          <div class="absolute inset-0 rounded-xl aether-grid opacity-60" />
-          <div class="relative grid h-full grid-cols-4 items-center gap-4">
-            <div class="rounded-lg border border-app-border bg-white p-3 shadow-sm">
-              <Workflow class="mb-3 h-5 w-5 text-primary" />
-              <p class="text-sm font-semibold">FFmpeg</p>
-              <p class="text-xs text-text-muted">{{ t('auth.preview.extractAudio') }}</p>
-            </div>
-            <div class="rounded-lg border border-primary/30 bg-white p-3 shadow-node">
-              <Zap class="mb-3 h-5 w-5 text-primary" />
-              <p class="text-sm font-semibold">Whisper</p>
-              <p class="text-xs text-text-muted">{{ t('auth.preview.running') }}</p>
-            </div>
-            <div class="rounded-lg border border-app-border bg-white p-3 shadow-sm">
-              <Cpu class="mb-3 h-5 w-5 text-ai" />
-              <p class="text-sm font-semibold">Translate</p>
-              <p class="text-xs text-text-muted">{{ t('auth.preview.queued') }}</p>
-            </div>
-            <div class="rounded-lg border border-app-border bg-white p-3 shadow-sm">
-              <Workflow class="mb-3 h-5 w-5 text-status-success" />
-              <p class="text-sm font-semibold">Summary</p>
-              <p class="text-xs text-text-muted">{{ t('auth.preview.artifact') }}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <aside class="self-center rounded-xl border border-white/70 bg-white/85 p-6 shadow-panel backdrop-blur">
-        <div class="mb-6">
-          <p class="font-display text-2xl font-semibold">{{ t('auth.signIn') }}</p>
-          <p class="mt-1 text-sm text-text-secondary">{{ t('auth.signInHint') }}</p>
-        </div>
-
-        <form class="space-y-4" @submit.prevent="submit">
+        <form class="space-y-5" @submit.prevent="submit">
           <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('auth.username') }}</span>
-            <span class="flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 focus-within:border-primary">
-              <User class="h-4 w-4 text-text-muted" />
-              <input v-model="form.username" class="min-w-0 flex-1 outline-none" />
+            <span class="mb-2 block text-base font-semibold text-text-primary">{{ t('auth.username') }}</span>
+            <span class="flex h-14 items-center gap-3 rounded-md border border-app-strong bg-white px-4 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+              <Mail class="h-5 w-5 text-text-muted" />
+              <input v-model="form.username" class="min-w-0 flex-1 bg-transparent text-base outline-none" autocomplete="username" />
             </span>
           </label>
+
           <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('auth.password') }}</span>
-            <span class="flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 focus-within:border-primary">
-              <Lock class="h-4 w-4 text-text-muted" />
-              <input v-model="form.password" type="password" class="min-w-0 flex-1 outline-none" />
+            <span class="mb-2 flex items-center justify-between gap-4">
+              <span class="text-base font-semibold text-text-primary">{{ t('auth.password') }}</span>
+              <a href="#" class="text-sm font-medium text-primary hover:text-primary-dark">{{ t('auth.forgotPassword') }}</a>
+            </span>
+            <span class="flex h-14 items-center gap-3 rounded-md border border-app-strong bg-white px-4 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
+              <Lock class="h-5 w-5 text-text-muted" />
+              <input v-model="form.password" type="password" class="min-w-0 flex-1 bg-transparent text-base outline-none" autocomplete="current-password" />
             </span>
           </label>
-          <button class="h-10 w-full rounded-md bg-primary font-medium text-white shadow-node transition hover:bg-primary-dark disabled:opacity-60" :disabled="authStore.loading">
-            {{ t('auth.enterConsole') }}
+
+          <button class="h-14 w-full rounded-md bg-status-success text-base font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="authStore.loading">
+            {{ t('auth.signIn') }}
           </button>
         </form>
 
-        <div class="mt-6 grid gap-2 rounded-lg border border-app-border bg-app-bg2 p-3">
-          <StatusDot tone="online" :label="t('auth.status.gateway')" />
-          <StatusDot tone="online" :label="t('auth.status.realtime')" />
-          <StatusDot tone="degraded" :label="t('auth.status.runtime')" />
+        <p v-if="errorMessage" class="mt-4 rounded-md border border-status-error/20 bg-red-50 px-4 py-3 text-sm font-medium text-status-error">
+          {{ errorMessage }}
+        </p>
+
+        <div class="my-8 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm text-text-secondary">
+          <span class="h-px bg-app-border" />
+          <span>{{ t('auth.divider') }}</span>
+          <span class="h-px bg-app-border" />
         </div>
-      </aside>
+
+        <div class="grid gap-3">
+          <button
+            class="flex h-14 items-center justify-center gap-3 rounded-md border border-app-strong bg-app-bg2 text-base font-semibold text-text-primary transition hover:border-primary/40 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="authStore.loading"
+            @click="submitProvider"
+          >
+            <Github class="h-5 w-5" />
+            {{ t('auth.continueWithGithub') }}
+          </button>
+          <button
+            class="flex h-14 items-center justify-center gap-3 rounded-md border border-app-strong bg-app-bg2 text-base font-semibold text-text-primary transition hover:border-primary/40 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="authStore.loading"
+            @click="submitProvider"
+          >
+            <span class="grid h-5 w-5 place-items-center rounded-full bg-white text-base font-bold text-primary">G</span>
+            {{ t('auth.continueWithGoogle') }}
+          </button>
+        </div>
+
+        <div class="mt-8 space-y-4 text-center text-base text-text-secondary">
+          <p>
+            {{ t('auth.newToAetherFlow') }}
+            <a href="#" class="font-medium text-primary hover:text-primary-dark">{{ t('auth.createAccount') }}</a>
+          </p>
+          <a href="#" class="inline-flex items-center justify-center gap-2 font-medium text-primary hover:text-primary-dark">
+            <User class="h-4 w-4" />
+            {{ t('auth.signInWithPasskey') }}
+          </a>
+          <p class="mx-auto max-w-sm text-sm leading-6 text-text-muted">
+            {{ t('auth.mockHint') }}
+          </p>
+        </div>
+      </div>
     </section>
+
+    <footer class="relative z-10 border-t border-app-border bg-app-bg2 px-5 py-5 text-center text-sm text-text-secondary">
+      <div class="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-8 gap-y-3">
+        <a href="#" class="hover:text-primary">{{ t('auth.footer.terms') }}</a>
+        <a href="#" class="hover:text-primary">{{ t('auth.footer.privacy') }}</a>
+        <a href="#" class="hover:text-primary">{{ t('auth.footer.docs') }}</a>
+        <a href="#" class="hover:text-primary">{{ t('auth.footer.support') }}</a>
+      </div>
+    </footer>
   </main>
 </template>
