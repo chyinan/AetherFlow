@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1001-CODEX-WORKFLOW-EMBEDDING
 分支：feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node
-状态：REVIEW
+状态：DONE
 
 任务目标：
 1. 在不修改 workflow-runtime-api 和 Runtime Core 的前提下，新增企业级 Embedding Workflow Node。
@@ -136,6 +136,10 @@ Agent 编码计划：
 7. 2026-05-29 10:28，目标测试通过：workflow-service 16 tests，BUILD SUCCESS。
 8. 2026-05-29 10:29，相关模块测试通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 84 tests；BUILD SUCCESS。
 9. 2026-05-29 10:30，业务提交 cdb99ec feat(workflow): add embedding node system，任务进入 REVIEW，文件锁释放。
+10. 2026-05-29 10:47，按负责人指令合入 main，主线合入提交 c2e2c3b merge: workflow embedding node system。
+11. 2026-05-29 10:48，main 上 git diff --check HEAD^1..HEAD 通过。
+12. 2026-05-29 10:48，main 上相关模块测试通过：common 8 tests；workflow-runtime-api 10 tests；workflow-service 84 tests；BUILD SUCCESS。
+13. 2026-05-29 10:48，任务状态更新为 DONE。
 
 实现结果：
 1. Embedding Node 架构：新增 workflow-service 内部 Embedding 子系统，NodeExecutor 只依赖 Runtime API 暴露的 WorkflowContext 和 NodeResult，不修改 Runtime Core。
@@ -159,7 +163,7 @@ Agent 编码计划：
 
 交接记录：
 1. 分支：feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node。
-2. 提交：093f1c7 docs(agent): claim WORKFLOW-EMBEDDING-NODE-20260529；cdb99ec feat(workflow): add embedding node system。
-3. 合入 main：未合入。
+2. 提交：093f1c7 docs(agent): claim WORKFLOW-EMBEDDING-NODE-20260529；cdb99ec feat(workflow): add embedding node system；c86e903 docs(agent): handoff WORKFLOW-EMBEDDING-NODE-20260529；c2e2c3b merge: workflow embedding node system。
+3. 合入 main：已合入。
 4. 统一运行电脑验证：未运行，需要补测真实 Ollama、workflow-service 启动、Nacos/MySQL/Redis 链路。
 5. 文件锁：RELEASED。
