@@ -2,6 +2,10 @@ import { isApiError, toApiError } from '@/api/client/apiError'
 import { mapAiProviderData, type AiModelSnapshot } from '@/api/mappers/aiMapper'
 import {
   getAiStatus,
+  getProviderCatalog,
+  getProviderLogs,
+  getProviderMetrics,
+  getProviderPolicy,
   getProviderStatus,
   recoverProvider as recoverProviderCircuit,
   updateProviderPolicy as updateProviderRoutingPolicy,
@@ -71,13 +75,21 @@ async function loadRealSnapshot(force = false) {
   }
 
   snapshotPromise = (async () => {
-    const [serviceStatus, providerStatus] = await Promise.all([
+    const [serviceStatus, providerStatus, metricsResponse, catalogResponse, runtimeLogsResponse, policy] = await Promise.all([
       getAiStatus(),
       getProviderStatus(),
+      getProviderMetrics(),
+      getProviderCatalog(),
+      getProviderLogs(50),
+      getProviderPolicy(),
     ])
     const snapshot = mapAiProviderData({
       serviceStatus,
       providerStatus,
+      metricsResponse,
+      catalogResponse,
+      runtimeLogsResponse,
+      policy,
     })
 
     cachedSnapshot = snapshot
@@ -138,13 +150,25 @@ export const modelApi = {
   async recoverProvider(provider: AiProviderType) {
     cachedSnapshot = null
     snapshotPromise = null
-    const providerStatus = await recoverProviderCircuit(provider)
-    const serviceStatus = await getAiStatus()
-    cachedSnapshot = mapAiProviderData({
-      serviceStatus,
-      providerStatus,
+    await recoverProviderCircuit(provider)
+    return loadSnapshot(true)
+  },
+  async switchPrimaryProvider(provider: AiProviderType) {
+    cachedSnapshot = null
+    snapshotPromise = null
+    const policy = await getProviderPolicy()
+    const normalizedProvider = String(provider).trim().toUpperCase()
+    const providers = [
+      normalizedProvider,
+      ...(policy.providers ?? ['OPENAI', 'OLLAMA']).map((entry) => String(entry).trim().toUpperCase()),
+    ].filter((entry, index, entries) => entry && entries.indexOf(entry) === index) as AiProviderType[]
+
+    await updateProviderRoutingPolicy({
+      ...policy,
+      providers,
     })
-    return cachedSnapshot
+
+    return loadSnapshot(true)
   },
 }
 
