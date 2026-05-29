@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-AUTH
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-auth-lifecycle
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 
@@ -73,3 +73,36 @@ Agent 编码计划：
 
 1. 本机未启动真实 auth-service，无法完成真实 JWT refresh 端到端。
 2. 默认 demo account fallback 仍依赖 `VITE_MOCK_FALLBACK=true`，生产环境需关闭。
+
+## 完成记录
+
+时间：2026-05-29 23:30:00 +08:00
+状态：REVIEW
+
+完成内容：
+
+1. `tokenManager` 增加内存 session fallback，localStorage 不可用时仍能让当前页面请求带上 token。
+2. `main.ts` 注册 `aetherflow:unauthorized` 全局事件监听，refresh 失败后清理本地 session 并带 redirect 回 `/login`。
+3. 登录页中英文文案改为真实后端优先、demo account 安全回退，不再写 mock-only。
+4. 未修改后端 Auth API、DTO、Router 定义结构、Docker、Whisper/LLM 主线链路。
+
+验证记录：
+
+1. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --name-only main...HEAD`：通过，修改范围在本任务文件锁内。
+3. `git diff --check main...HEAD`：通过。
+4. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src`：通过。无冲突标记输出。
+
+提交：
+
+1. a6fdf01 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-auth-lifecycle
+2. 6002708 fix(frontend): stabilize auth lifecycle redirects
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测真实 login、refresh、401 refresh failure redirect。
+2. 默认 demo account fallback 仍依赖 `VITE_MOCK_FALLBACK=true`，生产环境需关闭。
+
+文件锁：RELEASED。
