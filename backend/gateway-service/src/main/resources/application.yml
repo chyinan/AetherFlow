@@ -94,7 +94,7 @@ spring:
         - id: workflow-service
           uri: lb://workflow-service
           predicates:
-            - Path=/workflows/**,/workflow-instances/**,/workflow/**,/projects,/projects/**,/workspaces,/workspaces/**
+            - Path=/workflows/**,/workflow-instances/**,/workflow/**,/projects,/projects/**,/workspaces,/workspaces/**,/knowledge/**
         - id: task-service
           uri: lb://task-service
           predicates:
@@ -153,6 +153,7 @@ aetherflow:
             - /workflow
             - /projects
             - /workspaces
+            - /knowledge
           match-strategy: prefix
         - name: task-api
           patterns:

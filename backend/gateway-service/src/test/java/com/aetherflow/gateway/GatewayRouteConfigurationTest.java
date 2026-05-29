@@ -119,7 +119,8 @@ class GatewayRouteConfigurationTest {
 
         assertThat(workflowApi).isNotNull();
         assertThat(workflowApi.getPatterns())
-                .contains("/workflows", "/workflow-instances", "/workflow");
+                .contains("/workflows", "/workflow-instances", "/workflow",
+                        "/projects", "/workspaces", "/knowledge");
     }
 
     @Test
@@ -150,7 +151,7 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
-    void projectAndWorkspacePathsRouteToWorkflowService() {
+    void projectWorkspaceAndKnowledgePathsRouteToWorkflowService() {
         RouteDefinition workflowServiceRoute = routeDefinitionLocator.getRouteDefinitions()
                 .filter(routeDefinition -> "workflow-service".equals(routeDefinition.getId()))
                 .blockFirst(Duration.ofSeconds(2));
@@ -158,14 +159,18 @@ class GatewayRouteConfigurationTest {
         assertThat(workflowServiceRoute).isNotNull();
         assertThat(workflowServiceRoute.getPredicates())
                 .anySatisfy(predicate -> assertThat(predicate.toString())
-                        .contains("Path", "/projects", "/projects/**", "/workspaces", "/workspaces/**"));
+                        .contains("Path", "/projects", "/projects/**", "/workspaces", "/workspaces/**",
+                                "/knowledge/**"));
 
         List.of(
                 "/projects",
                 "/projects/7",
                 "/projects/7/stats",
                 "/workspaces",
-                "/workspaces/5"
+                "/workspaces/5",
+                "/knowledge/datasets",
+                "/knowledge/datasets/11/documents",
+                "/knowledge/documents/21/chunks"
         ).forEach(path -> {
             Route route = firstMatchingRoute(path);
 
