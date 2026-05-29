@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-FILE
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-file-list-upload
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 
@@ -82,3 +82,36 @@ Agent 编码计划：
 2. 当前后端 workflow linkage 未持久化，列表按 workflowId 过滤会返回空页；本任务不使用 workflowId 过滤。
 3. 大文件分片上传仍是后续 P1/P2 任务。
 
+## 完成记录
+
+时间：2026-05-29 21:48:00 +08:00
+状态：REVIEW
+
+完成内容：
+
+1. 新增前端 `GET /files` module 类型和调用，默认拉取 page=1、pageSize=100。
+2. 新增 `FileAssetMetadataView` 到前端 `FileAsset` 的 mapper，保留 `backendFileId`、`downloadUrl`、`objectKey`、`source`、`artifactKind`、`status`。
+3. `fileApi.listFiles()` 改为 real-first；后端不可用且 mock fallback 开启时才回退 mockFiles。
+4. WorkflowPage mounted 与 startRun 前会加载文件列表，刷新页面后可恢复真实 `backendFileId`。
+5. 未修改 backend、docker、配置、DTO、数据库、Gateway、Runtime Core。
+
+验证记录：
+
+1. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --check`：通过。无 whitespace error，仅 Windows LF/CRLF 提示。
+3. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src`：通过。无冲突标记输出。
+4. 修改范围检查：限定在本任务文件锁范围。
+
+提交：
+
+1. 132b422 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-file-list
+2. 13b97b1 fix(frontend): load backend file assets for workflow runs
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 真实 Gateway/file-service/MySQL/auth header 链路需统一运行电脑补测。
+2. 大文件分片上传、Nginx 100MB 限制与 Docker Demo Safe Mode 拆后续任务。
+
+文件锁：RELEASED。
