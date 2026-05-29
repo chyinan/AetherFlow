@@ -1,5 +1,5 @@
 import { i18n } from '@/i18n'
-import type { FileMetadataDTO, UploadProgressView } from '@/api/modules/file'
+import type { FileAssetMetadataView, FileMetadataDTO, UploadProgressView } from '@/api/modules/file'
 import type { FileAsset, FileStatus } from '@/types/file'
 
 function formatSize(size: FileMetadataDTO['size']) {
@@ -72,5 +72,65 @@ export function mapFileMetadataToAsset(
     downloadUrl: metadata.url,
     objectKey: metadata.objectKey,
     updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+  }
+}
+
+function normalizeSource(source?: string): FileAsset['source'] {
+  return String(source ?? '').trim().toLowerCase() === 'artifact' ? 'artifact' : 'input'
+}
+
+function normalizeArtifactKind(kind?: string): FileAsset['artifactKind'] {
+  const normalized = String(kind ?? '').trim().toLowerCase()
+  if (['input', 'audio', 'transcript', 'subtitle', 'summary', 'document', 'archive'].includes(normalized)) {
+    return normalized as FileAsset['artifactKind']
+  }
+
+  return 'input'
+}
+
+function normalizeFileType(type?: string, mime?: string, name?: string): FileAsset['type'] {
+  const normalized = String(type ?? '').trim().toLowerCase()
+  if (['audio', 'video', 'document', 'artifact'].includes(normalized)) {
+    return normalized as FileAsset['type']
+  }
+
+  return inferFileType(mime ?? 'application/octet-stream', name ?? '')
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return new Date().toLocaleString('zh-CN', { hour12: false })
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset {
+  const id = String(view.id ?? view.backendFileId ?? `file-${Date.now()}`)
+  const backendFileId = view.backendFileId ?? view.id
+  const name = view.name?.trim() || view.originalName?.trim() || view.objectKey?.split('/').pop() || `file-${id}`
+  const mime = view.mime?.trim() || 'application/octet-stream'
+  const source = normalizeSource(view.source)
+
+  return {
+    id,
+    backendFileId: backendFileId === undefined || backendFileId === null ? undefined : String(backendFileId),
+    name,
+    type: normalizeFileType(view.type, mime, name),
+    source,
+    artifactKind: source === 'input' ? 'input' : normalizeArtifactKind(view.artifactKind),
+    size: formatSize(view.size),
+    mime,
+    status: mapUploadStatus(view.status ?? 'READY') as FileStatus,
+    workflowId: view.workflowId,
+    result: view.result || i18n.global.t('files.mockResults.readyInput'),
+    downloadUrl: view.downloadUrl,
+    objectKey: view.objectKey,
+    updatedAt: formatDateTime(view.updatedAt ?? view.createdAt),
   }
 }
