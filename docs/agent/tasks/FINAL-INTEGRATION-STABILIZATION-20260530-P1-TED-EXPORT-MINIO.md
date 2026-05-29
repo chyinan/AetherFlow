@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-ted-export-minio
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -105,6 +105,40 @@ Session ID：SESSION-20260524-2202-cdx7a9
 1. 真实 Whisper/LLM 端到端仍依赖统一运行电脑的 Ollama、模型、CPU/GPU 性能与服务启动状态。
 2. Export 文档真实生成依赖 workflow-service、file-service、MinIO 和内部文件 token 一致。
 3. 本机验证只能覆盖构建、配置和语法，真实 TED 视频长任务必须在统一运行环境补测。
+
+## 完成内容
+
+1. 新增前端 `export` 工作流节点类型，保存时映射为后端 `EXPORT`。
+2. 将 Export config 归一化为后端 catalog 支持的 `format/sourceVariable/fileName/objectKey`，`format` 限定为 `MARKDOWN/TXT/JSON`。
+3. 默认演示 DAG 收敛为 `FFmpeg Prep(UPLOAD) -> Whisper -> Summary -> Export Document -> Output`。
+4. 保留 Whisper/LLM 真实运行，未引入主链路 Mock。
+5. Python AI Runtime 下载 `fileUrl` 前支持 `FILE_URL_REWRITE_FROM` -> `FILE_URL_REWRITE_TO`，Docker 默认将 `http://localhost:9000` 改写为 `http://minio:9000`。
+
+## 验证记录
+
+1. `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `python -m py_compile python-ai-service/app/main.py`：通过。
+3. `docker compose config --quiet`：通过。
+4. `docker compose config | Select-String -Pattern "FILE_URL_REWRITE|ENABLE_WHISPER|ENABLE_LLM"`：通过，展开确认 `ENABLE_WHISPER=true`、`ENABLE_LLM=true`、`FILE_URL_REWRITE_FROM=http://localhost:9000`、`FILE_URL_REWRITE_TO=http://minio:9000`。
+5. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+6. 冲突标记扫描：通过，无输出。
+
+## 提交记录
+
+- claim：637d444
+- business：029b1d7 fix(demo): stabilize ted export workflow
+
+## 交接说明
+
+本分支已完成本机静态、构建、配置验证。真实 TED 视频端到端需要统一运行电脑补测：
+
+1. 上传 TED 视频大文件。
+2. Workflow run 传入真实 `fileId`。
+3. Upload 节点从 file-service 取 `fileUrl`。
+4. Python Runtime 容器将 `localhost:9000` 改写为 `minio:9000` 后下载视频。
+5. Whisper 使用 FFmpeg 分离音频并转写。
+6. Summary 使用真实 LLM 生成摘要。
+7. Export 生成 Markdown 文档并注册 file-service metadata。
 
 ## 环境检测
 
