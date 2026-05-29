@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p0-demo-login-fallback
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -116,11 +116,16 @@ Vite proxy 在 Gateway 未启动时会在终端打印 `/auth/login ECONNREFUSED`
 3. `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
 4. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 5. 冲突标记扫描：通过，无输出。
+6. main 合入后 `cd frontend; npm run build`：通过，vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+7. main 合入后 `git diff --check HEAD^1..HEAD`：通过。
+8. main 合入后冲突标记扫描：通过，无输出。
 
 ## 提交记录
 
 - claim：1efaa82 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260530-P0-DEMO-LOGIN-FALLBACK
 - business：dff9910 fix(frontend): allow demo login when auth gateway unavailable
+- handoff：c440b86 docs(agent): handoff FINAL-INTEGRATION-STABILIZATION-20260530-P0-DEMO-LOGIN-FALLBACK
+- main merge：90992ca merge: FINAL-INTEGRATION-STABILIZATION-20260530-P0-DEMO-LOGIN-FALLBACK
 
 ## 交接说明
 
