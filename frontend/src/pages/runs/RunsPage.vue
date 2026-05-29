@@ -67,7 +67,7 @@ function selectRun(runId: string) {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-y-auto bg-app-bg p-4">
+    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="grid min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">

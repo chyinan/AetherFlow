@@ -71,7 +71,7 @@ onMounted(() => {
       </button>
     </header>
 
-    <main class="min-h-0 overflow-y-auto bg-app-bg py-5 xl:overflow-hidden">
+    <main class="min-h-0 overflow-x-hidden overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="grid h-full w-full grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article

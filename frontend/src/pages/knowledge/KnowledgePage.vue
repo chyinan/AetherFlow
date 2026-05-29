@@ -369,7 +369,7 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-hidden bg-white">
+    <main class="min-h-0 overflow-hidden bg-white px-4 sm:px-5 lg:px-6">
       <section v-if="viewMode === 'datasets'" class="grid h-full min-h-0 lg:grid-cols-[312px_minmax(0,1fr)]">
         <aside class="min-h-0 overflow-y-auto border-r border-app-border bg-app-bg2 p-4">
           <div class="space-y-3">

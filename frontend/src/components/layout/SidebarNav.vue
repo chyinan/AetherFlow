@@ -82,7 +82,7 @@ function isNavActive(key: string, to: string) {
 
     <nav
       ref="dockRoot"
-      class="flex flex-1 flex-col items-center gap-2.5 overflow-visible py-1"
+      class="flex flex-1 flex-col items-center justify-center gap-2.5 overflow-visible pb-16 pt-1"
       @pointermove="handleDockPointerMove"
       @pointerleave="clearDockPointer"
     >

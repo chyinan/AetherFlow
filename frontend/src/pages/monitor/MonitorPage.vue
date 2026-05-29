@@ -49,7 +49,7 @@ onMounted(async () => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-y-auto bg-app-bg py-5 xl:overflow-hidden">
+    <main class="min-h-0 overflow-x-hidden overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
@@ -92,7 +92,7 @@ onMounted(async () => {
                 v-for="log in difyStore.conversations"
                 :key="log.id"
                 type="button"
-                class="grid min-w-[720px] grid-cols-[96px_minmax(0,1.2fr)_110px_90px_100px_110px] items-center border-t border-app-border px-3 py-3 text-left text-sm transition hover:bg-primary-soft/30"
+                class="grid w-full min-w-[720px] grid-cols-[96px_minmax(0,1.2fr)_110px_90px_100px_110px] items-center border-t border-app-border px-3 py-3 text-left text-sm transition hover:bg-primary-soft/30"
                 :class="selectedConversation?.id === log.id ? 'bg-primary-soft/40' : 'bg-white'"
                 @click="selectConversation(log.id)"
               >
