@@ -12,7 +12,7 @@ Session ID：SESSION-20260529-2340-FINAL-INTEGRATION-WORKFLOW-SCHEMA
 
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-workflow-schema
 
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -131,7 +131,14 @@ Session ID：SESSION-20260529-2340-FINAL-INTEGRATION-WORKFLOW-SCHEMA
 1. `0f5eadb docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-workflow-schema`
 2. `d4b3286 fix(frontend): stabilize workflow builder schema mapping`
 
-合入 main：未合入
+合入 main：已合入
+
+主线合入：
+
+1. `a750409 merge: final integration p1 workflow schema`
+2. main 上 `npm run build`（frontend）：通过。
+3. main 上 `git diff --check HEAD^1..HEAD`：通过。
+4. main 上冲突标记扫描：通过。
 
 统一运行电脑验证：未运行
 
