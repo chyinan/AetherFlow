@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1936-BE-COPILOT-CHAT
 分支：feature/BE-COPILOT-CHAT-20260529-copilot-chat
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -141,3 +141,49 @@ Gateway 需要将 `/copilot/**` 路由到 ai-service，并纳入 ai-api Sentinel
 1. 2026-05-29 19:36，从 main 创建 feature/BE-COPILOT-CHAT-20260529-copilot-chat。
 2. 2026-05-29 19:36，已检查 AGENT.md 文件锁表，目标 copilot、Gateway route、docker init 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 19:36，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 19:47 +08:00
+
+完成内容：
+
+1. ai-service 新增 Copilot 会话 API：`POST /copilot/chat`、`GET /copilot/conversations`、`GET /copilot/conversations/{id}/messages`。
+2. 新增 Copilot DTO、conversation/message entity、mapper、service 和 controller。
+3. 新增 `af_copilot_conversation`、`af_copilot_message` 表 SQL，并同步 docker MySQL init SQL。
+4. Gateway 将 `/copilot/**` 路由到 ai-service，并纳入 ai-api Sentinel pattern。
+5. 回复生成采用 deterministic backend heuristic，未引入外部 LLM、Redis、MQ 或流式契约。
+
+验证记录：
+
+1. git diff --check
+   - 结果：通过
+   - 证据：无 whitespace error，仅 Windows LF/CRLF 提示
+2. JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/ai-service -am -Dtest=CopilotControllerTest,CopilotServiceImplTest,CopilotSchemaTest -Dsurefire.failIfNoSpecifiedTests=false test
+   - 结果：通过
+   - 证据：Copilot 目标测试 7 tests；BUILD SUCCESS
+3. JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test
+   - 结果：通过
+   - 证据：GatewayRouteConfigurationTest 5 tests；BUILD SUCCESS
+4. JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/ai-service,backend/gateway-service -am test
+   - 结果：通过
+   - 证据：common 8 tests；gateway-service 17 tests；ai-service 27 tests；BUILD SUCCESS
+
+提交：
+
+1. b531eb6 docs(agent): claim BE-COPILOT-CHAT-20260529
+2. 55d7a6f feat(ai): add copilot chat APIs
+
+状态：REVIEW
+
+合入 main：未合入
+
+统一运行电脑验证：未运行
+
+遗留问题：
+
+1. 需统一运行电脑应用 Copilot SQL 后补测 ai-service 启动和 Gateway `/copilot/**` 路由。
+2. 前端 Copilot 面板需后续前端任务切换到真实 `/copilot/**` API。
+3. 本任务未实现流式 Copilot、外部 LLM Provider 接入或权限细化。
+
+文件锁：RELEASED
