@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-DOCKER
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-docker-demo-safe-mode
-状态：REVIEW
+状态：DONE
 
 任务目标：
 
@@ -115,3 +115,25 @@ Agent 编码计划：
 2. 真实 OCR 容器化/Tesseract 安装仍未做，当前 OCR demo 默认 mock。
 
 文件锁：RELEASED。
+
+## Main 合入记录
+
+时间：2026-05-29 22:32:00 +08:00
+状态：DONE
+分支：main
+
+合入结果：
+
+1. feature 分支已通过 `--no-ff` 合入 main。
+2. main merge commit：83ca01a。
+3. 已确认 compose 展开后 `ENABLE_WHISPER=true`、`ENABLE_LLM=true`，主线 Whisper/LLM 不走 mock。
+
+main 验证记录：
+
+1. `docker compose config --quiet`：通过。
+2. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+3. `git diff --check HEAD^1..HEAD`：通过。
+4. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md docker-compose.yml frontend/nginx/Dockerfile frontend/.env.example`：通过。无冲突标记输出。
+5. `docker compose config | rg -n "ENABLE_WHISPER|ENABLE_LLM|MINIO_PUBLIC_ENDPOINT|OLLAMA_BASE_URL|WORKFLOW_OCR_MOCK|VITE_NOTIFY_WS_FALLBACK|VITE_SSE_BASE"`：通过。确认关键 demo env 按预期展开。
+
+统一运行电脑验证：未运行。
