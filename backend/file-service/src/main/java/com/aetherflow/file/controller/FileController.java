@@ -2,8 +2,10 @@ package com.aetherflow.file.controller;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.FileMetadataDTO;
+import com.aetherflow.file.model.ChunkUploadDtos;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
 import com.aetherflow.file.model.UploadProgressView;
+import com.aetherflow.file.service.ChunkUploadService;
 import com.aetherflow.file.service.FileDownload;
 import com.aetherflow.file.service.FileInfoService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,7 +25,9 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
@@ -41,6 +45,7 @@ import java.util.UUID;
 public class FileController {
 
     private final FileInfoService fileInfoService;
+    private final ChunkUploadService chunkUploadService;
 
     @Operation(summary = "List files",
             description = "List current user's available file assets with query, type and frontend metadata filters.")
@@ -106,6 +111,56 @@ public class FileController {
                 .header("X-Upload-Task-Id", uploadTaskId)
                 .header("X-File-Id", String.valueOf(metadata.getId()))
                 .body(Result.success(metadata));
+    }
+
+    @Operation(summary = "Initialize chunk upload", description = "Create a chunk upload session for a large file.")
+    @ApiResponse(responseCode = "200", description = "Chunk upload session created.")
+    @PostMapping("/uploads")
+    public Result<ChunkUploadDtos.InitResponse> initChunkUpload(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestBody ChunkUploadDtos.InitRequest request) {
+        return Result.success(chunkUploadService.init(userId, request));
+    }
+
+    @Operation(summary = "Upload chunk part", description = "Upload one numbered part of a chunk upload session.")
+    @ApiResponse(responseCode = "200", description = "Chunk part accepted.")
+    @PutMapping(value = "/uploads/{uploadId}/parts/{partNumber}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Result<ChunkUploadDtos.PartResponse> uploadChunkPart(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Parameter(description = "Chunk upload session id.", required = true)
+            @PathVariable String uploadId,
+            @Parameter(description = "1-based chunk part number.", required = true, example = "1")
+            @PathVariable int partNumber,
+            @Parameter(description = "Chunk part binary.", required = true)
+            @RequestPart("file") MultipartFile file) {
+        return Result.success(chunkUploadService.uploadPart(userId, uploadId, partNumber, file));
+    }
+
+    @Operation(summary = "Complete chunk upload", description = "Assemble all received parts and persist the file using the existing governed upload path.")
+    @ApiResponse(responseCode = "200", description = "Chunk upload completed.")
+    @PostMapping("/uploads/{uploadId}/complete")
+    public Result<FileMetadataDTO> completeChunkUpload(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Parameter(description = "Chunk upload session id.", required = true)
+            @PathVariable String uploadId,
+            @RequestBody(required = false) ChunkUploadDtos.CompleteRequest request) {
+        ChunkUploadDtos.CompleteRequest safeRequest = request == null ? new ChunkUploadDtos.CompleteRequest(null) : request;
+        return Result.success(chunkUploadService.complete(userId, uploadId, safeRequest));
+    }
+
+    @Operation(summary = "Abort chunk upload", description = "Abort a chunk upload session and remove temporary parts.")
+    @ApiResponse(responseCode = "200", description = "Chunk upload aborted.")
+    @DeleteMapping("/uploads/{uploadId}")
+    public Result<Void> abortChunkUpload(
+            @Parameter(description = "Gateway forwarded user id.", required = true, example = "1001")
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Parameter(description = "Chunk upload session id.", required = true)
+            @PathVariable String uploadId) {
+        chunkUploadService.abort(userId, uploadId);
+        return Result.success();
     }
 
     @Operation(summary = "Download file", description = "Download an available file by metadata id. The caller must own the file metadata.")
