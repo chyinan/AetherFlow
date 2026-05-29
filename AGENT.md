@@ -580,6 +580,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | WORKFLOW-EMBEDDING-NODE-20260529 | Workflow Embedding Node System | DONE | 陈胤安 | chyinan | feature/WORKFLOW-EMBEDDING-NODE-20260529-embedding-node | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；docs/agent/tasks/WORKFLOW-EMBEDDING-NODE-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 是，仅 workflow-service Embedding Node / Provider / Metrics / 配置，不改 Runtime Core、DB、MQ、Redis、Gateway | git diff --check；mvn -pl backend/workflow-service -am -Dtest=EmbeddingNodeConfigTest,SimpleTextSplitterTest,EmbeddingProviderRegistryTest,EmbeddingNodeExecutorTest,EmbeddingMetricsControllerTest,WorkflowNodeCatalogControllerTest,WorkflowOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test；mvn -pl backend/common,backend/workflow-service -am test | 2026-05-29 10:48 |
 | WORKFLOW-OCR-NODE-20260529 | Workflow OCR Node System | DONE | 陈胤安 | chyinan | feature/WORKFLOW-OCR-NODE-20260529-ocr-node | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；backend/file-service/**；docs/agent/tasks/WORKFLOW-OCR-NODE-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 是，仅 file-service 内部下载接口、workflow-service OCR Node / Provider / Metrics / 配置，不改 Runtime Core、DB、MQ、Redis、Gateway | git diff --check；mvn -pl backend/common,backend/file-service,backend/workflow-service -am test | 2026-05-29 11:02 |
 | FE-API-INTEGRATION-20260529 | AetherFlow Enterprise Frontend API Integration Layer | DONE | 陈胤安 | chyinan | feature/FE-API-INTEGRATION-20260529-frontend-integration | frontend/src/api/**；frontend/src/services/api/**；frontend/src/services/http/**；frontend/src/services/realtime/**；frontend/src/stores/**；frontend/src/types/**；frontend/src/config/**；frontend/src/router/index.ts；frontend/package.json；frontend/package-lock.json；frontend/.env.example；docs/frontend-backend-missing-apis.md；docs/superpowers/plans/2026-05-29-frontend-api-integration.md；docs/agent/tasks/FE-API-INTEGRATION-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 否 | main 上 npm run build（frontend）通过；git diff --check HEAD^1..HEAD 通过；npm run api:generate 因本机 Gateway/OpenAPI 未启动未通过，需统一运行电脑补测 | 2026-05-29 16:50 |
+| FRONTEND-PUBLIC-HOME-LOGIN | AetherFlow 公开首页与登录页模板改造 | IN_PROGRESS | 曹煜璋 | 001CYZ | feature/FRONTEND-PUBLIC-HOME-LOGIN-public-home-login | frontend/src/router/index.ts；frontend/src/pages/auth/LoginPage.vue；frontend/src/pages/landing/LandingPage.vue；frontend/src/i18n/locales/zh-CN.ts；frontend/src/i18n/locales/en-US.ts；docs/superpowers/specs/2026-05-29-public-home-login-design.md；docs/superpowers/plans/2026-05-29-public-home-login.md；docs/agent/tasks/FRONTEND-PUBLIC-HOME-LOGIN.md；docs/agent/logs/2026-05-29.md；AGENT.md | 否 | cd frontend && npm run build；git diff --check | 2026-05-29 17:39 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -682,6 +683,16 @@ docs/agent/README.md
 | FE-API-INTEGRATION-20260529 | chyinan | docs/agent/tasks/FE-API-INTEGRATION-20260529.md | 2026-05-29 12:47 | 2026-05-29 15:58 | RELEASED | 任务文档 |
 | FE-API-INTEGRATION-20260529 | chyinan | docs/agent/logs/2026-05-29.md | 2026-05-29 12:47 | 2026-05-29 15:58 | RELEASED | 当日执行日志 |
 | FE-API-INTEGRATION-20260529 | chyinan | AGENT.md | 2026-05-29 12:47 | 2026-05-29 15:58 | RELEASED | 任务看板与文件锁 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | frontend/src/router/index.ts | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 公开首页路由与登录跳转 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | frontend/src/pages/auth/LoginPage.vue | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | GitHub 风格登录模板 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | frontend/src/pages/landing/LandingPage.vue | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | AetherFlow 公开首页 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | frontend/src/i18n/locales/zh-CN.ts | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 首页与登录页中文文案 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | frontend/src/i18n/locales/en-US.ts | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 首页与登录页英文文案 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | docs/superpowers/specs/2026-05-29-public-home-login-design.md | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 设计文档 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | docs/superpowers/plans/2026-05-29-public-home-login.md | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 实施计划 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | docs/agent/tasks/FRONTEND-PUBLIC-HOME-LOGIN.md | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 任务文档 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | docs/agent/logs/2026-05-29.md | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 当日执行日志 |
+| FRONTEND-PUBLIC-HOME-LOGIN | 001CYZ | AGENT.md | 2026-05-29 17:39 | 2026-05-30 01:39 | ACTIVE | 任务看板与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
