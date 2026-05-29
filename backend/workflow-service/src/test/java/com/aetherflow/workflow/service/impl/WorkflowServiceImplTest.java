@@ -124,10 +124,73 @@ class WorkflowServiceImplTest {
         assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("FAILED");
     }
 
+    @Test
+    void listsDefinitionsFromMapper() {
+        WorkflowDefinition definition = definitionEntity();
+        when(definitionMapper.selectList(any())).thenReturn(List.of(definition));
+
+        List<WorkflowDefinition> definitions = workflowService.listDefinitions();
+
+        assertThat(definitions).containsExactly(definition);
+    }
+
+    @Test
+    void getsDefinitionDetailWhenDefinitionIsEnabled() {
+        WorkflowDefinition definition = definitionEntity();
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+
+        WorkflowDefinition result = workflowService.getDefinition(10L);
+
+        assertThat(result).isSameAs(definition);
+    }
+
+    @Test
+    void getDefinitionRejectsDeletedDefinition() {
+        WorkflowDefinition definition = definitionEntity();
+        definition.setStatus("DELETED");
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+
+        assertThatThrownBy(() -> workflowService.getDefinition(10L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow definition not found");
+    }
+
+    @Test
+    void updatesDefinitionAndIncrementsVersion() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        definition.setVersion(2);
+        WorkflowDefinitionDTO request = definitionDTO();
+        request.setName("updated");
+        request.setDescription("updated description");
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.writeValueAsString(request)).thenReturn("{\"name\":\"updated\"}");
+
+        WorkflowDefinition result = workflowService.updateDefinition(10L, request);
+
+        assertThat(result.getName()).isEqualTo("updated");
+        assertThat(result.getDescription()).isEqualTo("updated description");
+        assertThat(result.getDefinitionJson()).isEqualTo("{\"name\":\"updated\"}");
+        assertThat(result.getVersion()).isEqualTo(3);
+        verify(definitionMapper).updateById(definition);
+    }
+
+    @Test
+    void deletesDefinitionByStatus() {
+        WorkflowDefinition definition = definitionEntity();
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+
+        workflowService.deleteDefinition(10L);
+
+        assertThat(definition.getStatus()).isEqualTo("DELETED");
+        verify(definitionMapper).updateById(definition);
+    }
+
     private static WorkflowDefinition definitionEntity() {
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setId(10L);
         definition.setDefinitionJson("{}");
+        definition.setVersion(1);
+        definition.setStatus("ENABLED");
         return definition;
     }
 
