@@ -26,6 +26,7 @@ class WorkflowNodeCatalogControllerTest {
                         "START",
                         "END",
                         "UPLOAD",
+                        "OCR",
                         "WHISPER",
                         "SUMMARY",
                         "EXPORT",
@@ -42,6 +43,15 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("fileUrl", "fileObjectKey", "fileSize");
         assertThat(upload.exampleConfig()).containsEntry("fileIdVariable", "fileId");
+
+        WorkflowNodeCatalogItem ocr = item(result.getData(), "OCR");
+        assertThat(ocr.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("fileId", "fileIdVariable", "language", "enableTable", "enableLayout", "mock");
+        assertThat(ocr.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("ocrText", "ocrLanguage", "ocrConfidence", "ocrPageCount");
+        assertThat(ocr.exampleConfig()).containsEntry("language", "auto");
 
         WorkflowNodeCatalogItem condition = item(result.getData(), "CONDITION");
         assertThat(condition.configSchema())

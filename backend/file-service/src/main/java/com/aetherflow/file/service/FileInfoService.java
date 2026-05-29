@@ -13,6 +13,8 @@ public interface FileInfoService {
 
     FileDownload download(Long userId, Long fileId);
 
+    FileDownload downloadInternal(Long fileId);
+
     void delete(Long userId, Long fileId);
 
     FileMetadataDTO getMetadata(Long fileId);

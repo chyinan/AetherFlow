@@ -5,6 +5,7 @@ import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.controller.WorkflowController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeCatalogController;
 import com.aetherflow.workflow.node.controller.WorkflowNodeMetricsController;
+import com.aetherflow.workflow.ocr.controller.OCRMetricsController;
 import com.aetherflow.workflow.runtime.controller.WorkflowRuntimeController;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -33,6 +34,9 @@ class WorkflowOpenApiContractTest {
 
         assertControllerDocumented(WorkflowNodeCatalogController.class);
         assertOperationDocumented(WorkflowNodeCatalogController.class, "catalog");
+
+        assertControllerDocumented(OCRMetricsController.class);
+        assertOperationDocumented(OCRMetricsController.class, "metrics");
     }
 
     private static void assertControllerDocumented(Class<?> controllerType) {

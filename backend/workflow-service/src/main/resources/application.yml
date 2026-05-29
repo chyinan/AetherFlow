@@ -67,6 +67,17 @@ aetherflow:
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
       default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
+    ocr:
+      default-provider: ${WORKFLOW_OCR_PROVIDER:tesseract}
+      default-language: ${WORKFLOW_OCR_LANGUAGE:auto}
+      mock: ${WORKFLOW_OCR_MOCK:false}
+      mock-text: ${WORKFLOW_OCR_MOCK_TEXT:Mock OCR text for AetherFlow demo.}
+      timeout: ${WORKFLOW_OCR_TIMEOUT:30s}
+      thread-pool-size: ${WORKFLOW_OCR_THREAD_POOL_SIZE:2}
+      queue-capacity: ${WORKFLOW_OCR_QUEUE_CAPACITY:20}
+      tesseract:
+        data-path: ${TESSDATA_PREFIX:}
+        fallback-language: ${WORKFLOW_OCR_TESSERACT_LANGUAGE:eng}
     runtime:
       retry:
         max-attempts: ${WORKFLOW_RUNTIME_RETRY_MAX_ATTEMPTS:3}

@@ -128,13 +128,28 @@ public class FileInfoServiceImpl implements FileInfoService {
         FileInfo fileInfo = getAvailableFile(fileId);
         checkFileOwner(userId, fileInfo);
 
+        FileDownload download = openDownload(fileInfo, fileId);
+        log.info("File download opened traceId={} fileId={} userId={}",
+                FileLogContext.traceId(), fileId, userId);
+        return download;
+    }
+
+    @Override
+    public FileDownload downloadInternal(Long fileId) {
+        FileLogContext.putFileId(fileId);
+        FileInfo fileInfo = getAvailableFile(fileId);
+        FileDownload download = openDownload(fileInfo, fileId);
+        log.info("Internal file download opened traceId={} fileId={}",
+                FileLogContext.traceId(), fileId);
+        return download;
+    }
+
+    private FileDownload openDownload(FileInfo fileInfo, Long fileId) {
         try {
             GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
                     .bucket(fileInfo.getBucket())
                     .object(fileInfo.getObjectKey())
                     .build());
-            log.info("File download opened traceId={} fileId={} userId={}",
-                    FileLogContext.traceId(), fileId, userId);
             return new FileDownload(
                     fileInfo.getOriginalName(),
                     resolveContentType(resolveMimeType(fileInfo)),

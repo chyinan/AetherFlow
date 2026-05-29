@@ -5,6 +5,7 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,4 +24,9 @@ public interface FileMetadataClient {
     Result<FileMetadataDTO> createMetadata(
             @RequestHeader(InternalHeaders.FILE_SERVICE_TOKEN) String internalToken,
             @RequestBody CreateFileMetadataRequestDTO request);
+
+    @GetMapping("/{fileId}/download")
+    ResponseEntity<byte[]> downloadFile(
+            @RequestHeader(InternalHeaders.FILE_SERVICE_TOKEN) String internalToken,
+            @PathVariable Long fileId);
 }
