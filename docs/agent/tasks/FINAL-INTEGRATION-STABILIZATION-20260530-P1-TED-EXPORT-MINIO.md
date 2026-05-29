@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-ted-export-minio
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -127,6 +127,8 @@ Session ID：SESSION-20260524-2202-cdx7a9
 
 - claim：637d444
 - business：029b1d7 fix(demo): stabilize ted export workflow
+- handoff：8156214
+- main merge：5741087
 
 ## 交接说明
 
