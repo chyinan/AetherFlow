@@ -81,6 +81,15 @@ export function createNotificationSocket(options: NotificationSocketOptions): No
     }
 
     clearReconnectTimer()
+    if (socket?.readyState === WebSocket.CONNECTING || socket?.readyState === WebSocket.OPEN) {
+      return
+    }
+
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      socket.onclose = null
+      socket.onerror = null
+      socket.close()
+    }
 
     const nextSocket = new WebSocket(buildNotifyWebSocketUrl(options.userId))
     socket = nextSocket

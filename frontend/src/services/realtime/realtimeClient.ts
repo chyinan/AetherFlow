@@ -6,7 +6,7 @@ import {
 } from '@/api/modules/notify'
 import type { RunLogEntry, RunNodeState } from '@/types/run'
 import { createNotificationSocket, type NotificationSocketConnection } from './notificationSocket'
-import { createSseClient, type SseConnection } from './sseClient'
+import { createSseClient, SseHttpError, type SseConnection } from './sseClient'
 
 type RunHandlers = {
   onLog?: (entry: RunLogEntry) => void
@@ -74,6 +74,7 @@ export const realtimeClient = {
   subscribeNotifications(userId: number | string, handlers: NotificationHandlers) {
     let closed = false
     let sseOnline = false
+    let ssePermanentlyUnavailable = false
     let socket: NotificationSocketConnection | null = null
 
     const startSocket = () => {
@@ -115,7 +116,8 @@ export const realtimeClient = {
       },
       onError: (error) => {
         handlers.onError?.(error)
-        if (!sseOnline) {
+        ssePermanentlyUnavailable = error instanceof SseHttpError && !error.retryable
+        if (!sseOnline && !ssePermanentlyUnavailable) {
           startSocket()
         }
       },
@@ -130,7 +132,7 @@ export const realtimeClient = {
     sse.connect()
 
     const fallbackTimer = window.setTimeout(() => {
-      if (!sseOnline) {
+      if (!sseOnline && !ssePermanentlyUnavailable) {
         startSocket()
       }
     }, 3000)

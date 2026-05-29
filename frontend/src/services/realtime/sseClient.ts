@@ -40,6 +40,22 @@ const defaultReconnectBaseMs = 500
 const defaultReconnectMaxMs = 10_000
 const defaultMaxReconnectAttempts = Number.POSITIVE_INFINITY
 
+export class SseHttpError extends Error {
+  readonly status: number
+  readonly retryable: boolean
+
+  constructor(status: number) {
+    super(`SSE request failed with HTTP ${status}`)
+    this.name = 'SseHttpError'
+    this.status = status
+    this.retryable = isRetryableHttpStatus(status)
+  }
+}
+
+function isRetryableHttpStatus(status: number) {
+  return status === 408 || status === 429 || status >= 500
+}
+
 function parseData(rawData: string) {
   const trimmed = rawData.trim()
 
@@ -57,6 +73,10 @@ function parseData(rawData: string) {
 function looksLikeRawJsonFrame(rawFrame: string) {
   const trimmed = rawFrame.trim()
   return (trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))
+}
+
+function isRetryableSseError(error: unknown) {
+  return !(error instanceof SseHttpError) || error.retryable
 }
 
 function parseFrame(rawFrame: string): ParsedFrame | null {
@@ -189,6 +209,32 @@ export function createSseClient(options: SseClientOptions): SseConnection {
     })
   }
 
+  function drainCompleteFrames(currentBuffer: string) {
+    let nextBuffer = currentBuffer
+    let separatorIndex = nextBuffer.indexOf('\n\n')
+
+    while (separatorIndex >= 0) {
+      const rawFrame = nextBuffer.slice(0, separatorIndex)
+      nextBuffer = nextBuffer.slice(separatorIndex + 2)
+      handleFrame(rawFrame)
+      separatorIndex = nextBuffer.indexOf('\n\n')
+    }
+
+    let lineSeparatorIndex = nextBuffer.indexOf('\n')
+    while (lineSeparatorIndex >= 0) {
+      const rawLine = nextBuffer.slice(0, lineSeparatorIndex).trim()
+      if (!looksLikeRawJsonFrame(rawLine)) {
+        break
+      }
+
+      handleFrame(rawLine)
+      nextBuffer = nextBuffer.slice(lineSeparatorIndex + 1)
+      lineSeparatorIndex = nextBuffer.indexOf('\n')
+    }
+
+    return nextBuffer
+  }
+
   async function readStream(response: Response) {
     const reader = response.body?.getReader()
     if (!reader) {
@@ -205,14 +251,7 @@ export function createSseClient(options: SseClientOptions): SseConnection {
       }
 
       buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-      let separatorIndex = buffer.indexOf('\n\n')
-
-      while (separatorIndex >= 0) {
-        const rawFrame = buffer.slice(0, separatorIndex)
-        buffer = buffer.slice(separatorIndex + 2)
-        handleFrame(rawFrame)
-        separatorIndex = buffer.indexOf('\n\n')
-      }
+      buffer = drainCompleteFrames(buffer)
     }
 
     const tail = buffer.trim()
@@ -248,7 +287,7 @@ export function createSseClient(options: SseClientOptions): SseConnection {
       })
 
       if (!response.ok) {
-        throw new Error(`SSE request failed with HTTP ${response.status}`)
+        throw new SseHttpError(response.status)
       }
 
       reconnectAttempt = 0
@@ -263,7 +302,11 @@ export function createSseClient(options: SseClientOptions): SseConnection {
     } catch (error) {
       if (!closed) {
         options.onError?.(error)
-        scheduleReconnect()
+        if (isRetryableSseError(error)) {
+          scheduleReconnect()
+        } else {
+          options.onConnectionChange?.('offline')
+        }
       }
     } finally {
       clearHeartbeatTimer()

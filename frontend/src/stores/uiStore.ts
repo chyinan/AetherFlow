@@ -65,6 +65,7 @@ export const useUiStore = defineStore('ui', {
     commandMenuOpen: false,
     selectedNodeId: 'node-whisper' as string | null,
     realtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
+    notifyRealtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
     locale: getStoredLocale() as AppLocale,
     theme: initialTheme as 'light' | 'dark',
     notifications: [] as UiNotification[],
@@ -80,6 +81,10 @@ export const useUiStore = defineStore('ui', {
       this.selectedNodeId = nodeId
     },
     setRealtimeState(state: 'online' | 'reconnecting' | 'offline') {
+      this.setNotifyRealtimeState(state)
+    },
+    setNotifyRealtimeState(state: 'online' | 'reconnecting' | 'offline') {
+      this.notifyRealtimeState = state
       this.realtimeState = state
       const realtime = this.statuses.find((item) => item.name === 'Realtime')
       if (realtime) {
@@ -151,7 +156,7 @@ export const useUiStore = defineStore('ui', {
       activeNotificationUserId = normalizedUserId
       stopNotifications = realtimeClient.subscribeNotifications(normalizedUserId, {
         onMessage: (message) => this.addNotifyMessage(message),
-        onConnectionChange: (state) => this.setRealtimeState(state),
+        onConnectionChange: (state) => this.setNotifyRealtimeState(state),
       })
     },
     stopNotificationStream() {

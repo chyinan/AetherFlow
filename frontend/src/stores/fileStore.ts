@@ -37,7 +37,7 @@ export const useFileStore = defineStore('file', {
         this.uploadProgress = 100
         window.setTimeout(() => {
           const uploaded = this.files.find((item) => item.id === asset.id)
-          if (uploaded && uploaded.status === 'processing') {
+          if (uploaded && !uploaded.backendFileId && uploaded.status === 'processing') {
             uploaded.status = 'ready'
             uploaded.result = i18n.global.t('files.mockResults.readyInput')
             uploaded.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false })

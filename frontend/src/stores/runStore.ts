@@ -28,6 +28,7 @@ export const useRunStore = defineStore('run', {
     logsByRunId: {} as Record<string, RunLogEntry[]>,
     loading: false,
     initialized: false,
+    runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
   getters: {
     statusCounts: (state) =>
@@ -213,12 +214,15 @@ export const useRunStore = defineStore('run', {
       stopRealtime = realtimeClient.subscribeRun(this.currentRun.id, {
         onLog: (entry) => this.appendLog(entry),
         onNodePatch: (patch) => this.patchNodeState(patch),
-        onConnectionChange: (state) => uiStore.setRealtimeState(state),
+        onConnectionChange: (state) => {
+          this.runRealtimeState = state
+        },
       })
     },
     stopRealtime() {
       stopRealtime?.()
       stopRealtime = null
+      this.runRealtimeState = 'offline'
       useUiStore().stopNotificationStream()
     },
   },
