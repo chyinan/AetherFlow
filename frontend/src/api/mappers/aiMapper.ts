@@ -73,7 +73,7 @@ function positiveLatency(...values: unknown[]) {
 
 function formatDateTime(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
-    return new Date().toLocaleString('zh-CN', { hour12: false })
+    return '--'
   }
 
   const date = new Date(value)
@@ -82,7 +82,7 @@ function formatDateTime(value: unknown) {
 
 function formatTime(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
-    return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    return '--'
   }
 
   const date = new Date(value)
@@ -139,15 +139,15 @@ function mapProviderStatus(health?: AiProviderHealth, circuit?: ProviderCircuitS
     return 'offline'
   }
 
-  if (circuitState === 'HALF_OPEN' || healthStatus === 'DEGRADED') {
+  if (circuitState === 'HALF_OPEN' || healthStatus === 'DEGRADED' || healthStatus === 'UNKNOWN') {
     return 'degraded'
   }
 
-  if (health?.healthy === false || healthStatus === 'UNKNOWN') {
-    return 'offline'
+  if (health?.healthy === false) {
+    return 'degraded'
   }
 
-  if (health?.healthy === true || circuitState === 'CLOSED' || healthStatus === 'UP') {
+  if (health?.healthy === true || healthStatus === 'UP') {
     return 'online'
   }
 

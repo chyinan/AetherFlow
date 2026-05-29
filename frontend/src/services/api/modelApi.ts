@@ -2,8 +2,6 @@ import { isApiError, toApiError } from '@/api/client/apiError'
 import { mapAiProviderData, type AiModelSnapshot } from '@/api/mappers/aiMapper'
 import {
   getAiStatus,
-  getProviderMetrics,
-  getProviderPolicy,
   getProviderStatus,
   recoverProvider as recoverProviderCircuit,
   updateProviderPolicy as updateProviderRoutingPolicy,
@@ -73,17 +71,13 @@ async function loadRealSnapshot(force = false) {
   }
 
   snapshotPromise = (async () => {
-    const [serviceStatus, providerStatus, metricsResponse, policy] = await Promise.all([
+    const [serviceStatus, providerStatus] = await Promise.all([
       getAiStatus(),
       getProviderStatus(),
-      getProviderMetrics(),
-      getProviderPolicy(),
     ])
     const snapshot = mapAiProviderData({
       serviceStatus,
       providerStatus,
-      metricsResponse,
-      policy,
     })
 
     cachedSnapshot = snapshot
@@ -145,16 +139,10 @@ export const modelApi = {
     cachedSnapshot = null
     snapshotPromise = null
     const providerStatus = await recoverProviderCircuit(provider)
-    const [serviceStatus, metricsResponse, policy] = await Promise.all([
-      getAiStatus(),
-      getProviderMetrics(),
-      getProviderPolicy(),
-    ])
+    const serviceStatus = await getAiStatus()
     cachedSnapshot = mapAiProviderData({
       serviceStatus,
       providerStatus,
-      metricsResponse,
-      policy,
     })
     return cachedSnapshot
   },
