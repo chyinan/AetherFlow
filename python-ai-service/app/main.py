@@ -173,7 +173,10 @@ def _materialize_source(file_url: str) -> Path:
     if file_url.startswith("http://") or file_url.startswith("https://"):
         suffix = Path(file_url.split("?")[0]).suffix or ".bin"
         target = Path(tempfile.gettempdir()) / f"aetherflow-input-{uuid.uuid4().hex}{suffix}"
-        with httpx.stream("GET", file_url, timeout=float(os.getenv("FILE_DOWNLOAD_TIMEOUT_SECONDS", "60"))) as response:
+        download_url = _rewrite_file_url(file_url)
+        if download_url != file_url:
+            logger.info("Rewrote fileUrl for container download from %s to %s", file_url, download_url)
+        with httpx.stream("GET", download_url, timeout=float(os.getenv("FILE_DOWNLOAD_TIMEOUT_SECONDS", "60"))) as response:
             response.raise_for_status()
             with target.open("wb") as output:
                 for chunk in response.iter_bytes():
@@ -183,6 +186,18 @@ def _materialize_source(file_url: str) -> Path:
     if not source.exists():
         raise HTTPException(status_code=400, detail=f"input file does not exist: {file_url}")
     return source
+
+
+def _rewrite_file_url(file_url: str) -> str:
+    rewrite_from = os.getenv("FILE_URL_REWRITE_FROM", "").strip().rstrip("/")
+    rewrite_to = os.getenv("FILE_URL_REWRITE_TO", "").strip().rstrip("/")
+    if not rewrite_from or not rewrite_to:
+        return file_url
+    if file_url == rewrite_from:
+        return rewrite_to
+    if file_url.startswith(f"{rewrite_from}/"):
+        return f"{rewrite_to}{file_url[len(rewrite_from):]}"
+    return file_url
 
 
 def _ensure_audio_source(source: Path) -> Path:

@@ -400,8 +400,8 @@ export const enUS = {
           description: 'Use a model for reasoning, extraction, and structured generation.',
         },
         ffmpeg: {
-          label: 'FFmpeg',
-          description: 'Transcode, extract audio, or trim media segments.',
+          label: 'FFmpeg Prep',
+          description: 'Pass uploaded video file URL to Whisper Runtime; audio extraction runs inside FFmpeg.',
         },
         translate: {
           label: 'Translate',
@@ -414,6 +414,10 @@ export const enUS = {
         'knowledge-retrieval': {
           label: 'Knowledge Retrieval',
           description: 'Retrieve top-k context from datasets.',
+        },
+        export: {
+          label: 'Export Document',
+          description: 'Write summary output to a Markdown document artifact.',
         },
         output: {
           label: 'Output',
