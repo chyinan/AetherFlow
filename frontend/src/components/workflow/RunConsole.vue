@@ -34,6 +34,12 @@ const emit = defineEmits<{
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-xs leading-6">
+      <p v-if="runStore.logsLoading" class="rounded bg-white/5 px-2 py-1 text-slate-400">
+        {{ t('runs.loading') }}
+      </p>
+      <p v-else-if="visibleLogs.length === 0" class="rounded bg-white/5 px-2 py-1 text-slate-400">
+        {{ t('runs.noLogs') }}
+      </p>
       <div
         v-for="log in visibleLogs"
         :key="log.id"

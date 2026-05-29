@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 
+import { toApiError } from '@/api/client/apiError'
 import { i18n } from '@/i18n'
 import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun } from '@/services/api/runApi'
 import { getStartedRunLink } from '@/services/api/workflowApi'
@@ -20,6 +21,12 @@ function mergeLogs(currentLogs: RunLogEntry[], recoveredLogs: RunLogEntry[]) {
   return [...merged.values()].slice(-100)
 }
 
+function errorMessage(error: unknown) {
+  const apiError = toApiError(error, 'runtime')
+  const status = apiError.status ? `HTTP ${apiError.status}: ` : ''
+  return `${status}${apiError.message}`
+}
+
 export const useRunStore = defineStore('run', {
   state: () => ({
     runs: [] as WorkflowRun[],
@@ -27,6 +34,8 @@ export const useRunStore = defineStore('run', {
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
     loading: false,
+    logsLoading: false,
+    error: null as string | null,
     initialized: false,
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
@@ -47,37 +56,68 @@ export const useRunStore = defineStore('run', {
 
       if (this.initialized) {
         if (selectDefault && !this.currentRun) {
-          this.currentRun = this.runs[0] ?? null
-          this.logs = this.currentRun ? await runApi.getLogs(this.currentRun.id) : []
-          if (this.currentRun) {
-            this.logsByRunId[this.currentRun.id] = this.logs
+          try {
+            this.currentRun = this.runs[0] ?? null
+            this.logsLoading = Boolean(this.currentRun)
+            this.logs = this.currentRun ? await runApi.getLogs(this.currentRun.id) : []
+            if (this.currentRun) {
+              this.logsByRunId[this.currentRun.id] = this.logs
+            }
+          } catch (error) {
+            this.error = errorMessage(error)
+          } finally {
+            this.logsLoading = false
           }
         }
         return
       }
       this.loading = true
+      this.error = null
       try {
         this.runs = await runApi.listRuns()
         if (selectDefault) {
           this.currentRun = this.currentRun ?? this.runs[0] ?? null
+          this.logsLoading = Boolean(this.currentRun)
           this.logs = this.currentRun ? await runApi.getLogs(this.currentRun.id) : []
           if (this.currentRun) {
             this.logsByRunId[this.currentRun.id] = this.logs
           }
+          this.logsLoading = false
         }
         this.initialized = true
+      } catch (error) {
+        this.error = errorMessage(error)
+        if (this.runs.length === 0) {
+          this.currentRun = null
+          this.logs = []
+        }
       } finally {
         this.loading = false
+        this.logsLoading = false
       }
     },
+    async refreshRuns() {
+      this.initialized = false
+      await this.loadRuns()
+    },
     async selectRun(runId: string) {
-      await this.loadRuns({ selectDefault: false })
-      const localRun = this.runs.find((run) => run.id === runId)
-      this.currentRun = localRun ?? (await runApi.getRun(runId))
-      this.logs = this.logsByRunId[runId] ?? await runApi.getLogs(runId)
-      this.logsByRunId[runId] = this.logs
-      await this.recoverCurrentRunRuntime()
-      this.subscribeCurrentRun()
+      this.loading = true
+      this.logsLoading = true
+      this.error = null
+      try {
+        await this.loadRuns({ selectDefault: false })
+        const localRun = this.runs.find((run) => run.id === runId)
+        this.currentRun = localRun ?? (await runApi.getRun(runId))
+        this.logs = this.logsByRunId[runId] ?? await runApi.getLogs(runId)
+        this.logsByRunId[runId] = this.logs
+        await this.recoverCurrentRunRuntime()
+        this.subscribeCurrentRun()
+      } catch (error) {
+        this.error = errorMessage(error)
+      } finally {
+        this.loading = false
+        this.logsLoading = false
+      }
     },
     appendLog(entry: RunLogEntry) {
       this.logs = [...this.logs.slice(-80), entry]
@@ -196,7 +236,21 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      const recovery = await runApi.recoverRuntime(this.currentRun)
+      let recovery
+      try {
+        recovery = await runApi.recoverRuntime(this.currentRun)
+      } catch (error) {
+        const message = errorMessage(error)
+        this.error = message
+        this.appendLog({
+          id: `${this.currentRun.id}-runtime-recovery-error-${Date.now()}`,
+          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          level: 'warn',
+          message: `Runtime recovery unavailable; retained current snapshot. ${message}`,
+        })
+        return
+      }
+
       recovery.nodePatches.forEach((patch) => this.patchNodeState(patch))
 
       if (this.currentRun && recovery.runPatch) {

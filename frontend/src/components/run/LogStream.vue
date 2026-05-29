@@ -45,6 +45,9 @@ const filteredLogs = computed(() => {
     </label>
 
     <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 font-mono text-xs leading-6">
+      <p v-if="filteredLogs.length === 0" class="rounded border border-white/10 bg-white/5 px-3 py-2 text-slate-400">
+        {{ t('runs.noLogs') }}
+      </p>
       <p
         v-for="log in filteredLogs"
         :key="log.id"
