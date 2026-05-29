@@ -130,3 +130,5 @@ Session ID：SESSION-20260529-1247-FE-API-INTEGRATION
 2. 2026-05-29 12:47，已创建分支 `feature/FE-API-INTEGRATION-20260529-frontend-integration`。
 3. 2026-05-29 12:47，已完成环境检测。
 4. 2026-05-29 12:47，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+5. 2026-05-29 12:50，docs-only claim 已提交并推送：`3713838 docs(agent): claim FE-API-INTEGRATION-20260529`。
+6. 2026-05-29 12:53，已按 Superpowers writing-plans 写入实施计划：`docs/superpowers/plans/2026-05-29-frontend-api-integration.md`。
