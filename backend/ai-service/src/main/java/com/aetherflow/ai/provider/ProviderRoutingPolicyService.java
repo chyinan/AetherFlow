@@ -51,6 +51,7 @@ public class ProviderRoutingPolicyService {
         policy.setMaxRetries(properties.getProviderRetryMaxAttempts());
         policy.setRetryInitialBackoff(properties.getProviderRetryInitialBackoff());
         policy.setRetryMaxBackoff(properties.getProviderRetryMaxBackoff());
+        policy.setRequestTimeout(properties.getProviderTimeout());
         policy.setCircuitFailureThreshold(properties.getProviderCircuitFailureThreshold());
         policy.setCircuitOpenDuration(properties.getProviderCircuitOpenDuration());
         policy.setHealthCheckInterval(properties.getProviderHealthCheckInterval());

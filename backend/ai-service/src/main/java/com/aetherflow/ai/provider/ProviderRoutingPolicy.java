@@ -31,6 +31,9 @@ public class ProviderRoutingPolicy {
     @Schema(description = "Maximum retry backoff duration.", example = "PT2S")
     private Duration retryMaxBackoff = Duration.ofSeconds(2);
 
+    @Schema(description = "Maximum provider request duration before timing out.", example = "PT60S")
+    private Duration requestTimeout = Duration.ofSeconds(60);
+
     @Schema(description = "Consecutive failure threshold before opening provider circuit.", example = "5")
     private int circuitFailureThreshold = 5;
 
@@ -58,6 +61,7 @@ public class ProviderRoutingPolicy {
         policy.circuitFailureThreshold = Math.max(1, policy.circuitFailureThreshold);
         policy.retryInitialBackoff = ensureDuration(policy.retryInitialBackoff, Duration.ofMillis(200));
         policy.retryMaxBackoff = ensureDuration(policy.retryMaxBackoff, Duration.ofSeconds(2));
+        policy.requestTimeout = ensureDuration(policy.requestTimeout, Duration.ofSeconds(60));
         policy.circuitOpenDuration = ensureDuration(policy.circuitOpenDuration, Duration.ofSeconds(60));
         policy.healthCheckInterval = ensureDuration(policy.healthCheckInterval, Duration.ofSeconds(30));
         return policy;
@@ -81,6 +85,7 @@ public class ProviderRoutingPolicy {
         policy.setMaxRetries(maxRetries);
         policy.setRetryInitialBackoff(retryInitialBackoff);
         policy.setRetryMaxBackoff(retryMaxBackoff);
+        policy.setRequestTimeout(requestTimeout);
         policy.setCircuitFailureThreshold(circuitFailureThreshold);
         policy.setCircuitOpenDuration(circuitOpenDuration);
         policy.setHealthCheckInterval(healthCheckInterval);

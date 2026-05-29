@@ -30,6 +30,8 @@ class AiOpenApiContractTest {
         assertOperationDocumented(AiProviderController.class, "updatePolicy", ProviderRoutingPolicy.class);
         assertOperationDocumented(AiProviderController.class, "recover", AiProviderType.class);
         assertOperationDocumented(AiProviderController.class, "metrics");
+        assertOperationDocumented(AiProviderController.class, "catalog");
+        assertOperationDocumented(AiProviderController.class, "logs", int.class);
 
         assertControllerDocumented(AiWorkflowNodeController.class, true);
         assertOperationDocumented(AiWorkflowNodeController.class, "execute", AiWorkflowNodeRequestDTO.class);

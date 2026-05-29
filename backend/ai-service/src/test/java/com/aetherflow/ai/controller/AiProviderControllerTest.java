@@ -2,18 +2,23 @@ package com.aetherflow.ai.controller;
 
 import com.aetherflow.ai.config.AiTaskProperties;
 import com.aetherflow.ai.provider.AIInferenceLogService;
+import com.aetherflow.ai.provider.AIInferenceLog;
 import com.aetherflow.ai.provider.AiProviderType;
+import com.aetherflow.ai.provider.ProviderCatalogResponse;
+import com.aetherflow.ai.provider.ProviderCatalogService;
 import com.aetherflow.ai.provider.ProviderMetricsResponse;
 import com.aetherflow.ai.provider.ProviderMetricsService;
 import com.aetherflow.ai.provider.ProviderRecoveryService;
 import com.aetherflow.ai.provider.ProviderRoutingPolicy;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
+import com.aetherflow.ai.provider.ProviderRuntimeLogResponse;
 import com.aetherflow.ai.provider.ProviderStatusResponse;
 import com.aetherflow.ai.provider.ProviderStatusService;
 import com.aetherflow.ai.sentinel.SentinelAiGuard;
 import com.aetherflow.common.core.Result;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -65,7 +70,7 @@ class AiProviderControllerTest {
         ProviderMetricsService metricsService = mock(ProviderMetricsService.class);
         ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
         AIInferenceLogService logService = mock(AIInferenceLogService.class);
-        AiProviderController controller = controller(metricsService, policyService, logService);
+        AiProviderController controller = controller(metricsService, policyService, logService, new ProviderCatalogService(new AiTaskProperties()));
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         when(policyService.currentPolicy()).thenReturn(policy);
         when(metricsService.snapshot(policy.getProviders())).thenReturn(Map.of());
@@ -78,6 +83,72 @@ class AiProviderControllerTest {
         verify(metricsService).snapshot(policy.getProviders());
     }
 
+    @Test
+    void exposesProviderCatalogForFrontendModelsPage() {
+        ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("llama3");
+        AiProviderController controller = controller(
+                mock(ProviderMetricsService.class),
+                policyService,
+                mock(AIInferenceLogService.class),
+                new ProviderCatalogService(properties)
+        );
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
+        when(policyService.currentPolicy()).thenReturn(policy);
+
+        Result<ProviderCatalogResponse> result = controller.catalog();
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getData().providers())
+                .extracting(ProviderCatalogResponse.ProviderCatalogProvider::endpointLabel)
+                .contains("OpenAI API", "Ollama Local Runtime");
+        assertThat(result.getData().models())
+                .anySatisfy(model -> {
+                    assertThat(model.name()).isEqualTo("llama3");
+                    assertThat(model.contextWindow()).isNotBlank();
+                    assertThat(model.pricing().priceHint()).isNotBlank();
+                    assertThat(model.capabilities()).contains("chat");
+                });
+    }
+
+    @Test
+    void exposesFrontendShapedProviderRuntimeLogs() {
+        AIInferenceLogService logService = mock(AIInferenceLogService.class);
+        AiProviderController controller = controller(
+                mock(ProviderMetricsService.class),
+                mock(ProviderRoutingPolicyService.class),
+                logService,
+                new ProviderCatalogService(new AiTaskProperties())
+        );
+        AIInferenceLog log = new AIInferenceLog(
+                "evt-1",
+                "ERROR",
+                AiProviderType.OPENAI,
+                null,
+                null,
+                "gpt-4o-mini",
+                "provider request failed",
+                1200L,
+                2,
+                "timeout",
+                Instant.parse("2026-05-29T10:00:00Z"),
+                Map.of("failureType", "TIMEOUT")
+        );
+        when(logService.recent(50)).thenReturn(List.of(log));
+
+        Result<ProviderRuntimeLogResponse> result = controller.logs(50);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getData().logs()).hasSize(1);
+        assertThat(result.getData().logs().get(0).id()).isEqualTo("evt-1");
+        assertThat(result.getData().logs().get(0).level()).isEqualTo("error");
+        assertThat(result.getData().logs().get(0).message()).contains("timeout");
+        verify(logService).recent(50);
+    }
+
     private AiProviderController controller(ProviderStatusService statusService) {
         return new AiProviderController(
                 statusService,
@@ -85,6 +156,7 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 mock(AIInferenceLogService.class),
                 mock(ProviderRecoveryService.class),
+                new ProviderCatalogService(new AiTaskProperties()),
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
@@ -97,6 +169,7 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 mock(AIInferenceLogService.class),
                 mock(ProviderRecoveryService.class),
+                new ProviderCatalogService(new AiTaskProperties()),
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
@@ -104,13 +177,15 @@ class AiProviderControllerTest {
 
     private AiProviderController controller(ProviderMetricsService metricsService,
                                             ProviderRoutingPolicyService policyService,
-                                            AIInferenceLogService logService) {
+                                            AIInferenceLogService logService,
+                                            ProviderCatalogService catalogService) {
         return new AiProviderController(
                 mock(ProviderStatusService.class),
                 policyService,
                 metricsService,
                 logService,
                 mock(ProviderRecoveryService.class),
+                catalogService,
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
