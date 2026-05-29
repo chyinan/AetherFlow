@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1925-BE-SETTINGS-ADMIN
 分支：feature/BE-SETTINGS-ADMIN-20260529-settings-admin
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -147,3 +147,40 @@ Gateway 需要将 `/settings/**` 路由到 auth-service，并纳入 auth-api Sen
 1. 2026-05-29 19:25，从 main 创建 feature/BE-SETTINGS-ADMIN-20260529-settings-admin。
 2. 2026-05-29 19:25，已检查 AGENT.md 文件锁表，目标 settings、Gateway route、docker init 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 19:25，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 19:34 +08:00
+
+完成内容：
+
+1. 新增 auth-service `/settings/**` REST API：profile get/update、member list/create/update/delete、billing snapshot、audit events。
+2. 新增 Settings DTO、entity、mapper、service 和 controller。
+3. 新增 `af_settings_profile`、`af_settings_member`、`af_settings_billing`、`af_settings_audit_event` SQL，并同步 docker MySQL init SQL。
+4. profile/member 写操作记录 settings audit event；member delete 采用软删除状态 `removed`。
+5. Gateway `auth-service` route 增加 `/settings/**`，Sentinel auth-api pattern 同步增加 `/settings`。
+6. 补齐 controller/service/schema/gateway route contract 测试。
+
+验证结果：
+
+1. TDD Red：目标 auth 测试在实现前编译失败，缺少 `com.aetherflow.auth.settings.*`；Gateway route 测试在实现前失败，`/settings/**` 未路由到 auth-service。
+2. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
+3. `mvn -pl backend/auth-service -am -Dtest=SettingsControllerTest,SettingsServiceImplTest,SettingsSchemaTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过，Settings 10 tests。
+4. `mvn -pl backend/gateway-service -am -Dtest=GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test`：通过，GatewayRouteConfigurationTest 5 tests。
+5. `mvn -pl backend/auth-service,backend/gateway-service -am test`：通过，common 8 tests；gateway-service 17 tests；auth-service 40 tests。
+
+提交：
+
+1. `ff3a67e docs(agent): claim BE-SETTINGS-ADMIN-20260529`
+2. `053f61c feat(auth): add settings admin APIs`
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑应用 settings SQL，并补测 auth-service 启动、Gateway `/settings/**` 路由、真实 MySQL 持久化链路。
+2. 本任务不接真实支付渠道或发票系统，Billing snapshot 为 Settings 自有表最小闭环。
+
+文件锁：RELEASED。
