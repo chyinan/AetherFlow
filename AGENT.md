@@ -577,6 +577,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | WORKFLOW-RUNTIME-RELIABILITY-20260528 | Workflow Runtime Reliability | DONE | 陈胤安 | chyinan | feature/WORKFLOW-RUNTIME-RELIABILITY-20260528-runtime-reliability | backend/workflow-runtime-api/**；backend/workflow-service/**；pom.xml；docs/superpowers/**；docs/agent/tasks/WORKFLOW-RUNTIME-RELIABILITY-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 workflow-service Runtime 自有 DB 表、Redis Key、Runtime API/协议类型 | git diff --check HEAD^..HEAD；mvn -pl backend/workflow-runtime-api,backend/workflow-service -am test | 2026-05-28 21:29 |
 | WORKFLOW-NODE-ECOSYSTEM-20260528 | Workflow Node Ecosystem 与 AI Node Executor System | DONE | 陈胤安 | chyinan | feature/WORKFLOW-NODE-ECOSYSTEM-20260528-node-ecosystem | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；backend/ai-service/**；backend/file-service/**；backend/common/src/main/java/com/aetherflow/common/dto/**；docs/superpowers/**；docs/agent/tasks/WORKFLOW-NODE-ECOSYSTEM-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Workflow Node 内部 REST/DTO/配置，不改 workflow-runtime-api、Runtime Core、MQ 契约 | git diff --check HEAD^..HEAD；mvn -pl backend/common,backend/file-service,backend/ai-service,backend/workflow-service -am test | 2026-05-28 22:49 |
 | API-SWAGGER-CONTRACT-20260528 | API Contract / Swagger Documentation | REVIEW | 陈胤安 | chyinan | feature/API-SWAGGER-CONTRACT-20260528-swagger-contract | backend/workflow-service/**；backend/ai-service/**；backend/notify-service/**；backend/common/src/main/java/com/aetherflow/common/dto/**；docs/agent/tasks/API-SWAGGER-CONTRACT-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 OpenAPI 文档与 GET /workflow/node/catalog 只读 API，不改 Runtime Core、MQ、DB | git diff --check；mvn -pl backend/common,backend/workflow-service,backend/ai-service,backend/notify-service -am test | 2026-05-28 23:16 |
+| WORKFLOW-OCR-NODE-20260529 | Workflow OCR Node System | IN_PROGRESS | 陈胤安 | chyinan | feature/WORKFLOW-OCR-NODE-20260529-ocr-node | backend/workflow-service/**；backend/workflow-service/pom.xml；backend/workflow-service/src/main/resources/application.yml；backend/file-service/**；docs/agent/tasks/WORKFLOW-OCR-NODE-20260529.md；docs/agent/logs/2026-05-29.md；AGENT.md | 是，仅 file-service 内部下载接口、workflow-service OCR Node / Provider / Metrics / 配置，不改 Runtime Core、DB、MQ、Redis、Gateway | git diff --check；mvn -pl backend/common,backend/file-service,backend/workflow-service -am test | 2026-05-29 08:45 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -645,6 +646,11 @@ docs/agent/README.md
 | API-SWAGGER-CONTRACT-20260528 | chyinan | docs/agent/tasks/API-SWAGGER-CONTRACT-20260528.md | 2026-05-28 22:57 | 2026-05-28 23:16 | RELEASED | 任务文档 |
 | API-SWAGGER-CONTRACT-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 22:57 | 2026-05-28 23:16 | RELEASED | 当日执行日志 |
 | API-SWAGGER-CONTRACT-20260528 | chyinan | AGENT.md | 2026-05-28 22:57 | 2026-05-28 23:16 | RELEASED | 任务看板、契约登记与文件锁 |
+| WORKFLOW-OCR-NODE-20260529 | chyinan | backend/workflow-service/** | 2026-05-29 08:45 | 2026-05-29 14:45 | ACTIVE | OCR NodeExecutor、OCR Provider、Metrics、Swagger 与配置 |
+| WORKFLOW-OCR-NODE-20260529 | chyinan | backend/file-service/** | 2026-05-29 08:45 | 2026-05-29 14:45 | ACTIVE | file-service 内部文件下载接口 |
+| WORKFLOW-OCR-NODE-20260529 | chyinan | docs/agent/tasks/WORKFLOW-OCR-NODE-20260529.md | 2026-05-29 08:45 | 2026-05-29 14:45 | ACTIVE | 任务文档 |
+| WORKFLOW-OCR-NODE-20260529 | chyinan | docs/agent/logs/2026-05-29.md | 2026-05-29 08:45 | 2026-05-29 14:45 | ACTIVE | 当日执行日志 |
+| WORKFLOW-OCR-NODE-20260529 | chyinan | AGENT.md | 2026-05-29 08:45 | 2026-05-29 14:45 | ACTIVE | 任务看板、契约登记与文件锁 |
 |  |  |  |  |  | ACTIVE / RELEASED / EXPIRED |  |
 
 ### 11.3 文件锁规则
@@ -694,6 +700,7 @@ docs/agent/README.md
 | Runtime Reliability / DB / Redis / REST API | af_workflow_runtime_snapshot；af_workflow_runtime_event；aetherflow:workflow:runtime:lock:{workflowId}；/workflow/runtime/events/{workflowId} 持久化查询 | workflow-service | backend/workflow-runtime-api/**；backend/workflow-service/** | APPROVED | 陈胤安 | 陈胤安 |
 | Workflow Node Ecosystem / REST API / DTO / 配置 | /workflow/node/metrics；file-service GET /internal/files/metadata/{fileId}；ai-service POST /ai/internal/workflow/nodes/execute；AiWorkflowNodeRequestDTO；AiWorkflowNodeResponseDTO；aetherflow.workflow.node.*；aetherflow.minio.*；aetherflow.file.internal-token | workflow-service；ai-service；file-service；common | backend/workflow-service/**；backend/ai-service/**；backend/file-service/**；backend/common/src/main/java/com/aetherflow/common/dto/** | APPROVED | 陈胤安 | 陈胤安 |
 | API Swagger Contract / REST API | GET /workflow/node/catalog；workflow-service / ai-service / notify-service OpenAPI 文档；Workflow Node config schema 示例 | workflow-service；ai-service；notify-service；common | backend/workflow-service/**；backend/ai-service/**；backend/notify-service/**；backend/common/src/main/java/com/aetherflow/common/dto/** | APPROVED | 陈胤安 | 陈胤安 |
+| Workflow OCR Node / REST API / Feign / 配置 | file-service GET /internal/files/{fileId}/download；workflow-service GET /workflow/ocr/metrics；Workflow node type OCR；aetherflow.workflow.ocr.*；Tess4J OCR provider dependency | workflow-service；file-service | backend/workflow-service/**；backend/file-service/** | APPROVED | 陈胤安 | 陈胤安 |
 |  |  |  |  | DRAFT / REVIEW / APPROVED / CHANGED / DEPRECATED |  |  |
 
 ---
