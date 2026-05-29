@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1807-BE-AI-PROVIDER-CATALOG
 分支：feature/BE-AI-PROVIDER-CATALOG-20260529-provider-catalog
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -144,3 +144,52 @@ Session ID：SESSION-20260529-1807-BE-AI-PROVIDER-CATALOG
 1. 2026-05-29 18:07，从 main 创建 feature/BE-AI-PROVIDER-CATALOG-20260529-provider-catalog。
 2. 2026-05-29 18:07，已检查 AGENT.md 文件锁表，目标 ai-service 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 18:07，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 18:15 +08:00
+
+完成内容：
+
+1. 新增 `GET /ai/provider/catalog`，返回 provider cards 和 model catalog rows。
+2. 新增 `GET /ai/provider/logs?limit=`，返回 frontend-shaped runtime log feed，limit 限制为 1-100。
+3. `ProviderRoutingPolicy` 新增 `requestTimeout` 字段，并由 `ProviderRoutingPolicyService` 默认填充 `aetherflow.ai.provider-timeout`。
+4. 新增 Provider Catalog / Runtime Log 响应 DTO，保持在 ai-service 内部 provider 包，不修改 backend/common。
+5. 补充 controller、service、policy、OpenAPI 合约测试。
+
+验证记录：
+
+1. TDD 红灯：`mvn -pl backend/ai-service -am -Dtest=AiProviderControllerTest,ProviderCatalogServiceTest,ProviderRoutingPolicyTest,AiOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test`
+   - 结果：未通过，符合预期。
+   - 证据：缺少 ProviderCatalogResponse / ProviderCatalogService / ProviderRuntimeLogResponse。
+2. 目标测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/ai-service -am -Dtest=AiProviderControllerTest,ProviderCatalogServiceTest,ProviderRoutingPolicyTest,AiOpenApiContractTest -Dsurefire.failIfNoSpecifiedTests=false test`
+   - 结果：通过。
+   - 证据：9 tests，BUILD SUCCESS。
+3. ai-service 全量测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/ai-service -am test`
+   - 结果：通过。
+   - 证据：common 8 tests；ai-service 25 tests；BUILD SUCCESS。
+4. 静态检查：`git diff --check`
+   - 结果：通过。
+   - 证据：无 whitespace error，仅 Windows LF/CRLF 提示。
+5. 修改范围检查：`git diff --name-only main...HEAD`
+   - 结果：通过。
+   - 证据：修改限定在任务允许的 ai-service 文件、测试文件、AGENT.md、任务文档和当日日志。
+
+提交：
+
+1. d04fba0 docs(agent): claim BE-AI-PROVIDER-CATALOG-20260529
+2. f9ab5d7 feat(ai): add provider catalog APIs
+
+状态：REVIEW
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. Gateway `/ai/provider/**` 路由依赖既有 Gateway 路由任务或后续 main 合并结果。
+2. 真实 Provider health、Redis policy JSON 兼容、Python AI runtime 模型支持仍需统一运行电脑联调。
+3. OpenAI 价格未写死为实时价格；如需正式计费展示，应后续接入配置化价格源。
+
+文件锁：RELEASED
