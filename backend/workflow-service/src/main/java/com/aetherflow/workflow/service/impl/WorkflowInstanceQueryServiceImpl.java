@@ -31,6 +31,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int MAX_LOG_FRAMES = 200;
 
     private final WorkflowInstanceMapper instanceMapper;
     private final RuntimeEventStore runtimeEventStore;
@@ -70,7 +71,9 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
     @Override
     public List<LogFrame> logs(Long id) {
         WorkflowInstance instance = existingInstance(id);
-        return events(instance).stream()
+        List<RuntimeEvent> events = events(instance);
+        int fromIndex = Math.max(0, events.size() - MAX_LOG_FRAMES);
+        return events.subList(fromIndex, events.size()).stream()
                 .map(this::toLogFrame)
                 .toList();
     }
