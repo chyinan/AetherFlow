@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-1820-BE-STREAM-AUTH
 分支：feature/BE-STREAM-AUTH-20260529-stream-auth
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -161,3 +161,52 @@ Session ID：SESSION-20260529-1820-BE-STREAM-AUTH
 1. 2026-05-29 18:20，从 main 创建 feature/BE-STREAM-AUTH-20260529-stream-auth。
 2. 2026-05-29 18:20，已检查 AGENT.md 文件锁表，目标 notify-service/gateway-service 文件未发现 ACTIVE 冲突。
 3. 2026-05-29 18:20，登记任务边界、文件锁和契约变更。
+
+## 完成记录
+
+时间：2026-05-29 18:31 +08:00
+
+完成内容：
+
+1. 新增 `POST /notify/stream-token`，从 Gateway 透传的 `X-User-Id` / `X-Username` 签发 1 分钟 stream token。
+2. 新增 `StreamTokenService`，复用 common JWT secret/issuer 派生 stream issuer，token role 为 `STREAM_NOTIFY`。
+3. 新增 `StreamTokenHandshakeInterceptor`，`/notify/ws` 只接受 `streamToken` 或 `token` query token。
+4. `NotificationWebSocketHandler` 不再信任 `userId` query，改用 handshake attribute 中已校验的 `userId`。
+5. Gateway `permit-all` 增加 `/notify/ws`，让 Browser WebSocket 可以无 Authorization header 建连；其他 `/notify/**` 仍需 Bearer。
+6. 补充 notify-service controller/service/handshake/OpenAPI 测试和 gateway route/JWT filter 测试。
+
+验证记录：
+
+1. TDD 红灯：`mvn -pl backend/notify-service,backend/gateway-service -am -Dtest=NotifyControllerTest,StreamTokenServiceTest,StreamTokenHandshakeInterceptorTest,NotifyOpenApiContractTest,JwtAuthenticationFilterTest,GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test`
+   - 结果：未通过，符合预期。
+   - 证据：Gateway `/notify/ws` 未放行，Notify token/interceptor 类缺失。
+2. 目标测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/notify-service,backend/gateway-service -am -Dtest=NotifyControllerTest,StreamTokenServiceTest,StreamTokenHandshakeInterceptorTest,NotifyOpenApiContractTest,JwtAuthenticationFilterTest,GatewayRouteConfigurationTest -Dsurefire.failIfNoSpecifiedTests=false test`
+   - 结果：通过。
+   - 证据：gateway-service 12 tests；notify-service 6 tests；BUILD SUCCESS。
+3. 相关模块全量测试：`JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/notify-service,backend/gateway-service -am test`
+   - 结果：通过。
+   - 证据：common 8 tests；gateway-service 19 tests；notify-service 6 tests；BUILD SUCCESS。
+4. 静态检查：`git diff --check`
+   - 结果：通过。
+   - 证据：无 whitespace error，仅 Windows LF/CRLF 提示。
+5. 修改范围检查：`git diff --name-only main...HEAD`
+   - 结果：通过。
+   - 证据：修改限定在任务允许的 notify-service、gateway-service、AGENT.md、任务文档和当日日志。
+
+提交：
+
+1. 8001e03 docs(agent): claim BE-STREAM-AUTH-20260529
+2. 8275135 feat(notify): add stream token websocket auth
+
+状态：REVIEW
+
+合入 main：未合入。
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测真实 Gateway WebSocket upgrade、notify-service handshake、JWT 签发和 stream token 建连链路。
+2. 前端未在本任务修改，Notify WS fallback 仍保持由前端后续显式接入后再开启。
+
+文件锁：RELEASED
