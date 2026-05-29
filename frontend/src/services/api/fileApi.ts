@@ -2,10 +2,14 @@ import type { FileAsset } from '@/types/file'
 import { i18n } from '@/i18n'
 import { mapFileAssetViewToAsset, mapFileMetadataToAsset } from '@/api/mappers/fileMapper'
 import {
+  abortChunkUpload,
+  completeChunkUpload,
   deleteFile,
   downloadFileBlob,
   getUploadProgress,
+  initChunkUpload,
   listFiles,
+  uploadChunkPart,
   uploadFile,
   type UploadProgressView,
 } from '@/api/modules/file'
@@ -17,6 +21,8 @@ import { delay } from '../mock/timing'
 
 const unavailableStatuses = new Set([0, 404, 502, 503, 504])
 const unavailableCodeTokens = ['GATEWAY', 'UNAVAILABLE', 'TIMEOUT', 'NETWORK', 'ECONNREFUSED', 'ECONNABORTED', 'ERR_NETWORK']
+const chunkUploadThresholdBytes = 50 * 1024 * 1024
+const chunkSizeBytes = 8 * 1024 * 1024
 
 export interface FileUploadOptions {
   onProgress?: (percentage: number, progress?: UploadProgressView) => void
@@ -91,6 +97,59 @@ async function pollUploadProgress(
   }
 }
 
+function shouldUseChunkUpload(file: File) {
+  return file.size >= chunkUploadThresholdBytes
+}
+
+async function uploadFileInChunks(file: File, options: FileUploadOptions = {}) {
+  const totalParts = Math.max(1, Math.ceil(file.size / chunkSizeBytes))
+  let uploadId: string | null = null
+
+  const reportProgress = (completedParts: number, currentPartPercentage = 0) => {
+    const progress = ((completedParts + currentPartPercentage / 100) / totalParts) * 100
+    options.onProgress?.(Math.max(1, Math.min(99, Math.round(progress))))
+  }
+
+  try {
+    const init = await initChunkUpload({
+      originalName: file.name,
+      contentType: file.type || 'application/octet-stream',
+      size: file.size,
+      totalParts,
+    })
+    uploadId = init.uploadId
+    reportProgress(0)
+
+    for (let index = 0; index < totalParts; index += 1) {
+      const partNumber = index + 1
+      const start = index * chunkSizeBytes
+      const end = Math.min(file.size, start + chunkSizeBytes)
+      const chunk = file.slice(start, end)
+
+      await uploadChunkPart(uploadId, partNumber, chunk, {
+        filename: file.name,
+        onUploadProgress: (progress) => {
+          reportProgress(index, progress.percentage ?? 0)
+        },
+      })
+      reportProgress(partNumber)
+    }
+
+    const metadata = await completeChunkUpload(uploadId)
+    options.onProgress?.(100)
+    return mapFileMetadataToAsset(metadata, {
+      status: 'COMPLETED',
+      percentage: 100,
+      fileId: metadata.id,
+    })
+  } catch (error) {
+    if (uploadId) {
+      await abortChunkUpload(uploadId).catch(() => undefined)
+    }
+    throw error
+  }
+}
+
 export const fileApi = {
   async listFiles() {
     try {
@@ -122,6 +181,10 @@ export const fileApi = {
     }
 
     try {
+      if (shouldUseChunkUpload(file)) {
+        return await uploadFileInChunks(file, options)
+      }
+
       startPolling(taskId)
 
       const uploaded = await uploadFile(file, {
