@@ -14,6 +14,14 @@
     <artifactId>workflow-service</artifactId>
     <name>AetherFlow Workflow Service</name>
 
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+        </repository>
+    </repositories>
+
     <dependencies>
         <dependency>
             <groupId>com.aetherflow</groupId>
@@ -76,6 +84,11 @@
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-ollama</artifactId>
+            <version>0.8.1</version>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>

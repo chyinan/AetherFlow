@@ -17,6 +17,7 @@ public class WorkflowNodeCatalogService {
                 upload(),
                 whisper(),
                 summary(),
+                embedding(),
                 export(),
                 notifyNode(),
                 condition(),
@@ -119,6 +120,49 @@ public class WorkflowNodeCatalogService {
                 List.of(variable("transcription", "STRING", "Text produced by WHISPER or another upstream node.", "hello world")),
                 List.of(variable("summary", "STRING", "Generated summary text.", "Meeting action items")),
                 mapOf("textVariable", "transcription", "language", "Chinese", "prompt", "Focus on action items")
+        );
+    }
+
+    private WorkflowNodeCatalogItem embedding() {
+        return item(
+                "EMBEDDING",
+                "Embedding",
+                "AI",
+                "Splits text into overlapping chunks, embeds each chunk through a provider, and writes mock vector store records for RAG preprocessing.",
+                List.of(
+                        field("provider", "STRING", false, "Embedding provider name.", "ollama",
+                                List.of("ollama", "openai", "huggingface")),
+                        field("model", "STRING", false, "Embedding model name.", "nomic-embed-text",
+                                List.of("nomic-embed-text", "bge-m3")),
+                        field("text", "STRING", false, "Fixed text to embed. Usually omitted in favor of textVariable.", "Document text"),
+                        field("textVariable", "STRING", false, "Workflow variable used as embedding input.", "ocrText"),
+                        field("chunkSize", "NUMBER", false, "Maximum characters per chunk.", 512),
+                        field("overlap", "NUMBER", false, "Overlapping characters between adjacent chunks.", 128),
+                        field("vectorCollection", "STRING", false, "Mock vector collection name.", "workflow-embeddings")
+                ),
+                List.of(variable("ocrText", "STRING", "Text produced by OCR, Split, Summary or another upstream node.", "Knowledge base document text")),
+                List.of(
+                        variable("embeddingResults", "ARRAY", "Embedding results with vector, dimension, model and chunkIndex.", List.of(Map.of(
+                                "chunkIndex", 0,
+                                "dimension", 768,
+                                "model", "nomic-embed-text"
+                        ))),
+                        variable("embeddingVectors", "ARRAY", "Raw vectors for downstream vector store nodes.", List.of(List.of(0.12, -0.03, 0.98))),
+                        variable("embeddingVectorCount", "NUMBER", "Number of generated vectors.", 4),
+                        variable("embeddingModel", "STRING", "Embedding model used by the node.", "nomic-embed-text"),
+                        variable("embeddingVectorStore", "ARRAY", "Mock vector store records.", List.of(Map.of(
+                                "collection", "workflow-embeddings",
+                                "chunkIndex", 0
+                        )))
+                ),
+                mapOf(
+                        "provider", "ollama",
+                        "model", "nomic-embed-text",
+                        "textVariable", "ocrText",
+                        "chunkSize", 512,
+                        "overlap", 128,
+                        "vectorCollection", "workflow-embeddings"
+                )
         );
     }
 

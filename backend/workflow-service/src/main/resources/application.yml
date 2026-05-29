@@ -6,6 +6,12 @@ spring:
     name: workflow-service
   config:
     import: optional:nacos:${spring.application.name}.yml?group=DEFAULT_GROUP&refreshEnabled=true
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      embedding:
+        options:
+          model: ${WORKFLOW_EMBEDDING_MODEL:nomic-embed-text}
   data:
     redis:
       host: ${REDIS_HOST:192.168.101.68}
@@ -67,6 +73,17 @@ aetherflow:
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
       default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
+    embedding:
+      default-provider: ${WORKFLOW_EMBEDDING_PROVIDER:ollama}
+      default-model: ${WORKFLOW_EMBEDDING_MODEL:nomic-embed-text}
+      default-chunk-size: ${WORKFLOW_EMBEDDING_CHUNK_SIZE:512}
+      default-overlap: ${WORKFLOW_EMBEDDING_OVERLAP:128}
+      default-text-variable: ${WORKFLOW_EMBEDDING_TEXT_VARIABLE:ocrText}
+      default-vector-collection: ${WORKFLOW_EMBEDDING_VECTOR_COLLECTION:workflow-embeddings}
+      ollama-base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      timeout: ${WORKFLOW_EMBEDDING_TIMEOUT:30s}
+      thread-pool-size: ${WORKFLOW_EMBEDDING_THREAD_POOL_SIZE:2}
+      queue-capacity: ${WORKFLOW_EMBEDDING_QUEUE_CAPACITY:20}
     runtime:
       retry:
         max-attempts: ${WORKFLOW_RUNTIME_RETRY_MAX_ATTEMPTS:3}
