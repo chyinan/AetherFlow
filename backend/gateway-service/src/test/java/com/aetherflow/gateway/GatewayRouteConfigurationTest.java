@@ -132,6 +132,31 @@ class GatewayRouteConfigurationTest {
         assertThat(route.getUri().toString()).isEqualTo("lb://notify-service");
     }
 
+    @Test
+    void settingsPathsRouteToAuthService() {
+        RouteDefinition authServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "auth-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(authServiceRoute).isNotNull();
+        assertThat(authServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString())
+                        .contains("Path", "/settings/**"));
+
+        List.of(
+                "/settings/profile",
+                "/settings/members",
+                "/settings/billing",
+                "/settings/audit-events"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("auth-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://auth-service");
+        });
+    }
+
     private Route firstMatchingRoute(String path) {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.get(path).build()

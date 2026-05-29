@@ -90,7 +90,7 @@ spring:
         - id: auth-service
           uri: lb://auth-service
           predicates:
-            - Path=/auth/**
+            - Path=/auth/**,/settings/**
         - id: workflow-service
           uri: lb://workflow-service
           predicates:
@@ -145,6 +145,7 @@ aetherflow:
         - name: auth-api
           patterns:
             - /auth
+            - /settings
           match-strategy: prefix
         - name: workflow-api
           patterns:
