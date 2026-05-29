@@ -4,7 +4,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260529-FINAL-INTEGRATION-P1-AI-FAILOVER
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260529-p1-ai-failover-ui
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 
@@ -86,3 +86,39 @@ Agent 编码计划：
 1. 本机未启动真实 Gateway/ai-service，无法完成浏览器端真实服务联调。
 2. 若后端无近期 AIInferenceLog，日志区只能展示空态，需 demo 前触发一次真实 Summary/LLM 请求。
 3. Mock fallback 仅用于后端不可用时 UI 不白屏，不替代 Whisper/LLM 主线演示。
+
+## 完成记录
+
+时间：2026-05-29 22:50:00 +08:00
+状态：REVIEW
+
+完成内容：
+
+1. `frontend/src/api/modules/ai.ts` 补齐 `/ai/provider/catalog`、`/ai/provider/logs?limit=`、`requestTimeout` 与 catalog/log DTO 类型。
+2. `aiMapper` 合并真实 catalog、status、policy、metrics、logs，去掉 Models 页 `contract pending`/mock-only 映射。
+3. `modelApi` 一次性拉取真实 AI Provider snapshot，并提供 `recoverProvider` 与 `switchPrimaryProvider`。
+4. `modelStore` 增加 loading、error、operationError、recover、provider switch 状态；失败时保留已有快照并写 UI 日志。
+5. `ModelsPage.vue` 增加真实/安全回退来源 badge、error/retry、空态、设为主路由、恢复熔断、health/circuit/provider order 展示。
+6. 中英文文案去掉 Models 页 mock-only 表述。
+7. 未修改 backend、python-ai-service、Docker、Runtime Core、接口、DTO、数据库。
+
+验证记录：
+
+1. `cd frontend; npm run build`：通过。vue-tsc 与 Vite build 通过，仅既有 chunk size warning。
+2. `git diff --name-only main...HEAD`：通过，修改范围在本任务文件锁内。
+3. `git diff --check main...HEAD`：通过。
+4. `rg -n "^(<<<<<<<|=======|>>>>>>>)" AGENT.md docs/agent/logs/2026-05-29.md frontend/src`：通过。无冲突标记输出。
+
+提交：
+
+1. 27fd196 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260529-P1-ai-failover-ui
+2. 2b60a28 fix(frontend): stabilize ai failover models ui
+
+统一运行电脑验证：未运行。
+
+遗留问题：
+
+1. 需统一运行电脑补测真实 Gateway `/ai/provider/**`、OpenAI fail -> Ollama fallback、Provider switch/recover。
+2. 若无真实 AIInferenceLog，Demo 前需先跑一次 Summary/LLM 请求产生日志。
+
+文件锁：RELEASED。
