@@ -96,9 +96,10 @@ services:
       dockerfile: python-ai-service/Dockerfile
     container_name: aetherflow-python-ai-service
     environment:
-      ENABLE_WHISPER: "false"
-      WHISPER_MODEL: small
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      ENABLE_WHISPER: ${ENABLE_WHISPER:-false}
+      ENABLE_LLM: ${ENABLE_LLM:-false}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8200:8200"
@@ -113,6 +114,10 @@ services:
       args:
         VITE_API_BASE: ${VITE_API_BASE:-/api}
         VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
+        VITE_SSE_BASE: ${VITE_SSE_BASE:-/sse}
+        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-true}
+        VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
+        VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-frontend
     volumes:
       - frontend-dist:/output
@@ -128,6 +133,10 @@ services:
       args:
         VITE_API_BASE: ${VITE_API_BASE:-/api}
         VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
+        VITE_SSE_BASE: ${VITE_SSE_BASE:-/sse}
+        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-true}
+        VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
+        VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-nginx
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
@@ -188,8 +197,11 @@ services:
       RABBITMQ_USERNAME: aetherflow
       RABBITMQ_PASSWORD: aetherflow
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_PUBLIC_ENDPOINT: http://192.168.101.68:9000
-      PYTHON_AI_BASE_URL: http://python-ai-service:8200
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
+      PYTHON_AI_BASE_URL: ${PYTHON_AI_BASE_URL:-http://python-ai-service:8200}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      WORKFLOW_OCR_MOCK: ${WORKFLOW_OCR_MOCK:-true}
+      WORKFLOW_OCR_MOCK_TEXT: ${WORKFLOW_OCR_MOCK_TEXT:-Demo safe OCR text for AetherFlow.}
       SEATA_ADDR: seata:8091
       JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
