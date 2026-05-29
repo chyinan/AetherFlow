@@ -3,6 +3,8 @@ const LEGACY_TOKEN_KEY = 'af_token'
 const LEGACY_USER_KEY = 'af_user'
 const DEFAULT_EXPIRING_SOON_WINDOW_MS = 60_000
 
+let memorySession: AuthSession | null = null
+
 export interface AuthSessionUserSnapshot {
   id?: string
   name?: string
@@ -92,15 +94,18 @@ function normalizeSession(session: AuthSession): AuthSession {
 export function readSession(): AuthSession | null {
   const storage = getStorage()
   if (!storage) {
-    return null
+    return memorySession ? normalizeSession(memorySession) : null
   }
 
   const current = parseJson<AuthSession>(safeGetItem(storage, SESSION_STORAGE_KEY))
   if (current?.accessToken) {
+    memorySession = normalizeSession(current)
     return normalizeSession(current)
   }
 
-  return readLegacySession(storage)
+  const legacySession = readLegacySession(storage)
+  memorySession = legacySession ? normalizeSession(legacySession) : memorySession
+  return legacySession ? normalizeSession(legacySession) : memorySession
 }
 
 export function getAccessToken() {
@@ -112,15 +117,17 @@ export function getRefreshToken() {
 }
 
 export function setSession(session: AuthSession) {
+  memorySession = normalizeSession(session)
   const storage = getStorage()
   if (!storage) {
     return
   }
 
-  safeSetItem(storage, SESSION_STORAGE_KEY, JSON.stringify(normalizeSession(session)))
+  safeSetItem(storage, SESSION_STORAGE_KEY, JSON.stringify(memorySession))
 }
 
 export function clearSession() {
+  memorySession = null
   const storage = getStorage()
   if (!storage) {
     return
