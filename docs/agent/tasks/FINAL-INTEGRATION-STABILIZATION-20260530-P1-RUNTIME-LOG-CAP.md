@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260524-2202-cdx7a9
 分支：feature/FINAL-INTEGRATION-STABILIZATION-20260530-p1-runtime-log-cap
-状态：REVIEW
+状态：DONE
 
 ## 任务目标
 
@@ -115,11 +115,16 @@ P1 Demo 性能稳定：降低长视频 Whisper 任务日志接口拖慢 UI 的�
 2. 回归组合：`mvn -pl backend/workflow-service -am "-Dtest=WorkflowInstanceQueryServiceImplTest,WorkflowInstanceControllerTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：通过，8 tests，0 failures。
 3. `git diff --check`：通过，无 whitespace error，仅 Windows LF/CRLF 提示。
 4. 冲突标记扫描：通过，无输出。
+5. main 合入后回归组合：`mvn -pl backend/workflow-service -am "-Dtest=WorkflowInstanceQueryServiceImplTest,WorkflowInstanceControllerTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`：通过，8 tests，0 failures。
+6. main 合入后 `git diff --check HEAD^1..HEAD`：通过。
+7. main 合入后冲突标记扫描：通过，无输出。
 
 ## 提交记录
 
 - claim：e823c99 docs(agent): claim FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP
 - business：ed7e16c fix(workflow): cap runtime log history response
+- handoff：a13b8dd docs(agent): handoff FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP
+- main merge：83f19bd merge: FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP
 
 ## 交接说明
 
