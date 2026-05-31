@@ -36,6 +36,9 @@ public class SettingsServiceImpl implements SettingsService {
     private static final String STATUS_INVITED = "invited";
     private static final String STATUS_REMOVED = "removed";
     private static final String AUDIT_ACTOR = "aether.operator";
+    private static final String DEFAULT_OWNER_NAME = "AetherFlow Operator";
+    private static final String DEFAULT_OWNER_EMAIL = "aether.operator@aetherflow.local";
+    private static final String DEFAULT_OWNER_ROLE = "Owner";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final SettingsProfileMapper profileMapper;
@@ -66,7 +69,9 @@ public class SettingsServiceImpl implements SettingsService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public List<SettingsMemberResponse> listMembers() {
+        ensureDefaultOwnerMember();
         LambdaQueryWrapper<SettingsMemberEntity> wrapper = new LambdaQueryWrapper<SettingsMemberEntity>()
                 .ne(SettingsMemberEntity::getStatus, STATUS_REMOVED)
                 .orderByAsc(SettingsMemberEntity::getId);
@@ -193,6 +198,24 @@ public class SettingsServiceImpl implements SettingsService {
             throw new BusinessException(ResultCode.NOT_FOUND, "settings member not found");
         }
         return member;
+    }
+
+    private void ensureDefaultOwnerMember() {
+        Long memberCount = memberMapper.selectCount(new LambdaQueryWrapper<SettingsMemberEntity>()
+                .ne(SettingsMemberEntity::getStatus, STATUS_REMOVED));
+        if (memberCount != null && memberCount > 0) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        SettingsMemberEntity member = new SettingsMemberEntity();
+        member.setName(DEFAULT_OWNER_NAME);
+        member.setEmail(DEFAULT_OWNER_EMAIL);
+        member.setRole(DEFAULT_OWNER_ROLE);
+        member.setStatus(STATUS_ACTIVE);
+        member.setLastSeen(now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
+        member.setCreatedAt(now);
+        member.setUpdatedAt(now);
+        memberMapper.insert(member);
     }
 
     private void recordAudit(String action, String target) {

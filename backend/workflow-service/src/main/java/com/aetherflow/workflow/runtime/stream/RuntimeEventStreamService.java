@@ -6,6 +6,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -37,6 +38,7 @@ public class RuntimeEventStreamService {
     private final long pollIntervalMs;
     private final long heartbeatIntervalMs;
 
+    @Autowired
     public RuntimeEventStreamService(RuntimeEventStore runtimeEventStore) {
         this(runtimeEventStore, newExecutor(), STREAM_TIMEOUT_MS, POLL_INTERVAL_MS, HEARTBEAT_INTERVAL_MS);
     }

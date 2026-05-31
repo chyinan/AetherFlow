@@ -10,47 +10,29 @@ import {
   Workflow,
   Zap,
 } from 'lucide-vue-next'
-import { onBeforeUnmount, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 
 const { t } = useI18n()
-
-const cursor = reactive({
-  x: 48,
-  y: 60,
-  ready: false,
-})
-
-function handlePointerMove(event: PointerEvent) {
-  cursor.x = event.clientX
-  cursor.y = event.clientY
-  cursor.ready = true
-}
-
-onMounted(() => {
-  window.addEventListener('pointermove', handlePointerMove, { passive: true })
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('pointermove', handlePointerMove)
-})
 </script>
 
 <template>
   <main class="relative min-h-screen overflow-hidden bg-white text-text-primary">
-    <div class="absolute inset-0 aether-grid opacity-90" />
+    <div class="absolute inset-0 landing-blueprint opacity-95" />
+    <div class="pointer-events-none absolute inset-0 hidden lg:block">
+      <span class="absolute right-[18%] top-[28%] h-px w-44 bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
+      <span class="absolute right-[22%] top-[28%] h-44 w-px bg-gradient-to-b from-transparent via-primary/20 to-transparent" />
+      <span class="absolute right-[10%] top-[54%] h-px w-60 bg-gradient-to-r from-transparent via-primary/15 to-transparent" />
+      <span class="absolute right-[16%] top-[44%] h-32 w-px bg-gradient-to-b from-transparent via-primary/15 to-transparent" />
+      <span class="absolute right-[31%] top-[62%] h-px w-28 bg-primary/10" />
+      <span class="absolute right-[31%] top-[62%] h-16 w-px bg-primary/10" />
+    </div>
     <div class="absolute left-0 top-24 hidden h-px w-full bg-primary/10 lg:block" />
     <div class="absolute left-[7%] top-0 hidden h-full w-px bg-primary/10 lg:block" />
     <div class="absolute right-[7%] top-0 hidden h-full w-px bg-primary/10 lg:block" />
     <div class="absolute left-1/2 top-0 hidden h-full w-px bg-primary/10 lg:block" />
-    <div
-      class="pointer-events-none fixed left-0 top-0 z-30 hidden h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow-[0_0_24px_rgba(37,99,235,0.38)] transition-opacity duration-150 lg:block"
-      :class="cursor.ready ? 'opacity-100' : 'opacity-0'"
-      :style="{ transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0) translate(-50%, -50%)` }"
-    />
 
     <header class="relative z-10 border-b border-primary/10 bg-white/85 backdrop-blur">
       <div class="mx-auto flex h-24 max-w-[1720px] items-center justify-between px-5 sm:px-8 lg:px-14">
@@ -62,13 +44,6 @@ onBeforeUnmount(() => {
             {{ t('app.name') }}
           </span>
         </RouterLink>
-
-        <nav class="hidden items-center gap-10 text-base font-medium text-text-secondary lg:flex">
-          <a href="#workspace" class="transition hover:text-primary">{{ t('landing.nav.workspace') }}</a>
-          <a href="#workflow" class="transition hover:text-primary">{{ t('landing.nav.workflow') }}</a>
-          <a href="#observability" class="transition hover:text-primary">{{ t('landing.nav.observability') }}</a>
-          <a href="#docs" class="transition hover:text-primary">{{ t('landing.nav.docs') }}</a>
-        </nav>
 
         <div class="flex items-center gap-3">
           <a
@@ -100,7 +75,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <section class="relative z-10 mx-auto grid min-h-[calc(100vh-96px)] max-w-[1720px] grid-cols-1 px-5 sm:px-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(420px,0.95fr)] lg:px-14">
+    <section class="relative z-10 mx-auto grid min-h-[calc(100vh-96px)] max-w-[1720px] grid-cols-1 px-5 sm:px-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-14">
       <div id="workspace" class="flex min-h-[650px] flex-col justify-center border-primary/10 py-14 lg:border-r lg:py-20">
         <p class="mb-8 inline-flex w-fit items-center gap-2 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">
           <Zap class="h-4 w-4" />
@@ -149,7 +124,23 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <aside id="workflow" class="flex min-h-[560px] flex-col justify-center py-12 lg:pl-12">
+      <div aria-hidden="true" class="relative hidden min-h-[650px] items-center justify-center lg:flex">
+        <span class="absolute inset-x-12 bottom-28 h-px bg-primary/10" />
+      </div>
+    </section>
+
+    <section id="workflow" class="relative z-10 mx-auto max-w-[1720px] border-t border-primary/10 px-5 py-16 sm:px-8 lg:px-14 lg:py-24">
+      <div class="mb-10 max-w-3xl">
+        <p class="text-sm font-semibold uppercase tracking-[0.22em] text-primary">{{ t('landing.panel.kicker') }}</p>
+        <h2 class="mt-4 font-display text-4xl font-semibold leading-tight text-black sm:text-5xl">
+          {{ t('landing.panel.title') }}
+        </h2>
+        <p class="mt-4 text-base leading-7 text-text-secondary">
+          {{ t('landing.subtitle') }}
+        </p>
+      </div>
+
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
         <div class="border border-primary/10 bg-white/90 shadow-panel backdrop-blur">
           <div class="flex items-center justify-between border-b border-primary/10 px-5 py-4">
             <div>
@@ -198,7 +189,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div id="observability" class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div id="observability" class="grid grid-cols-1 gap-5">
           <div class="border border-primary/10 bg-white/80 p-5">
             <Globe2 class="mb-5 h-6 w-6 text-primary" />
             <p class="font-semibold text-text-primary">{{ t('landing.tiles.deploy.title') }}</p>
@@ -210,7 +201,7 @@ onBeforeUnmount(() => {
             <p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('landing.tiles.trace.body') }}</p>
           </div>
         </div>
-      </aside>
+      </div>
     </section>
   </main>
 </template>

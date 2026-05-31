@@ -2,21 +2,30 @@ import { defineStore } from 'pinia'
 
 import { getStoredLocale, setStoredLocale, type AppLocale } from '@/i18n/locale'
 import { i18n } from '@/i18n/index'
-import type { NotifyMessageDTO } from '@/api/modules/notify'
+import {
+  clearNotificationMessages,
+  listNotificationMessages,
+  markAllNotificationMessagesRead,
+  type NotificationRecordDTO,
+  type NotifyMessageDTO,
+} from '@/api/modules/notify'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { ServiceStatus } from '@/types/api'
 
-interface UiNotification {
+export interface UiNotification {
   id: string
   time: string
   title: string
   messageKey: string
   messageParams?: Record<string, string>
   statusKey?: string
+  source?: string
+  read: boolean
   tone: 'online' | 'degraded' | 'offline'
 }
 
 const themeStorageKey = 'aetherflow.theme'
+const notificationStorageKey = 'aetherflow.notifications'
 
 function readTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') {
@@ -76,6 +85,71 @@ function notificationMessageKey(message: NotifyMessageDTO) {
   return 'notifications.connectionIssue'
 }
 
+function notificationTone(value: string | undefined): UiNotification['tone'] {
+  const normalized = value?.toLowerCase() ?? ''
+  if (normalized.includes('fail') || normalized.includes('error') || normalized.includes('down')) {
+    return 'offline'
+  }
+  if (normalized.includes('warn') || normalized.includes('degrad')) {
+    return 'degraded'
+  }
+  return 'online'
+}
+
+function normalizeRecord(record: NotificationRecordDTO): UiNotification {
+  const message: NotifyMessageDTO = {
+    userId: record.userId,
+    channel: record.channel,
+    eventType: record.eventType,
+    payload: record.payload ?? {},
+    occurredAt: record.createdAt,
+  }
+  const messageKey = notificationMessageKey(message)
+
+  return {
+    id: `record-${record.id}`,
+    time: notificationTime(record.createdAt),
+    title: notificationTitle(message),
+    messageKey,
+    messageParams: {
+      service: notificationServiceLabel(message),
+    },
+    statusKey: messageKey === 'notifications.connectionIssue' ? 'status.online' : undefined,
+    source: record.channel ?? 'notify',
+    read: (record.status ?? '').toUpperCase() === 'READ',
+    tone: notificationTone(record.eventType ?? record.status),
+  }
+}
+
+function readStoredNotifications() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const value = window.localStorage.getItem(notificationStorageKey)
+    const parsed = value ? JSON.parse(value) : []
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed.filter((item): item is UiNotification => {
+      return typeof item?.id === 'string'
+        && typeof item?.time === 'string'
+        && typeof item?.title === 'string'
+        && typeof item?.messageKey === 'string'
+    }).map((item) => ({ ...item, read: Boolean(item.read) }))
+  } catch {
+    return []
+  }
+}
+
+function writeStoredNotifications(notifications: UiNotification[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.localStorage.setItem(notificationStorageKey, JSON.stringify(notifications.slice(0, 20)))
+}
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarCompact: true,
@@ -85,7 +159,8 @@ export const useUiStore = defineStore('ui', {
     notifyRealtimeState: 'online' as 'online' | 'reconnecting' | 'offline',
     locale: getStoredLocale() as AppLocale,
     theme: initialTheme as 'light' | 'dark',
-    notifications: [] as UiNotification[],
+    notifications: readStoredNotifications() as UiNotification[],
+    notificationsLoading: false,
     lastRealtimeNoticeState: 'online' as 'online' | 'reconnecting' | 'offline',
     statuses: [
       { name: 'Gateway', state: 'online', detail: 'mock gateway ready' },
@@ -93,6 +168,9 @@ export const useUiStore = defineStore('ui', {
       { name: 'AI Runtime', state: 'degraded', detail: 'mock provider only' },
     ] as ServiceStatus[],
   }),
+  getters: {
+    unreadNotificationCount: (state) => state.notifications.filter((item) => !item.read).length,
+  },
   actions: {
     setSelectedNode(nodeId: string | null) {
       this.selectedNodeId = nodeId
@@ -115,6 +193,8 @@ export const useUiStore = defineStore('ui', {
             time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
             title: 'Realtime',
             messageKey: 'notifications.realtimeRestored',
+            source: 'realtime',
+            read: false,
             tone: 'online',
           })
         } else if (state !== 'online') {
@@ -127,10 +207,13 @@ export const useUiStore = defineStore('ui', {
               service: 'Realtime',
             },
             statusKey: state === 'offline' ? 'status.offline' : 'status.degraded',
+            source: 'realtime',
+            read: false,
             tone: state === 'offline' ? 'offline' : 'degraded',
           })
         }
-        this.notifications = this.notifications.slice(0, 8)
+        this.notifications = this.notifications.slice(0, 20)
+        writeStoredNotifications(this.notifications)
         this.lastRealtimeNoticeState = state
       }
     },
@@ -160,9 +243,38 @@ export const useUiStore = defineStore('ui', {
           service: notificationServiceLabel(message),
         },
         statusKey: messageKey === 'notifications.connectionIssue' ? 'status.online' : undefined,
+        source: message.channel ?? 'notify',
+        read: false,
         tone: 'online',
       })
-      this.notifications = this.notifications.slice(0, 8)
+      this.notifications = this.notifications.slice(0, 20)
+      writeStoredNotifications(this.notifications)
+    },
+    async loadNotificationMessages(limit = 20) {
+      this.notificationsLoading = true
+      try {
+        const records = await listNotificationMessages(limit)
+        this.notifications = records.map(normalizeRecord)
+        writeStoredNotifications(this.notifications)
+      } finally {
+        this.notificationsLoading = false
+      }
+    },
+    async markAllNotificationsRead() {
+      try {
+        await markAllNotificationMessagesRead()
+      } finally {
+        this.notifications = this.notifications.map((item) => ({ ...item, read: true }))
+        writeStoredNotifications(this.notifications)
+      }
+    },
+    async clearNotifications() {
+      try {
+        await clearNotificationMessages()
+      } finally {
+        this.notifications = []
+        writeStoredNotifications(this.notifications)
+      }
     },
     startNotificationStream(userId: number | string) {
       const normalizedUserId = String(userId)

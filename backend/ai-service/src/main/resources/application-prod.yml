@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:mysql}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+
+aetherflow:
+  python-ai:
+    base-url: ${PYTHON_AI_BASE_URL:http://python-ai-service:8200}
+  ai:
+    default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
+    default-model: ${AI_DEFAULT_MODEL:qwen3:8b}
+    provider-priority:
+      - ${AI_PROVIDER_PRIMARY:OLLAMA}
+      - ${AI_PROVIDER_SECONDARY:OPENAI}

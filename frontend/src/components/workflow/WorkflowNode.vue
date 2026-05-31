@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Split,
   Trash2,
+  Upload,
   Variable,
   Wrench,
 } from 'lucide-vue-next'
@@ -34,7 +35,6 @@ import { useI18n } from 'vue-i18n'
 import { Handle, Position } from '@vue-flow/core'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { useUiStore } from '@/stores/uiStore'
 import type { WorkflowNodeData, WorkflowNodeKind } from '@/types/workflow'
 
 const props = defineProps<{
@@ -45,12 +45,16 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   addAfter: [nodeId: string, event: MouseEvent]
+  select: [nodeId: string]
+  testNode: [nodeId: string]
+  duplicateNode: [nodeId: string]
+  deleteNode: [nodeId: string]
 }>()
 
-const uiStore = useUiStore()
 const { t } = useI18n()
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
+  start: Upload,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,
@@ -118,7 +122,7 @@ const nodeRows = computed(() => {
   <div
     class="group relative w-[244px] rounded-lg border bg-white shadow-sm transition"
     :class="isActive ? 'border-primary shadow-node' : 'border-app-border hover:border-primary/30 hover:shadow-node'"
-    @click="uiStore.setSelectedNode(id)"
+    @click.stop="emit('select', id)"
   >
     <Handle type="target" :position="Position.Left" class="!h-3 !w-3 !border-2 !border-white !bg-primary" />
     <div class="border-b border-app-border p-3">
@@ -161,13 +165,28 @@ const nodeRows = computed(() => {
     </div>
 
     <div class="flex items-center justify-end gap-1 border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" :title="t('workflow.testNode')">
+      <button
+        type="button"
+        class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
+        :title="t('workflow.testNode')"
+        @click.stop="emit('testNode', id)"
+      >
         <Play class="h-3.5 w-3.5" />
       </button>
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary" :title="t('workflow.duplicateNode')">
+      <button
+        type="button"
+        class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
+        :title="t('workflow.duplicateNode')"
+        @click.stop="emit('duplicateNode', id)"
+      >
         <Copy class="h-3.5 w-3.5" />
       </button>
-      <button class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error" :title="t('workflow.deleteNode')">
+      <button
+        type="button"
+        class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
+        :title="t('workflow.deleteNode')"
+        @click.stop="emit('deleteNode', id)"
+      >
         <Trash2 class="h-3.5 w-3.5" />
       </button>
     </div>

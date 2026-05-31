@@ -47,6 +47,7 @@ export interface WorkflowRunNodeSummaryDTO {
   latestEventType?: string
   startedAt?: string
   completedAt?: string
+  durationMs?: number
   attributes?: Record<string, unknown>
 }
 
@@ -92,6 +93,34 @@ export function createDefinition(payload: WorkflowDefinitionDTO) {
   return apiClient.post<WorkflowDefinitionEntity>('/workflows/definitions', payload, {
     source: 'workflow',
   })
+}
+
+export function updateDefinition(definitionId: number | string, payload: WorkflowDefinitionDTO) {
+  return apiClient.put<WorkflowDefinitionEntity>(
+    `/workflows/definitions/${encodeURIComponent(String(definitionId))}`,
+    payload,
+    { source: 'workflow' },
+  )
+}
+
+export function deleteDefinition(definitionId: number | string) {
+  return apiClient.delete<void>(
+    `/workflows/definitions/${encodeURIComponent(String(definitionId))}`,
+    { source: 'workflow' },
+  )
+}
+
+export function listDefinitions() {
+  return apiClient.get<WorkflowDefinitionEntity[]>('/workflows/definitions', {
+    source: 'workflow',
+  })
+}
+
+export function getDefinition(definitionId: number | string) {
+  return apiClient.get<WorkflowDefinitionEntity>(
+    `/workflows/definitions/${encodeURIComponent(String(definitionId))}`,
+    { source: 'workflow' },
+  )
 }
 
 export function startInstance(definitionId: number, payload: StartWorkflowRequest = {}) {

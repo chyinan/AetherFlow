@@ -5,18 +5,30 @@ services:
     image: mysql:8.0.26
     container_name: aetherflow-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_ROOT_PASSWORD: mysql
       MYSQL_DATABASE: aetherflow
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+08:00
+      - --max-connections=500
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
     ports:
       - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -28,6 +40,12 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -38,11 +56,21 @@ services:
       RABBITMQ_DEFAULT_USER: aetherflow
       RABBITMQ_DEFAULT_PASS: aetherflow
       RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -59,6 +87,12 @@ services:
       - "9001:9001"
     volumes:
       - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -76,6 +110,13 @@ services:
       - "8848:8848"
       - "9848:9848"
       - "9849:9849"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -85,8 +126,66 @@ services:
     environment:
       SEATA_IP: seata
       SEATA_PORT: 8091
+      STORE_MODE: db
+    volumes:
+      - ./docker/seata/application.yml:/seata-server/resources/application.yml:ro
     ports:
       - "8091:8091"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
+  sentinel-dashboard:
+    image: bladex/sentinel-dashboard:1.8.8
+    container_name: aetherflow-sentinel-dashboard
+    ports:
+      - "8858:8858"
+    environment:
+      JAVA_OPTS: "-Dserver.port=8858 -Dcsp.sentinel.dashboard.server=127.0.0.1:8858 -Dproject.name=sentinel-dashboard"
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
+  elasticsearch:
+    image: elasticsearch:7.17.7
+    container_name: aetherflow-elasticsearch
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+      xpack.security.enabled: "false"
+      TZ: Asia/Shanghai
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health | grep -E 'green|yellow'"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
+  kibana:
+    image: kibana:7.17.7
+    container_name: aetherflow-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      TZ: Asia/Shanghai
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -105,6 +204,13 @@ services:
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
     ports:
       - "8200:8200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8200/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -165,18 +271,30 @@ services:
     container_name: aetherflow-gateway-service
     environment:
       NACOS_ADDR: nacos:8848
+      REDIS_HOST: redis
+      SPRING_PROFILES_ACTIVE: prod
       JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
     ports:
       - "8080:8080"
     depends_on:
-      - nacos
-      - auth-service
-      - workflow-service
-      - task-service
-      - ai-service
-      - file-service
-      - notify-service
+      nacos:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      workflow-service:
+        condition: service_started
+      task-service:
+        condition: service_started
+      ai-service:
+        condition: service_started
+      file-service:
+        condition: service_started
+      notify-service:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -188,12 +306,13 @@ services:
         SERVICE: auth-service
     container_name: aetherflow-auth-service
     environment: &java-service-env
+      SPRING_PROFILES_ACTIVE: prod
       NACOS_ADDR: nacos:8848
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: aetherflow
       MYSQL_USERNAME: root
-      MYSQL_PASSWORD: root123456
+      MYSQL_PASSWORD: mysql
       REDIS_HOST: redis
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USERNAME: aetherflow
@@ -210,8 +329,13 @@ services:
     ports:
       - "8101:8101"
     depends_on:
-      - mysql
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -227,10 +351,17 @@ services:
     ports:
       - "8102:8102"
     depends_on:
-      - mysql
-      - nacos
-      - seata
-      - task-service
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata:
+        condition: service_started
+      task-service:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -247,10 +378,17 @@ services:
     ports:
       - "8103:8103"
     depends_on:
-      - mysql
-      - redis
-      - rabbitmq
-      - nacos
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -266,11 +404,17 @@ services:
     ports:
       - "8104:8104"
     depends_on:
-      - mysql
-      - rabbitmq
-      - nacos
-      - python-ai-service
-      - file-service
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      python-ai-service:
+        condition: service_healthy
+      file-service:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -286,9 +430,15 @@ services:
     ports:
       - "8105:8105"
     depends_on:
-      - mysql
-      - minio
-      - nacos
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+      seata:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -304,14 +454,19 @@ services:
     ports:
       - "8106:8106"
     depends_on:
-      - mysql
-      - rabbitmq
-      - nacos
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - aetherflow
 
 networks:
   aetherflow:
+    name: aetherflow-network
     driver: bridge
 
 volumes:
@@ -320,4 +475,5 @@ volumes:
   rabbitmq-data:
   minio-data:
   frontend-dist:
+  elasticsearch-data:
 

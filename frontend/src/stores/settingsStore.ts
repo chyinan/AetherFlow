@@ -96,6 +96,56 @@ export const useSettingsStore = defineStore('settings', {
       provider.status = 'installed'
       this.recordAudit('installed model provider', provider.name)
     },
+    async createWorkspaceMember(payload: {
+      name: string
+      email: string
+      role: WorkspaceMember['role']
+    }) {
+      const member = await settingsApi.createMember(payload)
+      this.members = [...this.members, member]
+      this.recordAudit('invited workspace member', member.email)
+      return member
+    },
+    async updateWorkspaceMember(memberId: string, payload: {
+      role?: WorkspaceMember['role']
+      status?: WorkspaceMember['status']
+    }) {
+      const member = await settingsApi.updateMember(memberId, payload)
+      const index = this.members.findIndex((item) => item.id === member.id)
+      if (index >= 0) {
+        this.members[index] = member
+      }
+      this.recordAudit('updated workspace member', member.email)
+      return member
+    },
+    async deleteWorkspaceMember(memberId: string) {
+      const member = this.members.find((item) => item.id === memberId)
+      await settingsApi.deleteMember(memberId)
+      this.members = this.members.filter((item) => item.id !== memberId)
+      this.recordAudit('removed workspace member', member?.email ?? memberId)
+    },
+    async configureModelProvider(payload: {
+      providerKey: string
+      enabled: boolean
+      apiKey?: string | null
+      baseUrl: string
+      defaultModel: string
+    }) {
+      const provider = await settingsApi.updateModelProviderConfig(payload.providerKey, {
+        enabled: payload.enabled,
+        apiKey: payload.apiKey,
+        baseUrl: payload.baseUrl,
+        defaultModel: payload.defaultModel,
+      })
+      const index = this.modelProviders.findIndex((item) => item.providerKey === provider.providerKey)
+      if (index >= 0) {
+        this.modelProviders[index] = provider
+      } else {
+        this.modelProviders.push(provider)
+      }
+      this.recordAudit('configured model provider', provider.name)
+      return provider
+    },
     connectDataSource(sourceId: string) {
       const source = this.dataSources.find((item) => item.id === sourceId)
       if (!source) return

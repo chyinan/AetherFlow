@@ -108,7 +108,12 @@ export const mockIntegrations: IntegrationSetting[] = [
   },
 ]
 
-export const mockSettingsModelProviders: SettingsModelProvider[] = [
+type SettingsModelProviderSeed = Omit<
+  SettingsModelProvider,
+  'providerKey' | 'providerType' | 'baseUrl' | 'enabled' | 'configured' | 'apiKeyConfigured' | 'apiKeyPreview'
+>
+
+const mockSettingsModelProviderSeeds: SettingsModelProviderSeed[] = [
   {
     id: 'provider-openai',
     name: 'OpenAI',
@@ -220,6 +225,17 @@ export const mockSettingsModelProviders: SettingsModelProvider[] = [
     tags: ['chat', 'tool-call'],
   },
 ]
+
+export const mockSettingsModelProviders: SettingsModelProvider[] = mockSettingsModelProviderSeeds.map((provider) => ({
+  providerKey: provider.id.replace(/^provider-/, ''),
+  providerType: 'openai-compatible',
+  baseUrl: '-',
+  enabled: provider.status === 'installed',
+  configured: provider.status === 'installed',
+  apiKeyConfigured: provider.status === 'installed',
+  apiKeyPreview: provider.status === 'installed' ? '••••' : '',
+  ...provider,
+}))
 
 export const mockDataSourceProviders: DataSourceProvider[] = [
   {

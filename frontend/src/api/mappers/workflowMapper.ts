@@ -2,6 +2,7 @@ import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphNode } from '@/types/workflow'
 
 type BackendNodeType =
+  | 'START'
   | 'UPLOAD'
   | 'OCR'
   | 'WHISPER'
@@ -12,6 +13,7 @@ type BackendNodeType =
   | 'CONDITION'
 
 const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
+  start: 'START',
   whisper: 'WHISPER',
   summary: 'SUMMARY',
   output: 'END',
@@ -93,6 +95,21 @@ function normalizeUploadConfig(config: Record<string, unknown>, nextNodes: strin
   }, nextNodes)
 }
 
+function normalizeStartConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const variables = {
+    ...toRecord(config.variables),
+  }
+  const fileId = optionalNumber(config.fileId) ?? optionalString(config.fileId)
+  if (fileId !== undefined) {
+    variables.fileId = fileId
+  }
+
+  return withNextNodes({
+    variables,
+    output: toRecord(config.output),
+  }, nextNodes)
+}
+
 function normalizeOcrConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const fileId = optionalNumber(config.fileId)
   const mock = booleanValue(config.mock, false)
@@ -144,7 +161,11 @@ function normalizeEmbeddingConfig(config: Record<string, unknown>, nextNodes: st
   }, nextNodes)
 }
 
-function normalizeExportConfig(config: Record<string, unknown>, nextNodes: string[]) {
+function normalizeExportConfig(
+  config: Record<string, unknown>,
+  nextNodes: string[],
+  deliveryConfig: Record<string, unknown> = {},
+) {
   const requestedFormat = stringValue(config.format, 'MARKDOWN').toUpperCase()
   const format = requestedFormat === 'TXT' || requestedFormat === 'JSON' ? requestedFormat : 'MARKDOWN'
   const defaultFileName = format === 'JSON'
@@ -152,12 +173,15 @@ function normalizeExportConfig(config: Record<string, unknown>, nextNodes: strin
     : format === 'TXT'
       ? 'workflow-summary.txt'
       : 'workflow-summary.md'
+  const outputDirectory = optionalString(deliveryConfig.outputDirectory) ?? optionalString(config.outputDirectory)
+  const objectKey = optionalString(deliveryConfig.objectKey) ?? optionalString(config.objectKey)
 
   return withNextNodes({
     format,
     sourceVariable: stringValue(config.sourceVariable, 'summary'),
     fileName: stringValue(config.fileName, defaultFileName),
-    ...(optionalString(config.objectKey) ? { objectKey: optionalString(config.objectKey) } : {}),
+    ...(outputDirectory ? { outputDirectory } : {}),
+    ...(objectKey ? { objectKey } : {}),
   }, nextNodes)
 }
 
@@ -184,10 +208,17 @@ function normalizeConditionConfig(config: Record<string, unknown>, nextNodes: st
   }, nextNodes)
 }
 
-function normalizeNodeConfig(node: WorkflowGraphNode, nodeType: BackendNodeType, nextNodes: string[]) {
+function normalizeNodeConfig(
+  node: WorkflowGraphNode,
+  nodeType: BackendNodeType,
+  nextNodes: string[],
+  deliveryConfig: Record<string, unknown> = {},
+) {
   const config = toRecord(node.data.config)
 
   switch (nodeType) {
+    case 'START':
+      return normalizeStartConfig(config, nextNodes)
     case 'UPLOAD':
       return normalizeUploadConfig(config, nextNodes)
     case 'OCR':
@@ -199,7 +230,7 @@ function normalizeNodeConfig(node: WorkflowGraphNode, nodeType: BackendNodeType,
     case 'EMBEDDING':
       return normalizeEmbeddingConfig(config, nextNodes)
     case 'EXPORT':
-      return normalizeExportConfig(config, nextNodes)
+      return normalizeExportConfig(config, nextNodes, deliveryConfig)
     case 'END':
       return normalizeEndConfig(config, nextNodes)
     case 'CONDITION':
@@ -218,8 +249,27 @@ function buildNextNodeIndex(workflow: WorkflowDefinition) {
   }, {})
 }
 
+function buildExportDeliveryConfigIndex(workflow: WorkflowDefinition) {
+  const nodesById = Object.fromEntries(workflow.nodes.map((node) => [node.id, node]))
+  return workflow.edges.reduce<Record<string, Record<string, unknown>>>((acc, edge) => {
+    const sourceNode = nodesById[edge.source]
+    const targetNode = nodesById[edge.target]
+    if (sourceNode?.data.kind !== 'export' || targetNode?.data.kind !== 'output') {
+      return acc
+    }
+
+    const outputConfig = toRecord(targetNode.data.config)
+    acc[sourceNode.id] = {
+      ...(optionalString(outputConfig.outputDirectory) ? { outputDirectory: optionalString(outputConfig.outputDirectory) } : {}),
+      ...(optionalString(outputConfig.objectKey) ? { objectKey: optionalString(outputConfig.objectKey) } : {}),
+    }
+    return acc
+  }, {})
+}
+
 export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): WorkflowDefinitionDTO {
   const nextNodeIndex = buildNextNodeIndex(workflow)
+  const exportDeliveryConfigIndex = buildExportDeliveryConfigIndex(workflow)
 
   return {
     name: workflow.name,
@@ -230,7 +280,12 @@ export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): Workfl
         nodeId: node.id,
         nodeType,
         displayName: node.data.label,
-        config: normalizeNodeConfig(node, nodeType, nextNodeIndex[node.id] ?? []),
+        config: normalizeNodeConfig(
+          node,
+          nodeType,
+          nextNodeIndex[node.id] ?? [],
+          exportDeliveryConfigIndex[node.id],
+        ),
       }
     }),
   }

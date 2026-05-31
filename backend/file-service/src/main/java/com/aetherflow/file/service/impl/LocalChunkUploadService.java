@@ -9,6 +9,7 @@ import com.aetherflow.file.model.PathMultipartFile;
 import com.aetherflow.file.service.ChunkUploadService;
 import com.aetherflow.file.service.FileInfoService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -35,6 +36,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
     private final Path rootDirectory;
     private final Map<String, UploadSession> sessions = new ConcurrentHashMap<>();
 
+    @Autowired
     public LocalChunkUploadService(FileInfoService fileInfoService) {
         this(fileInfoService, Path.of(System.getProperty("java.io.tmpdir"), "aetherflow-file-uploads"));
     }

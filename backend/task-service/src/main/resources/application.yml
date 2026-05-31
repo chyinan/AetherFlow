@@ -10,7 +10,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:root123456}
+    password: ${MYSQL_PASSWORD:mysql}
   data:
     redis:
       host: ${REDIS_HOST:192.168.101.68}
@@ -62,6 +62,16 @@ xxl:
 feign:
   sentinel:
     enabled: true
+
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: aetherflow_tx_group
+  service:
+    vgroup-mapping:
+      aetherflow_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:192.168.101.68:8091}
 
 aetherflow:
   task:

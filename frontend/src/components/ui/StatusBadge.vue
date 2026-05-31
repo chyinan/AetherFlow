@@ -12,13 +12,13 @@ const { t } = useI18n()
 
 const classes: Record<typeof props.status, string> = {
   idle: 'border-app-border bg-app-muted text-text-secondary',
-  queued: 'border-status-paused/20 bg-slate-100 text-status-paused',
-  running: 'border-status-running/20 bg-sky-50 text-status-running',
-  success: 'border-status-success/20 bg-green-50 text-status-success',
-  failed: 'border-status-error/20 bg-red-50 text-status-error',
-  warning: 'border-status-warning/20 bg-amber-50 text-status-warning',
+  queued: 'border-status-paused/25 bg-status-paused/10 text-status-paused',
+  running: 'border-status-running/25 bg-status-running/10 text-status-running',
+  success: 'border-status-success/25 bg-status-success/10 text-status-success',
+  failed: 'border-status-error/25 bg-status-error/10 text-status-error',
+  warning: 'border-status-warning/25 bg-status-warning/10 text-status-warning',
   skipped: 'border-app-border bg-app-muted text-text-muted',
-  paused: 'border-status-paused/20 bg-slate-100 text-status-paused',
+  paused: 'border-status-paused/25 bg-status-paused/10 text-status-paused',
 }
 
 const statusLabels: Record<string, string> = {

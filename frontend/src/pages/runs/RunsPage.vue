@@ -79,8 +79,8 @@ function refreshRuns() {
       </button>
     </header>
 
-    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="grid min-h-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+    <main class="min-h-0 overflow-hidden bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
+      <div class="grid h-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
@@ -112,7 +112,7 @@ function refreshRuns() {
           </div>
         </section>
 
-        <section class="grid min-h-0 min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <section class="grid min-h-0 min-w-0 gap-4 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
           <aside class="min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm">
             <div class="mb-3 flex items-center justify-between px-1">
               <p class="text-sm font-semibold text-text-primary">{{ t('runs.runQueue') }}</p>
@@ -123,7 +123,7 @@ function refreshRuns() {
               :key="run.id"
               type="button"
               class="mb-2 w-full rounded-lg border p-3 text-left transition hover:border-primary/30 hover:bg-primary-soft/40"
-              :class="runStore.currentRun?.id === run.id ? 'border-primary/40 bg-primary-soft/60' : 'border-app-border bg-white'"
+              :class="runStore.currentRun?.id === run.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20' : 'border-app-border bg-white'"
               @click="selectRun(run.id)"
             >
               <div class="flex items-center justify-between gap-2">
@@ -141,7 +141,7 @@ function refreshRuns() {
             </p>
           </aside>
 
-          <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4">
+          <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
             <div v-if="runStore.currentRun" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <div class="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div class="min-w-0">

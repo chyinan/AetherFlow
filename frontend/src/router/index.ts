@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { i18n } from '@/i18n/index'
+import AccountPage from '@/pages/account/AccountPage.vue'
 import LoginPage from '@/pages/auth/LoginPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
 import KnowledgePage from '@/pages/knowledge/KnowledgePage.vue'
@@ -57,7 +58,7 @@ export const router = createRouter({
     },
     {
       path: '/workflows',
-      redirect: '/workflows/wf-media-digest',
+      redirect: '/workflows/new',
     },
     {
       path: '/workflows/:id',
@@ -102,10 +103,16 @@ export const router = createRouter({
       meta: { requiresAuth: true, titleKey: 'monitor.title', roles: ['owner', 'operator'] },
     },
     {
+      path: '/account',
+      name: 'account',
+      component: AccountPage,
+      meta: { requiresAuth: true, titleKey: 'account.title', roles: ['owner', 'operator'] },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: SettingsPage,
-      meta: { requiresAuth: true, titleKey: 'settings.title', roles: ['owner'] },
+      meta: { requiresAuth: true, titleKey: 'settings.title', roles: ['owner', 'operator'] },
     },
   ],
 })

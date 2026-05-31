@@ -56,6 +56,162 @@ class SubtitleResponse(BaseModel):
     objectKey: Optional[str] = None
 
 
+class ProviderConfigUpdate(BaseModel):
+    enabled: bool = True
+    apiKey: Optional[str] = None
+    baseUrl: Optional[str] = None
+    defaultModel: Optional[str] = None
+
+
+PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
+    "ollama": {
+        "name": "Ollama",
+        "providerType": "ollama",
+        "envPrefix": "OLLAMA",
+        "routeProvider": "ollama",
+        "defaultBaseUrl": "http://127.0.0.1:11434",
+        "defaultModel": "qwen3.5:9b",
+        "description": "Local Ollama runtime for private chat and embedding models.",
+        "tags": ["local", "private", "chat", "embedding"],
+        "region": "domestic",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "providerType": "openai-compatible",
+        "envPrefix": "OPENAI",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.openai.com/v1",
+        "defaultModel": "gpt-4o-mini",
+        "description": "OpenAI hosted chat and multimodal models.",
+        "tags": ["chat", "summary", "translate", "json"],
+        "region": "global",
+    },
+    "azure-openai": {
+        "name": "Azure OpenAI",
+        "providerType": "openai-compatible",
+        "envPrefix": "AZURE_OPENAI",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://{resource}.openai.azure.com/openai/deployments/{deployment}",
+        "defaultModel": "gpt-4o-mini",
+        "description": "Azure-hosted OpenAI-compatible model endpoint.",
+        "tags": ["chat", "enterprise", "azure"],
+        "region": "global",
+    },
+    "openrouter": {
+        "name": "OpenRouter",
+        "providerType": "openai-compatible",
+        "envPrefix": "OPENROUTER",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://openrouter.ai/api/v1",
+        "defaultModel": "qwen/qwen3.5-9b",
+        "description": "OpenAI-compatible gateway for multiple hosted and open models.",
+        "tags": ["chat", "router", "openai-compatible"],
+        "region": "global",
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "providerType": "openai-compatible",
+        "envPrefix": "ANTHROPIC",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.anthropic.com/v1",
+        "defaultModel": "claude-3-5-sonnet-latest",
+        "description": "Anthropic Claude models through a compatible gateway.",
+        "tags": ["chat", "reasoning", "global"],
+        "region": "global",
+    },
+    "gemini": {
+        "name": "Gemini",
+        "providerType": "openai-compatible",
+        "envPrefix": "GEMINI",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "defaultModel": "gemini-2.0-flash",
+        "description": "Google Gemini models through an OpenAI-compatible endpoint.",
+        "tags": ["chat", "vision", "global"],
+        "region": "global",
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "providerType": "openai-compatible",
+        "envPrefix": "DEEPSEEK",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.deepseek.com/v1",
+        "defaultModel": "deepseek-chat",
+        "description": "DeepSeek chat and reasoning models.",
+        "tags": ["chat", "reasoning", "domestic"],
+        "region": "domestic",
+    },
+    "qwen": {
+        "name": "Qwen",
+        "providerType": "openai-compatible",
+        "envPrefix": "QWEN",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "defaultModel": "qwen-plus",
+        "description": "Alibaba Cloud Qwen models through compatible-mode API.",
+        "tags": ["chat", "domestic", "multilingual"],
+        "region": "domestic",
+    },
+    "kimi": {
+        "name": "Kimi",
+        "providerType": "openai-compatible",
+        "envPrefix": "KIMI",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.moonshot.cn/v1",
+        "defaultModel": "moonshot-v1-8k",
+        "description": "Moonshot Kimi long-context chat models.",
+        "tags": ["chat", "long-context", "domestic"],
+        "region": "domestic",
+    },
+    "volcengine": {
+        "name": "Volcengine Ark",
+        "providerType": "openai-compatible",
+        "envPrefix": "VOLCENGINE",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+        "defaultModel": "doubao-1-5-pro-32k",
+        "description": "Volcengine Ark OpenAI-compatible model endpoint.",
+        "tags": ["chat", "domestic", "ark"],
+        "region": "domestic",
+    },
+    "tencent-hunyuan": {
+        "name": "Tencent Hunyuan",
+        "providerType": "openai-compatible",
+        "envPrefix": "TENCENT_HUNYUAN",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.hunyuan.cloud.tencent.com/v1",
+        "defaultModel": "hunyuan-standard",
+        "description": "Tencent Hunyuan model endpoint.",
+        "tags": ["chat", "domestic"],
+        "region": "domestic",
+    },
+    "jina": {
+        "name": "Jina",
+        "providerType": "embedding",
+        "envPrefix": "JINA",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "https://api.jina.ai/v1",
+        "defaultModel": "jina-embeddings-v3",
+        "description": "Embedding and rerank model provider.",
+        "tags": ["embedding", "rerank"],
+        "region": "global",
+    },
+    "text-embedding": {
+        "name": "Text Embedding Inference",
+        "providerType": "embedding",
+        "envPrefix": "TEXT_EMBEDDING",
+        "routeProvider": "openai",
+        "defaultBaseUrl": "http://localhost:8081/v1",
+        "defaultModel": "bge-m3",
+        "description": "Self-hosted embedding endpoint for knowledge retrieval.",
+        "tags": ["embedding", "self-hosted"],
+        "region": "domestic",
+    },
+}
+
+_RUNTIME_ENV_LOADED = False
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled python ai runtime error path=%s", request.url.path)
@@ -72,15 +228,45 @@ def health() -> dict[str, Any]:
 
 @app.get("/ai/status")
 def ai_status() -> dict[str, Any]:
+    _ensure_runtime_env_loaded()
+    whisper_enabled = _enabled("ENABLE_WHISPER")
+    ollama_models = _ollama_model_names()
+    providers = _status_providers()
+    openai_models = _openai_model_names()
+    models = {
+        "ollama": ollama_models,
+    }
+    if openai_models:
+        models["openai"] = openai_models
     return {
         "service": "python-ai-service",
         "status": "UP",
         "capabilities": ["whisper", "ffmpeg", "subtitle", "llm"],
-        "providers": ["openai", "ollama"],
-        "whisperEnabled": _enabled("ENABLE_WHISPER"),
+        "providers": providers,
+        "models": models,
+        "whisperEnabled": whisper_enabled,
+        "whisperRuntimeReady": _whisper_runtime_ready() if whisper_enabled else False,
+        "whisperModel": os.getenv("WHISPER_MODEL", "small"),
         "llmEnabled": _enabled("ENABLE_LLM"),
         "ffmpegAvailable": shutil.which("ffmpeg") is not None,
     }
+
+
+@app.get("/ai/provider/config")
+def provider_config_catalog() -> dict[str, Any]:
+    _ensure_runtime_env_loaded()
+    return {"providers": [_provider_config_entry(provider_id) for provider_id in PROVIDER_PRESETS]}
+
+
+@app.put("/ai/provider/config/{provider_id}")
+def update_provider_config(provider_id: str, update: ProviderConfigUpdate) -> dict[str, Any]:
+    _ensure_runtime_env_loaded()
+    normalized_id = provider_id.strip().lower()
+    if normalized_id not in PROVIDER_PRESETS:
+        raise HTTPException(status_code=404, detail=f"unknown provider preset: {provider_id}")
+    _apply_provider_config(normalized_id, update)
+    _persist_runtime_env()
+    return _provider_config_entry(normalized_id)
 
 
 @app.post("/v1/transcriptions", response_model=TranscriptionResponse)
@@ -142,12 +328,16 @@ def subtitles(request: SubtitleRequest) -> SubtitleResponse:
 
 
 def _call_openai(request: LlmRequest) -> LlmResponse:
-    api_key = os.getenv("OPENAI_API_KEY")
+    _ensure_runtime_env_loaded()
+    route_provider = _openai_route_provider_id()
+    route_prefix = PROVIDER_PRESETS[route_provider]["envPrefix"] if route_provider else "OPENAI"
+    api_key = os.getenv(f"{route_prefix}_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured")
+        raise HTTPException(status_code=503, detail="OpenAI-compatible provider API key is not configured")
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key, timeout=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
+    base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
     completion = client.chat.completions.create(
         model=request.model,
         messages=[{"role": "user", "content": request.prompt}],
@@ -158,6 +348,7 @@ def _call_openai(request: LlmRequest) -> LlmResponse:
 
 
 def _call_ollama(request: LlmRequest) -> LlmResponse:
+    _ensure_runtime_env_loaded()
     import ollama
 
     client = ollama.Client(host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
@@ -167,6 +358,207 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
         options=request.options,
     )
     return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata={"done": response.get("done", False)})
+
+
+def _ollama_model_names() -> list[str]:
+    try:
+        import ollama
+
+        client = ollama.Client(host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+        response = client.list()
+        models = response.get("models", []) if isinstance(response, dict) else getattr(response, "models", [])
+        names: list[str] = []
+        for model in models:
+            name = _ollama_model_name(model)
+            if name and name not in names:
+                names.append(name)
+        return names
+    except Exception as exc:
+        logger.warning("Failed to list Ollama models: %s", exc)
+        return []
+
+
+def _ollama_model_name(model: Any) -> str:
+    if isinstance(model, dict):
+        return str(model.get("name") or model.get("model") or "").strip()
+    return str(getattr(model, "name", None) or getattr(model, "model", None) or "").strip()
+
+
+def _runtime_config_file() -> Optional[Path]:
+    configured = os.getenv("AI_RUNTIME_CONFIG_FILE", "").strip()
+    if configured.lower() in {"", "none", "false"}:
+        return Path(__file__).resolve().parents[1] / ".env.runtime"
+    return Path(configured)
+
+
+def _ensure_runtime_env_loaded() -> None:
+    global _RUNTIME_ENV_LOADED
+    if _RUNTIME_ENV_LOADED:
+        return
+    config_file = _runtime_config_file()
+    if config_file and config_file.exists():
+        for line in config_file.read_text(encoding="utf-8").splitlines():
+            key, value = _parse_env_line(line)
+            if key:
+                os.environ.setdefault(key, value)
+    _RUNTIME_ENV_LOADED = True
+
+
+def _parse_env_line(line: str) -> tuple[str, str]:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return "", ""
+    key, value = stripped.split("=", 1)
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return key.strip(), value
+
+
+def _provider_config_entry(provider_id: str) -> dict[str, Any]:
+    preset = PROVIDER_PRESETS[provider_id]
+    prefix = preset["envPrefix"]
+    api_key = os.getenv(f"{prefix}_API_KEY", "")
+    if provider_id == "openai" and _active_openai_preset() not in {"", "openai"}:
+        api_key = ""
+    enabled = _provider_enabled(provider_id)
+    base_url = _provider_base_url(provider_id)
+    default_model = _provider_default_model(provider_id)
+    return {
+        "id": provider_id,
+        "name": preset["name"],
+        "providerType": preset["providerType"],
+        "baseUrl": base_url,
+        "defaultModel": default_model,
+        "configured": _provider_configured(provider_id),
+        "enabled": enabled,
+        "apiKeyConfigured": bool(api_key.strip()) if preset["routeProvider"] != "ollama" else True,
+        "apiKeyPreview": _mask_secret(api_key),
+        "tags": preset["tags"],
+        "description": preset["description"],
+        "region": preset["region"],
+    }
+
+
+def _provider_enabled(provider_id: str) -> bool:
+    preset = PROVIDER_PRESETS[provider_id]
+    prefix = preset["envPrefix"]
+    if provider_id == "openai" and _active_openai_preset() not in {"", "openai"}:
+        return False
+    value = os.getenv(f"{prefix}_ENABLED", "")
+    if value.strip():
+        return value.strip().lower() == "true"
+    return preset["routeProvider"] == "ollama" or bool(os.getenv(f"{prefix}_API_KEY", "").strip())
+
+
+def _provider_configured(provider_id: str) -> bool:
+    preset = PROVIDER_PRESETS[provider_id]
+    prefix = preset["envPrefix"]
+    if provider_id == "openai" and _active_openai_preset() not in {"", "openai"}:
+        return False
+    if preset["routeProvider"] == "ollama":
+        return bool(_provider_base_url(provider_id))
+    return _provider_enabled(provider_id) and bool(os.getenv(f"{prefix}_API_KEY", "").strip())
+
+
+def _provider_base_url(provider_id: str) -> str:
+    preset = PROVIDER_PRESETS[provider_id]
+    return os.getenv(f"{preset['envPrefix']}_BASE_URL", "").strip() or preset["defaultBaseUrl"]
+
+
+def _provider_default_model(provider_id: str) -> str:
+    preset = PROVIDER_PRESETS[provider_id]
+    return os.getenv(f"{preset['envPrefix']}_DEFAULT_MODEL", "").strip() or preset["defaultModel"]
+
+
+def _apply_provider_config(provider_id: str, update: ProviderConfigUpdate) -> None:
+    preset = PROVIDER_PRESETS[provider_id]
+    prefix = preset["envPrefix"]
+    os.environ[f"{prefix}_ENABLED"] = "true" if update.enabled else "false"
+    if update.apiKey is not None:
+        _set_or_clear_env(f"{prefix}_API_KEY", update.apiKey.strip())
+    if update.baseUrl is not None:
+        _set_or_clear_env(f"{prefix}_BASE_URL", update.baseUrl.strip() or preset["defaultBaseUrl"])
+    if update.defaultModel is not None:
+        _set_or_clear_env(f"{prefix}_DEFAULT_MODEL", update.defaultModel.strip() or preset["defaultModel"])
+
+    if preset["routeProvider"] == "openai" and update.enabled:
+        api_key = os.getenv(f"{prefix}_API_KEY", "").strip()
+        if api_key:
+            os.environ["OPENAI_ACTIVE_PRESET"] = provider_id
+    if preset["routeProvider"] == "openai" and not update.enabled and _active_openai_preset() == provider_id:
+        os.environ.pop("OPENAI_ACTIVE_PRESET", None)
+    if preset["routeProvider"] == "ollama":
+        os.environ["OLLAMA_BASE_URL"] = _provider_base_url(provider_id)
+        os.environ["OLLAMA_DEFAULT_MODEL"] = _provider_default_model(provider_id)
+
+
+def _set_or_clear_env(key: str, value: str) -> None:
+    if value:
+        os.environ[key] = value
+    else:
+        os.environ.pop(key, None)
+
+
+def _persist_runtime_env() -> None:
+    config_file = _runtime_config_file()
+    if config_file is None:
+        return
+    keys = _runtime_env_keys()
+    lines = [f"{key}={_quote_env_value(os.getenv(key, ''))}" for key in keys if key in os.environ]
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _runtime_env_keys() -> list[str]:
+    keys = ["OPENAI_ACTIVE_PRESET", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_DEFAULT_MODEL", "OLLAMA_BASE_URL", "OLLAMA_DEFAULT_MODEL"]
+    for preset in PROVIDER_PRESETS.values():
+        prefix = preset["envPrefix"]
+        keys.extend([f"{prefix}_ENABLED", f"{prefix}_API_KEY", f"{prefix}_BASE_URL", f"{prefix}_DEFAULT_MODEL"])
+    return sorted(dict.fromkeys(keys))
+
+
+def _quote_env_value(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "••••"
+    return f"{value[:3]}-••••••{value[-3:]}"
+
+
+def _status_providers() -> list[str]:
+    providers = ["ollama"]
+    if _openai_model_names():
+        providers.insert(0, "openai")
+    return providers
+
+
+def _active_openai_preset() -> str:
+    return os.getenv("OPENAI_ACTIVE_PRESET", "").strip().lower()
+
+
+def _openai_route_provider_id() -> str:
+    active_preset = _active_openai_preset()
+    if active_preset in PROVIDER_PRESETS and _provider_configured(active_preset):
+        return active_preset
+    if _provider_configured("openai"):
+        return "openai"
+    for provider_id, preset in PROVIDER_PRESETS.items():
+        if preset["routeProvider"] == "openai" and provider_id != "openai" and _provider_configured(provider_id):
+            return provider_id
+    return ""
+
+
+def _openai_model_names() -> list[str]:
+    route_provider = _openai_route_provider_id()
+    if not route_provider:
+        return []
+    return [_provider_default_model(route_provider)]
 
 
 def _materialize_source(file_url: str) -> Path:
@@ -204,7 +596,7 @@ def _ensure_audio_source(source: Path) -> Path:
     suffix = source.suffix.lower()
     if suffix in {".mp3", ".wav", ".m4a", ".aac", ".flac"}:
         return source
-    if suffix in {".mp4", ".mov", ".mkv"}:
+    if suffix in {".mp4", ".mov", ".mkv", ".webm", ".avi"}:
         if shutil.which("ffmpeg") is None:
             raise HTTPException(status_code=503, detail="ffmpeg is not installed")
         target = Path(tempfile.gettempdir()) / f"aetherflow-audio-{uuid.uuid4().hex}.wav"
@@ -278,3 +670,12 @@ def _cleanup_materialized(source: Path, audio_source: Path) -> None:
 
 def _enabled(name: str) -> bool:
     return os.getenv(name, "false").lower() == "true"
+
+
+def _whisper_runtime_ready() -> bool:
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+    except Exception as exc:
+        logger.warning("Whisper runtime is enabled but unavailable: %s", exc)
+        return False
+    return True

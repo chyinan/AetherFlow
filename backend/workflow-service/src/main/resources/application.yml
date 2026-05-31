@@ -22,7 +22,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:root123456}
+    password: ${MYSQL_PASSWORD:mysql}
   cloud:
     nacos:
       discovery:
@@ -36,6 +36,12 @@ spring:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:192.168.101.68:8858}
       eager: true
+    openfeign:
+      client:
+        config:
+          default:
+            connectTimeout: ${WORKFLOW_FEIGN_CONNECT_TIMEOUT_MILLIS:5000}
+            readTimeout: ${WORKFLOW_FEIGN_READ_TIMEOUT_MILLIS:1800000}
 
 mybatis-plus:
   configuration:

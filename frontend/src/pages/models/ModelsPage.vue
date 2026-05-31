@@ -22,9 +22,6 @@ const modelStore = useModelStore()
 const { t } = useI18n()
 
 const selectedProvider = computed(() => modelStore.selectedProvider)
-const sourceLabel = computed(() =>
-  modelStore.snapshotSource === 'real' ? t('models.realBackend') : t('models.safeFallback'),
-)
 
 const summaryCards = computed(() => [
   {
@@ -95,12 +92,6 @@ onMounted(() => {
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <span
-          class="rounded-md border px-2 py-1 text-xs font-medium"
-          :class="modelStore.snapshotSource === 'real' ? 'border-green-200 bg-green-50 text-status-success' : 'border-amber-200 bg-amber-50 text-status-warning'"
-        >
-          {{ sourceLabel }}
-        </span>
         <button
           class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
           :disabled="modelStore.loading"
@@ -112,8 +103,8 @@ onMounted(() => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-x-hidden overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="grid h-full w-full grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+    <main class="min-h-0 overflow-x-hidden overflow-y-auto bg-app-bg px-4 pb-8 pt-5 sm:px-5 lg:px-6">
+      <div class="flex min-h-full w-full flex-col gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article
             v-for="card in summaryCards"
@@ -151,7 +142,7 @@ onMounted(() => {
           </div>
         </section>
 
-        <section class="grid min-h-0 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <section class="grid min-h-[calc(100vh-190px)] gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
@@ -172,8 +163,8 @@ onMounted(() => {
                 v-for="provider in modelStore.providers"
                 :key="provider.id"
                 type="button"
-                class="w-full rounded-lg border p-3 text-left transition hover:border-ai/25 hover:shadow-sm"
-                :class="modelStore.selectedProviderId === provider.id ? 'border-ai/30 bg-ai-soft/40 shadow-sm' : 'border-app-border bg-white'"
+                class="w-full rounded-lg border p-3 text-left transition hover:border-primary/30 hover:shadow-sm"
+                :class="modelStore.selectedProviderId === provider.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20 shadow-sm' : 'border-app-border bg-white'"
                 @click="selectProvider(provider.id)"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -222,7 +213,6 @@ onMounted(() => {
               <section class="rounded-lg border border-app-border bg-app-bg2 p-3">
                 <div class="flex items-center justify-between gap-3">
                   <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('models.routingPolicy') }}</p>
-                  <span class="rounded bg-primary-soft px-2 py-0.5 text-[11px] text-primary">{{ sourceLabel }}</span>
                 </div>
                 <div v-for="policy in modelStore.policies" :key="policy.id" class="mt-3 rounded-md border border-app-border bg-white p-3">
                   <div class="flex items-center justify-between gap-3">
@@ -267,8 +257,8 @@ onMounted(() => {
             </div>
           </aside>
 
-          <section class="grid min-h-0 gap-4 grid-rows-[minmax(0,1fr)_220px]">
-            <div class="min-h-0 rounded-lg border border-app-border bg-white shadow-sm">
+          <section class="flex min-h-0 flex-col gap-4">
+            <div class="overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
                 <div>
                   <p class="text-sm font-semibold text-text-primary">{{ selectedProvider?.name ?? t('models.providers') }}</p>
@@ -297,7 +287,7 @@ onMounted(() => {
                 </div>
               </div>
 
-              <div class="min-h-0 overflow-y-auto p-4">
+              <div class="p-4">
                 <p v-if="modelStore.selectedProviderModels.length === 0" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
                   {{ t('models.noModels') }}
                 </p>
@@ -305,7 +295,7 @@ onMounted(() => {
                   <article
                     v-for="model in modelStore.selectedProviderModels"
                     :key="model.id"
-                    class="rounded-lg border border-app-border bg-app-bg2 p-4"
+                    class="min-w-0 rounded-lg border border-app-border bg-app-bg2 p-4"
                   >
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
@@ -334,23 +324,25 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <section class="rounded-lg border border-app-border bg-sidebar p-4 text-text-inverse shadow-sm">
+            <div class="grid min-h-0 shrink-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
                 <div class="flex items-center justify-between">
                   <div>
-                    <p class="text-sm font-semibold">{{ t('models.runtimeLogs') }}</p>
-                    <p class="text-xs text-slate-400">{{ t('models.runtimeLogsHint') }}</p>
+                    <p class="text-sm font-semibold text-text-primary">{{ t('models.runtimeLogs') }}</p>
+                    <p class="text-xs text-text-muted">{{ t('models.runtimeLogsHint') }}</p>
                   </div>
-                  <Cpu class="h-4 w-4 text-primary" />
+                  <span class="grid h-8 w-8 place-items-center rounded-md bg-primary-soft text-primary">
+                    <Cpu class="h-4 w-4" />
+                  </span>
                 </div>
-                <div class="mt-4 space-y-3 font-mono text-xs leading-6">
-                  <p v-if="modelStore.logs.length === 0" class="rounded bg-white/5 px-2 py-1 text-slate-400">
+                <div class="mt-4 space-y-2 font-mono text-xs leading-6">
+                  <p v-if="modelStore.logs.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
                     {{ t('models.noLogs') }}
                   </p>
-                  <p v-for="log in modelStore.logs" :key="log.id" class="rounded bg-white/5 px-2 py-1 text-slate-300">
-                    <span class="text-slate-500">{{ log.time }}</span>
-                    <span class="mx-2 text-primary">{{ log.level }}</span>
-                    <span>{{ log.message }}</span>
+                  <p v-for="log in modelStore.logs" :key="log.id" class="rounded-md border border-transparent bg-app-bg2 px-3 py-2 text-text-secondary transition hover:border-primary/20 hover:bg-primary-soft/30">
+                    <span class="text-text-muted">{{ log.time }}</span>
+                    <span class="mx-2 font-semibold uppercase text-primary">{{ log.level }}</span>
+                    <span class="text-text-primary">{{ log.message }}</span>
                   </p>
                 </div>
               </section>

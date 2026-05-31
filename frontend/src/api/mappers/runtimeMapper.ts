@@ -147,6 +147,20 @@ function eventMessage(event: RuntimeEvent) {
   }
 }
 
+function durationBetween(startedAt?: string, completedAt?: string) {
+  if (!startedAt || !completedAt) {
+    return undefined
+  }
+
+  const started = new Date(startedAt)
+  const completed = new Date(completedAt)
+  if (Number.isNaN(started.getTime()) || Number.isNaN(completed.getTime()) || completed < started) {
+    return undefined
+  }
+
+  return completed.getTime() - started.getTime()
+}
+
 export function mapRuntimeEventToLogEntry(event: RuntimeEvent): RunLogEntry {
   return {
     id: event.eventId || `${event.workflowId}-${event.eventType}-${event.occurredAt ?? Date.now()}`,
@@ -172,10 +186,19 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
 
 export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
   const patches = new Map<string, RunNodeState>()
+  const startedAtByNode = new Map<string, string>()
 
   events.forEach((event) => {
+    if (event.nodeId && event.eventType === 'NODE_STARTED' && event.occurredAt) {
+      startedAtByNode.set(event.nodeId, event.occurredAt)
+    }
+
     const patch = mapRuntimeEventToNodePatch(event)
     if (patch) {
+      const durationMs = durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
+      if (durationMs !== undefined && ['success', 'failed', 'paused'].includes(patch.status)) {
+        patch.durationMs = durationMs
+      }
       patches.set(patch.nodeId, patch)
     }
   })

@@ -86,6 +86,20 @@ function formatTime(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
+function durationBetween(startedAt?: string, completedAt?: string) {
+  if (typeof startedAt !== 'string' || typeof completedAt !== 'string') {
+    return undefined
+  }
+
+  const started = new Date(startedAt)
+  const completed = new Date(completedAt)
+  if (Number.isNaN(started.getTime()) || Number.isNaN(completed.getTime()) || completed < started) {
+    return undefined
+  }
+
+  return completed.getTime() - started.getTime()
+}
+
 function normalizeLogLevel(level?: string): RunLogEntry['level'] {
   const normalized = String(level ?? '').toLowerCase()
   if (normalized === 'error') return 'error'
@@ -96,11 +110,15 @@ function normalizeLogLevel(level?: string): RunLogEntry['level'] {
 
 function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
   const status = mapRuntimeStateToNodeStatus(toRuntimeState(node.status))
+  const durationMs = typeof node.durationMs === 'number'
+    ? node.durationMs
+    : durationBetween(node.startedAt, node.completedAt)
 
   return {
     nodeId: node.nodeId || 'unknown-node',
     label: node.nodeId || 'Unknown node',
     status,
+    durationMs,
     output: node.latestEventType || node.status || status,
   }
 }

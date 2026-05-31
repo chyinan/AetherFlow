@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileAudio, FileText, FileVideo, PackageCheck } from 'lucide-vue-next'
+import { Download, FileAudio, FileText, FileVideo, PackageCheck, Trash2 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -10,10 +10,14 @@ import type { FileAsset } from '@/types/file'
 const props = defineProps<{
   files: FileAsset[]
   layout?: 'grid' | 'single'
+  deletingIds?: string[]
+  downloadingIds?: string[]
 }>()
 
 const emit = defineEmits<{
   toggleSource: [fileId: string]
+  download: [fileId: string]
+  delete: [fileId: string]
 }>()
 
 const { t } = useI18n()
@@ -44,7 +48,27 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
             <p class="truncate text-xs text-text-muted">{{ file.size }} · {{ file.mime }} · {{ file.updatedAt }}</p>
           </div>
         </div>
-        <StatusBadge :status="file.status === 'ready' ? 'success' : file.status === 'processing' ? 'running' : 'failed'" />
+        <div class="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-primary/30 hover:bg-primary-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="props.downloadingIds?.includes(file.id)"
+            :title="t('files.download')"
+            @click="emit('download', file.id)"
+          >
+            <Download class="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-status-error/30 hover:bg-red-50 hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="props.deletingIds?.includes(file.id)"
+            :title="t('files.delete')"
+            @click="emit('delete', file.id)"
+          >
+            <Trash2 class="h-4 w-4" />
+          </button>
+          <StatusBadge :status="file.status === 'ready' ? 'success' : file.status === 'processing' ? 'running' : 'failed'" />
+        </div>
       </div>
       <div class="mt-4 rounded-md bg-app-bg2 p-3 text-xs leading-5 text-text-secondary">
         <p>{{ file.result ?? t('files.noResult') }}</p>

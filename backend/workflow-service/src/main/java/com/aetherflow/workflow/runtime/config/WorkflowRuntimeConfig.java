@@ -20,7 +20,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +44,17 @@ public class WorkflowRuntimeConfig {
     @Bean
     public RuntimeSleeper runtimeSleeper() {
         return RuntimeSleeper.threadSleep();
+    }
+
+    @Bean
+    public TaskExecutor workflowRuntimeTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("workflow-runtime-");
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(20);
+        executor.initialize();
+        return executor;
     }
 
     @Bean

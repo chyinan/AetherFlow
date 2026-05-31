@@ -1,0 +1,35 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:mysql}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+      config:
+        server-addr: ${NACOS_ADDR:nacos:8848}
+    sentinel:
+      transport:
+        dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: aetherflow_tx_group
+  service:
+    vgroup-mapping:
+      aetherflow_tx_group: default
+    grouplist:
+      default: ${SEATA_ADDR:seata:8091}
+
+aetherflow:
+  task:
+    queue-protection:
+      management-api:
+        base-url: ${RABBITMQ_MANAGEMENT_URL:http://rabbitmq:15672}

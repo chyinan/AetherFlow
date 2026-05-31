@@ -84,12 +84,35 @@ class FileInfoServiceImplListTest {
 
     @Test
     void returnsEmptyPageForUnsupportedSourceOrArtifactKind() {
-        FileAssetPageResponse sourceResponse = service.listAssets(1001L, null, null, "artifact", null, null, 1, 20);
-        FileAssetPageResponse artifactResponse = service.listAssets(1001L, null, null, null, "summary", null, 1, 20);
+        FileAssetPageResponse sourceResponse = service.listAssets(1001L, null, null, "external", null, null, 1, 20);
+        FileAssetPageResponse artifactResponse = service.listAssets(1001L, null, null, null, "unknown-kind", null, 1, 20);
 
         assertThat(sourceResponse.items()).isEmpty();
         assertThat(artifactResponse.items()).isEmpty();
         verify(fileInfoMapper, never()).selectCount(any(Wrapper.class));
+    }
+
+    @Test
+    void listsWorkflowExportsAsArtifacts() {
+        when(fileInfoMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+        when(fileInfoMapper.selectList(any(Wrapper.class))).thenReturn(List.of(exportFile()));
+
+        FileAssetPageResponse response = service.listAssets(
+                1001L,
+                null,
+                null,
+                "artifact",
+                "summary",
+                null,
+                1,
+                20
+        );
+
+        assertThat(response.total()).isEqualTo(1);
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).type()).isEqualTo("artifact");
+        assertThat(response.items().get(0).source()).isEqualTo("artifact");
+        assertThat(response.items().get(0).artifactKind()).isEqualTo("summary");
     }
 
     @Test
@@ -114,6 +137,17 @@ class FileInfoServiceImplListTest {
         fileInfo.setStatus("AVAILABLE");
         fileInfo.setCreatedAt(LocalDateTime.parse("2026-05-29T09:00:00"));
         fileInfo.setUpdatedAt(LocalDateTime.parse("2026-05-29T09:30:00"));
+        return fileInfo;
+    }
+
+    private static FileInfo exportFile() {
+        FileInfo fileInfo = audioFile();
+        fileInfo.setId(102L);
+        fileInfo.setObjectKey("workflow/exports/5/node-export/meeting-summary.md");
+        fileInfo.setOriginalName("meeting-summary.md");
+        fileInfo.setContentType("text/markdown");
+        fileInfo.setMimeType("text/markdown");
+        fileInfo.setFileUrl("http://minio/aetherflow/workflow/exports/5/node-export/meeting-summary.md");
         return fileInfo;
     }
 }

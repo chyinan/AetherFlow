@@ -74,10 +74,51 @@ class ExportNodeExecutorTest {
                 .startsWith("workflow/exports/workflow-1/export/");
         assertThat(metadataCaptor.getValue().getOriginalName()).isEqualTo("summary.md");
         assertThat(metadataCaptor.getValue().getContentType()).isEqualTo("text/markdown");
+        assertThat(metadataCaptor.getValue().getUserId()).isEqualTo(1001L);
+    }
+
+    @Test
+    void honorsConfiguredOutputDirectory() throws Exception {
+        MinioClient minioClient = mock(MinioClient.class);
+        FileMetadataClient fileClient = mock(FileMetadataClient.class);
+        WorkflowNodeProperties properties = new WorkflowNodeProperties();
+        properties.setFileInternalToken("token");
+        properties.setExportObjectPrefix("workflow/exports");
+        WorkflowNodeConfig.MinioProperties minioProperties = new WorkflowNodeConfig.MinioProperties();
+        minioProperties.setBucket("aetherflow");
+        ExportNodeExecutor executor = new ExportNodeExecutor(
+                new WorkflowNodeMetrics(),
+                minioClient,
+                fileClient,
+                properties,
+                minioProperties
+        );
+        when(fileClient.createMetadata(eq("token"), any(CreateFileMetadataRequestDTO.class)))
+                .thenReturn(Result.success(new FileMetadataDTO(
+                        19L,
+                        "aetherflow",
+                        "workflow/exports/meeting-summary/export.md",
+                        "summary.md",
+                        "text/markdown",
+                        4L,
+                        "http://minio/aetherflow/workflow/exports/meeting-summary/export.md"
+                )));
+
+        executor.execute(context(
+                Map.of("format", "MARKDOWN", "fileName", "summary.md", "outputDirectory", "/workflow/exports/meeting-summary/"),
+                Map.of("summary", "Done")
+        ));
+
+        ArgumentCaptor<CreateFileMetadataRequestDTO> metadataCaptor =
+                ArgumentCaptor.forClass(CreateFileMetadataRequestDTO.class);
+        verify(fileClient).createMetadata(eq("token"), metadataCaptor.capture());
+        assertThat(metadataCaptor.getValue().getObjectKey())
+                .startsWith("workflow/exports/meeting-summary/");
     }
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {
         Map<String, Object> initialVariables = new LinkedHashMap<>(variables);
+        initialVariables.putIfAbsent("userId", 1001L);
         initialVariables.put(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("export", config));
         DefaultWorkflowContext context = new DefaultWorkflowContext("workflow-1", "trace-1", "task-1", initialVariables);
         context.updateCurrentNodeId("export");

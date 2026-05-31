@@ -4,9 +4,12 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
+import { useProjectStore } from '@/stores/projectStore'
+import { useWorkflowStore } from '@/stores/workflowStore'
+
 const navItems = [
   { key: 'projects', to: '/projects', icon: FolderKanban },
-  { key: 'workflows', to: '/workflows/wf-media-digest', icon: Workflow },
+  { key: 'workflows', to: '', icon: Workflow },
   { key: 'runs', to: '/runs', icon: Activity },
   { key: 'knowledge', to: '/knowledge', icon: BookOpen },
   { key: 'files', to: '/files', icon: FileText },
@@ -16,6 +19,8 @@ const navItems = [
 
 const { t } = useI18n()
 const route = useRoute()
+const projectStore = useProjectStore()
+const workflowStore = useWorkflowStore()
 const dockRoot = ref<HTMLElement | null>(null)
 const dockItemRefs = ref<(HTMLElement | null)[]>([])
 const pointerY = ref<number | null>(null)
@@ -27,8 +32,23 @@ const translatedNavItems = computed(() =>
   navItems.map((item) => ({
     ...item,
     label: t(`nav.${item.key}`),
+    to: item.key === 'workflows' ? workflowNavTarget.value : item.to,
   })),
 )
+
+const workflowNavTarget = computed(() => {
+  if (route.path.startsWith('/workflows/')) {
+    return route.fullPath
+  }
+  if (workflowStore.workflowId && workflowStore.workflowId !== 'new' && workflowStore.nodes.length > 0) {
+    return `/workflows/${workflowStore.workflowId}`
+  }
+  const currentProjectWorkflow = projectStore.currentProject?.workflows[0] ?? projectStore.workflowSummaries[0]
+  if (currentProjectWorkflow?.id) {
+    return `/workflows/${currentProjectWorkflow.id}`
+  }
+  return '/projects'
+})
 
 function setDockItemRef(element: unknown, index: number) {
   dockItemRefs.value[index] = element instanceof HTMLElement ? element : null

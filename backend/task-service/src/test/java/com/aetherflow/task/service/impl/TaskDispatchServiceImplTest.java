@@ -125,6 +125,26 @@ class TaskDispatchServiceImplTest {
     }
 
     @Test
+    void canCreateTaskWithoutQueueDispatchForTransactionalDemo() {
+        TransactionSynchronizationManager.initSynchronization();
+        TaskMessageDTO message = validMessage();
+        message.setEnqueue(false);
+        when(taskMessageFactory.writePayload(message.getPayload())).thenReturn("{\"fileUrl\":\"https://example.test/video.mp4\"}");
+        when(taskMapper.insert(any(Task.class))).thenAnswer(invocation -> {
+            Task task = invocation.getArgument(0);
+            task.setId(58L);
+            return 1;
+        });
+
+        Long taskId = taskDispatchService.dispatch(message);
+
+        assertThat(taskId).isEqualTo(58L);
+        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        verify(taskQueueProducer, never()).publishForDispatch(any(TaskMessageDTO.class));
+        verify(taskStateService, never()).mark(any(Task.class), eq(TaskStatus.QUEUED), any(LocalDateTime.class));
+    }
+
+    @Test
     void marksTaskSucceededWhenWorkerCompletes() {
         Task task = new Task();
         task.setId(57L);

@@ -98,6 +98,7 @@ class SettingsServiceImplTest {
     @Test
     void listsCreatesPatchesAndDeletesMembers() {
         SettingsMemberEntity owner = member(1L, "Owner", "Owner", "active");
+        when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
         when(memberMapper.selectList(any(Wrapper.class))).thenReturn(List.of(owner));
         assertThat(service.listMembers()).extracting(SettingsMemberResponse::role).containsExactly("Owner");
 
@@ -132,6 +133,27 @@ class SettingsServiceImplTest {
 
         assertThat(existing.getStatus()).isEqualTo("removed");
         verify(memberMapper).updateById(existing);
+    }
+
+    @Test
+    void seedsDefaultOwnerWhenMemberTableIsEmpty() {
+        when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
+        doAnswer(invocation -> {
+            SettingsMemberEntity entity = invocation.getArgument(0);
+            entity.setId(1L);
+            return 1;
+        }).when(memberMapper).insert(any(SettingsMemberEntity.class));
+        SettingsMemberEntity seededOwner = member(1L, "AetherFlow Operator", "Owner", "active");
+        seededOwner.setEmail("aether.operator@aetherflow.local");
+        when(memberMapper.selectList(any(Wrapper.class))).thenReturn(List.of(seededOwner));
+
+        List<SettingsMemberResponse> members = service.listMembers();
+
+        assertThat(members).extracting(SettingsMemberResponse::email).containsExactly("aether.operator@aetherflow.local");
+        ArgumentCaptor<SettingsMemberEntity> memberCaptor = ArgumentCaptor.forClass(SettingsMemberEntity.class);
+        verify(memberMapper).insert(memberCaptor.capture());
+        assertThat(memberCaptor.getValue().getRole()).isEqualTo("Owner");
+        assertThat(memberCaptor.getValue().getStatus()).isEqualTo("active");
     }
 
     @Test

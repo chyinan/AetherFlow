@@ -14,7 +14,7 @@ class ProviderCatalogServiceTest {
         AiTaskProperties properties = new AiTaskProperties();
         properties.setDefaultProvider(AiProviderType.OLLAMA);
         properties.setDefaultModel("qwen2.5:7b");
-        ProviderCatalogService service = new ProviderCatalogService(properties);
+        ProviderCatalogService service = new ProviderCatalogService(properties, ProviderRuntimeCatalogClient.empty());
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         policy.setProviders(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
 
@@ -35,5 +35,72 @@ class ProviderCatalogServiceTest {
                     assertThat(model.name()).isEqualTo("qwen2.5:7b");
                     assertThat(model.pricing().priceHint()).contains("local");
                 });
+    }
+
+    @Test
+    void usesRuntimeOllamaModelsInsteadOfStaticFallbackCatalog() {
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("llama3");
+        ProviderCatalogService service = new ProviderCatalogService(
+                properties,
+                () -> ProviderRuntimeCatalog.of(
+                        List.of(AiProviderType.OLLAMA),
+                        List.of(
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "nomic-embed-text:latest"),
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen3.5:9b"),
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen3-coder:30b")
+                        )
+                )
+        );
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
+
+        ProviderCatalogResponse catalog = service.catalog(policy);
+
+        assertThat(catalog.providers())
+                .extracting(ProviderCatalogResponse.ProviderCatalogProvider::provider)
+                .containsExactly(AiProviderType.OLLAMA);
+        assertThat(catalog.providers().get(0).defaultModel()).isEqualTo("qwen3.5:9b");
+        assertThat(catalog.models())
+                .extracting(ProviderCatalogResponse.ProviderCatalogModel::name)
+                .containsExactly("qwen3.5:9b", "qwen3-coder:30b", "nomic-embed-text:latest")
+                .doesNotContain("qwen2.5:7b");
+        assertThat(catalog.models())
+                .filteredOn(model -> model.name().equals("nomic-embed-text:latest"))
+                .singleElement()
+                .extracting(ProviderCatalogResponse.ProviderCatalogModel::kind)
+                .isEqualTo("embedding");
+    }
+
+    @Test
+    void usesRuntimeOpenAiCompatibleModelInsteadOfStaticFallbackCatalog() {
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("qwen3.5:9b");
+        ProviderCatalogService service = new ProviderCatalogService(
+                properties,
+                () -> ProviderRuntimeCatalog.of(
+                        List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA),
+                        List.of(
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OPENAI, "qwen/qwen3.5-9b"),
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen3.5:9b")
+                        )
+                )
+        );
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
+
+        ProviderCatalogResponse catalog = service.catalog(policy);
+
+        assertThat(catalog.providers())
+                .extracting(ProviderCatalogResponse.ProviderCatalogProvider::provider)
+                .containsExactly(AiProviderType.OPENAI, AiProviderType.OLLAMA);
+        assertThat(catalog.providers().get(0).defaultModel()).isEqualTo("qwen/qwen3.5-9b");
+        assertThat(catalog.models())
+                .filteredOn(model -> model.provider() == AiProviderType.OPENAI)
+                .extracting(ProviderCatalogResponse.ProviderCatalogModel::name)
+                .containsExactly("qwen/qwen3.5-9b")
+                .doesNotContain("gpt-4o-mini");
     }
 }

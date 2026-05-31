@@ -53,13 +53,14 @@ class InternalFileControllerTest {
                 16L,
                 "http://minio/aetherflow/outputs/demo.txt"
         );
-        when(fileInfoService.createMetadata(null, request)).thenReturn(metadata);
+        request.setUserId(1001L);
+        when(fileInfoService.createMetadata(1001L, request)).thenReturn(metadata);
 
         Result<FileMetadataDTO> result = controller.createMetadata("expected-token", request);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(metadata);
-        verify(fileInfoService).createMetadata(null, request);
+        verify(fileInfoService).createMetadata(1001L, request);
     }
 
     @Test

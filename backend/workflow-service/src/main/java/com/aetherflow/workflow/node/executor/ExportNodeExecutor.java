@@ -60,7 +60,7 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         String fileName = fileName(config, format);
         String objectKey = objectKey(context, config, fileName);
         upload(objectKey, format, bytes);
-        FileMetadataDTO metadata = createMetadata(objectKey, fileName, format, bytes.length);
+        FileMetadataDTO metadata = createMetadata(context, objectKey, fileName, format, bytes.length);
         Map<String, Object> output = output(format, metadata, bytes.length);
         Map<String, Object> variables = variables(format, metadata);
         return buildResult(output, variables);
@@ -108,13 +108,17 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         }
     }
 
-    private FileMetadataDTO createMetadata(String objectKey, String fileName, ExportFormat format, long size) {
+    private FileMetadataDTO createMetadata(WorkflowContext context, String objectKey, String fileName, ExportFormat format, long size) {
         CreateFileMetadataRequestDTO request = new CreateFileMetadataRequestDTO();
         request.setBucket(minioProperties.getBucket());
         request.setObjectKey(objectKey);
         request.setOriginalName(fileName);
         request.setContentType(format.contentType);
         request.setSize(size);
+        Long userId = longValue(context.variables().get("userId"));
+        if (userId != null && userId > 0) {
+            request.setUserId(userId);
+        }
         Result<FileMetadataDTO> result = fileClient.createMetadata(properties.getFileInternalToken(), request);
         if (result == null || !result.isSuccess() || result.getData() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow export metadata registration failed");
@@ -158,11 +162,27 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         if (!configured.isBlank()) {
             return trimSlashes(configured);
         }
-        String prefix = trimSlashes(properties.getExportObjectPrefix());
+        String outputDirectory = trimSlashes(stringValue(config.get("outputDirectory"), ""));
+        String prefix = outputDirectory.isBlank()
+                ? trimSlashes(properties.getExportObjectPrefix()) + "/" + context.workflowId() + "/" + context.currentNodeId()
+                : outputDirectory;
         String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS")
                 .format(OffsetDateTime.now());
-        return prefix + "/" + context.workflowId() + "/" + context.currentNodeId() + "/"
-                + timestamp + "-" + UUID.randomUUID() + "-" + sanitize(fileName);
+        return prefix + "/" + timestamp + "-" + UUID.randomUUID() + "-" + sanitize(fileName);
+    }
+
+    private Long longValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null || String.valueOf(value).isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private String sanitize(String value) {

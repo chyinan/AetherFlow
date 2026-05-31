@@ -151,6 +151,32 @@ export interface ProviderRuntimeLogResponse {
   logs?: ProviderRuntimeLogEntry[] | null
 }
 
+export interface ProviderConfigEntry {
+  id?: string
+  name?: string
+  providerType?: string
+  baseUrl?: string
+  defaultModel?: string
+  configured?: boolean
+  enabled?: boolean
+  apiKeyConfigured?: boolean
+  apiKeyPreview?: string
+  tags?: string[]
+  description?: string
+  region?: string
+}
+
+export interface ProviderConfigCatalogResponse {
+  providers?: ProviderConfigEntry[] | null
+}
+
+export interface ProviderConfigUpdatePayload {
+  enabled?: boolean
+  apiKey?: string | null
+  baseUrl?: string | null
+  defaultModel?: string | null
+}
+
 export function getAiStatus() {
   return apiClient.get<AiServiceStatusResponse>('/ai/status', { source: 'ai' })
 }
@@ -190,6 +216,18 @@ export function getProviderLogs(limit = 50) {
   })
 }
 
+export function getProviderConfigCatalog() {
+  return apiClient.get<ProviderConfigCatalogResponse>('/ai/provider/config', { source: 'ai' })
+}
+
+export function updateProviderConfig(providerId: string, payload: ProviderConfigUpdatePayload) {
+  return apiClient.put<ProviderConfigEntry>(
+    `/ai/provider/config/${encodeURIComponent(providerId)}`,
+    payload,
+    { source: 'ai' },
+  )
+}
+
 export const aiModuleApi = {
   getAiStatus,
   getProviderStatus,
@@ -199,4 +237,6 @@ export const aiModuleApi = {
   getProviderMetrics,
   getProviderCatalog,
   getProviderLogs,
+  getProviderConfigCatalog,
+  updateProviderConfig,
 }

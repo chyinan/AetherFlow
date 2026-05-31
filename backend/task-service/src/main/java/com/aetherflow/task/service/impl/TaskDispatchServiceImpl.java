@@ -60,6 +60,11 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         taskMessage.setTaskId(task.getId());
         taskMessage.setRetryCount(task.getRetryCount());
         taskMessage.setCreatedAt(OffsetDateTime.now());
+        if (Boolean.FALSE.equals(taskMessage.getEnqueue())) {
+            log.info("async task created without queue dispatch, taskId={}, workflowInstanceId={}, nodeId={}",
+                    task.getId(), task.getWorkflowInstanceId(), task.getNodeId());
+            return task.getId();
+        }
         publishForDispatchAfterCommit(task, taskMessage, now.plus(properties.getDispatchTimeout()));
         log.info("async task created, taskId={}, workflowInstanceId={}, nodeId={}",
                 task.getId(), task.getWorkflowInstanceId(), task.getNodeId());

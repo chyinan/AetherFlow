@@ -34,12 +34,19 @@ export interface IntegrationSetting {
 
 export interface SettingsModelProvider {
   id: string
+  providerKey: string
+  providerType: string
   name: string
   maintainer: string
   region: 'global' | 'domestic'
   status: 'installed' | 'available'
   description: string
   defaultModel: string
+  baseUrl: string
+  enabled: boolean
+  configured: boolean
+  apiKeyConfigured: boolean
+  apiKeyPreview: string
   installCount: string
   tags: string[]
 }

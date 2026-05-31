@@ -67,7 +67,7 @@ public class InternalFileController {
             @RequestHeader(value = InternalHeaders.FILE_SERVICE_TOKEN, required = false) String internalToken,
             @Valid @RequestBody CreateFileMetadataRequestDTO request) {
         validateInternalToken(internalToken);
-        return Result.success(fileInfoService.createMetadata(null, request));
+        return Result.success(fileInfoService.createMetadata(request.getUserId(), request));
     }
 
     @Operation(summary = "Get file metadata",

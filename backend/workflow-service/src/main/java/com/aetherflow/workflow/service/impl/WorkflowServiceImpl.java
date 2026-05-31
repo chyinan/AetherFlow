@@ -19,7 +19,11 @@ import com.aetherflow.workflow.service.WorkflowService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.seata.spring.annotation.GlobalTransactional;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +35,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WorkflowServiceImpl implements WorkflowService {
 
     private static final String STATUS_ENABLED = "ENABLED";
@@ -41,6 +46,8 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final WorkflowRuntimeEngine runtimeEngine;
     private final ObjectMapper objectMapper;
     private final WorkflowRuntimeProperties runtimeProperties;
+    @Qualifier("workflowRuntimeTaskExecutor")
+    private final TaskExecutor workflowRuntimeTaskExecutor;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -93,7 +100,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @GlobalTransactional(name = "aetherflow-start-workflow-instance", rollbackFor = Exception.class)
     public WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request) {
         WorkflowDefinition definition = getExistingDefinition(definitionId);
 
@@ -104,7 +111,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setDefinitionId(definitionId);
         instance.setUserId(request == null ? null : request.getUserId());
         instance.setInputJson(writeJson(input));
-        instance.setStatus(RuntimeState.PENDING.name());
+        instance.setStatus(RuntimeState.RUNNING.name());
         instance.setStartedAt(LocalDateTime.now());
         instance.setUpdatedAt(LocalDateTime.now());
         instanceMapper.insert(instance);
@@ -114,23 +121,30 @@ public class WorkflowServiceImpl implements WorkflowService {
                 newTraceId(),
                 String.valueOf(instance.getId()),
                 definitionDTO,
-                runtimeVariables(definitionDTO, input),
+                runtimeVariables(definitionDTO, input, request == null ? null : request.getUserId()),
                 runtimeProperties.getRetry().toRetryPolicy()
         );
 
+        workflowRuntimeTaskExecutor.execute(() -> executeRuntime(instance.getId(), runtimeRequest));
+        return instance;
+    }
+
+    private void executeRuntime(Long instanceId, WorkflowRuntimeRequest runtimeRequest) {
+        WorkflowInstance update = new WorkflowInstance();
+        update.setId(instanceId);
         try {
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
-            applySnapshot(instance, snapshot);
-            instance.setCompletedAt(LocalDateTime.now());
-            instance.setUpdatedAt(LocalDateTime.now());
-            instanceMapper.updateById(instance);
-            return instance;
+            applySnapshot(update, snapshot);
+            update.setCompletedAt(LocalDateTime.now());
+            update.setUpdatedAt(LocalDateTime.now());
+            instanceMapper.updateById(update);
         } catch (RuntimeException exception) {
-            instance.setStatus(RuntimeState.FAILED.name());
-            instance.setCompletedAt(LocalDateTime.now());
-            instance.setUpdatedAt(LocalDateTime.now());
-            instanceMapper.updateById(instance);
-            throw runtimeFailure(exception);
+            update.setStatus(RuntimeState.FAILED.name());
+            update.setCompletedAt(LocalDateTime.now());
+            update.setUpdatedAt(LocalDateTime.now());
+            instanceMapper.updateById(update);
+            log.warn("workflow runtime execution failed, workflowId={}, reason={}",
+                    runtimeRequest.workflowId(), exception.getMessage(), exception);
         }
     }
 
@@ -154,8 +168,11 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setCurrentNodeId(snapshot.currentNodeId());
     }
 
-    private Map<String, Object> runtimeVariables(WorkflowDefinitionDTO definition, Map<String, Object> input) {
+    private Map<String, Object> runtimeVariables(WorkflowDefinitionDTO definition, Map<String, Object> input, Long userId) {
         Map<String, Object> variables = new LinkedHashMap<>(input == null ? Map.of() : input);
+        if (userId != null && !variables.containsKey("userId")) {
+            variables.put("userId", userId);
+        }
         variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, nodeConfigs(definition));
         return variables;
     }

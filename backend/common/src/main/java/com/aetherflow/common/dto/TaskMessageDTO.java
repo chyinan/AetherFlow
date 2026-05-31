@@ -13,6 +13,7 @@ public class TaskMessageDTO {
     private String nodeId;
     private String nodeType;
     private Map<String, Object> payload;
+    private Boolean enqueue = true;
     private Integer retryCount;
     private OffsetDateTime createdAt;
 }

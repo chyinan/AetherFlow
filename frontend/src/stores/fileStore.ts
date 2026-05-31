@@ -10,6 +10,10 @@ export const useFileStore = defineStore('file', {
     files: [] as FileAsset[],
     uploading: false,
     uploadProgress: 0,
+    uploadError: null as string | null,
+    deletingIds: [] as string[],
+    downloadingIds: [] as string[],
+    fileActionError: null as string | null,
   }),
   getters: {
     inputFiles: (state) => state.files.filter((file) => file.source === 'input'),
@@ -37,6 +41,7 @@ export const useFileStore = defineStore('file', {
     async upload(file: File) {
       this.uploading = true
       this.uploadProgress = 1
+      this.uploadError = null
       try {
         const asset = await fileApi.uploadFile(file, {
           onProgress: (percentage) => {
@@ -53,11 +58,71 @@ export const useFileStore = defineStore('file', {
             uploaded.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false })
           }
         }, 900)
+        return asset
+      } catch (error) {
+        this.uploadError = error instanceof Error && error.message
+          ? error.message
+          : i18n.global.t('files.uploadFailed')
+        throw error
       } finally {
         window.setTimeout(() => {
           this.uploading = false
           this.uploadProgress = 0
         }, 420)
+      }
+    },
+    async download(fileId: string) {
+      const file = this.files.find((item) => item.id === fileId)
+      if (!file) {
+        return
+      }
+
+      this.fileActionError = null
+      this.downloadingIds = [...new Set([...this.downloadingIds, fileId])]
+      try {
+        if (file.backendFileId) {
+          const blob = await fileApi.downloadFile(file.backendFileId)
+          const url = URL.createObjectURL(blob)
+          triggerBrowserDownload(url, file.name)
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+          return
+        }
+
+        if (file.downloadUrl) {
+          triggerBrowserDownload(file.downloadUrl, file.name)
+          return
+        }
+
+        throw new Error(i18n.global.t('files.downloadUnavailable'))
+      } catch (error) {
+        this.fileActionError = error instanceof Error && error.message
+          ? error.message
+          : i18n.global.t('files.downloadFailed')
+        throw error
+      } finally {
+        this.downloadingIds = this.downloadingIds.filter((id) => id !== fileId)
+      }
+    },
+    async deleteAsset(fileId: string) {
+      const file = this.files.find((item) => item.id === fileId)
+      if (!file) {
+        return
+      }
+
+      this.fileActionError = null
+      this.deletingIds = [...new Set([...this.deletingIds, fileId])]
+      try {
+        if (file.backendFileId) {
+          await fileApi.deleteFile(file.backendFileId)
+        }
+        this.files = this.files.filter((item) => item.id !== fileId)
+      } catch (error) {
+        this.fileActionError = error instanceof Error && error.message
+          ? error.message
+          : i18n.global.t('files.deleteFailed')
+        throw error
+      } finally {
+        this.deletingIds = this.deletingIds.filter((id) => id !== fileId)
       }
     },
     toggleSource(fileId: string) {
@@ -120,3 +185,13 @@ export const useFileStore = defineStore('file', {
     },
   },
 })
+
+function triggerBrowserDownload(url: string, filename: string) {
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}

@@ -1,4 +1,5 @@
 export type WorkflowNodeKind =
+  | 'start'
   | 'whisper'
   | 'llm'
   | 'ffmpeg'

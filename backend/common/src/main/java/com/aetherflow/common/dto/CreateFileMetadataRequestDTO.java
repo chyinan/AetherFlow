@@ -24,5 +24,8 @@ public class CreateFileMetadataRequestDTO {
 
     @Schema(description = "File size in bytes.", example = "4096")
     private Long size;
+
+    @Schema(description = "Owner user id for generated artifacts.", example = "10001")
+    private Long userId;
 }
 

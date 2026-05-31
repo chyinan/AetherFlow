@@ -1,0 +1,131 @@
+{
+  "users": [
+    {
+      "name": "aetherflow",
+      "password": "aetherflow",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "aetherflow",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "aetherflow.task.exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "aetherflow.task.scheduler.exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "aetherflow.task.dlx",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "aetherflow.notify.exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "aetherflow.ai.task.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "aetherflow.task.dlx",
+        "x-dead-letter-routing-key": "task.dead"
+      }
+    },
+    {
+      "name": "aetherflow.task.scheduler.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "aetherflow.task.dlx",
+        "x-dead-letter-routing-key": "task.dead"
+      }
+    },
+    {
+      "name": "aetherflow.task.dlq",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "aetherflow.notify.queue",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ],
+  "bindings": [
+    {
+      "source": "aetherflow.task.exchange",
+      "vhost": "/",
+      "destination": "aetherflow.ai.task.queue",
+      "destination_type": "queue",
+      "routing_key": "task.ai",
+      "arguments": {}
+    },
+    {
+      "source": "aetherflow.task.scheduler.exchange",
+      "vhost": "/",
+      "destination": "aetherflow.task.scheduler.queue",
+      "destination_type": "queue",
+      "routing_key": "task.schedule.dispatch",
+      "arguments": {}
+    },
+    {
+      "source": "aetherflow.task.dlx",
+      "vhost": "/",
+      "destination": "aetherflow.task.dlq",
+      "destination_type": "queue",
+      "routing_key": "task.dead",
+      "arguments": {}
+    },
+    {
+      "source": "aetherflow.notify.exchange",
+      "vhost": "/",
+      "destination": "aetherflow.notify.queue",
+      "destination_type": "queue",
+      "routing_key": "notify.user",
+      "arguments": {}
+    }
+  ]
+}

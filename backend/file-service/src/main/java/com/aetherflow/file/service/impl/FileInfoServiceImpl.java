@@ -31,7 +31,9 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.SetBucketPolicyArgs;
 import io.minio.errors.ErrorResponseException;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -58,6 +60,10 @@ public class FileInfoServiceImpl implements FileInfoService {
     private static final String FRONTEND_STATUS_READY = "ready";
     private static final String DEFAULT_SOURCE = "input";
     private static final String DEFAULT_ARTIFACT_KIND = "input";
+    private static final String SOURCE_ARTIFACT = "artifact";
+    private static final String ARTIFACT_KIND_SUMMARY = "summary";
+    private static final String ARTIFACT_KIND_DOCUMENT = "document";
+    private static final String WORKFLOW_EXPORT_PREFIX = "workflow/exports/";
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
 
@@ -68,6 +74,11 @@ public class FileInfoServiceImpl implements FileInfoService {
     private final FileHashService fileHashService;
     private final FileGovernanceCacheService cacheService;
     private final MinioHealthService minioHealthService;
+
+    @PostConstruct
+    void initializeStorageBucket() throws Exception {
+        ensureBucket(minioProperties.getBucket());
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -218,8 +229,9 @@ public class FileInfoServiceImpl implements FileInfoService {
     @Transactional(rollbackFor = Exception.class)
     public FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request) {
         String contentType = resolveContentType(request.getContentType());
+        Long ownerUserId = userId != null ? userId : request.getUserId();
         FileInfo fileInfo = buildFileInfo(
-                userId,
+                ownerUserId,
                 request.getBucket(),
                 request.getObjectKey(),
                 cleanOriginalName(request.getOriginalName()),
@@ -255,14 +267,18 @@ public class FileInfoServiceImpl implements FileInfoService {
         }
 
         String normalizedType = normalize(type);
-        LambdaQueryWrapper<FileInfo> countQuery = listQuery(userId, query, normalizedType);
+        String normalizedSource = normalize(source);
+        String normalizedArtifactKind = normalize(artifactKind);
+        LambdaQueryWrapper<FileInfo> countQuery = listQuery(userId, query, normalizedType, normalizedSource,
+                normalizedArtifactKind);
         long total = safeLong(fileInfoMapper.selectCount(countQuery));
         if (total == 0) {
             return emptyPage(normalizedPage, normalizedPageSize);
         }
 
         long offset = (long) (normalizedPage - 1) * normalizedPageSize;
-        LambdaQueryWrapper<FileInfo> pageQuery = listQuery(userId, query, normalizedType)
+        LambdaQueryWrapper<FileInfo> pageQuery = listQuery(userId, query, normalizedType, normalizedSource,
+                normalizedArtifactKind)
                 .orderByDesc(FileInfo::getUpdatedAt)
                 .orderByDesc(FileInfo::getId)
                 .last("LIMIT " + offset + ", " + normalizedPageSize);
@@ -436,7 +452,11 @@ public class FileInfoServiceImpl implements FileInfoService {
         }
     }
 
-    private LambdaQueryWrapper<FileInfo> listQuery(Long userId, String queryText, String type) {
+    private LambdaQueryWrapper<FileInfo> listQuery(Long userId,
+                                                   String queryText,
+                                                   String type,
+                                                   String source,
+                                                   String artifactKind) {
         LambdaQueryWrapper<FileInfo> query = new LambdaQueryWrapper<FileInfo>()
                 .eq(FileInfo::getUserId, userId)
                 .eq(FileInfo::getStatus, STATUS_AVAILABLE);
@@ -451,7 +471,42 @@ public class FileInfoServiceImpl implements FileInfoService {
                     .like(FileInfo::getMimeType, keyword));
         }
         applyTypeFilter(query, type);
+        applySourceFilter(query, source);
+        applyArtifactKindFilter(query, artifactKind);
         return query;
+    }
+
+    private void applySourceFilter(LambdaQueryWrapper<FileInfo> query, String source) {
+        if (!StringUtils.hasText(source)) {
+            return;
+        }
+        if (SOURCE_ARTIFACT.equals(source)) {
+            query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+            return;
+        }
+        query.notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+    }
+
+    private void applyArtifactKindFilter(LambdaQueryWrapper<FileInfo> query, String artifactKind) {
+        if (!StringUtils.hasText(artifactKind)) {
+            return;
+        }
+        if (DEFAULT_ARTIFACT_KIND.equals(artifactKind)) {
+            query.notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+            return;
+        }
+        if (ARTIFACT_KIND_SUMMARY.equals(artifactKind)) {
+            query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)
+                    .and(wrapper -> wrapper.like(FileInfo::getOriginalName, ".md")
+                            .or()
+                            .like(FileInfo::getOriginalName, ".markdown")
+                            .or()
+                            .like(FileInfo::getOriginalName, ".txt")
+                            .or()
+                            .like(FileInfo::getOriginalName, ".json"));
+            return;
+        }
+        query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
     }
 
     private void applyTypeFilter(LambdaQueryWrapper<FileInfo> query, String type) {
@@ -497,9 +552,9 @@ public class FileInfoServiceImpl implements FileInfoService {
                 String.valueOf(fileInfo.getId()),
                 name,
                 fileInfo.getOriginalName(),
-                inferType(mime, name),
-                DEFAULT_SOURCE,
-                DEFAULT_ARTIFACT_KIND,
+                inferSource(fileInfo.getObjectKey()).equals(SOURCE_ARTIFACT) ? SOURCE_ARTIFACT : inferType(mime, name),
+                inferSource(fileInfo.getObjectKey()),
+                inferArtifactKind(fileInfo.getObjectKey(), name),
                 fileInfo.getFileSize(),
                 mime,
                 FRONTEND_STATUS_READY,
@@ -532,14 +587,35 @@ public class FileInfoServiceImpl implements FileInfoService {
         return "document";
     }
 
+    private String inferSource(String objectKey) {
+        return isWorkflowExport(objectKey) ? SOURCE_ARTIFACT : DEFAULT_SOURCE;
+    }
+
+    private String inferArtifactKind(String objectKey, String name) {
+        if (!isWorkflowExport(objectKey)) {
+            return DEFAULT_ARTIFACT_KIND;
+        }
+        String normalizedName = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        if (normalizedName.matches(".*\\.(md|markdown|txt|json)$")) {
+            return ARTIFACT_KIND_SUMMARY;
+        }
+        return ARTIFACT_KIND_DOCUMENT;
+    }
+
+    private boolean isWorkflowExport(String objectKey) {
+        return StringUtils.hasText(objectKey) && objectKey.startsWith(WORKFLOW_EXPORT_PREFIX);
+    }
+
     private boolean unsupportedSource(String source) {
         String normalized = normalize(source);
-        return StringUtils.hasText(normalized) && !DEFAULT_SOURCE.equals(normalized);
+        return StringUtils.hasText(normalized) && !DEFAULT_SOURCE.equals(normalized) && !SOURCE_ARTIFACT.equals(normalized);
     }
 
     private boolean unsupportedArtifactKind(String artifactKind) {
         String normalized = normalize(artifactKind);
-        return StringUtils.hasText(normalized) && !DEFAULT_ARTIFACT_KIND.equals(normalized);
+        return StringUtils.hasText(normalized)
+                && !List.of(DEFAULT_ARTIFACT_KIND, "audio", "transcript", "subtitle", ARTIFACT_KIND_SUMMARY,
+                ARTIFACT_KIND_DOCUMENT, "archive").contains(normalized);
     }
 
     private boolean unsupportedType(String type) {
@@ -599,6 +675,26 @@ public class FileInfoServiceImpl implements FileInfoService {
         if (!exists) {
             minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
         }
+        minioClient.setBucketPolicy(SetBucketPolicyArgs.builder()
+                .bucket(bucket)
+                .config(publicReadPolicy(bucket))
+                .build());
+    }
+
+    private String publicReadPolicy(String bucket) {
+        return """
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Effect": "Allow",
+                      "Principal": {"AWS": ["*"]},
+                      "Action": ["s3:GetObject"],
+                      "Resource": ["arn:aws:s3:::%s/*"]
+                    }
+                  ]
+                }
+                """.formatted(bucket);
     }
 
     private String buildObjectKey(String sha256, String extension) {

@@ -3,15 +3,15 @@ import type { Connection } from '@vue-flow/core'
 
 import { i18n } from '@/i18n'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
-import { initialWorkflow, nodeTemplates } from '@/services/mock/workflowMock'
+import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
 
 function cloneNodes() {
-  return structuredClone(initialWorkflow.nodes) as WorkflowGraphNode[]
+  return [] as WorkflowGraphNode[]
 }
 
 function cloneEdges() {
-  return structuredClone(initialWorkflow.edges) as WorkflowGraphEdge[]
+  return [] as WorkflowGraphEdge[]
 }
 
 function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
@@ -41,9 +41,9 @@ function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition
 
 export const useWorkflowStore = defineStore('workflow', {
   state: () => ({
-    workflowId: initialWorkflow.id,
-    workflowName: initialWorkflow.name,
-    backendDefinitionId: getBackendDefinitionId(initialWorkflow.id) ?? initialWorkflow.backendDefinitionId ?? null as number | null,
+    workflowId: 'new',
+    workflowName: 'Untitled Workflow',
+    backendDefinitionId: null as number | null,
     templates: nodeTemplates,
     nodes: cloneNodes(),
     edges: cloneEdges(),
@@ -121,14 +121,54 @@ export const useWorkflowStore = defineStore('workflow', {
       this.runError = null
       return node
     },
+    duplicateNode(nodeId: string) {
+      const source = this.nodes.find((node) => node.id === nodeId)
+      if (!source) {
+        return null
+      }
+      const node = {
+        ...structuredClone(source),
+        id: `${source.id}-copy-${nodeCounter++}`,
+        selected: false,
+        position: {
+          x: source.position.x,
+          y: source.position.y + 170,
+        },
+        data: {
+          ...structuredClone(source.data),
+          status: 'idle' as WorkflowNodeStatus,
+          runtime: { lastResult: i18n.global.t('workflow.mockResults.newNode') },
+        },
+      }
+      this.nodes.push(node)
+      this.dirty = true
+      this.savingError = null
+      this.runError = null
+      return node
+    },
+    deleteNode(nodeId: string) {
+      const beforeLength = this.nodes.length
+      this.nodes = this.nodes.filter((node) => node.id !== nodeId)
+      this.edges = this.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
+      if (this.nodes.length !== beforeLength) {
+        this.dirty = true
+        this.savingError = null
+        this.runError = null
+      }
+    },
     updateNodeStatus(nodeId: string, status: WorkflowNodeStatus, durationMs?: number) {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
         node.data.status = status
-        node.data.runtime = {
+        const runtime = {
           ...node.data.runtime,
-          durationMs,
           lastResult: status === 'success' ? 'completed' : status,
+        }
+        if (durationMs !== undefined) {
+          runtime.durationMs = durationMs
+        }
+        node.data.runtime = {
+          ...runtime,
         }
       }
     },
@@ -157,14 +197,17 @@ export const useWorkflowStore = defineStore('workflow', {
       this.savingError = null
       this.runError = null
     },
-    async loadWorkflow(workflowId: string) {
+    async loadWorkflow(workflowId: string, options: { initialName?: string } = {}) {
       const workflow = await workflowApi.getWorkflow(workflowId)
+      const initialName = workflowId === 'new' ? options.initialName?.trim() : ''
       this.workflowId = workflow.id
-      this.workflowName = workflow.name
-      this.backendDefinitionId = workflow.backendDefinitionId ?? getBackendDefinitionId(workflow.id) ?? null
+      this.workflowName = initialName || workflow.name
+      this.backendDefinitionId = workflow.id === 'new'
+        ? null
+        : workflow.backendDefinitionId ?? getBackendDefinitionId(workflow.id) ?? null
       this.nodes = structuredClone(workflow.nodes)
       this.edges = structuredClone(workflow.edges)
-      this.dirty = false
+      this.dirty = Boolean(initialName)
       this.savingError = null
       this.runError = null
     },
@@ -179,6 +222,8 @@ export const useWorkflowStore = defineStore('workflow', {
           nodes: this.nodes,
           edges: this.edges,
         }, options)
+        this.workflowId = savedWorkflow.id
+        this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.markSaved()
       } catch (error) {

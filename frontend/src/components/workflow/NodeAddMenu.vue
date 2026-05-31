@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Search,
   Split,
+  Upload,
   Variable,
   Wrench,
   X,
@@ -49,6 +50,7 @@ const search = ref('')
 const hoveredTemplate = ref<NodeTemplate | null>(null)
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
+  start: Upload,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,

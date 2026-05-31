@@ -16,7 +16,11 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_status_reports_provider_and_runtime_capabilities(self):
-        response = self.client.get("/ai/status")
+        with (
+            patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False),
+            patch("app.main._ollama_model_names", return_value=["qwen3.5:9b"]),
+        ):
+            response = self.client.get("/ai/status")
 
         self.assertEqual(200, response.status_code)
         body = response.json()
@@ -24,6 +28,47 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("whisper", body["capabilities"])
         self.assertIn("openai", body["providers"])
         self.assertIn("ollama", body["providers"])
+
+    def test_status_reports_installed_ollama_models_from_runtime(self):
+        with (
+            patch.dict("os.environ", {"OPENAI_API_KEY": ""}, clear=False),
+            patch("app.main._ollama_model_names", return_value=["qwen3.5:9b", "qwen3-coder:30b", "nomic-embed-text:latest"]),
+        ):
+            response = self.client.get("/ai/status")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertIn("ollama", body["providers"])
+        self.assertNotIn("openai", body["providers"])
+        self.assertEqual(
+            ["qwen3.5:9b", "qwen3-coder:30b", "nomic-embed-text:latest"],
+            body["models"]["ollama"],
+        )
+
+    def test_provider_config_updates_runtime_without_exposing_secret(self):
+        with (
+            patch.dict("os.environ", {}, clear=False),
+            patch("app.main._runtime_config_file", return_value=None),
+        ):
+            response = self.client.put(
+                "/ai/provider/config/openrouter",
+                json={
+                    "enabled": True,
+                    "apiKey": "sk-openrouter-demo-secret",
+                    "baseUrl": "https://openrouter.ai/api/v1",
+                    "defaultModel": "qwen/qwen3.5-9b",
+                },
+            )
+            status = self.client.get("/ai/status")
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("openrouter", body["id"])
+        self.assertTrue(body["configured"])
+        self.assertTrue(body["apiKeyConfigured"])
+        self.assertNotIn("sk-openrouter-demo-secret", str(body))
+        self.assertIn("openai", status.json()["providers"])
+        self.assertIn("qwen/qwen3.5-9b", status.json()["models"]["openai"])
 
     def test_llm_chat_returns_fallback_when_runtime_is_disabled(self):
         with patch.dict("os.environ", {"ENABLE_LLM": "false"}):

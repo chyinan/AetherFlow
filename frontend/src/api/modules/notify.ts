@@ -19,6 +19,16 @@ export interface NotifyStreamTokenResponse {
   queryParam?: string
 }
 
+export interface NotificationRecordDTO {
+  id: number | string
+  userId?: number | string
+  channel?: string
+  eventType?: string
+  payload?: Record<string, unknown>
+  status?: string
+  createdAt?: string
+}
+
 function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, '')
 }
@@ -64,6 +74,25 @@ export function buildNotifySseUrl(userId: number | string) {
 
 export function issueNotifyStreamToken() {
   return apiClient.post<NotifyStreamTokenResponse>('/notify/stream-token', undefined, {
+    source: 'notify',
+  })
+}
+
+export function listNotificationMessages(limit = 20) {
+  return apiClient.get<NotificationRecordDTO[]>('/notify/messages', {
+    params: { limit },
+    source: 'notify',
+  })
+}
+
+export function markAllNotificationMessagesRead() {
+  return apiClient.post<void>('/notify/messages/read-all', undefined, {
+    source: 'notify',
+  })
+}
+
+export function clearNotificationMessages() {
+  return apiClient.delete<void>('/notify/messages', {
     source: 'notify',
   })
 }

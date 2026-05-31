@@ -11,6 +11,10 @@ import com.aetherflow.ai.provider.ProviderMetricsService;
 import com.aetherflow.ai.provider.ProviderRecoveryService;
 import com.aetherflow.ai.provider.ProviderRoutingPolicy;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigCatalogResponse;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigClient;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigRequest;
+import com.aetherflow.ai.provider.ProviderRuntimeCatalogClient;
 import com.aetherflow.ai.provider.ProviderRuntimeLogResponse;
 import com.aetherflow.ai.provider.ProviderStatusResponse;
 import com.aetherflow.ai.provider.ProviderStatusService;
@@ -70,7 +74,7 @@ class AiProviderControllerTest {
         ProviderMetricsService metricsService = mock(ProviderMetricsService.class);
         ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
         AIInferenceLogService logService = mock(AIInferenceLogService.class);
-        AiProviderController controller = controller(metricsService, policyService, logService, new ProviderCatalogService(new AiTaskProperties()));
+        AiProviderController controller = controller(metricsService, policyService, logService, catalogService(new AiTaskProperties()));
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         when(policyService.currentPolicy()).thenReturn(policy);
         when(metricsService.snapshot(policy.getProviders())).thenReturn(Map.of());
@@ -93,7 +97,7 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 policyService,
                 mock(AIInferenceLogService.class),
-                new ProviderCatalogService(properties)
+                catalogService(properties)
         );
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         policy.setProviders(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
@@ -121,7 +125,7 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 mock(ProviderRoutingPolicyService.class),
                 logService,
-                new ProviderCatalogService(new AiTaskProperties())
+                catalogService(new AiTaskProperties())
         );
         AIInferenceLog log = new AIInferenceLog(
                 "evt-1",
@@ -149,6 +153,42 @@ class AiProviderControllerTest {
         verify(logService).recent(50);
     }
 
+    @Test
+    void proxiesProviderRuntimeConfigurationWithoutLeakingApiKey() {
+        ProviderRuntimeConfigClient configClient = mock(ProviderRuntimeConfigClient.class);
+        AiProviderController controller = controller(configClient);
+        ProviderRuntimeConfigRequest request = new ProviderRuntimeConfigRequest(
+                true,
+                "sk-demo-secret",
+                "https://openrouter.ai/api/v1",
+                "qwen/qwen3.5-9b"
+        );
+        ProviderRuntimeConfigCatalogResponse.ProviderRuntimeConfig provider =
+                new ProviderRuntimeConfigCatalogResponse.ProviderRuntimeConfig(
+                        "openrouter",
+                        "OpenRouter",
+                        "openai-compatible",
+                        "https://openrouter.ai/api/v1",
+                        "qwen/qwen3.5-9b",
+                        true,
+                        true,
+                        true,
+                        "sk-••••••ret",
+                        List.of("chat", "openai-compatible"),
+                        "OpenAI-compatible hosted model gateway.",
+                        "global"
+                );
+        when(configClient.update("openrouter", request)).thenReturn(provider);
+
+        Result<ProviderRuntimeConfigCatalogResponse.ProviderRuntimeConfig> result =
+                controller.updateConfig("openrouter", request);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getData().id()).isEqualTo("openrouter");
+        assertThat(result.getData().apiKeyPreview()).doesNotContain("demo-secret");
+        verify(configClient).update("openrouter", request);
+    }
+
     private AiProviderController controller(ProviderStatusService statusService) {
         return new AiProviderController(
                 statusService,
@@ -156,7 +196,8 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 mock(AIInferenceLogService.class),
                 mock(ProviderRecoveryService.class),
-                new ProviderCatalogService(new AiTaskProperties()),
+                catalogService(new AiTaskProperties()),
+                mock(ProviderRuntimeConfigClient.class),
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
@@ -169,7 +210,8 @@ class AiProviderControllerTest {
                 mock(ProviderMetricsService.class),
                 mock(AIInferenceLogService.class),
                 mock(ProviderRecoveryService.class),
-                new ProviderCatalogService(new AiTaskProperties()),
+                catalogService(new AiTaskProperties()),
+                mock(ProviderRuntimeConfigClient.class),
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
@@ -186,8 +228,27 @@ class AiProviderControllerTest {
                 logService,
                 mock(ProviderRecoveryService.class),
                 catalogService,
+                mock(ProviderRuntimeConfigClient.class),
                 new AiTaskProperties(),
                 new SentinelAiGuard()
         );
+    }
+
+    private AiProviderController controller(ProviderRuntimeConfigClient configClient) {
+        return new AiProviderController(
+                mock(ProviderStatusService.class),
+                mock(ProviderRoutingPolicyService.class),
+                mock(ProviderMetricsService.class),
+                mock(AIInferenceLogService.class),
+                mock(ProviderRecoveryService.class),
+                catalogService(new AiTaskProperties()),
+                configClient,
+                new AiTaskProperties(),
+                new SentinelAiGuard()
+        );
+    }
+
+    private ProviderCatalogService catalogService(AiTaskProperties properties) {
+        return new ProviderCatalogService(properties, ProviderRuntimeCatalogClient.empty());
     }
 }

@@ -25,17 +25,22 @@ public class SseEmitterRegistry {
 
     public void send(Long userId, Object payload) {
         if (userId == null) {
-            emitters.values().forEach(list -> list.forEach(emitter -> sendOne(emitter, payload)));
+            emitters.forEach((targetUserId, list) -> list.forEach(emitter -> sendOne(targetUserId, emitter, payload)));
             return;
         }
-        emitters.getOrDefault(userId, List.of()).forEach(emitter -> sendOne(emitter, payload));
+        emitters.getOrDefault(userId, List.of()).forEach(emitter -> sendOne(userId, emitter, payload));
     }
 
-    private void sendOne(SseEmitter emitter, Object payload) {
+    private void sendOne(Long userId, SseEmitter emitter, Object payload) {
         try {
             emitter.send(payload);
-        } catch (IOException exception) {
-            emitter.completeWithError(exception);
+        } catch (IOException | RuntimeException exception) {
+            remove(userId, emitter);
+            try {
+                emitter.completeWithError(exception);
+            } catch (RuntimeException ignored) {
+                // Emitter is already closed.
+            }
         }
     }
 

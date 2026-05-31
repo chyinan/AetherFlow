@@ -30,31 +30,45 @@ import {
   Split,
   TerminalSquare,
   Trash2,
+  Upload,
   Variable,
   Wrench,
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useFileStore } from '@/stores/fileStore'
+import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
 
 type ConfigValue = string | number | boolean
+type ConfigRecord = Record<string, ConfigValue>
 
 const uiStore = useUiStore()
 const workflowStore = useWorkflowStore()
-const selectedNode = computed(() => workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId))
+const fileStore = useFileStore()
+const runStore = useRunStore()
+const selectedNode = computed(() => {
+  const selectedByFlow = workflowStore.nodes.find((node) => node.selected)
+  const selectedByStore = workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId)
+  return selectedByFlow ?? selectedByStore ?? null
+})
 const { t } = useI18n()
+const fileInput = ref<HTMLInputElement | null>(null)
+const activeTab = ref<'settings' | 'lastRun'>('settings')
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
 }>()
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
+  start: Upload,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,
@@ -90,7 +104,20 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
 }
 
 const nodeIcon = computed(() => (selectedNode.value ? iconMap[selectedNode.value.data.kind] : SlidersHorizontal))
-const runtimeText = computed(() => selectedNode.value?.data.runtime?.lastResult ?? t('workflow.waiting'))
+const selectedKind = computed(() => selectedNode.value?.data.kind ?? '')
+const selectedRunNode = computed(() =>
+  runStore.currentRun?.nodeStates.find((node) => node.nodeId === selectedNode.value?.id),
+)
+const runtimeText = computed(() =>
+  selectedRunNode.value?.output
+    ?? selectedNode.value?.data.runtime?.lastResult
+    ?? t('workflow.waiting'),
+)
+const runtimeDurationMs = computed(() =>
+  selectedRunNode.value?.durationMs
+    ?? selectedNode.value?.data.runtime?.durationMs
+    ?? 0,
+)
 const canRunNode = computed(() => selectedNode.value?.data.kind !== 'list-operator')
 
 const sysVariables = ['sys.user_id', 'sys.app_id', 'sys.workflow_id', 'sys.workflow_run_id']
@@ -98,6 +125,18 @@ const httpBodyModes = ['none', 'form-data', 'x-www-form-urlencoded', 'JSON', 'ra
 const fileTypes = ['msg', 'pdf', 'xls', 'pptx', 'eml', 'htm', 'docx', 'epub', 'xlsx', 'doc', 'markdown', 'vtt', 'mdx', 'html', 'xml', 'md', 'csv', 'txt', 'properties', 'ppt']
 const defaultPythonCode = 'def main(arg1: str, arg2: str):\n    return {\n        "result": arg1 + arg2,\n    }'
 const defaultJinjaTemplate = '{{ arg1 }}'
+const summaryLanguages = ['Chinese', 'English']
+const summaryProviders = ['ollama', 'openai']
+const exportFormats = ['MARKDOWN', 'TXT', 'JSON']
+
+const selectableInputFiles = computed(() =>
+  fileStore.inputFiles.filter((file) => file.status !== 'failed' && file.backendFileId),
+)
+
+const selectedInputFile = computed(() => {
+  const fileId = textConfig('fileId', '')
+  return selectableInputFiles.value.find((file) => String(file.backendFileId) === fileId)
+})
 
 function nodeLabel(kind: string) {
   return t(`workflow.catalog.items.${kind}.label`)
@@ -107,15 +146,39 @@ function nodeDescription(kind: string) {
   return t(`workflow.catalog.items.${kind}.description`)
 }
 
+function isConfigRecord(value: unknown): value is ConfigRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function ensureSelectedNodeConfig() {
+  if (!selectedNode.value) {
+    return null
+  }
+  if (!isConfigRecord(selectedNode.value.data.config)) {
+    selectedNode.value.data.config = {}
+  }
+  return selectedNode.value.data.config
+}
+
+function selectedConfigEntries() {
+  const config = selectedNode.value?.data.config
+  return isConfigRecord(config) ? Object.entries(config) : []
+}
+
 function updateConfig(key: string, value: ConfigValue) {
   if (!selectedNode.value) {
+    return
+  }
+  const config = ensureSelectedNodeConfig()
+  if (!config) {
     return
   }
   workflowStore.updateNodeConfig(selectedNode.value.id, key, value)
 }
 
 function configValue(key: string, fallback: ConfigValue = '') {
-  return selectedNode.value?.data.config[key] ?? fallback
+  const config = selectedNode.value?.data.config
+  return isConfigRecord(config) ? config[key] ?? fallback : fallback
 }
 
 function textConfig(key: string, fallback = '') {
@@ -152,10 +215,42 @@ function handleNumberInput(key: string, event: Event) {
 function handleToggle(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement).checked)
 }
+
+function selectInputFile(file: FileAsset) {
+  if (!file.backendFileId) {
+    return
+  }
+  updateConfig('fileId', file.backendFileId)
+  updateConfig('fileName', file.name)
+}
+
+async function handleInputFileUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) {
+    return
+  }
+  try {
+    const asset = await fileStore.upload(file)
+    if (asset?.backendFileId) {
+      selectInputFile(asset)
+    }
+  } catch {
+    // The file store exposes uploadError for the inspector banner.
+  }
+}
+
+watch(selectedNode, (node) => {
+  if (node && node.id !== uiStore.selectedNodeId) {
+    uiStore.setSelectedNode(node.id)
+  }
+  activeTab.value = 'settings'
+})
 </script>
 
 <template>
-  <aside class="flex h-full min-h-0 w-full flex-col border-l border-app-border bg-white lg:w-[420px]">
+  <aside class="relative z-20 flex h-full min-h-0 w-full flex-col border-l border-app-border bg-white lg:w-[420px]">
     <div v-if="selectedNode" class="flex min-h-0 flex-1 flex-col">
       <header class="border-b border-app-border bg-white">
         <div class="flex items-start justify-between gap-3 px-5 pt-5">
@@ -206,17 +301,157 @@ function handleToggle(key: string, event: Event) {
         />
 
         <div class="mt-5 flex items-center gap-7 px-5">
-          <button class="border-b-2 border-primary pb-3 text-sm font-semibold text-text-primary">
+          <button
+            type="button"
+            class="border-b-2 pb-3 text-sm font-semibold"
+            :class="activeTab === 'settings' ? 'border-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'"
+            @click="activeTab = 'settings'"
+          >
             {{ t('workflow.inspector.settings') }}
           </button>
-          <button class="border-b-2 border-transparent pb-3 text-sm font-semibold text-text-muted">
+          <button
+            type="button"
+            class="border-b-2 pb-3 text-sm font-semibold"
+            :class="activeTab === 'lastRun' ? 'border-primary text-text-primary' : 'border-transparent text-text-muted hover:text-text-primary'"
+            @click="activeTab = 'lastRun'"
+          >
             {{ t('workflow.inspector.lastRun') }}
           </button>
         </div>
       </header>
 
-      <div class="min-h-0 flex-1 overflow-y-auto">
-        <section v-if="selectedNode.data.kind === 'llm'" class="space-y-5 p-5">
+      <div v-if="activeTab === 'settings'" class="min-h-0 flex-1 overflow-y-auto">
+        <section v-if="selectedKind === 'start'" class="space-y-5 p-5">
+          <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputFileTitle') }} <span class="text-status-error">*</span></p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.inputFileHint') }}</p>
+            <div v-if="selectedInputFile" class="mt-3 rounded-lg border border-primary/20 bg-white p-3">
+              <p class="truncate text-sm font-semibold text-text-primary">{{ selectedInputFile.name }}</p>
+              <p class="mt-1 truncate text-xs text-text-muted">fileId={{ selectedInputFile.backendFileId }} · {{ selectedInputFile.size }} · {{ selectedInputFile.mime }}</p>
+            </div>
+            <p v-else class="mt-3 rounded-lg border border-dashed border-status-warning/40 bg-amber-50 px-3 py-2 text-sm font-medium text-status-warning">
+              {{ t('workflow.inspector.inputFileRequired') }}
+            </p>
+            <p v-if="fileStore.uploadError" class="mt-3 rounded-lg border border-status-error/25 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
+              {{ t('workflow.inspector.uploadFailed') }}：{{ fileStore.uploadError }}
+            </p>
+          </div>
+
+          <input ref="fileInput" type="file" class="hidden" accept="video/*,audio/*,.mp4,.mov,.mkv,.mp3,.wav,.m4a,.aac,.flac" @change="handleInputFileUpload" />
+          <button
+            type="button"
+            class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-3 text-sm font-semibold text-white shadow-node disabled:opacity-60"
+            :disabled="fileStore.uploading"
+            @click="fileInput?.click()"
+          >
+            <Upload class="h-4 w-4" />
+            {{ fileStore.uploading ? `${t('workflow.inspector.uploading')} ${fileStore.uploadProgress}%` : t('workflow.inspector.uploadVideoFile') }}
+          </button>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.selectExistingFile') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileId', '')" @change="handleTextInput('fileId', $event)">
+              <option value="">{{ t('workflow.inspector.noFileSelected') }}</option>
+              <option v-for="file in selectableInputFiles" :key="file.id" :value="file.backendFileId">
+                {{ file.name }} · fileId={{ file.backendFileId }}
+              </option>
+            </select>
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.runtimeVariable') }}</span>
+            <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 text-sm outline-none" value="fileId" readonly />
+            <p class="mt-2 text-xs text-text-muted">{{ t('workflow.inspector.runtimeVariableHint') }}</p>
+          </label>
+        </section>
+
+        <section v-else-if="selectedKind === 'ffmpeg'" class="space-y-5 p-5">
+          <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.videoMetadataTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.videoMetadataHint') }}</p>
+          </div>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
+          </label>
+          <div class="rounded-lg border border-app-border bg-white p-3 text-sm text-text-secondary">
+            <p><span class="font-semibold text-text-primary">fileUrl</span>：{{ t('workflow.inspector.fileUrlOutput') }}</p>
+            <p class="mt-1"><span class="font-semibold text-text-primary">fileObjectKey</span>：{{ t('workflow.inspector.objectKeyOutput') }}</p>
+          </div>
+        </section>
+
+        <section v-else-if="selectedKind === 'whisper'" class="space-y-5 p-5">
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrLanguage') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'auto')" @change="handleTextInput('language', $event)">
+              <option value="auto">auto</option>
+              <option value="zh">zh</option>
+              <option value="en">en</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrPrompt') }}</span>
+            <textarea class="min-h-28 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+          </label>
+          <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary">
+            {{ t('workflow.inspector.whisperRuntimeHint') }}
+          </div>
+        </section>
+
+        <section v-else-if="selectedKind === 'summary'" class="space-y-5 p-5">
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.textVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('textVariable', 'transcription')" @input="handleTextInput('textVariable', $event)" />
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.summaryLanguage') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'Chinese')" @change="handleTextInput('language', $event)">
+              <option v-for="language in summaryLanguages" :key="language" :value="language">{{ language }}</option>
+            </select>
+          </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.provider') }} <span class="text-status-error">*</span></span>
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('provider', 'ollama')" @change="handleTextInput('provider', $event)">
+                <option v-for="provider in summaryProviders" :key="provider" :value="provider">{{ provider }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
+              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('model', 'qwen3.5:9b')" @input="handleTextInput('model', $event)" />
+            </label>
+          </div>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.summaryPrompt') }}</span>
+            <textarea class="min-h-40 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm leading-6 outline-none focus:border-primary" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+          </label>
+          <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm leading-6 text-text-secondary">
+            {{ t('workflow.inspector.summaryPromptHint') }}
+          </div>
+        </section>
+
+        <section v-else-if="selectedKind === 'export'" class="space-y-5 p-5">
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.exportFormat') }} <span class="text-status-error">*</span></span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('format', 'MARKDOWN')" @change="handleTextInput('format', $event)">
+              <option v-for="format in exportFormats" :key="format" :value="format">{{ format }}</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.sourceVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('sourceVariable', 'summary')" @input="handleTextInput('sourceVariable', $event)" />
+          </label>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputFileName') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileName', 'meeting-summary.md')" @input="handleTextInput('fileName', $event)" />
+          </label>
+        </section>
+
+        <section v-else-if="selectedKind === 'llm'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
@@ -259,7 +494,7 @@ function handleToggle(key: string, event: Event) {
           </label>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'knowledge-retrieval'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'knowledge-retrieval'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.queryText') }}</span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('query', '')" @input="handleTextInput('query', $event)" />
@@ -282,22 +517,21 @@ function handleToggle(key: string, event: Event) {
           </label>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'output' || selectedNode.data.kind === 'summary'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'output'" class="space-y-5 p-5">
+          <div class="rounded-lg border border-primary/20 bg-primary-soft/40 p-3 text-sm leading-6 text-text-secondary">
+            {{ t('workflow.inspector.outputNodeHint') }}
+          </div>
           <div>
             <div class="mb-3 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariablesRequired') }}</p>
-              <Plus class="h-4 w-4 text-text-muted" />
+              <div>
+                <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.responsePayload') }}</p>
+                <p class="mt-1 text-xs text-text-muted">{{ t('workflow.inspector.responsePayloadHint') }}</p>
+              </div>
             </div>
             <div class="space-y-2">
-              <div class="grid grid-cols-[110px_minmax(0,1fr)_24px] gap-2">
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :value="textConfig('outputName', 'answer')" @input="handleTextInput('outputName', $event)" />
+              <div class="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
+                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :value="textConfig('outputName', 'answer')" :aria-label="t('workflow.inspector.responseFieldName')" @input="handleTextInput('outputName', $event)" />
                 <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('outputValue', '')" @input="handleTextInput('outputValue', $event)" />
-                <Trash2 class="mt-2 h-4 w-4 text-text-muted" />
-              </div>
-              <div class="grid grid-cols-[110px_minmax(0,1fr)_24px] gap-2">
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" value="files" readonly />
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" />
-                <Trash2 class="mt-2 h-4 w-4 text-text-muted" />
               </div>
             </div>
           </div>
@@ -309,13 +543,21 @@ function handleToggle(key: string, event: Event) {
               <option value="stream">Stream</option>
             </select>
           </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.exposeFiles') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('exposeArtifacts', true)" @change="handleToggle('exposeArtifacts', $event)" />
+          <label class="flex items-start justify-between gap-4 border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
+            <span>
+              <span class="block">{{ t('workflow.inspector.showArtifactsInFiles') }}</span>
+              <span class="mt-1 block text-xs font-normal leading-5 text-text-muted">{{ t('workflow.inspector.showArtifactsInFilesHint') }}</span>
+            </span>
+            <input type="checkbox" class="mt-1 accent-primary" :checked="boolConfig('exposeArtifacts', true)" @change="handleToggle('exposeArtifacts', $event)" />
+          </label>
+          <label class="block border-t border-app-border pt-4">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputDirectoryOptional') }}</span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.outputDirectoryPlaceholder')" :value="textConfig('outputDirectory', '')" @input="handleTextInput('outputDirectory', $event)" />
+            <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.outputDirectoryHint') }}</p>
           </label>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'agent'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'agent'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.agentStrategy') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('strategy', '')" @change="handleTextInput('strategy', $event)">
@@ -340,7 +582,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'question-classifier'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'question-classifier'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
@@ -373,7 +615,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'condition'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'condition'" class="space-y-5 p-5">
           <div v-for="branch in ['if', 'elif']" :key="branch" class="border-b border-app-border pb-5">
             <div class="flex items-center justify-between gap-3">
               <div>
@@ -398,7 +640,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'human'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'human'" class="space-y-5 p-5">
           <div>
             <div class="mb-3 flex items-center justify-between">
               <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.submissionMethod') }}</p>
@@ -434,7 +676,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'iteration' || selectedNode.data.kind === 'loop'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'iteration' || selectedKind === 'loop'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.input') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">Array</span></span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('input', '')" @input="handleTextInput('input', $event)" />
@@ -467,7 +709,7 @@ function handleToggle(key: string, event: Event) {
           </label>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'code' || selectedNode.data.kind === 'code-interpreter'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'code' || selectedKind === 'code-interpreter'" class="space-y-5 p-5">
           <div>
             <div class="mb-3 flex items-center justify-between">
               <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</p>
@@ -501,7 +743,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'template-transform'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'template-transform'" class="space-y-5 p-5">
           <div>
             <div class="mb-3 flex items-center justify-between">
               <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</p>
@@ -523,7 +765,7 @@ function handleToggle(key: string, event: Event) {
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'document-extractor'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'document-extractor'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="text-status-error">*</span></span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('file', '')" @input="handleTextInput('file', $event)" />
@@ -536,7 +778,7 @@ function handleToggle(key: string, event: Event) {
           </div>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'variable-assigner' || selectedNode.data.kind === 'variable-aggregate'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'variable-assigner' || selectedKind === 'variable-aggregate'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.assignedVariable') }}</span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('variable', 'conversation.summary')" @input="handleTextInput('variable', $event)" />
@@ -548,7 +790,7 @@ function handleToggle(key: string, event: Event) {
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'parameter-extractor'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'parameter-extractor'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
@@ -578,7 +820,7 @@ function handleToggle(key: string, event: Event) {
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'http'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'http'" class="space-y-5 p-5">
           <div>
             <div class="mb-2 flex items-center justify-between">
               <span class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.api') }} <span class="text-status-error">*</span></span>
@@ -628,7 +870,7 @@ function handleToggle(key: string, event: Event) {
           </label>
         </section>
 
-        <section v-else-if="selectedNode.data.kind === 'list-operator'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'list-operator'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">Array</span></span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('input', '')" @input="handleTextInput('input', $event)" />
@@ -663,7 +905,7 @@ function handleToggle(key: string, event: Event) {
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
             <p class="text-sm font-semibold text-text-primary">{{ nodeDescription(selectedNode.data.kind) }}</p>
           </div>
-          <label v-for="[key, value] in Object.entries(selectedNode.data.config)" :key="key" class="block">
+          <label v-for="[key, value] in selectedConfigEntries()" :key="key" class="block">
             <span class="mb-1 block text-xs font-medium text-text-secondary">{{ key }}</span>
             <input
               class="w-full rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none transition focus:border-primary"
@@ -674,26 +916,43 @@ function handleToggle(key: string, event: Event) {
         </section>
 
         <section class="border-t border-app-border p-5">
-          <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.nextStep') }}</p>
-          <p class="mt-1 text-sm text-text-secondary">{{ t('workflow.inspector.nextStepHint') }}</p>
-          <div class="mt-4 flex items-center gap-3">
-            <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-app-border bg-white text-primary shadow-sm">
-              <component :is="nodeIcon" class="h-4 w-4" />
-            </span>
-            <button class="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-dashed border-app-border bg-app-bg2 px-3 py-3 text-left text-sm text-text-muted">
-              <Plus class="h-4 w-4" />
-              {{ t('workflow.inspector.selectNextNode') }}
-            </button>
-          </div>
-        </section>
-
-        <section class="border-t border-app-border p-5">
           <div class="flex items-center justify-between">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.latestRuntime') }}</p>
             <StatusBadge :status="selectedNode.data.status" />
           </div>
           <p class="mt-2 text-sm text-text-secondary">{{ runtimeText }}</p>
-          <p class="mt-1 text-xs text-text-muted">{{ t('workflow.duration') }}: {{ selectedNode.data.runtime?.durationMs ?? 0 }}ms</p>
+          <p class="mt-1 text-xs text-text-muted">{{ t('workflow.duration') }}: {{ runtimeDurationMs }}ms</p>
+        </section>
+      </div>
+
+      <div v-else class="min-h-0 flex-1 overflow-y-auto p-5">
+        <section class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.lastRun') }}</p>
+              <p class="mt-1 text-xs text-text-muted">{{ t('workflow.inspector.lastRunHint') }}</p>
+            </div>
+            <StatusBadge :status="selectedNode.data.status" />
+          </div>
+
+          <div class="mt-4 grid gap-3 text-sm">
+            <div class="grid grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-lg bg-app-bg2 px-3 py-2">
+              <span class="text-text-muted">{{ t('workflow.inspector.runStatus') }}</span>
+              <span class="font-medium text-text-primary">{{ selectedNode.data.status }}</span>
+            </div>
+            <div class="grid grid-cols-[96px_minmax(0,1fr)] gap-3 rounded-lg bg-app-bg2 px-3 py-2">
+              <span class="text-text-muted">{{ t('workflow.duration') }}</span>
+              <span class="font-medium text-text-primary">{{ runtimeDurationMs }}ms</span>
+            </div>
+            <div class="rounded-lg bg-app-bg2 px-3 py-2">
+              <p class="text-text-muted">{{ t('workflow.inspector.runResult') }}</p>
+              <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-text-primary">{{ runtimeText || t('workflow.inspector.noRunResult') }}</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="mt-4 rounded-xl border border-dashed border-app-border bg-app-bg2 p-4 text-sm leading-6 text-text-secondary">
+          {{ t('workflow.inspector.lastRunDetailHint') }}
         </section>
       </div>
     </div>

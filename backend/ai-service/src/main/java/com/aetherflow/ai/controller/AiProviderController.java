@@ -9,6 +9,9 @@ import com.aetherflow.ai.provider.ProviderMetricsService;
 import com.aetherflow.ai.provider.ProviderRecoveryService;
 import com.aetherflow.ai.provider.ProviderRoutingPolicy;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigCatalogResponse;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigClient;
+import com.aetherflow.ai.provider.ProviderRuntimeConfigRequest;
 import com.aetherflow.ai.provider.ProviderRuntimeLogResponse;
 import com.aetherflow.ai.provider.ProviderStatusResponse;
 import com.aetherflow.ai.provider.ProviderStatusService;
@@ -45,6 +48,7 @@ public class AiProviderController {
     private final AIInferenceLogService logService;
     private final ProviderRecoveryService recoveryService;
     private final ProviderCatalogService catalogService;
+    private final ProviderRuntimeConfigClient configClient;
     private final AiTaskProperties properties;
     private final SentinelAiGuard sentinelAiGuard;
 
@@ -132,6 +136,36 @@ public class AiProviderController {
     public Result<ProviderCatalogResponse> catalog() {
         return Result.success(sentinelAiGuard.execute("ai-provider-catalog",
                 () -> catalogService.catalog(policyService.currentPolicy())));
+    }
+
+    @Operation(summary = "Get provider runtime configuration",
+            description = "Returns provider presets and masked runtime configuration state. API key values are never returned.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Provider configuration catalog returned.",
+                    content = @Content(schema = @Schema(implementation = ProviderRuntimeConfigCatalogResponse.class))),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @GetMapping("/config")
+    public Result<ProviderRuntimeConfigCatalogResponse> config() {
+        return Result.success(sentinelAiGuard.execute("ai-provider-config", configClient::catalog));
+    }
+
+    @Operation(summary = "Update provider runtime configuration",
+            description = "Updates a provider preset in python-ai-service runtime configuration and returns masked state.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Provider configuration updated.",
+                    content = @Content(schema = @Schema(implementation = ProviderRuntimeConfigCatalogResponse.ProviderRuntimeConfig.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid provider configuration."),
+            @ApiResponse(responseCode = "404", description = "Unknown provider preset."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @PutMapping("/config/{provider}")
+    public Result<ProviderRuntimeConfigCatalogResponse.ProviderRuntimeConfig> updateConfig(
+            @Parameter(description = "Provider preset id.", example = "openrouter")
+            @PathVariable String provider,
+            @Valid @RequestBody ProviderRuntimeConfigRequest request) {
+        return Result.success(sentinelAiGuard.execute("ai-provider-config",
+                () -> configClient.update(provider, request)));
     }
 
     @Operation(summary = "Get AI provider runtime logs",

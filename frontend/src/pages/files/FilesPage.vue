@@ -21,6 +21,19 @@ const summaryCards = computed(() => [
 onMounted(() => {
   void fileStore.loadFiles()
 })
+
+async function downloadFile(fileId: string) {
+  await fileStore.download(fileId).catch(() => undefined)
+}
+
+async function deleteFile(fileId: string) {
+  const file = fileStore.files.find((item) => item.id === fileId)
+  const confirmed = window.confirm(t('files.confirmDelete', { name: file?.name ?? fileId }))
+  if (!confirmed) {
+    return
+  }
+  await fileStore.deleteAsset(fileId).catch(() => undefined)
+}
 </script>
 
 <template>
@@ -49,6 +62,9 @@ onMounted(() => {
         </section>
 
         <FileUploader />
+        <p v-if="fileStore.fileActionError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
+          {{ fileStore.fileActionError }}
+        </p>
 
         <section class="grid gap-4 xl:grid-cols-2">
           <article class="rounded-lg border border-app-border bg-app-bg2 p-4">
@@ -59,7 +75,15 @@ onMounted(() => {
               </div>
               <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ fileStore.inputFiles.length }}</span>
             </div>
-            <FileAssetList :files="fileStore.inputFiles" layout="single" @toggle-source="fileStore.toggleSource" />
+            <FileAssetList
+              :files="fileStore.inputFiles"
+              :deleting-ids="fileStore.deletingIds"
+              :downloading-ids="fileStore.downloadingIds"
+              layout="single"
+              @toggle-source="fileStore.toggleSource"
+              @download="downloadFile"
+              @delete="deleteFile"
+            />
           </article>
 
           <article class="rounded-lg border border-app-border bg-app-bg2 p-4">
@@ -70,7 +94,15 @@ onMounted(() => {
               </div>
               <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ fileStore.artifactFiles.length }}</span>
             </div>
-            <FileAssetList :files="fileStore.artifactFiles" layout="single" @toggle-source="fileStore.toggleSource" />
+            <FileAssetList
+              :files="fileStore.artifactFiles"
+              :deleting-ids="fileStore.deletingIds"
+              :downloading-ids="fileStore.downloadingIds"
+              layout="single"
+              @toggle-source="fileStore.toggleSource"
+              @download="downloadFile"
+              @delete="deleteFile"
+            />
           </article>
         </section>
       </div>

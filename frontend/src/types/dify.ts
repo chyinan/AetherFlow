@@ -20,10 +20,24 @@ export interface KnowledgeDataset {
 export interface KnowledgeSegment {
   id: string
   datasetId: string
+  documentId?: string
   source: string
   preview: string
   tokens: number
   score: number
+  status: SurfaceStatus
+}
+
+export interface KnowledgeDocument {
+  id: string
+  datasetId: string
+  name: string
+  sourceType: string
+  mode: string
+  chars: number
+  chunkCount: number
+  recallCount: number
+  uploadedAt: string
   status: SurfaceStatus
 }
 

@@ -2,6 +2,17 @@ import type { NodeTemplate, WorkflowDefinition, WorkflowSummary } from '@/types/
 
 export const nodeTemplates: NodeTemplate[] = [
   {
+    kind: 'start',
+    label: 'Input Video File',
+    description: 'Workflow entry point that injects runtime input variables such as fileId.',
+    category: 'Input',
+    catalog: 'node',
+    group: 'recommended',
+    config: { variables: '', output: '' },
+    inputs: [],
+    outputs: ['fileId'],
+  },
+  {
     kind: 'whisper',
     label: 'Whisper',
     description: 'Audio transcription and subtitle extraction.',
@@ -85,7 +96,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Output',
     catalog: 'node',
     group: 'recommended',
-    config: { outputName: 'summary', outputValue: '', responseMode: 'text', exposeArtifacts: true },
+    config: { outputName: 'summary', outputValue: '', responseMode: 'text', exposeArtifacts: true, outputDirectory: '' },
     inputs: ['summary'],
     outputs: ['output'],
   },

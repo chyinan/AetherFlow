@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { Activity, Bot, Boxes, FolderKanban, MessagesSquare, Plus, Workflow } from 'lucide-vue-next'
+import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import type { ProjectHealth, ProjectSummary } from '@/types/project'
+import type { WorkflowSummary } from '@/types/workflow'
 
 const projectStore = useProjectStore()
+const difyStore = useDifyStore()
 const runStore = useRunStore()
 const fileStore = useFileStore()
 const router = useRouter()
@@ -40,6 +43,10 @@ const healthClass: Record<ProjectHealth, string> = {
 const showCreatePanel = ref(false)
 const draftName = ref('')
 const draftScenario = ref<ProjectSummary['scenario']>('media')
+const showWorkflowPanel = ref(false)
+const workflowDraftName = ref('')
+const workflowDraftProjectId = ref('')
+const workflowDraftId = ref('')
 
 function metricsFor(project: ProjectSummary) {
   return projectStore.projectMetrics(project.id) ?? {
@@ -52,10 +59,58 @@ function metricsFor(project: ProjectSummary) {
   }
 }
 
+function workflowsFor(project: ProjectSummary) {
+  return projectStore.projectWorkflows(project.id)
+}
+
 function openCreateProject() {
   draftName.value = t('projects.defaultProjectName')
   draftScenario.value = 'media'
   showCreatePanel.value = true
+}
+
+function openCreateWorkflow(project: ProjectSummary) {
+  workflowDraftProjectId.value = project.id
+  workflowDraftId.value = ''
+  workflowDraftName.value = `${project.name}${t('projects.workflowSuffix')}`
+  projectStore.selectProject(project.id)
+  showWorkflowPanel.value = true
+}
+
+function openRenameWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
+  workflowDraftProjectId.value = project.id
+  workflowDraftId.value = workflow.id
+  workflowDraftName.value = workflow.name
+  projectStore.selectProject(project.id)
+  showWorkflowPanel.value = true
+}
+
+async function submitWorkflowDraft() {
+  const name = workflowDraftName.value.trim()
+  const projectId = workflowDraftProjectId.value
+  if (!name || !projectId) {
+    return
+  }
+
+  if (workflowDraftId.value) {
+    await projectStore.renameProjectWorkflow(projectId, workflowDraftId.value, name)
+    showWorkflowPanel.value = false
+    return
+  }
+
+  showWorkflowPanel.value = false
+  await router.push({
+    path: '/workflows/new',
+    query: { projectId, name },
+  })
+}
+
+async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
+  const confirmed = window.confirm(t('projects.deleteWorkflowConfirm', { name: workflow.name }))
+  if (!confirmed) {
+    return
+  }
+  await projectStore.deleteProjectWorkflow(project.id, workflow.id)
 }
 
 async function submitCreate() {
@@ -63,14 +118,31 @@ async function submitCreate() {
   if (!name) {
     return
   }
-  const project = projectStore.createMockProject({ name, scenario: draftScenario.value })
+  const project = await projectStore.createProject({ name, scenario: draftScenario.value })
   showCreatePanel.value = false
   await router.push('/projects')
   projectStore.selectProject(project.id)
 }
 
+function openProject(project: ProjectSummary) {
+  projectStore.selectProject(project.id)
+  const workflow = workflowsFor(project)[0]
+  if (workflow) {
+    void router.push(`/workflows/${workflow.id}`)
+    return
+  }
+
+  void router.push({
+    path: '/workflows/new',
+    query: {
+      projectId: project.id,
+      name: project.name,
+    },
+  })
+}
+
 onMounted(async () => {
-  await Promise.all([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles()])
+  await Promise.all([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles(), difyStore.loadSurface()])
 })
 </script>
 
@@ -134,9 +206,8 @@ onMounted(async () => {
           <article
             v-for="project in projectStore.projects"
             :key="project.id"
-            class="flex min-h-[320px] cursor-pointer flex-col rounded-lg border bg-white shadow-sm transition hover:border-primary/30 hover:shadow-node"
+            class="flex min-h-[320px] flex-col rounded-lg border bg-white shadow-sm transition hover:border-primary/30 hover:shadow-node"
             :class="projectStore.currentProjectId === project.id ? 'border-primary/40 ring-2 ring-primary/10' : 'border-app-border'"
-            @click="projectStore.selectProject(project.id)"
           >
             <div class="border-b border-app-border p-4">
               <div class="flex items-start justify-between gap-3">
@@ -147,6 +218,24 @@ onMounted(async () => {
                 <span class="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium" :class="healthClass[project.health]">
                   {{ t(`projects.health.${project.health}`) }}
                 </span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary-soft px-2.5 py-1.5 text-xs font-medium text-primary transition hover:border-primary/40 hover:bg-primary-soft/80"
+                  @click.stop="openCreateWorkflow(project)"
+                >
+                  <Plus class="h-3.5 w-3.5" />
+                  {{ t('projects.newWorkflow') }}
+                </button>
+                <button
+                  v-if="workflowsFor(project).length > 0"
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-primary/30 hover:text-primary"
+                  @click.stop="openProject(project)"
+                >
+                  {{ t('projects.openLatestWorkflow') }}
+                </button>
               </div>
               <div class="mt-4 grid grid-cols-3 gap-2">
                 <div class="rounded-md bg-app-bg2 p-2">
@@ -191,8 +280,11 @@ onMounted(async () => {
             </div>
 
             <div class="min-h-0 flex-1 space-y-2 p-3">
+              <p v-if="workflowsFor(project).length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 p-4 text-sm text-text-muted">
+                {{ t('projects.noProjectWorkflows') }}
+              </p>
               <RouterLink
-                v-for="workflow in project.workflows"
+                v-for="workflow in workflowsFor(project)"
                 :key="workflow.id"
                 :to="`/workflows/${workflow.id}`"
                 class="flex items-center justify-between gap-3 rounded-md border border-app-border bg-app-bg2 px-3 py-2 transition hover:border-primary/30 hover:bg-primary-soft/60"
@@ -202,7 +294,25 @@ onMounted(async () => {
                   <p class="truncate text-sm font-medium text-text-primary">{{ workflow.name }}</p>
                   <p class="mt-1 text-[11px] text-text-muted">{{ workflow.updatedAt }}</p>
                 </div>
-                <StatusBadge :status="workflow.status === 'draft' ? 'idle' : workflow.status === 'ready' ? 'success' : 'running'" />
+                <div class="flex shrink-0 items-center gap-2">
+                  <StatusBadge :status="workflow.status === 'draft' ? 'idle' : workflow.status === 'ready' ? 'success' : 'running'" />
+                  <button
+                    type="button"
+                    class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-primary/30 hover:text-primary"
+                    :title="t('projects.renameWorkflow')"
+                    @click.prevent.stop="openRenameWorkflow(project, workflow)"
+                  >
+                    <Edit3 class="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-status-error/30 hover:text-status-error"
+                    :title="t('projects.deleteWorkflow')"
+                    @click.prevent.stop="deleteWorkflow(project, workflow)"
+                  >
+                    <Trash2 class="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </RouterLink>
             </div>
           </article>
@@ -243,6 +353,36 @@ onMounted(async () => {
           </button>
           <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
             {{ t('projects.createMock') }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="showWorkflowPanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
+      <form class="w-full max-w-md rounded-lg border border-app-border bg-white p-5 shadow-panel" @submit.prevent="submitWorkflowDraft">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-semibold text-text-primary">
+              {{ workflowDraftId ? t('projects.renameWorkflow') : t('projects.createWorkflowTitle') }}
+            </p>
+            <p class="text-xs text-text-muted">{{ t('projects.workflowPanelHint') }}</p>
+          </div>
+          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="showWorkflowPanel = false">
+            {{ t('common.close') }}
+          </button>
+        </div>
+
+        <label class="block">
+          <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.workflowNameLabel') }}</span>
+          <input v-model="workflowDraftName" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+        </label>
+
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="showWorkflowPanel = false">
+            {{ t('common.close') }}
+          </button>
+          <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
+            {{ workflowDraftId ? t('common.save') : t('projects.createWorkflow') }}
           </button>
         </div>
       </form>

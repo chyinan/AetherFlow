@@ -15,6 +15,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.seata.spring.annotation.GlobalTransactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 
@@ -58,8 +60,19 @@ class WorkflowServiceImplTest {
                 instanceMapper,
                 runtimeEngine,
                 objectMapper,
-                runtimeProperties
+                runtimeProperties,
+                Runnable::run
         );
+    }
+
+    @Test
+    void startInstanceStartsSeataGlobalTransactionForCrossServiceWrites() throws Exception {
+        Method method = WorkflowServiceImpl.class.getMethod("startInstance", Long.class, StartWorkflowRequest.class);
+
+        GlobalTransactional globalTransactional = method.getAnnotation(GlobalTransactional.class);
+
+        assertThat(globalTransactional).isNotNull();
+        assertThat(globalTransactional.name()).isEqualTo("aetherflow-start-workflow-instance");
     }
 
     @Test
@@ -89,15 +102,18 @@ class WorkflowServiceImplTest {
         WorkflowInstance instance = workflowService.startInstance(10L, request);
 
         assertThat(instance.getId()).isEqualTo(99L);
-        assertThat(instance.getStatus()).isEqualTo("SUCCESS");
-        assertThat(instance.getCurrentNodeId()).isEqualTo("node-summary");
+        assertThat(instance.getStatus()).isEqualTo("RUNNING");
         ArgumentCaptor<WorkflowRuntimeRequest> runtimeRequest = ArgumentCaptor.forClass(WorkflowRuntimeRequest.class);
         verify(runtimeEngine).execute(runtimeRequest.capture());
         assertThat(runtimeRequest.getValue().workflowId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().taskId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().variables()).containsEntry("file", "audio.mp3");
         assertThat(runtimeRequest.getValue().variables()).containsKey(WorkflowNodeContextKeys.NODE_CONFIGS);
-        verify(instanceMapper).updateById(instance);
+        ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
+        verify(instanceMapper).updateById(instanceCaptor.capture());
+        assertThat(instanceCaptor.getValue().getId()).isEqualTo(99L);
+        assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("SUCCESS");
+        assertThat(instanceCaptor.getValue().getCurrentNodeId()).isEqualTo("node-summary");
     }
 
     @Test
@@ -115,12 +131,13 @@ class WorkflowServiceImplTest {
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class)))
                 .thenThrow(new IllegalStateException("node failed"));
 
-        assertThatThrownBy(() -> workflowService.startInstance(10L, request))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("workflow runtime execution failed");
+        WorkflowInstance instance = workflowService.startInstance(10L, request);
+        assertThat(instance.getId()).isEqualTo(100L);
+        assertThat(instance.getStatus()).isEqualTo("RUNNING");
 
         ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
         verify(instanceMapper).updateById(instanceCaptor.capture());
+        assertThat(instanceCaptor.getValue().getId()).isEqualTo(100L);
         assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("FAILED");
     }
 
