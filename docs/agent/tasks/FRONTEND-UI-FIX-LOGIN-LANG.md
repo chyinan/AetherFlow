@@ -4,7 +4,7 @@
 Agent ID：AGENT-CODEX-FE-20260601
 Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 分支：feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 按用户截图与说明修正公开首页和登录页体验：修复首页首屏“AI 流程跑起来”标题换行问题，提升副标题可读性；语言切换改为 Dify 风格下拉，包含 EN / ZH / JP；左上角只展示 AetherFlow 项目名并移除图标；点击“立即开始”后进入更接近截图的登录页视觉。
@@ -103,16 +103,25 @@ Agent 编码计划：
 4. 2026-06-01 23:00，已检查前端结构、README、现有 LandingPage/LoginPage/LocaleSwitcher/i18n。
 5. 2026-06-01 23:00，基线 `cd frontend && npm run build` 通过，仅既有 Vite chunk size warning。
 6. 2026-06-01 23:00，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+7. 2026-06-01 23:08，claim 已提交并推送：`b5af132 docs(agent): claim FRONTEND-UI-FIX-LOGIN-LANG`。
+8. 2026-06-01 23:16，完成业务实现：语言切换器改为 EN/ZH/JP 下拉；首页品牌去图标、标题防拆字、副标题增强对比；登录页改为截图风格的 AetherFlow 文本品牌与居中登录表单。
+9. 2026-06-01 23:16，业务提交已完成：`90968ab fix(frontend): polish landing login language ui`。
+10. 2026-06-01 23:18，本地 Chrome 访问 `http://localhost:5174/`，确认首页渲染、AetherFlow 文本品牌、标题“把 AI 流程 / 跑起来”、副标题清晰；点击“立即开始”进入 `/login`。
+11. 2026-06-01 23:20，本地 Chrome 访问 `/login`，确认登录页为浅色居中模板，左上角 AetherFlow 文本品牌、右上角语言切换、GitHub/Google 登录入口和邮箱/密码表单可见。
 
 验证结果：
 1. 基线 `cd frontend && npm run build`：通过；Vite 输出 chunk size warning。
+2. 业务实现后 `cd frontend && npm run build`：通过；Vite 仅输出 chunk size warning。
+3. `git diff --check`：通过，无 whitespace error。
+4. 本地浏览器验证：通过；Chrome 页面可访问 `/` 与 `/login`，核心视觉改动可见。
 
 提交记录：
-1. 待提交。
+1. `b5af132 docs(agent): claim FRONTEND-UI-FIX-LOGIN-LANG`
+2. `90968ab fix(frontend): polish landing login language ui`
 
 交接：
-1. 当前状态：IN_PROGRESS。
+1. 当前状态：REVIEW。
 2. 合入 main：未合入。
 3. 统一运行电脑验证：未运行。
-4. 文件锁：ACTIVE。
-5. 遗留问题：无。
+4. 文件锁：RELEASED。
+5. 遗留问题：Browser 插件未暴露可调用入口；已使用本机 Chrome + Computer Use 降级验证。统一运行电脑仍需复核真实部署视觉。

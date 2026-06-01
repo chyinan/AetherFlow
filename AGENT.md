@@ -607,7 +607,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | BE-KNOWLEDGE-DATASET-20260529 | Knowledge Dataset / Document APIs | DONE | 陈胤安 | chyinan | feature/BE-KNOWLEDGE-DATASET-20260529-knowledge-dataset | backend/workflow-service/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-KNOWLEDGE-DATASET-20260529.md | 是，仅 knowledge dataset/document/chunk REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
 | BE-SETTINGS-ADMIN-20260529 | Settings / Member / Billing / Audit APIs | DONE | 陈胤安 | chyinan | feature/BE-SETTINGS-ADMIN-20260529-settings-admin | backend/auth-service/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-SETTINGS-ADMIN-20260529.md | 是，仅 settings/admin REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
 | BE-COPILOT-CHAT-20260529 | Copilot Chat API Backend Gap | DONE | 陈胤安 | chyinan | feature/BE-COPILOT-CHAT-20260529-copilot-chat | backend/ai-service/src/main/java/com/aetherflow/ai/copilot/**；backend/ai-service/src/test/java/com/aetherflow/ai/copilot/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-COPILOT-CHAT-20260529.md | 是，仅 /copilot/** REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
-| FRONTEND-UI-FIX-LOGIN-LANG | 公开首页与登录页 UI 修正 | IN_PROGRESS | 曹煜璋 | AGENT-CODEX-FE-20260601 | feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish | frontend/src/pages/landing/LandingPage.vue；frontend/src/pages/auth/LoginPage.vue；frontend/src/components/ui/LocaleSwitcher.vue；frontend/src/i18n/**；docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md；docs/agent/logs/2026-06-01.md；AGENT.md | 否 | cd frontend && npm run build；git diff --check；浏览器验证 `/` 与 `/login` | 2026-06-01 23:00 |
+| FRONTEND-UI-FIX-LOGIN-LANG | 公开首页与登录页 UI 修正 | REVIEW | 曹煜璋 | AGENT-CODEX-FE-20260601 | feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish | frontend/src/pages/landing/LandingPage.vue；frontend/src/pages/auth/LoginPage.vue；frontend/src/components/ui/LocaleSwitcher.vue；frontend/src/i18n/**；docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md；docs/agent/logs/2026-06-01.md；AGENT.md | 否 | npm run build（frontend）通过；git diff --check 通过；Chrome 验证 `/` 与 `/login` | 2026-06-01 23:20 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -635,13 +635,13 @@ docs/agent/README.md
 
 | 任务ID | Agent ID | 文件或目录 | 开始时间 | 过期时间 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/landing/LandingPage.vue | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | 首页标题、品牌与副标题可读性修正 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | 登录页视觉改造，保留现有认证链路 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/components/ui/LocaleSwitcher.vue | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | Dify 风格语言下拉 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/** | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | EN / ZH / JP 语言切换支持 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | 任务文档 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-01.md | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | 当日执行日志 |
-| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | AGENT.md | 2026-06-01 23:00 | 2026-06-02 07:00 | ACTIVE | 任务看板与文件锁 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/landing/LandingPage.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 首页标题、品牌与副标题可读性修正 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 登录页视觉改造，保留现有认证链路 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/components/ui/LocaleSwitcher.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | Dify 风格语言下拉 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/** | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | EN / ZH / JP 语言切换支持 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 任务文档 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-01.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 当日执行日志 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | AGENT.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 任务看板与文件锁 |
 | AI-PROVIDER-ORCH-20260528 | chyinan | backend/ai-service/** | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 企业级 AI Provider Orchestration System |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 任务文档 |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 当日执行日志 |
