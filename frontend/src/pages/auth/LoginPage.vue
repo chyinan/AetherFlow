@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
+import { runtimeEnv } from '@/config/runtimeEnv'
 import { useAuthStore } from '@/stores/authStore'
 
 const authStore = useAuthStore()
@@ -30,6 +31,12 @@ async function submit() {
 
 async function submitProvider() {
   await submit()
+}
+
+function submitGithubProvider() {
+  const redirectPath = (route.query.redirect as string) || '/projects'
+  const authorizeUrl = `${runtimeEnv.apiBase}/auth/oauth/github/authorize?redirect=${encodeURIComponent(redirectPath)}`
+  window.location.assign(authorizeUrl)
 }
 </script>
 
@@ -97,7 +104,7 @@ async function submitProvider() {
             class="flex h-14 items-center justify-center gap-3 rounded-md border border-app-strong bg-app-bg2 text-base font-semibold text-text-primary transition hover:border-primary/40 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
-            @click="submitProvider"
+            @click="submitGithubProvider"
           >
             <Github class="h-5 w-5" />
             {{ t('auth.continueWithGithub') }}

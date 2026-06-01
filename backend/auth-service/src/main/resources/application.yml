@@ -54,6 +54,16 @@ aetherflow:
       login-rate-window-seconds: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:60}
       password-max-failures: ${AUTH_PASSWORD_MAX_FAILURES:5}
       password-failure-window-minutes: ${AUTH_PASSWORD_FAILURE_WINDOW_MINUTES:15}
+    oauth:
+      github:
+        client-id: ${GITHUB_OAUTH_CLIENT_ID:}
+        client-secret: ${GITHUB_OAUTH_CLIENT_SECRET:}
+        redirect-uri: ${GITHUB_OAUTH_REDIRECT_URI:}
+        frontend-base-url: ${FRONTEND_BASE_URL:}
+        success-path: ${GITHUB_OAUTH_SUCCESS_PATH:/auth/oauth/callback}
+        failure-path: ${GITHUB_OAUTH_FAILURE_PATH:/login}
+        state-secret: ${GITHUB_OAUTH_STATE_SECRET:aetherflow-github-oauth-state-secret-32bytes}
+        state-ttl-minutes: ${GITHUB_OAUTH_STATE_TTL_MINUTES:10}
 
 management:
   endpoints:

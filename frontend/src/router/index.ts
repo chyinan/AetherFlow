@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { i18n } from '@/i18n/index'
 import AccountPage from '@/pages/account/AccountPage.vue'
 import LoginPage from '@/pages/auth/LoginPage.vue'
+import OAuthCallbackPage from '@/pages/auth/OAuthCallbackPage.vue'
 import FilesPage from '@/pages/files/FilesPage.vue'
 import KnowledgePage from '@/pages/knowledge/KnowledgePage.vue'
 import LandingPage from '@/pages/landing/LandingPage.vue'
@@ -42,6 +43,12 @@ export const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginPage,
+      meta: { layout: 'auth', titleKey: 'auth.signIn' },
+    },
+    {
+      path: '/auth/oauth/callback',
+      name: 'oauth-callback',
+      component: OAuthCallbackPage,
       meta: { layout: 'auth', titleKey: 'auth.signIn' },
     },
     {

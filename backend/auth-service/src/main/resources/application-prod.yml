@@ -15,3 +15,16 @@ spring:
     sentinel:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+
+aetherflow:
+  auth:
+    oauth:
+      github:
+        client-id: ${GITHUB_OAUTH_CLIENT_ID:}
+        client-secret: ${GITHUB_OAUTH_CLIENT_SECRET:}
+        redirect-uri: ${GITHUB_OAUTH_REDIRECT_URI:}
+        frontend-base-url: ${FRONTEND_BASE_URL:}
+        success-path: ${GITHUB_OAUTH_SUCCESS_PATH:/auth/oauth/callback}
+        failure-path: ${GITHUB_OAUTH_FAILURE_PATH:/login}
+        state-secret: ${GITHUB_OAUTH_STATE_SECRET:aetherflow-github-oauth-state-secret-32bytes}
+        state-ttl-minutes: ${GITHUB_OAUTH_STATE_TTL_MINUTES:10}

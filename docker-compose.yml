@@ -325,6 +325,13 @@ services:
       WORKFLOW_OCR_MOCK_TEXT: ${WORKFLOW_OCR_MOCK_TEXT:-Demo safe OCR text for AetherFlow.}
       SEATA_ADDR: seata:8091
       JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-}
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-}
+      GITHUB_OAUTH_SUCCESS_PATH: ${GITHUB_OAUTH_SUCCESS_PATH:-/auth/oauth/callback}
+      GITHUB_OAUTH_FAILURE_PATH: ${GITHUB_OAUTH_FAILURE_PATH:-/login}
+      GITHUB_OAUTH_STATE_SECRET: ${GITHUB_OAUTH_STATE_SECRET:-aetherflow-github-oauth-state-secret-32bytes}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
     ports:
       - "8101:8101"

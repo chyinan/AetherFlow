@@ -10,6 +10,7 @@ public class AuthProperties {
     private final Token token = new Token();
     private final Security security = new Security();
     private final DemoUser demoUser = new DemoUser();
+    private final OAuth oauth = new OAuth();
 
     @Data
     public static class Token {
@@ -33,5 +34,28 @@ public class AuthProperties {
         private boolean enabled = true;
         private String username = "aether.operator";
         private String password = "mock-password";
+    }
+
+    @Data
+    public static class OAuth {
+
+        private final Github github = new Github();
+
+        @Data
+        public static class Github {
+
+            private String clientId = "";
+            private String clientSecret = "";
+            private String authorizeUri = "https://github.com/login/oauth/authorize";
+            private String tokenUri = "https://github.com/login/oauth/access_token";
+            private String userUri = "https://api.github.com/user";
+            private String emailsUri = "https://api.github.com/user/emails";
+            private String redirectUri = "";
+            private String frontendBaseUrl = "";
+            private String successPath = "/auth/oauth/callback";
+            private String failurePath = "/login";
+            private String stateSecret = "aetherflow-github-oauth-state-secret-32bytes";
+            private long stateTtlMinutes = 10;
+        }
     }
 }
