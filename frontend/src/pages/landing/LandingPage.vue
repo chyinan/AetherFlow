@@ -113,13 +113,10 @@ onBeforeUnmount(() => {
     <div class="absolute right-[7%] top-0 hidden h-full w-px bg-primary/10 lg:block" />
     <div class="absolute left-1/2 top-0 hidden h-full w-px bg-primary/10 lg:block" />
 
-    <header class="relative z-10 border-b border-primary/10 bg-white/85 backdrop-blur">
+    <header class="relative z-30 border-b border-primary/10 bg-white/85 backdrop-blur">
       <div class="mx-auto flex h-24 max-w-[1720px] items-center justify-between px-5 sm:px-8 lg:px-14">
-        <RouterLink to="/" class="flex items-center gap-3" :aria-label="t('app.name')">
-          <span class="grid h-11 w-11 place-items-center rounded-md bg-primary text-white shadow-node">
-            <Workflow class="h-6 w-6" />
-          </span>
-          <span class="font-display text-2xl font-semibold tracking-normal text-text-primary">
+        <RouterLink to="/" class="flex items-center" :aria-label="t('app.name')">
+          <span class="font-display text-2xl font-semibold tracking-normal text-text-primary sm:text-3xl">
             {{ t('app.name') }}
           </span>
         </RouterLink>
@@ -143,13 +140,6 @@ onBeforeUnmount(() => {
             {{ t('landing.primaryCta') }}
             <ArrowRight class="h-5 w-5" />
           </RouterLink>
-          <RouterLink
-            to="/login"
-            class="grid h-11 w-11 place-items-center border border-app-border bg-white text-primary sm:hidden"
-            :aria-label="t('landing.primaryCta')"
-          >
-            <ArrowRight class="h-5 w-5" />
-          </RouterLink>
         </div>
       </div>
     </header>
@@ -161,12 +151,12 @@ onBeforeUnmount(() => {
           {{ t('landing.badge') }}
         </p>
 
-        <h1 class="max-w-5xl font-display text-6xl font-semibold leading-[0.98] tracking-normal text-black sm:text-7xl lg:text-8xl xl:text-[8.5rem]">
-          {{ t('landing.heroTitle') }}
+        <h1 class="max-w-4xl font-display text-[2.85rem] font-semibold leading-[1.02] tracking-normal text-black sm:text-6xl md:text-7xl xl:text-8xl">
+          <span class="block whitespace-nowrap">{{ t('landing.heroTitle') }}</span>
           <span class="block text-primary">{{ t('landing.heroAccent') }}</span>
         </h1>
 
-        <p class="mt-8 max-w-2xl text-lg leading-8 text-text-secondary sm:text-xl">
+        <p class="mt-8 max-w-2xl text-lg font-medium leading-8 text-slate-700 sm:text-xl">
           {{ t('landing.subtitle') }}
         </p>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Bot, Github, Lock, Mail, User } from 'lucide-vue-next'
+import { Github, Lock, Mail } from 'lucide-vue-next'
 import { reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -41,94 +41,95 @@ function submitGithubProvider() {
 </script>
 
 <template>
-  <main class="relative flex min-h-screen flex-col overflow-hidden bg-white text-text-primary">
-    <div class="absolute inset-0 aether-grid opacity-50" />
-
-    <header class="relative z-10 flex h-16 items-center justify-between px-5 sm:px-8">
-      <RouterLink to="/" class="inline-flex items-center gap-2 text-sm font-semibold text-text-secondary transition hover:text-primary">
-        <ArrowLeft class="h-4 w-4" />
-        {{ t('auth.backHome') }}
+  <main class="relative flex min-h-screen flex-col overflow-hidden bg-[#f7f8fb] text-text-primary">
+    <header class="relative z-30 flex h-24 items-center justify-between px-6 sm:px-10">
+      <RouterLink to="/" class="font-display text-2xl font-semibold tracking-normal text-text-primary transition hover:text-primary sm:text-3xl" :aria-label="t('app.name')">
+        {{ t('app.name') }}
       </RouterLink>
       <LocaleSwitcher />
     </header>
 
-    <section class="relative z-10 flex flex-1 items-center justify-center px-5 py-8">
-      <div class="w-full max-w-[520px]">
-        <div class="mb-8 flex flex-col items-center text-center">
-          <span class="grid h-16 w-16 place-items-center rounded-full bg-black text-white shadow-panel">
-            <Bot class="h-8 w-8" />
-          </span>
-          <h1 class="mt-6 font-display text-3xl font-semibold tracking-normal text-text-primary">
+    <section class="relative z-10 flex flex-1 items-center justify-center px-5 pb-24 pt-10">
+      <div class="w-full max-w-[588px]">
+        <div class="mb-9 text-left">
+          <h1 class="font-display text-4xl font-semibold leading-tight tracking-normal text-text-primary sm:text-5xl">
             {{ t('auth.signInTitle') }}
           </h1>
-          <p class="mt-2 text-sm text-text-secondary">{{ t('auth.signInHint') }}</p>
+          <p class="mt-4 text-lg font-semibold leading-7 text-text-secondary">{{ t('auth.signInHint') }}</p>
         </div>
 
-        <form class="space-y-5" @submit.prevent="submit">
-          <label class="block">
-            <span class="mb-2 block text-base font-semibold text-text-primary">{{ t('auth.username') }}</span>
-            <span class="flex h-14 items-center gap-3 rounded-md border border-app-strong bg-white px-4 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-              <Mail class="h-5 w-5 text-text-muted" />
-              <input v-model="form.username" class="min-w-0 flex-1 bg-transparent text-base outline-none" autocomplete="username" />
-            </span>
-          </label>
-
-          <label class="block">
-            <span class="mb-2 flex items-center justify-between gap-4">
-              <span class="text-base font-semibold text-text-primary">{{ t('auth.password') }}</span>
-              <a href="#" class="text-sm font-medium text-primary hover:text-primary-dark">{{ t('auth.forgotPassword') }}</a>
-            </span>
-            <span class="flex h-14 items-center gap-3 rounded-md border border-app-strong bg-white px-4 transition focus-within:border-primary focus-within:ring-4 focus-within:ring-primary/10">
-              <Lock class="h-5 w-5 text-text-muted" />
-              <input v-model="form.password" type="password" class="min-w-0 flex-1 bg-transparent text-base outline-none" autocomplete="current-password" />
-            </span>
-          </label>
-
-          <button class="h-14 w-full rounded-md bg-status-success text-base font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60" :disabled="authStore.loading">
-            {{ t('auth.signIn') }}
+        <div class="grid gap-4">
+          <button
+            class="flex h-14 items-center justify-center gap-3 rounded-lg border border-app-border bg-white text-base font-semibold text-text-primary shadow-sm transition hover:border-app-strong hover:bg-app-bg2 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="authStore.loading"
+            @click="submitGithubProvider"
+          >
+            <Github class="h-6 w-6" />
+            {{ t('auth.continueWithGithub') }}
           </button>
-        </form>
+          <button
+            class="flex h-14 items-center justify-center gap-3 rounded-lg border border-app-border bg-white text-base font-semibold text-text-primary shadow-sm transition hover:border-app-strong hover:bg-app-bg2 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            :disabled="authStore.loading"
+            @click="submitProvider"
+          >
+            <span class="grid h-6 w-6 place-items-center rounded-full bg-white text-xl font-bold text-primary">G</span>
+            {{ t('auth.continueWithGoogle') }}
+          </button>
+        </div>
 
-        <p v-if="errorMessage" class="mt-4 rounded-md border border-status-error/20 bg-red-50 px-4 py-3 text-sm font-medium text-status-error">
-          {{ errorMessage }}
-        </p>
-
-        <div class="my-8 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm text-text-secondary">
+        <div class="my-9 grid grid-cols-[1fr_auto_1fr] items-center gap-5 text-base font-semibold text-text-muted">
           <span class="h-px bg-app-border" />
           <span>{{ t('auth.divider') }}</span>
           <span class="h-px bg-app-border" />
         </div>
 
-        <div class="grid gap-3">
-          <button
-            class="flex h-14 items-center justify-center gap-3 rounded-md border border-app-strong bg-app-bg2 text-base font-semibold text-text-primary transition hover:border-primary/40 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            :disabled="authStore.loading"
-            @click="submitGithubProvider"
-          >
-            <Github class="h-5 w-5" />
-            {{ t('auth.continueWithGithub') }}
-          </button>
-          <button
-            class="flex h-14 items-center justify-center gap-3 rounded-md border border-app-strong bg-app-bg2 text-base font-semibold text-text-primary transition hover:border-primary/40 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            :disabled="authStore.loading"
-            @click="submitProvider"
-          >
-            <span class="grid h-5 w-5 place-items-center rounded-full bg-white text-base font-bold text-primary">G</span>
-            {{ t('auth.continueWithGoogle') }}
-          </button>
-        </div>
+        <form class="space-y-5" @submit.prevent="submit">
+          <label class="block">
+            <span class="mb-2 block text-lg font-semibold text-text-primary">{{ t('auth.username') }}</span>
+            <span class="flex h-14 items-center gap-3 rounded-lg border border-app-border bg-[#eef1f6] px-4 transition focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+              <Mail class="h-5 w-5 text-text-muted" />
+              <input
+                v-model="form.username"
+                class="min-w-0 flex-1 bg-transparent text-base font-medium text-text-primary outline-none placeholder:text-text-muted"
+                autocomplete="username"
+                :placeholder="t('auth.emailPlaceholder')"
+              />
+            </span>
+          </label>
 
-        <div class="mt-8 space-y-4 text-center text-base text-text-secondary">
+          <label class="block">
+            <span class="mb-2 flex items-center justify-between gap-4">
+              <span class="text-lg font-semibold text-text-primary">{{ t('auth.password') }}</span>
+              <a href="#" class="text-sm font-medium text-primary hover:text-primary-dark">{{ t('auth.forgotPassword') }}</a>
+            </span>
+            <span class="flex h-14 items-center gap-3 rounded-lg border border-app-border bg-[#eef1f6] px-4 transition focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+              <Lock class="h-5 w-5 text-text-muted" />
+              <input
+                v-model="form.password"
+                type="password"
+                class="min-w-0 flex-1 bg-transparent text-base font-medium text-text-primary outline-none placeholder:text-text-muted"
+                autocomplete="current-password"
+                :placeholder="t('auth.passwordPlaceholder')"
+              />
+            </span>
+          </label>
+
+          <button class="h-14 w-full rounded-lg bg-primary text-base font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:bg-primary/25" :disabled="authStore.loading">
+            {{ t('auth.signIn') }}
+          </button>
+        </form>
+
+        <p v-if="errorMessage" class="mt-4 rounded-lg border border-status-error/20 bg-red-50 px-4 py-3 text-sm font-medium text-status-error">
+          {{ errorMessage }}
+        </p>
+
+        <div class="mt-8 space-y-4 text-left text-base text-text-secondary">
           <p>
             {{ t('auth.newToAetherFlow') }}
             <a href="#" class="font-medium text-primary hover:text-primary-dark">{{ t('auth.createAccount') }}</a>
           </p>
-          <a href="#" class="inline-flex items-center justify-center gap-2 font-medium text-primary hover:text-primary-dark">
-            <User class="h-4 w-4" />
-            {{ t('auth.signInWithPasskey') }}
-          </a>
           <p class="mx-auto max-w-sm text-sm leading-6 text-text-muted">
             {{ t('auth.mockHint') }}
           </p>
@@ -136,13 +137,8 @@ function submitGithubProvider() {
       </div>
     </section>
 
-    <footer class="relative z-10 border-t border-app-border bg-app-bg2 px-5 py-5 text-center text-sm text-text-secondary">
-      <div class="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-x-8 gap-y-3">
-        <a href="#" class="hover:text-primary">{{ t('auth.footer.terms') }}</a>
-        <a href="#" class="hover:text-primary">{{ t('auth.footer.privacy') }}</a>
-        <a href="#" class="hover:text-primary">{{ t('auth.footer.docs') }}</a>
-        <a href="#" class="hover:text-primary">{{ t('auth.footer.support') }}</a>
-      </div>
+    <footer class="relative z-10 px-5 py-8 text-center text-sm font-medium text-text-secondary">
+      © 2026 AetherFlow. All rights reserved.
     </footer>
   </main>
 </template>

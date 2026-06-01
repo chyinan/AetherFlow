@@ -2,6 +2,7 @@ import { createI18n } from 'vue-i18n'
 
 import { getStoredLocale, type AppLocale, setStoredLocale } from './locale'
 import { enUS } from './locales/en-US'
+import { jaJP } from './locales/ja-JP'
 import { zhCN } from './locales/zh-CN'
 
 export const i18n = createI18n({
@@ -12,6 +13,7 @@ export const i18n = createI18n({
   messages: {
     'zh-CN': zhCN,
     'en-US': enUS,
+    'ja-JP': jaJP,
   },
 })
 
