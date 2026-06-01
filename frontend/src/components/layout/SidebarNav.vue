@@ -56,8 +56,12 @@ function setDockItemRef(element: unknown, index: number) {
 
 function handleDockPointerMove(event: PointerEvent) {
   if (!dockRoot.value) return
-  const rect = dockRoot.value.getBoundingClientRect()
-  pointerY.value = event.clientY - rect.top
+  if (event.pointerType && event.pointerType !== 'mouse') {
+    clearDockPointer()
+    return
+  }
+
+  pointerY.value = event.clientY
 }
 
 function clearDockPointer() {
@@ -68,7 +72,8 @@ function dockScale(index: number) {
   const item = dockItemRefs.value[index]
   if (pointerY.value === null || !item) return 1
 
-  const center = item.offsetTop + item.offsetHeight / 2
+  const rect = item.getBoundingClientRect()
+  const center = rect.top + rect.height / 2
   const distance = Math.abs(pointerY.value - center)
   const influence = Math.max(0, 1 - distance / magnificationRange)
   return 1 + influence * (maxScale - 1)
@@ -102,9 +107,11 @@ function isNavActive(key: string, to: string) {
 
     <nav
       ref="dockRoot"
-      class="flex flex-1 flex-col items-center justify-center gap-2.5 overflow-visible pb-16 pt-1"
+      class="flex w-28 flex-1 flex-col items-center justify-center gap-2.5 overflow-visible pb-16 pt-1"
+      @pointerenter="handleDockPointerMove"
       @pointermove="handleDockPointerMove"
       @pointerleave="clearDockPointer"
+      @pointercancel="clearDockPointer"
     >
       <RouterLink
         v-for="(item, index) in translatedNavItems"
@@ -118,7 +125,7 @@ function isNavActive(key: string, to: string) {
           :href="href"
           :title="item.label"
           :aria-label="item.label"
-          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[background-color,color,box-shadow,transform] duration-75 ease-out will-change-transform hover:bg-sidebar-soft hover:text-white hover:shadow-node"
+          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[background-color,color,box-shadow,transform] duration-100 ease-out will-change-transform hover:bg-sidebar-soft hover:text-white hover:shadow-node"
           :class="isNavActive(item.key, item.to) ? 'bg-primary text-white shadow-node' : ''"
           :style="dockItemStyle(index)"
           @click="navigate"

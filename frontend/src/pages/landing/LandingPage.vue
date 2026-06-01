@@ -10,16 +10,95 @@ import {
   Workflow,
   Zap,
 } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 
 const { t } = useI18n()
+
+const cursorVisible = ref(false)
+const cursorPosition = ref({ x: 0, y: 0 })
+const cursorTarget = { x: 0, y: 0 }
+
+let cursorAnimationFrame: number | undefined
+let cursorHasPosition = false
+
+const cursorDotStyle = computed(() => ({
+  opacity: cursorVisible.value ? '1' : '0',
+  transform: `translate3d(${cursorPosition.value.x}px, ${cursorPosition.value.y}px, 0) translate(-50%, -50%)`,
+}))
+
+function animateCursor() {
+  const delayFactor = 0.14
+  const distanceX = cursorTarget.x - cursorPosition.value.x
+  const distanceY = cursorTarget.y - cursorPosition.value.y
+  const nextX = cursorPosition.value.x + distanceX * delayFactor
+  const nextY = cursorPosition.value.y + distanceY * delayFactor
+
+  cursorPosition.value = { x: nextX, y: nextY }
+
+  if (Math.abs(distanceX) < 0.2 && Math.abs(distanceY) < 0.2) {
+    cursorPosition.value = { ...cursorTarget }
+    cursorAnimationFrame = undefined
+    return
+  }
+
+  cursorAnimationFrame = window.requestAnimationFrame(animateCursor)
+}
+
+function ensureCursorAnimation() {
+  if (cursorAnimationFrame !== undefined) return
+  cursorAnimationFrame = window.requestAnimationFrame(animateCursor)
+}
+
+function handleLandingPointerMove(event: PointerEvent) {
+  if (event.pointerType && event.pointerType !== 'mouse') {
+    cursorVisible.value = false
+    return
+  }
+
+  cursorTarget.x = event.clientX
+  cursorTarget.y = event.clientY
+
+  if (!cursorHasPosition) {
+    cursorPosition.value = { x: event.clientX, y: event.clientY }
+    cursorHasPosition = true
+  }
+
+  cursorVisible.value = true
+  ensureCursorAnimation()
+}
+
+function handleLandingPointerLeave() {
+  cursorVisible.value = false
+  cursorHasPosition = false
+
+  if (cursorAnimationFrame !== undefined) {
+    window.cancelAnimationFrame(cursorAnimationFrame)
+    cursorAnimationFrame = undefined
+  }
+}
+
+onBeforeUnmount(() => {
+  if (cursorAnimationFrame !== undefined) {
+    window.cancelAnimationFrame(cursorAnimationFrame)
+  }
+})
 </script>
 
 <template>
-  <main class="relative min-h-screen overflow-hidden bg-white text-text-primary">
+  <main
+    class="relative min-h-screen overflow-hidden bg-white text-text-primary"
+    @pointermove="handleLandingPointerMove"
+    @pointerleave="handleLandingPointerLeave"
+  >
+    <span
+      aria-hidden="true"
+      class="pointer-events-none fixed left-0 top-0 z-[60] hidden h-4 w-4 rounded-full bg-primary opacity-0 shadow-[0_0_28px_rgba(37,99,235,0.38)] ring-8 ring-primary/10 transition-opacity duration-200 will-change-transform lg:block"
+      :style="cursorDotStyle"
+    />
     <div class="absolute inset-0 landing-blueprint opacity-95" />
     <div class="pointer-events-none absolute inset-0 hidden lg:block">
       <span class="absolute right-[18%] top-[28%] h-px w-44 bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
