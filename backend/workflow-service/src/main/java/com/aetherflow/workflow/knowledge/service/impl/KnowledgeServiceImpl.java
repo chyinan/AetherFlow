@@ -19,6 +19,7 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -60,6 +61,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Override
     public PageResult<KnowledgeDatasetSummary> listDatasets(String query, String status, int page, int pageSize) {
         LambdaQueryWrapper<KnowledgeDatasetEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeDatasetEntity::getOwnerUserId, currentUserId());
         if (hasText(status)) {
             wrapper.eq(KnowledgeDatasetEntity::getStatus, status);
         }
@@ -98,7 +100,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         entity.setHitRate(0);
         entity.setEmbeddingModel(defaultText(request.getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL));
         entity.setRetrievalMode(defaultText(request.getRetrievalMode(), DEFAULT_RETRIEVAL_MODE));
-        entity.setOwner(defaultText(request.getOwner(), DEFAULT_OWNER));
+        entity.setOwnerUserId(currentUserId());
+        entity.setOwner(defaultText(request.getOwner(), currentUsername()));
         entity.setTagsJson(writeJson(request.getTags() == null ? List.of() : request.getTags()));
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
@@ -183,6 +186,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public List<KnowledgeChunkSummary> listDocumentChunks(Long documentId) {
+        KnowledgeDocumentEntity document = requireDocument(documentId);
+        requireDataset(document.getDatasetId());
         LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .eq(KnowledgeChunkEntity::getDocumentId, documentId)
                 .orderByAsc(KnowledgeChunkEntity::getChunkIndex)
@@ -220,10 +225,21 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     private KnowledgeDatasetEntity requireDataset(Long datasetId) {
         KnowledgeDatasetEntity dataset = datasetMapper.selectById(datasetId);
-        if (dataset == null) {
+        if (dataset == null || !owns(dataset.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "knowledge dataset not found");
         }
         return dataset;
+    }
+
+    private KnowledgeDocumentEntity requireDocument(Long documentId) {
+        if (documentId == null || documentId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document id is invalid");
+        }
+        KnowledgeDocumentEntity document = documentMapper.selectById(documentId);
+        if (document == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "knowledge document not found");
+        }
+        return document;
     }
 
     private KnowledgeDatasetSummary toDatasetSummary(KnowledgeDatasetEntity entity) {
@@ -361,5 +377,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     private String timeString(LocalDateTime value) {
         return value == null ? null : value.toString();
+    }
+
+    private static Long currentUserId() {
+        return AuthenticatedUserContext.requireUserId();
+    }
+
+    private static String currentUsername() {
+        return AuthenticatedUserContext.usernameOrDefault(DEFAULT_OWNER);
+    }
+
+    private static boolean owns(Long ownerUserId) {
+        return ownerUserId != null && ownerUserId.equals(currentUserId());
     }
 }

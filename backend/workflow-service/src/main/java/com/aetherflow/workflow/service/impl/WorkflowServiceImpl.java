@@ -10,11 +10,14 @@ import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.project.entity.ProjectEntity;
+import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.aetherflow.workflow.service.WorkflowService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -40,9 +43,11 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private static final String STATUS_ENABLED = "ENABLED";
     private static final String STATUS_DELETED = "DELETED";
+    private static final String DEFAULT_OWNER = "aether.operator";
 
     private final WorkflowDefinitionMapper definitionMapper;
     private final WorkflowInstanceMapper instanceMapper;
+    private final ProjectMapper projectMapper;
     private final WorkflowRuntimeEngine runtimeEngine;
     private final ObjectMapper objectMapper;
     private final WorkflowRuntimeProperties runtimeProperties;
@@ -52,9 +57,13 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public WorkflowDefinition createDefinition(WorkflowDefinitionDTO request) {
+        Long userId = currentUserId();
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
+        definition.setProjectId(requireOwnedProjectId(request.getProjectId()));
+        definition.setOwnerUserId(userId);
+        definition.setOwnerName(currentUsername());
         definition.setDefinitionJson(writeJson(request));
         definition.setVersion(1);
         definition.setStatus(STATUS_ENABLED);
@@ -67,6 +76,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Override
     public List<WorkflowDefinition> listDefinitions() {
         return definitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinition>()
+                .eq(WorkflowDefinition::getOwnerUserId, currentUserId())
                 .ne(WorkflowDefinition::getStatus, STATUS_DELETED)
                 .orderByDesc(WorkflowDefinition::getUpdatedAt)
                 .orderByDesc(WorkflowDefinition::getId));
@@ -83,6 +93,9 @@ public class WorkflowServiceImpl implements WorkflowService {
         WorkflowDefinition definition = getExistingDefinition(definitionId);
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
+        if (request.getProjectId() != null) {
+            definition.setProjectId(requireOwnedProjectId(request.getProjectId()));
+        }
         definition.setDefinitionJson(writeJson(request));
         definition.setVersion(nextVersion(definition.getVersion()));
         definition.setUpdatedAt(LocalDateTime.now());
@@ -102,6 +115,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Override
     @GlobalTransactional(name = "aetherflow-start-workflow-instance", rollbackFor = Exception.class)
     public WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request) {
+        Long userId = currentUserId();
         WorkflowDefinition definition = getExistingDefinition(definitionId);
 
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
@@ -109,7 +123,7 @@ public class WorkflowServiceImpl implements WorkflowService {
 
         WorkflowInstance instance = new WorkflowInstance();
         instance.setDefinitionId(definitionId);
-        instance.setUserId(request == null ? null : request.getUserId());
+        instance.setUserId(userId);
         instance.setInputJson(writeJson(input));
         instance.setStatus(RuntimeState.RUNNING.name());
         instance.setStartedAt(LocalDateTime.now());
@@ -121,7 +135,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                 newTraceId(),
                 String.valueOf(instance.getId()),
                 definitionDTO,
-                runtimeVariables(definitionDTO, input, request == null ? null : request.getUserId()),
+                runtimeVariables(definitionDTO, input, userId),
                 runtimeProperties.getRetry().toRetryPolicy()
         );
 
@@ -153,10 +167,24 @@ public class WorkflowServiceImpl implements WorkflowService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow definition id is invalid");
         }
         WorkflowDefinition definition = definitionMapper.selectById(definitionId);
-        if (definition == null || STATUS_DELETED.equals(definition.getStatus())) {
+        if (definition == null || STATUS_DELETED.equals(definition.getStatus()) || !owns(definition.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "workflow definition not found");
         }
         return definition;
+    }
+
+    private Long requireOwnedProjectId(Long projectId) {
+        if (projectId == null) {
+            return null;
+        }
+        if (projectId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "project id is invalid");
+        }
+        ProjectEntity project = projectMapper.selectById(projectId);
+        if (project == null || STATUS_DELETED.equals(project.getStatus()) || !owns(project.getOwnerUserId())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "project not found");
+        }
+        return projectId;
     }
 
     private int nextVersion(Integer currentVersion) {
@@ -204,6 +232,18 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private String newTraceId() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static Long currentUserId() {
+        return AuthenticatedUserContext.requireUserId();
+    }
+
+    private static String currentUsername() {
+        return AuthenticatedUserContext.usernameOrDefault(DEFAULT_OWNER);
+    }
+
+    private static boolean owns(Long ownerUserId) {
+        return ownerUserId != null && ownerUserId.equals(currentUserId());
     }
 
     private WorkflowDefinitionDTO readDefinition(String definitionJson) {

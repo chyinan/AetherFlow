@@ -20,12 +20,16 @@ class ProjectWorkspaceSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS af_workspace")
                 .contains("CREATE TABLE IF NOT EXISTS af_project")
                 .contains("UNIQUE KEY uk_af_workspace_slug")
+                .contains("KEY idx_af_workspace_owner")
+                .contains("KEY idx_af_project_owner")
                 .contains("KEY idx_af_project_workspace")
                 .contains("KEY idx_af_project_status");
         assertThat(dockerInitSql)
                 .contains("CREATE TABLE IF NOT EXISTS af_workspace")
                 .contains("CREATE TABLE IF NOT EXISTS af_project")
-                .contains("workspace_id BIGINT");
+                .contains("workspace_id BIGINT")
+                .contains("KEY idx_af_workspace_owner")
+                .contains("KEY idx_af_project_owner");
     }
 
     private Path repositoryRoot() {

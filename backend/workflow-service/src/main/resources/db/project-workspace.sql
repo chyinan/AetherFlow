@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS af_workspace (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_workspace_slug (slug),
+    KEY idx_af_workspace_owner (owner_user_id),
     KEY idx_af_workspace_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS af_project (
     status VARCHAR(32) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    KEY idx_af_project_owner (owner_user_id),
     KEY idx_af_project_workspace (workspace_id),
     KEY idx_af_project_status (status),
     KEY idx_af_project_updated (updated_at)

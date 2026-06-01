@@ -23,6 +23,15 @@ public class WorkflowDefinition {
     @Schema(description = "Workflow description.", example = "Upload media, transcribe, summarize, export and notify.")
     private String description;
 
+    @Schema(description = "Owning project id.", example = "7")
+    private Long projectId;
+
+    @Schema(description = "Owner user id.", example = "10001")
+    private Long ownerUserId;
+
+    @Schema(description = "Owner username.", example = "aether.operator")
+    private String ownerName;
+
     @Schema(description = "Serialized workflow definition JSON.")
     private String definitionJson;
 

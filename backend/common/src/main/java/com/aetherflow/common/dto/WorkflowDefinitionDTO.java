@@ -18,6 +18,9 @@ public class WorkflowDefinitionDTO {
     @Schema(description = "Optional workflow description.", example = "Upload media, transcribe, summarize, export and notify the user.")
     private String description;
 
+    @Schema(description = "Optional owning project id.", example = "7")
+    private Long projectId;
+
     @NotEmpty
     @Schema(description = "Workflow nodes in DAG order or graph declaration.")
     private List<WorkflowNodeDTO> nodes;

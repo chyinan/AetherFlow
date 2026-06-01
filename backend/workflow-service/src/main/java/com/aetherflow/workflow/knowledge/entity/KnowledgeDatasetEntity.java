@@ -24,6 +24,7 @@ public class KnowledgeDatasetEntity {
     private Integer hitRate;
     private String embeddingModel;
     private String retrievalMode;
+    private Long ownerUserId;
     private String owner;
     private String tagsJson;
     private LocalDateTime createdAt;

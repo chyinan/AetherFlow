@@ -14,6 +14,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.aetherflow.workflow.service.WorkflowInstanceQueryService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +84,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
 
     private LambdaQueryWrapper<WorkflowInstance> query(Long workflowId, String status) {
         LambdaQueryWrapper<WorkflowInstance> query = new LambdaQueryWrapper<>();
+        query.eq(WorkflowInstance::getUserId, currentUserId());
         if (workflowId != null) {
             query.and(wrapper -> wrapper.eq(WorkflowInstance::getDefinitionId, workflowId)
                     .or()
@@ -99,7 +101,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow instance id is invalid");
         }
         WorkflowInstance instance = instanceMapper.selectById(id);
-        if (instance == null) {
+        if (instance == null || !owns(instance.getUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "workflow instance not found");
         }
         return instance;
@@ -247,6 +249,14 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
 
     private static String stringify(Long value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static Long currentUserId() {
+        return AuthenticatedUserContext.requireUserId();
+    }
+
+    private static boolean owns(Long userId) {
+        return userId != null && userId.equals(currentUserId());
     }
 
     private static class NodeAccumulator {

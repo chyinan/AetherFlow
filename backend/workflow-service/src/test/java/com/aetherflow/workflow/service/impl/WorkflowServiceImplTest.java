@@ -9,11 +9,14 @@ import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.project.entity.ProjectEntity;
+import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.seata.spring.annotation.GlobalTransactional;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +48,9 @@ class WorkflowServiceImplTest {
     private WorkflowInstanceMapper instanceMapper;
 
     @Mock
+    private ProjectMapper projectMapper;
+
+    @Mock
     private WorkflowRuntimeEngine runtimeEngine;
 
     @Mock
@@ -58,6 +65,7 @@ class WorkflowServiceImplTest {
         workflowService = new WorkflowServiceImpl(
                 definitionMapper,
                 instanceMapper,
+                projectMapper,
                 runtimeEngine,
                 objectMapper,
                 runtimeProperties,
@@ -99,7 +107,7 @@ class WorkflowServiceImplTest {
                 List.of("node-input", "node-summary")
         ));
 
-        WorkflowInstance instance = workflowService.startInstance(10L, request);
+        WorkflowInstance instance = asUser(7L, () -> workflowService.startInstance(10L, request));
 
         assertThat(instance.getId()).isEqualTo(99L);
         assertThat(instance.getStatus()).isEqualTo("RUNNING");
@@ -131,7 +139,7 @@ class WorkflowServiceImplTest {
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class)))
                 .thenThrow(new IllegalStateException("node failed"));
 
-        WorkflowInstance instance = workflowService.startInstance(10L, request);
+        WorkflowInstance instance = asUser(7L, () -> workflowService.startInstance(10L, request));
         assertThat(instance.getId()).isEqualTo(100L);
         assertThat(instance.getStatus()).isEqualTo("RUNNING");
 
@@ -146,7 +154,7 @@ class WorkflowServiceImplTest {
         WorkflowDefinition definition = definitionEntity();
         when(definitionMapper.selectList(any())).thenReturn(List.of(definition));
 
-        List<WorkflowDefinition> definitions = workflowService.listDefinitions();
+        List<WorkflowDefinition> definitions = asUser(7L, workflowService::listDefinitions);
 
         assertThat(definitions).containsExactly(definition);
     }
@@ -156,7 +164,7 @@ class WorkflowServiceImplTest {
         WorkflowDefinition definition = definitionEntity();
         when(definitionMapper.selectById(10L)).thenReturn(definition);
 
-        WorkflowDefinition result = workflowService.getDefinition(10L);
+        WorkflowDefinition result = asUser(7L, () -> workflowService.getDefinition(10L));
 
         assertThat(result).isSameAs(definition);
     }
@@ -167,7 +175,43 @@ class WorkflowServiceImplTest {
         definition.setStatus("DELETED");
         when(definitionMapper.selectById(10L)).thenReturn(definition);
 
-        assertThatThrownBy(() -> workflowService.getDefinition(10L))
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.getDefinition(10L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow definition not found");
+    }
+
+    @Test
+    void createsDefinitionForOwnedProject() throws Exception {
+        WorkflowDefinitionDTO request = definitionDTO();
+        request.setProjectId(30L);
+        when(projectMapper.selectById(30L)).thenReturn(project(30L, 7L));
+        when(objectMapper.writeValueAsString(request)).thenReturn("{}");
+
+        WorkflowDefinition definition = asUser(7L, () -> workflowService.createDefinition(request));
+
+        assertThat(definition.getProjectId()).isEqualTo(30L);
+        assertThat(definition.getOwnerUserId()).isEqualTo(7L);
+        verify(definitionMapper).insert(definition);
+    }
+
+    @Test
+    void rejectsDefinitionProjectOwnedByAnotherUser() {
+        WorkflowDefinitionDTO request = definitionDTO();
+        request.setProjectId(30L);
+        when(projectMapper.selectById(30L)).thenReturn(project(30L, 99L));
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.createDefinition(request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("project not found");
+    }
+
+    @Test
+    void rejectsDefinitionOwnedByAnotherUser() {
+        WorkflowDefinition definition = definitionEntity();
+        definition.setOwnerUserId(99L);
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.getDefinition(10L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("workflow definition not found");
     }
@@ -182,7 +226,7 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.writeValueAsString(request)).thenReturn("{\"name\":\"updated\"}");
 
-        WorkflowDefinition result = workflowService.updateDefinition(10L, request);
+        WorkflowDefinition result = asUser(7L, () -> workflowService.updateDefinition(10L, request));
 
         assertThat(result.getName()).isEqualTo("updated");
         assertThat(result.getDescription()).isEqualTo("updated description");
@@ -196,7 +240,10 @@ class WorkflowServiceImplTest {
         WorkflowDefinition definition = definitionEntity();
         when(definitionMapper.selectById(10L)).thenReturn(definition);
 
-        workflowService.deleteDefinition(10L);
+        asUser(7L, () -> {
+            workflowService.deleteDefinition(10L);
+            return null;
+        });
 
         assertThat(definition.getStatus()).isEqualTo("DELETED");
         verify(definitionMapper).updateById(definition);
@@ -208,6 +255,7 @@ class WorkflowServiceImplTest {
         definition.setDefinitionJson("{}");
         definition.setVersion(1);
         definition.setStatus("ENABLED");
+        definition.setOwnerUserId(7L);
         return definition;
     }
 
@@ -233,5 +281,17 @@ class WorkflowServiceImplTest {
         request.setUserId(7L);
         request.setInput(Map.of("file", "audio.mp3"));
         return request;
+    }
+
+    private static ProjectEntity project(Long id, Long ownerUserId) {
+        ProjectEntity project = new ProjectEntity();
+        project.setId(id);
+        project.setOwnerUserId(ownerUserId);
+        project.setStatus("ACTIVE");
+        return project;
+    }
+
+    private static <T> T asUser(Long userId, Supplier<T> action) {
+        return AuthenticatedUserContext.runAs(userId, "aether.operator", action);
     }
 }

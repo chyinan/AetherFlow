@@ -15,6 +15,7 @@ import com.aetherflow.workflow.project.entity.WorkspaceEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.project.mapper.WorkspaceMapper;
 import com.aetherflow.workflow.project.service.ProjectWorkspaceService;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -48,8 +49,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
 
     @Override
     public PageResult<ProjectSummary> listProjects(String query, Long workspaceId, String status, int page, int size) {
+        Long userId = currentUserId();
         IPage<ProjectEntity> result = projectMapper.selectPage(new Page<>(pageNo(page), pageSize(size)),
-                projectQuery(query, workspaceId, status));
+                projectQuery(userId, query, workspaceId, status));
         List<ProjectSummary> records = result.getRecords().stream()
                 .map(this::toProjectSummary)
                 .toList();
@@ -60,6 +62,7 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
     @Transactional(rollbackFor = Exception.class)
     public ProjectSummary createProject(ProjectCreateRequest request) {
         requireName(request == null ? null : request.getName(), "project name is required");
+        Long userId = currentUserId();
         WorkspaceEntity workspace = request.getWorkspaceId() == null ? null : requireWorkspace(request.getWorkspaceId());
         LocalDateTime now = LocalDateTime.now();
 
@@ -68,9 +71,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         entity.setWorkspaceName(workspace == null ? null : workspace.getName());
         entity.setName(request.getName().trim());
         entity.setDescription(trimToNull(request.getDescription()));
-        entity.setOwnerUserId(request.getOwnerUserId());
+        entity.setOwnerUserId(userId);
         entity.setOwnerName(defaultString(request.getOwnerName(),
-                workspace == null ? DEFAULT_OWNER : workspace.getOwnerName(), DEFAULT_OWNER));
+                workspace == null ? currentUsername() : workspace.getOwnerName(), currentUsername()));
         entity.setEnvironment(defaultString(request.getEnvironment(),
                 workspace == null ? DEFAULT_ENVIRONMENT : workspace.getEnvironment(), DEFAULT_ENVIRONMENT));
         entity.setHealth(defaultString(request.getHealth(), DEFAULT_HEALTH));
@@ -115,10 +118,8 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
                 entity.setEnvironment(workspace.getEnvironment());
             }
         }
-        if (request.getOwnerUserId() != null) {
-            entity.setOwnerUserId(request.getOwnerUserId());
-        }
-        setIfText(request.getOwnerName(), entity::setOwnerName);
+        entity.setOwnerUserId(currentUserId());
+        entity.setOwnerName(defaultString(request.getOwnerName(), currentUsername()));
         setIfText(request.getEnvironment(), entity::setEnvironment);
         setIfText(request.getHealth(), entity::setHealth);
         setIfText(request.getScenario(), entity::setScenario);
@@ -171,8 +172,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
 
     @Override
     public PageResult<WorkspaceSummary> listWorkspaces(String query, int page, int size) {
+        Long userId = currentUserId();
         IPage<WorkspaceEntity> result = workspaceMapper.selectPage(new Page<>(pageNo(page), pageSize(size)),
-                workspaceQuery(query));
+                workspaceQuery(userId, query));
         List<WorkspaceSummary> records = result.getRecords().stream()
                 .map(this::toWorkspaceSummary)
                 .toList();
@@ -183,14 +185,15 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
     @Transactional(rollbackFor = Exception.class)
     public WorkspaceSummary createWorkspace(WorkspaceCreateRequest request) {
         requireName(request == null ? null : request.getName(), "workspace name is required");
+        Long userId = currentUserId();
         LocalDateTime now = LocalDateTime.now();
         WorkspaceEntity entity = new WorkspaceEntity();
         entity.setName(request.getName().trim());
         entity.setSlug(defaultString(request.getSlug(), slugify(request.getName())));
         entity.setRegion(defaultString(request.getRegion(), DEFAULT_REGION));
         entity.setEnvironment(defaultString(request.getEnvironment(), DEFAULT_ENVIRONMENT));
-        entity.setOwnerUserId(request.getOwnerUserId());
-        entity.setOwnerName(defaultString(request.getOwnerName(), DEFAULT_OWNER));
+        entity.setOwnerUserId(userId);
+        entity.setOwnerName(defaultString(request.getOwnerName(), currentUsername()));
         entity.setMemberCount(defaultPositive(request.getMemberCount(), 1));
         entity.setDefaultTimeoutMin(defaultPositive(request.getDefaultTimeoutMin(), DEFAULT_TIMEOUT_MIN));
         entity.setRetentionDays(defaultPositive(request.getRetentionDays(), DEFAULT_RETENTION_DAYS));
@@ -219,10 +222,8 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         setIfText(request.getSlug(), entity::setSlug);
         setIfText(request.getRegion(), entity::setRegion);
         setIfText(request.getEnvironment(), entity::setEnvironment);
-        if (request.getOwnerUserId() != null) {
-            entity.setOwnerUserId(request.getOwnerUserId());
-        }
-        setIfText(request.getOwnerName(), entity::setOwnerName);
+        entity.setOwnerUserId(currentUserId());
+        entity.setOwnerName(defaultString(request.getOwnerName(), currentUsername()));
         if (request.getMemberCount() != null) {
             entity.setMemberCount(nonNegative(request.getMemberCount()));
         }
@@ -247,8 +248,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         workspaceMapper.updateById(entity);
     }
 
-    private LambdaQueryWrapper<ProjectEntity> projectQuery(String query, Long workspaceId, String status) {
+    private LambdaQueryWrapper<ProjectEntity> projectQuery(Long userId, String query, Long workspaceId, String status) {
         LambdaQueryWrapper<ProjectEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ProjectEntity::getOwnerUserId, userId);
         if (hasText(status)) {
             wrapper.eq(ProjectEntity::getStatus, status.trim());
         } else {
@@ -269,8 +271,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         return wrapper;
     }
 
-    private LambdaQueryWrapper<WorkspaceEntity> workspaceQuery(String query) {
+    private LambdaQueryWrapper<WorkspaceEntity> workspaceQuery(Long userId, String query) {
         LambdaQueryWrapper<WorkspaceEntity> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(WorkspaceEntity::getOwnerUserId, userId);
         wrapper.ne(WorkspaceEntity::getStatus, STATUS_DELETED);
         if (hasText(query)) {
             String text = query.trim();
@@ -287,7 +290,7 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "project id is required");
         }
         ProjectEntity entity = projectMapper.selectById(id);
-        if (entity == null || STATUS_DELETED.equals(entity.getStatus())) {
+        if (entity == null || STATUS_DELETED.equals(entity.getStatus()) || !owns(entity.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "project not found");
         }
         return entity;
@@ -298,7 +301,7 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workspace id is required");
         }
         WorkspaceEntity entity = workspaceMapper.selectById(id);
-        if (entity == null || STATUS_DELETED.equals(entity.getStatus())) {
+        if (entity == null || STATUS_DELETED.equals(entity.getStatus()) || !owns(entity.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "workspace not found");
         }
         return entity;
@@ -406,5 +409,17 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("(^-|-$)", "");
         return slug.isBlank() ? "workspace" : slug;
+    }
+
+    private static Long currentUserId() {
+        return AuthenticatedUserContext.requireUserId();
+    }
+
+    private static String currentUsername() {
+        return AuthenticatedUserContext.usernameOrDefault(DEFAULT_OWNER);
+    }
+
+    private static boolean owns(Long ownerUserId) {
+        return ownerUserId != null && ownerUserId.equals(currentUserId());
     }
 }

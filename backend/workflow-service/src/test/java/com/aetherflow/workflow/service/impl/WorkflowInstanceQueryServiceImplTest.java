@@ -11,6 +11,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -54,7 +56,7 @@ class WorkflowInstanceQueryServiceImplTest {
         when(instanceMapper.selectList(any(Wrapper.class))).thenReturn(List.of(instance));
         when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
 
-        RunPageResponse response = queryService.listInstances("10", "success", 1, 20);
+        RunPageResponse response = asUser(7L, () -> queryService.listInstances("10", "success", 1, 20));
 
         assertThat(response.page()).isEqualTo(1);
         assertThat(response.total()).isEqualTo(1);
@@ -75,7 +77,7 @@ class WorkflowInstanceQueryServiceImplTest {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
         when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
 
-        RunView detail = queryService.getInstance(99L);
+        RunView detail = asUser(7L, () -> queryService.getInstance(99L));
 
         assertThat(detail.id()).isEqualTo(99L);
         assertThat(detail.traceId()).isEqualTo("trace-1");
@@ -86,7 +88,18 @@ class WorkflowInstanceQueryServiceImplTest {
     void detailThrowsWhenInstanceDoesNotExist() {
         when(instanceMapper.selectById(404L)).thenReturn(null);
 
-        assertThatThrownBy(() -> queryService.getInstance(404L))
+        assertThatThrownBy(() -> asUser(7L, () -> queryService.getInstance(404L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow instance not found");
+    }
+
+    @Test
+    void rejectsInstanceOwnedByAnotherUser() {
+        WorkflowInstance instance = instance();
+        instance.setUserId(99L);
+        when(instanceMapper.selectById(99L)).thenReturn(instance);
+
+        assertThatThrownBy(() -> asUser(7L, () -> queryService.getInstance(99L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("workflow instance not found");
     }
@@ -96,7 +109,7 @@ class WorkflowInstanceQueryServiceImplTest {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
         when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
 
-        List<LogFrame> logs = queryService.logs(99L);
+        List<LogFrame> logs = asUser(7L, () -> queryService.logs(99L));
 
         assertThat(logs).hasSize(3);
         assertThat(logs.get(0).level()).isEqualTo("info");
@@ -110,7 +123,7 @@ class WorkflowInstanceQueryServiceImplTest {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
         when(runtimeEventStore.findByWorkflowId("99")).thenReturn(manyEvents(250));
 
-        List<LogFrame> logs = queryService.logs(99L);
+        List<LogFrame> logs = asUser(7L, () -> queryService.logs(99L));
 
         assertThat(logs).hasSize(200);
         assertThat(logs.get(0).nodeId()).isEqualTo("node-50");
@@ -153,5 +166,9 @@ class WorkflowInstanceQueryServiceImplTest {
                         Instant.parse("2026-05-29T01:00:00Z").plusSeconds(index),
                         Map.of("index", index)))
                 .toList();
+    }
+
+    private static <T> T asUser(Long userId, Supplier<T> action) {
+        return AuthenticatedUserContext.runAs(userId, "aether.operator", action);
     }
 }

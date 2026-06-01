@@ -16,6 +16,7 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -29,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -75,7 +77,7 @@ class KnowledgeServiceImplTest {
             return 1;
         }).when(datasetMapper).insert(any(KnowledgeDatasetEntity.class));
 
-        KnowledgeDatasetSummary response = service.createDataset(request);
+        KnowledgeDatasetSummary response = asUser(7L, () -> service.createDataset(request));
 
         assertThat(response.id()).isEqualTo("11");
         assertThat(response.status()).isEqualTo("ready");
@@ -83,6 +85,7 @@ class KnowledgeServiceImplTest {
         assertThat(response.tags()).containsExactly("docs", "hybrid");
         ArgumentCaptor<KnowledgeDatasetEntity> entityCaptor = ArgumentCaptor.forClass(KnowledgeDatasetEntity.class);
         verify(datasetMapper).insert(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getOwnerUserId()).isEqualTo(7L);
         assertThat(entityCaptor.getValue().getTagsJson()).contains("hybrid");
     }
 
@@ -101,7 +104,7 @@ class KnowledgeServiceImplTest {
             return 1;
         }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
 
-        KnowledgeDocumentSummary response = service.createDocument(11L, request);
+        KnowledgeDocumentSummary response = asUser(7L, () -> service.createDocument(11L, request));
 
         assertThat(response.id()).isEqualTo("21");
         assertThat(response.chunkCount()).isEqualTo(2);
@@ -121,7 +124,7 @@ class KnowledgeServiceImplTest {
         page.setTotal(1);
         when(datasetMapper.selectPage(any(IPage.class), any())).thenReturn(page);
 
-        PageResult<KnowledgeDatasetSummary> result = service.listDatasets("docs", "ready", 1, 20);
+        PageResult<KnowledgeDatasetSummary> result = asUser(7L, () -> service.listDatasets("docs", "ready", 1, 20));
 
         assertThat(result.getTotal()).isEqualTo(1);
         assertThat(result.getRecords()).extracting(KnowledgeDatasetSummary::name)
@@ -139,7 +142,7 @@ class KnowledgeServiceImplTest {
         request.setQuery("workflow");
         request.setTopK(3);
 
-        RetrievalTestResponse response = service.runRetrievalTest(11L, request);
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
 
         assertThat(response.datasetId()).isEqualTo("11");
         assertThat(response.results()).hasSize(1);
@@ -151,7 +154,18 @@ class KnowledgeServiceImplTest {
     void throwsNotFoundWhenDatasetIsMissing() {
         when(datasetMapper.selectById(404L)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.getDataset(404L))
+        assertThatThrownBy(() -> asUser(7L, () -> service.getDataset(404L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("knowledge dataset not found");
+    }
+
+    @Test
+    void rejectsDatasetOwnedByAnotherUser() {
+        KnowledgeDatasetEntity dataset = dataset();
+        dataset.setOwnerUserId(99L);
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.getDataset(11L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("knowledge dataset not found");
     }
@@ -170,6 +184,7 @@ class KnowledgeServiceImplTest {
         dataset.setEmbeddingModel("nomic-embed-text");
         dataset.setRetrievalMode("hybrid search + rerank");
         dataset.setOwner("knowledge.ops");
+        dataset.setOwnerUserId(7L);
         dataset.setTagsJson("[\"docs\"]");
         dataset.setUpdatedAt(LocalDateTime.parse("2026-05-29T10:00:00"));
         return dataset;
@@ -186,5 +201,9 @@ class KnowledgeServiceImplTest {
         chunk.setScore(score);
         chunk.setStatus("ready");
         return chunk;
+    }
+
+    private static <T> T asUser(Long userId, Supplier<T> action) {
+        return AuthenticatedUserContext.runAs(userId, "aether.operator", action);
     }
 }

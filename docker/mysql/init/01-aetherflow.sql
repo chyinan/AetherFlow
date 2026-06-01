@@ -86,11 +86,16 @@ CREATE TABLE IF NOT EXISTS af_workflow_definition (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(128) NOT NULL,
     description VARCHAR(512),
+    project_id BIGINT,
+    owner_user_id BIGINT,
+    owner_name VARCHAR(128),
     definition_json LONGTEXT NOT NULL,
     version INT NOT NULL DEFAULT 1,
     status VARCHAR(32) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    KEY idx_af_workflow_definition_owner (owner_user_id),
+    KEY idx_af_workflow_definition_project (project_id),
     KEY idx_af_workflow_definition_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -124,6 +129,7 @@ CREATE TABLE IF NOT EXISTS af_workspace (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_workspace_slug (slug),
+    KEY idx_af_workspace_owner (owner_user_id),
     KEY idx_af_workspace_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -148,6 +154,7 @@ CREATE TABLE IF NOT EXISTS af_project (
     status VARCHAR(32) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    KEY idx_af_project_owner (owner_user_id),
     KEY idx_af_project_workspace (workspace_id),
     KEY idx_af_project_status (status),
     KEY idx_af_project_updated (updated_at)
@@ -237,10 +244,12 @@ CREATE TABLE IF NOT EXISTS af_knowledge_dataset (
     hit_rate INT NOT NULL DEFAULT 0,
     embedding_model VARCHAR(128) NOT NULL,
     retrieval_mode VARCHAR(128) NOT NULL,
+    owner_user_id BIGINT,
     owner VARCHAR(128),
     tags_json LONGTEXT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    KEY idx_af_knowledge_dataset_owner (owner_user_id),
     KEY idx_af_knowledge_dataset_status (status),
     KEY idx_af_knowledge_dataset_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

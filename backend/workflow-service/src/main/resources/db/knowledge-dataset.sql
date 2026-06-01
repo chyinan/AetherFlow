@@ -10,10 +10,12 @@ CREATE TABLE IF NOT EXISTS af_knowledge_dataset (
     hit_rate INT NOT NULL DEFAULT 0,
     embedding_model VARCHAR(128) NOT NULL,
     retrieval_mode VARCHAR(128) NOT NULL,
+    owner_user_id BIGINT,
     owner VARCHAR(128),
     tags_json LONGTEXT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
+    KEY idx_af_knowledge_dataset_owner (owner_user_id),
     KEY idx_af_knowledge_dataset_status (status),
     KEY idx_af_knowledge_dataset_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

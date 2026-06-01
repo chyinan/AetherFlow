@@ -13,6 +13,7 @@ import com.aetherflow.workflow.project.entity.WorkspaceEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.project.mapper.WorkspaceMapper;
 import com.aetherflow.workflow.project.service.impl.ProjectWorkspaceServiceImpl;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -59,7 +61,7 @@ class ProjectWorkspaceServiceImplTest {
             return 1;
         }).when(workspaceMapper).insert(any(WorkspaceEntity.class));
 
-        WorkspaceSummary response = service.createWorkspace(request);
+        WorkspaceSummary response = asUser(7L, () -> service.createWorkspace(request));
 
         assertThat(response.id()).isEqualTo("5");
         assertThat(response.name()).isEqualTo("AetherFlow Lab");
@@ -67,6 +69,7 @@ class ProjectWorkspaceServiceImplTest {
         assertThat(response.defaultTimeoutMin()).isEqualTo(45);
         ArgumentCaptor<WorkspaceEntity> entityCaptor = ArgumentCaptor.forClass(WorkspaceEntity.class);
         verify(workspaceMapper).insert(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getOwnerUserId()).isEqualTo(7L);
         assertThat(entityCaptor.getValue().getMemberCount()).isEqualTo(1);
         assertThat(entityCaptor.getValue().getStatus()).isEqualTo("ACTIVE");
     }
@@ -85,7 +88,7 @@ class ProjectWorkspaceServiceImplTest {
             return 1;
         }).when(projectMapper).insert(any(ProjectEntity.class));
 
-        ProjectSummary response = service.createProject(request);
+        ProjectSummary response = asUser(7L, () -> service.createProject(request));
 
         assertThat(response.id()).isEqualTo("7");
         assertThat(response.workspaceId()).isEqualTo(5L);
@@ -98,13 +101,27 @@ class ProjectWorkspaceServiceImplTest {
     }
 
     @Test
+    void rejectsWorkspaceOwnedByAnotherUserWhenCreatingProject() {
+        WorkspaceEntity workspace = workspace();
+        workspace.setOwnerUserId(99L);
+        when(workspaceMapper.selectById(5L)).thenReturn(workspace);
+        ProjectCreateRequest request = new ProjectCreateRequest();
+        request.setWorkspaceId(5L);
+        request.setName("Media Ops Lab");
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createProject(request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workspace not found");
+    }
+
+    @Test
     void listsProjectsUsingPagedQuery() {
         Page<ProjectEntity> page = new Page<>(1, 20);
         page.setRecords(List.of(project()));
         page.setTotal(1);
         when(projectMapper.selectPage(any(IPage.class), any())).thenReturn(page);
 
-        PageResult<ProjectSummary> result = service.listProjects("media", 5L, "ACTIVE", 1, 20);
+        PageResult<ProjectSummary> result = asUser(7L, () -> service.listProjects("media", 5L, "ACTIVE", 1, 20));
 
         assertThat(result.getPageNo()).isEqualTo(1);
         assertThat(result.getPageSize()).isEqualTo(20);
@@ -121,7 +138,7 @@ class ProjectWorkspaceServiceImplTest {
         request.setName("Updated Media Lab");
         request.setQueueDepth(5);
 
-        ProjectSummary response = service.updateProject(7L, request);
+        ProjectSummary response = asUser(7L, () -> service.updateProject(7L, request));
 
         assertThat(response.name()).isEqualTo("Updated Media Lab");
         assertThat(response.queueDepth()).isEqualTo(5);
@@ -134,7 +151,7 @@ class ProjectWorkspaceServiceImplTest {
     void returnsProjectStatsFromStoredCounters() {
         when(projectMapper.selectById(7L)).thenReturn(project());
 
-        ProjectStats stats = service.getProjectStats(7L);
+        ProjectStats stats = asUser(7L, () -> service.getProjectStats(7L));
 
         assertThat(stats.projectId()).isEqualTo("7");
         assertThat(stats.workflowCount()).isEqualTo(3);
@@ -147,7 +164,18 @@ class ProjectWorkspaceServiceImplTest {
     void throwsNotFoundWhenProjectIsMissing() {
         when(projectMapper.selectById(404L)).thenReturn(null);
 
-        assertThatThrownBy(() -> service.getProject(404L))
+        assertThatThrownBy(() -> asUser(7L, () -> service.getProject(404L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("project not found");
+    }
+
+    @Test
+    void rejectsProjectOwnedByAnotherUser() {
+        ProjectEntity project = project();
+        project.setOwnerUserId(99L);
+        when(projectMapper.selectById(7L)).thenReturn(project);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.getProject(7L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("project not found");
     }
@@ -159,6 +187,7 @@ class ProjectWorkspaceServiceImplTest {
         workspace.setSlug("aetherflow-lab");
         workspace.setRegion("cn-east");
         workspace.setEnvironment("dev");
+        workspace.setOwnerUserId(7L);
         workspace.setOwnerName("aether.operator");
         workspace.setMemberCount(4);
         workspace.setDefaultTimeoutMin(45);
@@ -176,6 +205,7 @@ class ProjectWorkspaceServiceImplTest {
         project.setName("Media Ops Lab");
         project.setDescription("Audio/video workflow automation");
         project.setOwnerName("aether.operator");
+        project.setOwnerUserId(7L);
         project.setEnvironment("dev");
         project.setHealth("healthy");
         project.setScenario("media");
@@ -189,5 +219,9 @@ class ProjectWorkspaceServiceImplTest {
         project.setStatus("ACTIVE");
         project.setUpdatedAt(LocalDateTime.parse("2026-05-29T10:00:00"));
         return project;
+    }
+
+    private static <T> T asUser(Long userId, Supplier<T> action) {
+        return AuthenticatedUserContext.runAs(userId, "aether.operator", action);
     }
 }
