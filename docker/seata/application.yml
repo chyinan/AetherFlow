@@ -20,8 +20,6 @@ seata:
       server-addr: nacos:8848
       namespace:
       group: SEATA_GROUP
-      username: nacos
-      password: nacos
       data-id: seataServer.properties
   registry:
     type: nacos
@@ -30,8 +28,6 @@ seata:
       server-addr: nacos:8848
       group: SEATA_GROUP
       namespace:
-      username: nacos
-      password: nacos
   store:
     mode: db
     db:
@@ -49,3 +45,6 @@ seata:
       distributed-lock-table: distributed_lock
       query-limit: 100
       max-wait: 5000
+  security:
+    secretKey: 0123456789abcdef0123456789abcdef
+    tokenValidityInMilliseconds: 1800000
