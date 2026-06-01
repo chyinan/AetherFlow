@@ -4,7 +4,7 @@
 Agent ID：AGENT-CODEX-FE-20260601
 Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 分支：feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish
-状态：REVIEW
+状态：IN_PROGRESS
 
 任务目标：
 按用户截图与说明修正公开首页和登录页体验：修复首页首屏“AI 流程跑起来”标题换行问题，提升副标题可读性；语言切换改为 Dify 风格下拉，包含 EN / ZH / JP；左上角只展示 AetherFlow 项目名并移除图标；点击“立即开始”后进入更接近截图的登录页视觉。
@@ -52,6 +52,7 @@ Agent 编码计划：
 4. 重做 LoginPage 为截图风格的居中登录页，左上角展示 AetherFlow 文本品牌，不展示图标，并保留现有 authStore 登录链路。
 5. 补齐中英日登录/首页关键文案。
 6. 运行前端 build、diff 检查和本地浏览器页面验证。
+7. 返工登录页：继续贴近用户提供的 Dify 登录截图，表单收敛为 GitHub/Google、分割线、邮箱输入、验证码按钮、协议说明与底部版权；保留当前 mock 登录能力但不展示密码表单。
 
 不会修改：
 1. 后端接口、DTO、数据库、Redis、MQ、Nacos、Gateway、错误码。
@@ -108,6 +109,7 @@ Agent 编码计划：
 9. 2026-06-01 23:16，业务提交已完成：`90968ab fix(frontend): polish landing login language ui`。
 10. 2026-06-01 23:18，本地 Chrome 访问 `http://localhost:5174/`，确认首页渲染、AetherFlow 文本品牌、标题“把 AI 流程 / 跑起来”、副标题清晰；点击“立即开始”进入 `/login`。
 11. 2026-06-01 23:20，本地 Chrome 访问 `/login`，确认登录页为浅色居中模板，左上角 AetherFlow 文本品牌、右上角语言切换、GitHub/Google 登录入口和邮箱/密码表单可见。
+12. 2026-06-01 23:33，收到用户返工反馈“登录界面还是学习 Dify 截图”，重新登记登录页返工文件锁；返工 claim push 成功前不修改业务代码。
 
 验证结果：
 1. 基线 `cd frontend && npm run build`：通过；Vite 输出 chunk size warning。
@@ -120,8 +122,8 @@ Agent 编码计划：
 2. `90968ab fix(frontend): polish landing login language ui`
 
 交接：
-1. 当前状态：REVIEW。
+1. 当前状态：IN_PROGRESS。
 2. 合入 main：未合入。
 3. 统一运行电脑验证：未运行。
-4. 文件锁：RELEASED。
-5. 遗留问题：Browser 插件未暴露可调用入口；已使用本机 Chrome + Computer Use 降级验证。统一运行电脑仍需复核真实部署视觉。
+4. 文件锁：ACTIVE。
+5. 遗留问题：登录页返工中；统一运行电脑仍需复核真实部署视觉。
