@@ -65,6 +65,50 @@ function inferredProjectWorkflows(project: ProjectSummary, workflows: WorkflowSu
   )
 }
 
+function fileMatchesWorkflow(file: { workflowId?: string; workflowName?: string; objectKey?: string }, workflow: WorkflowSummary) {
+  if (file.workflowId && String(file.workflowId) === String(workflow.id)) {
+    return true
+  }
+  if (file.workflowName && normalizeMatchText(file.workflowName).includes(normalizeMatchText(workflow.name))) {
+    return true
+  }
+  const objectKey = String(file.objectKey ?? '')
+  return objectKey.startsWith(`workflow/exports/${workflow.id}/`)
+}
+
+function exportRuntimeWorkflowId(file: { objectKey?: string }) {
+  const match = /^workflow\/exports\/([^/]+)\//.exec(String(file.objectKey ?? ''))
+  return match?.[1]
+}
+
+function fileMatchesProjectRun(
+  file: { objectKey?: string },
+  project: ProjectSummary,
+  runs: ReturnType<typeof useRunStore>['runs'],
+) {
+  const runtimeWorkflowId = exportRuntimeWorkflowId(file)
+  if (!runtimeWorkflowId) {
+    return false
+  }
+
+  return runs.some((run) => {
+    const matchesRuntime =
+      run.runtimeWorkflowId === runtimeWorkflowId ||
+      String(run.backendInstanceId ?? '') === runtimeWorkflowId ||
+      run.id === `run-${runtimeWorkflowId}`
+    if (!matchesRuntime) {
+      return false
+    }
+    return projectWorkflowMatch(project, {
+      id: run.workflowId,
+      name: run.workflowName,
+      updatedAt: run.startedAt,
+      status: run.status === 'running' ? 'running' : run.status === 'queued' ? 'draft' : 'ready',
+      backendDefinitionId: run.definitionId,
+    })
+  })
+}
+
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projects: [] as ProjectSummary[],
@@ -97,13 +141,16 @@ export const useProjectStore = defineStore('project', {
         ? project.knowledgeCount
         : (project.name.includes('会议') ? difyStore.datasets.length : 0)
       const files = fileStore.files.filter((file) => {
-        if (file.workflowId) {
-          return workflowIds.has(file.workflowId)
+        if (workflows.some((workflow) => fileMatchesWorkflow(file, workflow))) {
+          return true
         }
-        if (file.workflowName) {
-          return normalizeMatchText(file.workflowName).includes(normalizeMatchText(project.name))
+        if (fileMatchesProjectRun(file, project, runStore.runs)) {
+          return true
         }
-        return false
+        return !file.workflowId
+          && !file.objectKey?.startsWith('workflow/exports/')
+          && Boolean(file.workflowName)
+          && normalizeMatchText(file.workflowName).includes(normalizeMatchText(project.name))
       })
       const hasRuntimeRuns = runStore.runs.length > 0
       const hasRuntimeFiles = fileStore.files.length > 0
@@ -112,7 +159,7 @@ export const useProjectStore = defineStore('project', {
         activeRunCount: hasRuntimeRuns
           ? runs.filter((run) => ['queued', 'running'].includes(run.status)).length
           : project.activeRunCount,
-        fileCount: hasRuntimeFiles ? files.length : project.fileCount,
+        fileCount: hasRuntimeFiles ? files.length || project.fileCount : project.fileCount,
         queueDepth: hasRuntimeRuns
           ? runs.filter((run) => ['queued', 'running'].includes(run.status)).length
           : project.queueDepth,
@@ -211,7 +258,7 @@ export const useProjectStore = defineStore('project', {
         scenario: payload.scenario,
         description: i18n.global.t('projects.projectDescription'),
       })
-      this.projects = [project, ...this.projects]
+      this.projects = [...this.projects, project]
       this.currentProjectId = project.id
       return project
     },

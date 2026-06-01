@@ -147,7 +147,7 @@ function mapBackendRun(view: WorkflowRunViewDTO): WorkflowRun {
   return {
     id,
     workflowId,
-    workflowName: definitionId ? `Workflow Definition ${definitionId}` : `Runtime ${view.runtimeWorkflowId ?? view.id}`,
+    workflowName: view.workflowName || (definitionId ? `Workflow Definition ${definitionId}` : `Runtime ${view.runtimeWorkflowId ?? view.id}`),
     backendInstanceId: view.id,
     runtimeWorkflowId: view.runtimeWorkflowId ?? String(view.id),
     definitionId,

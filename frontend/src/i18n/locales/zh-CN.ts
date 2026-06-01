@@ -227,7 +227,7 @@ export const zhCN = {
     workflows: '工作流',
     activeRuns: '运行中',
     filesAndArtifacts: '文件与产物',
-    queueDepth: '队列深度',
+    queueDepth: '任务队列',
     knowledgeBases: '知识库',
     scenario: '场景',
     owner: '负责人',

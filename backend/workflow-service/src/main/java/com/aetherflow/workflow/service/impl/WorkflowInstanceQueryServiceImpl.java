@@ -6,7 +6,9 @@ import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.LogFrame;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.NodeSummary;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.RunPageResponse;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.RunView;
+import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
@@ -34,6 +36,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
     private static final int MAX_LOG_FRAMES = 200;
 
     private final WorkflowInstanceMapper instanceMapper;
+    private final WorkflowDefinitionMapper definitionMapper;
     private final RuntimeEventStore runtimeEventStore;
 
     @Override
@@ -107,6 +110,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 instance.getId(),
                 instance.getDefinitionId(),
                 stringify(instance.getDefinitionId()),
+                workflowName(instance.getDefinitionId()),
                 stringify(instance.getId()),
                 instance.getUserId(),
                 instance.getStatus(),
@@ -118,6 +122,17 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 durationMs(instance),
                 nodeSummaries(events)
         );
+    }
+
+    private String workflowName(Long definitionId) {
+        if (definitionId == null) {
+            return null;
+        }
+        WorkflowDefinition definition = definitionMapper.selectById(definitionId);
+        if (definition == null || !hasText(definition.getName())) {
+            return "Workflow Definition " + definitionId;
+        }
+        return definition.getName();
     }
 
     private List<RuntimeEvent> events(WorkflowInstance instance) {

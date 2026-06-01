@@ -55,6 +55,7 @@ export interface WorkflowRunViewDTO {
   id: number
   definitionId?: number
   workflowId?: string
+  workflowName?: string
   runtimeWorkflowId?: string
   userId?: number
   status?: string

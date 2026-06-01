@@ -83,6 +83,7 @@ class WorkflowInstanceControllerTest {
                 99L,
                 10L,
                 "10",
+                "Meeting summary",
                 "99",
                 7L,
                 "SUCCESS",

@@ -4,6 +4,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.LogFrame;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.RunPageResponse;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.RunView;
+import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
@@ -34,13 +35,16 @@ class WorkflowInstanceQueryServiceImplTest {
     private WorkflowInstanceMapper instanceMapper;
 
     @Mock
+    private WorkflowDefinitionMapper definitionMapper;
+
+    @Mock
     private RuntimeEventStore runtimeEventStore;
 
     private WorkflowInstanceQueryServiceImpl queryService;
 
     @BeforeEach
     void setUp() {
-        queryService = new WorkflowInstanceQueryServiceImpl(instanceMapper, runtimeEventStore);
+        queryService = new WorkflowInstanceQueryServiceImpl(instanceMapper, definitionMapper, runtimeEventStore);
     }
 
     @Test
@@ -58,6 +62,7 @@ class WorkflowInstanceQueryServiceImplTest {
         RunView item = response.items().get(0);
         assertThat(item.id()).isEqualTo(99L);
         assertThat(item.workflowId()).isEqualTo("10");
+        assertThat(item.workflowName()).isEqualTo("Workflow Definition 10");
         assertThat(item.runtimeWorkflowId()).isEqualTo("99");
         assertThat(item.traceId()).isEqualTo("trace-1");
         assertThat(item.durationMs()).isEqualTo(60000L);

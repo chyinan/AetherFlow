@@ -36,6 +36,8 @@ public final class WorkflowInstanceRunDtos {
             Long definitionId,
             @Schema(description = "Frontend workflow id, mapped to definition id.", example = "1")
             String workflowId,
+            @Schema(description = "Workflow definition display name.", example = "Meeting summary")
+            String workflowName,
             @Schema(description = "Runtime workflow id, mapped to instance id.", example = "1001")
             String runtimeWorkflowId,
             @Schema(description = "Owner user id.", example = "10001")

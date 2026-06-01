@@ -227,7 +227,7 @@ export const enUS = {
     workflows: 'Workflows',
     activeRuns: 'Active runs',
     filesAndArtifacts: 'Files and artifacts',
-    queueDepth: 'Queue depth',
+    queueDepth: 'Task queue',
     knowledgeBases: 'Knowledge bases',
     scenario: 'Scenario',
     owner: 'Owner',
