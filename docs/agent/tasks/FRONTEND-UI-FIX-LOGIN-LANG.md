@@ -4,7 +4,7 @@
 Agent ID：AGENT-CODEX-FE-20260601
 Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 分支：feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 按用户截图与说明修正公开首页和登录页体验：修复首页首屏“AI 流程跑起来”标题换行问题，提升副标题可读性；语言切换改为 Dify 风格下拉，包含 EN / ZH / JP；左上角只展示 AetherFlow 项目名并移除图标；点击“立即开始”后进入更接近截图的登录页视觉。
@@ -110,20 +110,38 @@ Agent 编码计划：
 10. 2026-06-01 23:18，本地 Chrome 访问 `http://localhost:5174/`，确认首页渲染、AetherFlow 文本品牌、标题“把 AI 流程 / 跑起来”、副标题清晰；点击“立即开始”进入 `/login`。
 11. 2026-06-01 23:20，本地 Chrome 访问 `/login`，确认登录页为浅色居中模板，左上角 AetherFlow 文本品牌、右上角语言切换、GitHub/Google 登录入口和邮箱/密码表单可见。
 12. 2026-06-01 23:33，收到用户返工反馈“登录界面还是学习 Dify 截图”，重新登记登录页返工文件锁；返工 claim push 成功前不修改业务代码。
+13. 2026-06-01 23:41，完成登录页返工：移除可见密码表单与注册提示，改为 GitHub/Google、邮箱输入、发送验证码按钮、协议说明和底部版权；顶部增加主题按钮以贴近参考图。
+14. 2026-06-01 23:41，返工业务提交已完成：`e146a32 fix(frontend): align login page with reference layout`。
+15. 2026-06-01 23:42，本地 Chrome 访问 `http://localhost:5174/login`，确认登录页结构与 Dify 参考图一致：AetherFlow 顶部品牌、语言/主题按钮、居中登录区、邮箱验证码按钮、协议文案和版权可见。
+16. 2026-06-01 23:47，收到用户继续反馈：登录表单需更小巧；移除欢迎提示；邮箱输入放到最上方；GitHub/Google 使用更接近官方的标识；增加注册业务入口。继续保持当前文件锁为 ACTIVE。
+17. 2026-06-02 00:00，完成二次返工：登录页改为更小巧的 420px 面板，邮箱验证码入口前置，欢迎提示移除，GitHub/Google 改为品牌化 SVG 图标，并增加登录/注册模式切换。
+18. 2026-06-02 00:00，二次返工业务提交已完成：`899ecb8 fix(frontend): tighten login register panel`。
+19. 2026-06-02 00:01，本地 Chrome 访问 `http://127.0.0.1:5180/login`，确认登录与注册模式可切换；邮箱输入在最上方；GitHub/Google 图标可见；页面视觉更紧凑。DevTools 中有本地后端未启动导致的 `/notify/**` 502 proxy error，不影响本次登录页静态渲染验证。
 
 验证结果：
 1. 基线 `cd frontend && npm run build`：通过；Vite 输出 chunk size warning。
 2. 业务实现后 `cd frontend && npm run build`：通过；Vite 仅输出 chunk size warning。
 3. `git diff --check`：通过，无 whitespace error。
 4. 本地浏览器验证：通过；Chrome 页面可访问 `/` 与 `/login`，核心视觉改动可见。
+5. 返工后 `cd frontend && npm run build`：通过；Vite 仅输出 chunk size warning。
+6. 返工后 `git diff --check`：通过，无 whitespace error。
+7. 返工后冲突标记扫描：通过，无冲突标记。
+8. 返工后本地浏览器验证：通过；Chrome `/login` 页面已贴近 Dify 参考图。
+9. 二次返工后 `cd frontend && npm run build`：通过；Vite 仅输出 chunk size warning。
+10. 二次返工后 `git diff --check`：通过，无 whitespace error。
+11. 二次返工后冲突标记扫描：通过，无冲突标记。
+12. 二次返工后本地浏览器验证：通过；Chrome `/login` 登录/注册模式渲染正常。仅观察到本地后端未启动引起的既有 `/notify/**` 502 proxy error。
 
 提交记录：
 1. `b5af132 docs(agent): claim FRONTEND-UI-FIX-LOGIN-LANG`
 2. `90968ab fix(frontend): polish landing login language ui`
+3. `481d268 docs(agent): rework claim FRONTEND-UI-FIX-LOGIN-LANG`
+4. `e146a32 fix(frontend): align login page with reference layout`
+5. `899ecb8 fix(frontend): tighten login register panel`
 
 交接：
-1. 当前状态：IN_PROGRESS。
+1. 当前状态：REVIEW。
 2. 合入 main：未合入。
 3. 统一运行电脑验证：未运行。
-4. 文件锁：ACTIVE。
-5. 遗留问题：登录页返工中；统一运行电脑仍需复核真实部署视觉。
+4. 文件锁：RELEASED。
+5. 遗留问题：统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增，当前为前端登录/注册模式 UI，不修改认证接口契约。
