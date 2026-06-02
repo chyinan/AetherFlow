@@ -607,6 +607,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 | BE-KNOWLEDGE-DATASET-20260529 | Knowledge Dataset / Document APIs | DONE | 陈胤安 | chyinan | feature/BE-KNOWLEDGE-DATASET-20260529-knowledge-dataset | backend/workflow-service/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-KNOWLEDGE-DATASET-20260529.md | 是，仅 knowledge dataset/document/chunk REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
 | BE-SETTINGS-ADMIN-20260529 | Settings / Member / Billing / Audit APIs | DONE | 陈胤安 | chyinan | feature/BE-SETTINGS-ADMIN-20260529-settings-admin | backend/auth-service/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-SETTINGS-ADMIN-20260529.md | 是，仅 settings/admin REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
 | BE-COPILOT-CHAT-20260529 | Copilot Chat API Backend Gap | DONE | 陈胤安 | chyinan | feature/BE-COPILOT-CHAT-20260529-copilot-chat | backend/ai-service/src/main/java/com/aetherflow/ai/copilot/**；backend/ai-service/src/test/java/com/aetherflow/ai/copilot/**；backend/gateway-service/**；docker/mysql/init/01-aetherflow.sql；docs/agent/tasks/BE-COPILOT-CHAT-20260529.md | 是，仅 /copilot/** REST API、DB 表与 Gateway 路由 | main 合入；git diff --check 通过；后端相关模块测试通过 | 2026-05-29 20:09 |
+| FRONTEND-UI-FIX-LOGIN-LANG | 公开首页与登录页 UI 修正 | REVIEW | 曹煜璋 | AGENT-CODEX-FE-20260601 | feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish | frontend/src/pages/auth/LoginPage.vue；frontend/src/i18n/locales/{zh-CN,en-US,ja-JP}.ts；docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md；docs/agent/logs/{2026-06-01,2026-06-02}.md；AGENT.md | 否 | cd frontend && npm run build；git diff --check；Chrome 验证 `/login` 暗色主题可读性 | 2026-06-02 09:26 |
 |  |  | TODO / IN_PROGRESS / BLOCKED / REVIEW / DONE / CANCELLED |  |  |  |  | 是 / 否 |  |  |
 
 任务详情写入：
@@ -634,6 +635,24 @@ docs/agent/README.md
 
 | 任务ID | Agent ID | 文件或目录 | 开始时间 | 过期时间 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 修复全局暗色主题下登录页浅底浅字 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 返工任务文档 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-02.md | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 当日执行日志 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | AGENT.md | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 任务看板与文件锁 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 登录页继续贴近 Dify 截图 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/locales/zh-CN.ts | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 登录页中文文案 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/locales/en-US.ts | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 登录页英文文案 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/locales/ja-JP.ts | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 登录页日文文案 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 返工任务文档 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-01.md | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 当日执行日志 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | AGENT.md | 2026-06-01 23:33 | 2026-06-02 00:02 | RELEASED | 任务看板与文件锁 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/landing/LandingPage.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 首页标题、品牌与副标题可读性修正 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 登录页视觉改造，保留现有认证链路 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/components/ui/LocaleSwitcher.vue | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | Dify 风格语言下拉 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/i18n/** | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | EN / ZH / JP 语言切换支持 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 任务文档 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-01.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 当日执行日志 |
+| FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | AGENT.md | 2026-06-01 23:00 | 2026-06-01 23:20 | RELEASED | 任务看板与文件锁 |
 | AI-PROVIDER-ORCH-20260528 | chyinan | backend/ai-service/** | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 企业级 AI Provider Orchestration System |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 任务文档 |
 | AI-PROVIDER-ORCH-20260528 | chyinan | docs/agent/logs/2026-05-28.md | 2026-05-28 11:40 | 2026-05-28 23:40 | RELEASED | 当日执行日志 |
@@ -927,6 +946,10 @@ docs/agent/README.md
 | 任务ID | 验证类型 | 命令 / 步骤 | 结果 | 证据 | 执行人 | 时间 |
 | --- | --- | --- | --- | --- | --- | --- |
 |  | 环境检测 / 静态检查 / 编译 / 单元测试 / 接口手测 / 前端验证 / 统一运行电脑验证 |  | 通过 / 未通过 / 未执行 |  |  |  |
+| FRONTEND-UI-FIX-LOGIN-LANG | 回归检查 | node -e 检查 LoginPage 是否仍包含暗色主题覆盖风险类 | 通过 | 返工后未命中 `text-text-primary`、`text-text-secondary`、`text-text-muted`、`bg-white`、`hover:bg-white`、`bg-app-bg2`、`border-app-border`、`border-app-strong` | AGENT-CODEX-FE-20260601 | 2026-06-02 09:21 |
+| FRONTEND-UI-FIX-LOGIN-LANG | 编译 | cd frontend && npm run build | 通过 | vue-tsc 与 vite build 通过；仅 Vite chunk size warning | AGENT-CODEX-FE-20260601 | 2026-06-02 09:18 |
+| FRONTEND-UI-FIX-LOGIN-LANG | 静态检查 | git diff --check；冲突标记扫描 | 通过 | 无 whitespace error；无 Git 冲突标记 | AGENT-CODEX-FE-20260601 | 2026-06-02 09:18 |
+| FRONTEND-UI-FIX-LOGIN-LANG | 前端验证 | 无界面 Chrome 干净 profile 访问 `http://127.0.0.1:5181/login`，预置 `localStorage.aetherflow.theme=dark` | 通过 | 页面 `htmlTheme=dark`；标题/邮箱标签颜色 `rgb(17, 24, 39)`；背景 `rgb(247, 248, 251)`；截图 `/private/tmp/aetherflow-login-dark-theme.png` 未入库 | AGENT-CODEX-FE-20260601 | 2026-06-02 09:24 |
 | GW-AI-PROVIDER-ROUTE-20260528 | 静态检查 | git diff --name-only main...HEAD | 通过 | AGENT.md；backend/gateway-service/src/main/resources/application.yml；backend/gateway-service/src/test/java/com/aetherflow/gateway/GatewayRouteConfigurationTest.java；docs/agent/logs/2026-05-28.md；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md | chyinan | 2026-05-28 12:30 |
 | GW-AI-PROVIDER-ROUTE-20260528 | 单元测试 | JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/gateway-service -am test | 通过 | common 8 tests；gateway-service 16 tests；BUILD SUCCESS | chyinan | 2026-05-28 12:29 |
 | FILE-SERVICE-GOVERNANCE-20260528 | 单元测试 | JAVA_HOME=C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot; mvn -pl backend/file-service -am test | 通过 | common 8 tests；file-service 20 tests；BUILD SUCCESS | chyinan | 2026-05-28 16:23 |
@@ -1071,6 +1094,7 @@ docs/agent/README.md
 | 时间 | 任务ID | Agent ID | 本次完成 | 修改文件 | 测试结果 | PR / 提交 | 合入 main | 统一运行电脑验证 | 遗留问题 | 文件锁 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  |  |  |  |  |  |  | 未合入 / 已合入 | 未运行 / 已运行 / 不涉及 |  | RELEASED / ACTIVE / EXPIRED |
+| 2026-06-02 09:26 | FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | 修复工作区暗色主题缓存污染登录页的问题：登录页保留浅色 Dify 风格，但关键文字、按钮、输入框和分割线使用局部显式颜色，不再被全局 `html[data-theme='dark']` 语义类覆盖 | frontend/src/pages/auth/LoginPage.vue；docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md；docs/agent/logs/2026-06-02.md；AGENT.md | `cd frontend && npm run build` 通过；`git diff --check` 通过；冲突标记扫描通过；无界面 Chrome 验证 `htmlTheme=dark` 时登录页深色文字可读 | e476043 claim；76fb2c2 business；handoff 本提交 | 未合入 | 未运行 | 统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增 | RELEASED |
 | 2026-05-30 01:13 | FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP | chyinan | TDD 完成并合入 Runtime 历史日志响应裁剪：`/workflow-instances/{id}/logs` 仅返回最近 200 条，降低长 Whisper 任务日志加载卡顿风险；不改 Runtime Core/SSE | backend/workflow-service/src/main/java/com/aetherflow/workflow/service/impl/WorkflowInstanceQueryServiceImpl.java；backend/workflow-service/src/test/java/com/aetherflow/workflow/service/impl/WorkflowInstanceQueryServiceImplTest.java；docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P1-RUNTIME-LOG-CAP.md；docs/agent/logs/2026-05-30.md；AGENT.md | main 上 query/controller 回归 8 tests 通过；`git diff --check HEAD^1..HEAD` 通过；冲突扫描通过 | e823c99 claim；ed7e16c business；a13b8dd handoff；83f19bd main merge | 已合入 | 未运行 | 需统一运行电脑补测真实长视频 Run 日志加载和 Runtime Monitor 不明显卡顿 | RELEASED |
 | 2026-05-30 01:03 | FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED | chyinan | TDD 完成并合入真实 Auth 默认演示用户 seed：DB 缺失时创建 `aether.operator / mock-password`，已有同名用户不覆盖，可通过 demoUser.enabled 关闭 | backend/auth-service/src/main/java/com/aetherflow/auth/config/AuthProperties.java；backend/auth-service/src/main/java/com/aetherflow/auth/bootstrap/DemoUserInitializer.java；backend/auth-service/src/test/java/com/aetherflow/auth/bootstrap/DemoUserInitializerTest.java；docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P0-AUTH-DEMO-USER-SEED.md；docs/agent/logs/2026-05-30.md；AGENT.md | main 上 auth-service 回归 43 tests + common 8 tests 通过；`git diff --check HEAD^1..HEAD` 通过；冲突扫描通过 | 392cd0b claim；50da750 business；35ebc7e handoff；b42568f main merge | 已合入 | 未运行 | 需统一运行电脑补测真实 MySQL seed 与 Gateway `/auth/login` JWT 返回 | RELEASED |
 | 2026-05-30 00:52 | FINAL-INTEGRATION-STABILIZATION-20260530-P0-DEMO-LOGIN-FALLBACK | chyinan | 修复并合入默认演示账号 Auth fallback：Gateway/Auth 不可用时 `aether.operator / mock-password` 可进入 Demo，401/429 不降级 | frontend/src/services/api/authApi.ts；docs/agent/tasks/FINAL-INTEGRATION-STABILIZATION-20260530-P0-DEMO-LOGIN-FALLBACK.md；docs/agent/logs/2026-05-30.md；AGENT.md | main 上 `npm run build` 通过；`git diff --check HEAD^1..HEAD` 通过；冲突标记扫描通过 | 1efaa82 claim；dff9910 business；c440b86 handoff；90992ca main merge | 已合入 | 未运行 | 需浏览器补测 Gateway 未启动时默认账号登录；真实 JWT 登录仍需后端服务和种子用户 | RELEASED |
