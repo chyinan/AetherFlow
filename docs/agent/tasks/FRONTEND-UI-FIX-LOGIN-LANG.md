@@ -4,7 +4,7 @@
 Agent ID：AGENT-CODEX-FE-20260601
 Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 分支：feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish
-状态：IN_PROGRESS
+状态：REVIEW
 
 任务目标：
 按用户截图与说明修正公开首页和登录页体验：修复首页首屏“AI 流程跑起来”标题换行问题，提升副标题可读性；语言切换改为 Dify 风格下拉，包含 EN / ZH / JP；左上角只展示 AetherFlow 项目名并移除图标；点击“立即开始”后进入更接近截图的登录页视觉。
@@ -121,6 +121,9 @@ Agent 编码计划：
 18. 2026-06-02 00:00，二次返工业务提交已完成：`899ecb8 fix(frontend): tighten login register panel`。
 19. 2026-06-02 00:01，本地 Chrome 访问 `http://127.0.0.1:5180/login`，确认登录与注册模式可切换；邮箱输入在最上方；GitHub/Google 图标可见；页面视觉更紧凑。DevTools 中有本地后端未启动导致的 `/notify/**` 502 proxy error，不影响本次登录页静态渲染验证。
 20. 2026-06-02 00:09，收到用户反馈：用户进入工作区后切换为暗色主题，再回到前端登录页时登录文字不可见。根因确认：登录页背景固定浅色，但全局暗色主题通过 `html[data-theme='dark'] .text-text-primary` 等规则强制覆盖登录页语义文字色，造成浅底浅字。已重新登记 `LoginPage.vue` 返工文件锁；claim push 成功前不修改业务代码。
+21. 2026-06-02 09:21，完成暗色主题返工：登录页局部改用显式浅色模板颜色，避免 `text-text-primary`、`text-text-secondary`、`bg-white`、`border-app-border` 等全局暗色主题覆盖类影响登录页。
+22. 2026-06-02 09:23，暗色主题返工业务提交已完成：`76fb2c2 fix(frontend): isolate login colors from dark theme`。
+23. 2026-06-02 09:24，无界面 Chrome 干净 profile 验证 `http://127.0.0.1:5181/login`：预置 `localStorage.aetherflow.theme=dark` 后页面 `htmlTheme=dark`，标题/邮箱标签颜色均为 `rgb(17, 24, 39)`，登录页背景为 `rgb(247, 248, 251)`，登录文案可读。
 
 验证结果：
 1. 基线 `cd frontend && npm run build`：通过；Vite 输出 chunk size warning。
@@ -135,7 +138,12 @@ Agent 编码计划：
 10. 二次返工后 `git diff --check`：通过，无 whitespace error。
 11. 二次返工后冲突标记扫描：通过，无冲突标记。
 12. 二次返工后本地浏览器验证：通过；Chrome `/login` 登录/注册模式渲染正常。仅观察到本地后端未启动引起的既有 `/notify/**` 502 proxy error。
-13. 暗色主题返工验证：待执行。
+13. 暗色主题返工前回归检查：失败，`LoginPage.vue` 命中会被全局暗色主题覆盖的类：`text-text-primary`、`text-text-secondary`、`text-text-muted`、`bg-white`、`hover:bg-white`、`bg-app-bg2`、`border-app-border`、`border-app-strong`。
+14. 暗色主题返工后回归检查：通过，`LoginPage.vue` 不再包含上述暗色主题覆盖风险类。
+15. 暗色主题返工后 `cd frontend && npm run build`：通过；Vite 仅输出 chunk size warning。
+16. 暗色主题返工后 `git diff --check`：通过，无 whitespace error。
+17. 暗色主题返工后冲突标记扫描：通过，无冲突标记。
+18. 暗色主题返工后无界面 Chrome 验证：通过；`html[data-theme='dark']` 下登录页标题/标签为深色字，浅色背景上可读。截图临时文件位于 `/private/tmp/aetherflow-login-dark-theme.png`，未提交仓库。
 
 提交记录：
 1. `b5af132 docs(agent): claim FRONTEND-UI-FIX-LOGIN-LANG`
@@ -143,10 +151,13 @@ Agent 编码计划：
 3. `481d268 docs(agent): rework claim FRONTEND-UI-FIX-LOGIN-LANG`
 4. `e146a32 fix(frontend): align login page with reference layout`
 5. `899ecb8 fix(frontend): tighten login register panel`
+6. `e476043 docs(agent): reclaim FRONTEND-UI-FIX-LOGIN-LANG dark login`
+7. `76fb2c2 fix(frontend): isolate login colors from dark theme`
+8. `docs(agent): handoff FRONTEND-UI-FIX-LOGIN-LANG dark login`（本提交）
 
 交接：
-1. 当前状态：IN_PROGRESS。
+1. 当前状态：REVIEW。
 2. 合入 main：未合入。
 3. 统一运行电脑验证：未运行。
-4. 文件锁：ACTIVE。
-5. 遗留问题：修复登录页暗色主题可读性；统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增，当前为前端登录/注册模式 UI，不修改认证接口契约。
+4. 文件锁：RELEASED。
+5. 遗留问题：统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增，当前为前端登录/注册模式 UI，不修改认证接口契约。
