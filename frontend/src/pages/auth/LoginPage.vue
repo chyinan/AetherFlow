@@ -74,16 +74,16 @@ function toggleAuthMode() {
 </script>
 
 <template>
-  <main class="relative flex min-h-screen flex-col overflow-hidden bg-[#f7f8fb] text-text-primary">
+  <main class="relative flex min-h-screen flex-col overflow-hidden bg-[#f7f8fb] text-[#111827] [color-scheme:light]">
     <header class="relative z-30 flex h-[88px] items-center justify-between px-6 sm:px-10">
-      <RouterLink to="/" class="font-display text-3xl font-semibold tracking-normal text-text-primary transition hover:text-primary sm:text-4xl" :aria-label="t('app.name')">
+      <RouterLink to="/" class="font-display text-3xl font-semibold tracking-normal text-[#111827] transition hover:text-[#2563eb] sm:text-4xl" :aria-label="t('app.name')">
         {{ t('app.name') }}
       </RouterLink>
       <div class="flex items-center gap-4">
         <LocaleSwitcher />
         <button
           type="button"
-          class="grid h-10 w-10 place-items-center rounded-lg text-text-muted transition hover:bg-white hover:text-text-primary"
+          class="grid h-10 w-10 place-items-center rounded-lg text-[#667085] transition hover:bg-[#ffffff] hover:text-[#111827]"
           :aria-label="t('accountMenu.theme')"
           @click="uiStore.toggleTheme()"
         >
@@ -96,19 +96,19 @@ function toggleAuthMode() {
     <section class="relative z-10 flex flex-1 justify-center px-5 pb-16 pt-[13vh]">
       <div class="w-full max-w-[420px]">
         <div class="mb-7 text-left">
-          <h1 class="font-display text-3xl font-semibold leading-tight tracking-normal text-text-primary">
+          <h1 class="font-display text-3xl font-semibold leading-tight tracking-normal text-[#111827]">
             {{ pageTitle }}
           </h1>
         </div>
 
         <form class="space-y-3" @submit.prevent="submitEmailVerification">
           <label class="block">
-            <span class="mb-2 block text-base font-semibold text-text-primary">{{ t('auth.username') }}</span>
-            <span class="flex h-11 items-center rounded-lg border border-transparent bg-[#edf0f6] px-4 transition focus-within:border-primary focus-within:bg-white focus-within:ring-4 focus-within:ring-primary/10">
+            <span class="mb-2 block text-base font-semibold text-[#111827]">{{ t('auth.username') }}</span>
+            <span class="flex h-11 items-center rounded-lg border border-transparent bg-[#edf0f6] px-4 transition focus-within:border-[#2563eb] focus-within:bg-[#ffffff] focus-within:ring-4 focus-within:ring-[#2563eb]/10">
               <input
                 v-model="form.email"
                 type="email"
-                class="min-w-0 flex-1 bg-transparent text-sm font-medium text-text-primary outline-none placeholder:text-text-muted"
+                class="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#111827] outline-none placeholder:text-[#98a2b3]"
                 autocomplete="email"
                 :placeholder="t('auth.emailPlaceholder')"
               />
@@ -123,15 +123,15 @@ function toggleAuthMode() {
           </button>
         </form>
 
-        <div class="my-7 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm font-semibold text-text-muted">
-          <span class="h-px bg-app-border" />
+        <div class="my-7 grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm font-semibold text-[#98a2b3]">
+          <span class="h-px bg-[#e4e7ec]" />
           <span>{{ t('auth.divider') }}</span>
-          <span class="h-px bg-app-border" />
+          <span class="h-px bg-[#e4e7ec]" />
         </div>
 
         <div class="grid gap-3">
           <button
-            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-app-border bg-white text-sm font-semibold text-text-primary shadow-sm transition hover:border-app-strong hover:bg-app-bg2 disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] shadow-sm transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
             @click="submitGithubProvider"
@@ -145,7 +145,7 @@ function toggleAuthMode() {
             {{ githubActionText }}
           </button>
           <button
-            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-app-border bg-white text-sm font-semibold text-text-primary shadow-sm transition hover:border-app-strong hover:bg-app-bg2 disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] shadow-sm transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
             @click="submitProvider"
@@ -176,23 +176,23 @@ function toggleAuthMode() {
           {{ errorMessage }}
         </p>
 
-        <p class="mt-8 text-center text-sm font-medium text-text-secondary">
+        <p class="mt-8 text-center text-sm font-medium text-[#667085]">
           {{ modePromptText }}
           <button type="button" class="font-semibold text-primary hover:text-primary-dark" @click="toggleAuthMode">
             {{ modeActionText }}
           </button>
         </p>
 
-        <p class="mt-8 text-left text-sm font-medium leading-6 text-text-secondary">
+        <p class="mt-8 text-left text-sm font-medium leading-6 text-[#667085]">
           {{ t('auth.termsPrefix') }}
-          <a href="#" class="font-semibold text-text-primary hover:text-primary">{{ t('auth.termsOfUse') }}</a>
+          <a href="#" class="font-semibold text-[#111827] hover:text-[#2563eb]">{{ t('auth.termsOfUse') }}</a>
           <span class="px-1">&amp;</span>
-          <a href="#" class="font-semibold text-text-primary hover:text-primary">{{ t('auth.privacyPolicy') }}</a>
+          <a href="#" class="font-semibold text-[#111827] hover:text-[#2563eb]">{{ t('auth.privacyPolicy') }}</a>
         </p>
       </div>
     </section>
 
-    <footer class="relative z-10 px-5 py-8 text-center text-base font-medium text-text-secondary">
+    <footer class="relative z-10 px-5 py-8 text-center text-base font-medium text-[#667085]">
       © 2026 AetherFlow. All rights reserved.
     </footer>
   </main>
