@@ -4,7 +4,7 @@
 Agent ID：AGENT-CODEX-FE-20260601
 Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 分支：feature/FRONTEND-UI-FIX-LOGIN-LANG-login-language-polish
-状态：REVIEW
+状态：IN_PROGRESS
 
 任务目标：
 按用户截图与说明修正公开首页和登录页体验：修复首页首屏“AI 流程跑起来”标题换行问题，提升副标题可读性；语言切换改为 Dify 风格下拉，包含 EN / ZH / JP；左上角只展示 AetherFlow 项目名并移除图标；点击“立即开始”后进入更接近截图的登录页视觉。
@@ -20,7 +20,8 @@ Session ID：SESSION-AGENT-CODEX-FE-20260601-LOGIN-LANG
 8. frontend/src/i18n/locales/ja-JP.ts
 9. docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md
 10. docs/agent/logs/2026-06-01.md
-11. AGENT.md
+11. docs/agent/logs/2026-06-02.md
+12. AGENT.md
 
 禁止修改文件：
 1. backend/**
@@ -53,6 +54,7 @@ Agent 编码计划：
 5. 补齐中英日登录/首页关键文案。
 6. 运行前端 build、diff 检查和本地浏览器页面验证。
 7. 返工登录页：继续贴近用户提供的 Dify 登录截图，表单收敛为 GitHub/Google、分割线、邮箱输入、验证码按钮、协议说明与底部版权；保留当前 mock 登录能力但不展示密码表单。
+8. 暗色主题返工：复现全局 `html[data-theme='dark']` 覆盖登录页语义文字色的问题；在不改全局主题和配置的前提下，将登录页浅色模板内的文字、按钮和输入框颜色改为局部显式色值，避免浅色登录页被工作区暗色主题污染。
 
 不会修改：
 1. 后端接口、DTO、数据库、Redis、MQ、Nacos、Gateway、错误码。
@@ -73,7 +75,8 @@ Agent 编码计划：
 8. frontend/src/i18n/locales/ja-JP.ts
 9. docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md
 10. docs/agent/logs/2026-06-01.md
-11. AGENT.md
+11. docs/agent/logs/2026-06-02.md
+12. AGENT.md
 
 验证方式：
 1. cd frontend && npm run build
@@ -117,6 +120,7 @@ Agent 编码计划：
 17. 2026-06-02 00:00，完成二次返工：登录页改为更小巧的 420px 面板，邮箱验证码入口前置，欢迎提示移除，GitHub/Google 改为品牌化 SVG 图标，并增加登录/注册模式切换。
 18. 2026-06-02 00:00，二次返工业务提交已完成：`899ecb8 fix(frontend): tighten login register panel`。
 19. 2026-06-02 00:01，本地 Chrome 访问 `http://127.0.0.1:5180/login`，确认登录与注册模式可切换；邮箱输入在最上方；GitHub/Google 图标可见；页面视觉更紧凑。DevTools 中有本地后端未启动导致的 `/notify/**` 502 proxy error，不影响本次登录页静态渲染验证。
+20. 2026-06-02 00:09，收到用户反馈：用户进入工作区后切换为暗色主题，再回到前端登录页时登录文字不可见。根因确认：登录页背景固定浅色，但全局暗色主题通过 `html[data-theme='dark'] .text-text-primary` 等规则强制覆盖登录页语义文字色，造成浅底浅字。已重新登记 `LoginPage.vue` 返工文件锁；claim push 成功前不修改业务代码。
 
 验证结果：
 1. 基线 `cd frontend && npm run build`：通过；Vite 输出 chunk size warning。
@@ -131,6 +135,7 @@ Agent 编码计划：
 10. 二次返工后 `git diff --check`：通过，无 whitespace error。
 11. 二次返工后冲突标记扫描：通过，无冲突标记。
 12. 二次返工后本地浏览器验证：通过；Chrome `/login` 登录/注册模式渲染正常。仅观察到本地后端未启动引起的既有 `/notify/**` 502 proxy error。
+13. 暗色主题返工验证：待执行。
 
 提交记录：
 1. `b5af132 docs(agent): claim FRONTEND-UI-FIX-LOGIN-LANG`
@@ -140,8 +145,8 @@ Agent 编码计划：
 5. `899ecb8 fix(frontend): tighten login register panel`
 
 交接：
-1. 当前状态：REVIEW。
+1. 当前状态：IN_PROGRESS。
 2. 合入 main：未合入。
 3. 统一运行电脑验证：未运行。
-4. 文件锁：RELEASED。
-5. 遗留问题：统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增，当前为前端登录/注册模式 UI，不修改认证接口契约。
+4. 文件锁：ACTIVE。
+5. 遗留问题：修复登录页暗色主题可读性；统一运行电脑仍需复核真实部署视觉；真实注册接口未在本任务中新增，当前为前端登录/注册模式 UI，不修改认证接口契约。
