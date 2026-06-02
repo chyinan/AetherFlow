@@ -2,7 +2,7 @@ param(
     [string]$VmHost = "192.168.101.68",
     [string]$VmUser = "root",
     [string]$VmPassword = $env:AETHERFLOW_VM_PASSWORD,
-    [string]$VmHostKey = "ssh-ed25519 255 SHA256:PqcsntLvegnKK6GW2YYclSshvzB62IkXb/2CLntxZ2Y",
+    [string]$VmHostKey = "SHA256:PqcsntLvegnKK6GW2YYclSshvzB62IkXb/2CLntxZ2Y",
     [int]$PythonAiPort = 8200,
     [switch]$InstallPythonRequirements,
     [switch]$RestartLocalAi,

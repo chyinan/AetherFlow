@@ -19,6 +19,8 @@ import type {
   WorkspaceSettings,
 } from '@/types/settings'
 
+import { mockSettingsModelProviders } from '../mock/settingsMock'
+
 interface WorkspaceSettingsResponse {
   name?: string
   slug?: string
@@ -175,6 +177,54 @@ function mapModelProvider(config: ProviderConfigEntry, runtimeProvider?: ModelPr
   }
 }
 
+function availablePresetProviders() {
+  return mockSettingsModelProviders.map((provider) => ({
+    ...provider,
+    status: 'available' as const,
+    enabled: false,
+    configured: false,
+    apiKeyConfigured: false,
+    apiKeyPreview: '',
+    tags: [...provider.tags],
+  }))
+}
+
+function runtimeProviderToInstalledProvider(provider: ModelProvider): SettingsModelProvider {
+  const providerKey = providerKeyFromRuntime(provider)
+  const isOllama = providerKey === 'ollama'
+
+  return {
+    id: `provider-${providerKey}`,
+    providerKey,
+    providerType: provider.providerType ?? providerKey,
+    name: isOllama ? 'Ollama' : provider.name,
+    maintainer: 'AetherFlow Runtime',
+    region: 'domestic',
+    status: 'installed',
+    description: isOllama
+      ? '本地 Ollama 运行时，适合私有化推理、摘要和工作流节点调用。'
+      : provider.runtime,
+    defaultModel: provider.defaultModel,
+    baseUrl: provider.endpoint,
+    enabled: true,
+    configured: true,
+    apiKeyConfigured: false,
+    apiKeyPreview: '',
+    installCount: 'local',
+    tags: isOllama ? ['local', 'chat', 'private-runtime'] : [...provider.capabilities],
+  }
+}
+
+function fallbackModelProviders(runtimeProviders: ModelProvider[]) {
+  const installedRuntimeProviders = runtimeProviders
+    .filter((provider) => providerKeyFromRuntime(provider) === 'ollama')
+    .map(runtimeProviderToInstalledProvider)
+  const installedKeys = new Set(installedRuntimeProviders.map((provider) => provider.providerKey))
+  const presets = availablePresetProviders().filter((provider) => !installedKeys.has(provider.providerKey))
+
+  return [...installedRuntimeProviders, ...presets]
+}
+
 export const settingsApi = {
   async getWorkspace() {
     return mapWorkspace(await apiClient.get<WorkspaceSettingsResponse>('/settings/profile', { source: 'auth' }))
@@ -198,11 +248,17 @@ export const settingsApi = {
   },
   async listModelProviders() {
     const [runtimeProviders, configCatalog] = await Promise.all([
-      modelApi.listProviders(),
-      getProviderConfigCatalog(),
+      modelApi.listProviders().catch(() => [] as ModelProvider[]),
+      getProviderConfigCatalog().catch(() => ({ providers: [] })),
     ])
     const runtimeByProviderKey = new Map(runtimeProviders.map((provider) => [providerKeyFromRuntime(provider), provider]))
-    return (configCatalog.providers ?? []).map((config) => mapModelProvider(
+    const configProviders = configCatalog.providers ?? []
+
+    if (configProviders.length === 0) {
+      return fallbackModelProviders(runtimeProviders)
+    }
+
+    return configProviders.map((config) => mapModelProvider(
       config,
       runtimeByProviderKey.get(stringOr(config.id, '')),
     ))

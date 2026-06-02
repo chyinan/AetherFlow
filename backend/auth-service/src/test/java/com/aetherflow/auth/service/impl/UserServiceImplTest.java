@@ -81,10 +81,11 @@ class UserServiceImplTest {
     @Test
     void registerCreatesEnabledUserStoresSessionAndReturnsTokenPair() {
         UserRegisterRequest request = new UserRegisterRequest();
-        request.setUsername("alice");
+        request.setUsername(" alice ");
+        request.setEmail("ALICE@AETHERFLOW.LOCAL ");
         request.setPassword("Password123");
 
-        when(userMapper.selectOne(any())).thenReturn(null);
+        when(userMapper.selectOne(any())).thenReturn(null, null);
         when(passwordEncoder.encode("Password123")).thenReturn("hashed-password");
         when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
             User user = invocation.getArgument(0);
@@ -97,6 +98,7 @@ class UserServiceImplTest {
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userMapper).insert(userCaptor.capture());
         assertThat(userCaptor.getValue().getUsername()).isEqualTo("alice");
+        assertThat(userCaptor.getValue().getEmail()).isEqualTo("alice@aetherflow.local");
         assertThat(userCaptor.getValue().getPasswordHash()).isEqualTo("hashed-password");
         assertThat(userCaptor.getValue().getStatus()).isEqualTo("ENABLED");
         assertThat(response.getUserId()).isEqualTo(7L);
@@ -116,12 +118,29 @@ class UserServiceImplTest {
     void registerRejectsDuplicateUsername() {
         UserRegisterRequest request = new UserRegisterRequest();
         request.setUsername("alice");
+        request.setEmail("alice@aetherflow.local");
         request.setPassword("Password123");
         when(userMapper.selectOne(any())).thenReturn(existingUser(7L, "alice", "hashed-password", "ENABLED"));
 
         assertThatThrownBy(() -> userService.register(request, requestContext()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("username already exists");
+        verify(userMapper, never()).insert(any(User.class));
+    }
+
+    @Test
+    void registerRejectsDuplicateEmail() {
+        UserRegisterRequest request = new UserRegisterRequest();
+        request.setUsername("alice");
+        request.setEmail("alice@aetherflow.local");
+        request.setPassword("Password123");
+        when(userMapper.selectOne(any()))
+                .thenReturn(null)
+                .thenReturn(existingUser(8L, "other", "hashed-password", "ENABLED"));
+
+        assertThatThrownBy(() -> userService.register(request, requestContext()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("email already exists");
         verify(userMapper, never()).insert(any(User.class));
     }
 

@@ -17,6 +17,8 @@ public final class CopilotDtos {
         private String prompt;
         private String workflowId;
         private String projectId;
+        private String provider;
+        private String model;
         private Map<String, Object> context;
     }
 

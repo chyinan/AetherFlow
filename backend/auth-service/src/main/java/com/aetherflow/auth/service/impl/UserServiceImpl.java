@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 @Service
@@ -53,15 +54,24 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AuthTokenResponse register(UserRegisterRequest request, AuthRequestContext context) {
+        String username = normalizeUsername(request.getUsername());
+        String email = normalizeEmail(request.getEmail());
         User existing = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, request.getUsername())
+                .eq(User::getUsername, username)
                 .last("limit 1"));
         if (existing != null) {
             throw new BusinessException(ResultCode.CONFLICT, "username already exists");
         }
+        User existingEmail = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getEmail, email)
+                .last("limit 1"));
+        if (existingEmail != null) {
+            throw new BusinessException(ResultCode.CONFLICT, "email already exists");
+        }
 
         User user = new User();
-        user.setUsername(request.getUsername());
+        user.setUsername(username);
+        user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setStatus(ENABLED);
         user.setCreatedAt(LocalDateTime.now());
@@ -72,16 +82,20 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public AuthTokenResponse login(AuthLoginRequest request, AuthRequestContext context) {
+        String loginName = normalizeUsername(request.getUsername());
+        String loginKey = normalizeEmail(loginName);
         loginSecurityService.checkLoginRateLimit(context.clientIp());
-        loginSecurityService.checkPasswordFailures(request.getUsername());
+        loginSecurityService.checkPasswordFailures(loginKey);
 
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getUsername, request.getUsername())
+                .eq(User::getUsername, loginName)
+                .or()
+                .eq(User::getEmail, loginKey)
                 .last("limit 1"));
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            loginAuditService.record(user == null ? null : user.getId(), request.getUsername(),
+            loginAuditService.record(user == null ? null : user.getId(), loginName,
                     context.clientIp(), context.userAgent(), LoginStatus.FAILURE);
-            loginSecurityService.recordPasswordFailure(request.getUsername());
+            loginSecurityService.recordPasswordFailure(loginKey);
             throw new UnauthorizedException("invalid username or password");
         }
         if (!ENABLED.equals(user.getStatus())) {
@@ -90,7 +104,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ResultCode.FORBIDDEN, "user disabled");
         }
 
-        loginSecurityService.clearPasswordFailures(request.getUsername());
+        loginSecurityService.clearPasswordFailures(loginKey);
         AuthTokenResponse response = issueAndStoreTokenPair(user, true);
         loginAuditService.record(user.getId(), user.getUsername(),
                 context.clientIp(), context.userAgent(), LoginStatus.SUCCESS);
@@ -189,6 +203,14 @@ public class UserServiceImpl implements UserService {
         }
         String value = token.trim();
         return value.startsWith("Bearer ") ? value.substring("Bearer ".length()) : value;
+    }
+
+    private String normalizeUsername(String username) {
+        return username == null ? "" : username.trim();
+    }
+
+    private String normalizeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
     }
 
     private void blacklistAccessToken(String accessToken) {

@@ -15,6 +15,9 @@ public class User extends BaseEntity {
     @Schema(description = "Unique username.", example = "alice")
     private String username;
 
+    @Schema(description = "Unique normalized email address.", example = "alice@aetherflow.local")
+    private String email;
+
     @Schema(description = "BCrypt password hash.")
     private String passwordHash;
 

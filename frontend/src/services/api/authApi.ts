@@ -5,6 +5,7 @@ import {
   logout as authLogout,
   me as authMe,
   refresh as authRefresh,
+  register as authRegister,
   status as authStatus,
   type FrontendRole,
 } from '@/api/modules/auth'
@@ -22,6 +23,10 @@ const AUTH_FALLBACK_UNAVAILABLE_STATUSES = new Set([0, 404, 500, 502, 503, 504])
 export interface LoginPayload {
   username: string
   password: string
+}
+
+export interface RegisterPayload extends LoginPayload {
+  email: string
 }
 
 export interface AuthUser {
@@ -186,6 +191,9 @@ export const authApi = {
       }
       throw error
     }
+  },
+  async register(payload: RegisterPayload) {
+    return toLoginResult(await authRegister(payload))
   },
   async refresh(refreshToken = tokenManager.getRefreshToken()) {
     if (!refreshToken) {

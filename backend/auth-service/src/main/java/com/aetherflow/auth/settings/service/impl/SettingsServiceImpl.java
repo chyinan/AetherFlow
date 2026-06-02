@@ -25,8 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +41,8 @@ public class SettingsServiceImpl implements SettingsService {
     private static final String DEFAULT_OWNER_NAME = "AetherFlow Operator";
     private static final String DEFAULT_OWNER_EMAIL = "aether.operator@aetherflow.local";
     private static final String DEFAULT_OWNER_ROLE = "Owner";
+    private static final Set<String> ALLOWED_ROLES = Set.of("Owner", "Admin", "Operator", "Viewer");
+    private static final Set<String> ALLOWED_STATUSES = Set.of(STATUS_ACTIVE, STATUS_INVITED, STATUS_REMOVED);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final SettingsProfileMapper profileMapper;
@@ -84,15 +88,27 @@ public class SettingsServiceImpl implements SettingsService {
     @Transactional(rollbackFor = Exception.class)
     public SettingsMemberResponse createMember(MemberCreateRequest request) {
         LocalDateTime now = LocalDateTime.now();
-        SettingsMemberEntity member = new SettingsMemberEntity();
-        member.setName(request.getName());
-        member.setEmail(request.getEmail());
-        member.setRole(request.getRole());
+        String email = normalizeEmail(request.getEmail());
+        String role = normalizeRole(request.getRole());
+        SettingsMemberEntity existing = findMemberByEmail(email);
+        if (existing != null && !STATUS_REMOVED.equals(existing.getStatus())) {
+            throw new BusinessException(ResultCode.CONFLICT, "settings member email already exists");
+        }
+
+        SettingsMemberEntity member = existing == null ? new SettingsMemberEntity() : existing;
+        member.setName(request.getName().trim());
+        member.setEmail(email);
+        member.setRole(role);
         member.setStatus(STATUS_INVITED);
         member.setLastSeen("pending");
-        member.setCreatedAt(now);
         member.setUpdatedAt(now);
-        memberMapper.insert(member);
+        member.setDeletedAt(null);
+        if (existing == null) {
+            member.setCreatedAt(now);
+            memberMapper.insert(member);
+        } else {
+            memberMapper.updateById(member);
+        }
         recordAudit("invited settings member", member.getEmail());
         return toMemberResponse(member);
     }
@@ -102,17 +118,23 @@ public class SettingsServiceImpl implements SettingsService {
     public SettingsMemberResponse updateMember(Long memberId, MemberUpdateRequest request) {
         SettingsMemberEntity member = requireMember(memberId);
         if (hasText(request.getName())) {
-            member.setName(request.getName());
+            member.setName(request.getName().trim());
         }
         if (hasText(request.getEmail())) {
-            member.setEmail(request.getEmail());
+            String email = normalizeEmail(request.getEmail());
+            SettingsMemberEntity existing = findMemberByEmail(email);
+            if (existing != null && !Objects.equals(existing.getId(), memberId)) {
+                throw new BusinessException(ResultCode.CONFLICT, "settings member email already exists");
+            }
+            member.setEmail(email);
         }
         if (hasText(request.getRole())) {
-            member.setRole(request.getRole());
+            member.setRole(normalizeRole(request.getRole()));
         }
         if (hasText(request.getStatus())) {
-            member.setStatus(request.getStatus());
-            if (STATUS_ACTIVE.equals(request.getStatus()) && !hasText(member.getLastSeen())) {
+            String status = normalizeStatus(request.getStatus());
+            member.setStatus(status);
+            if (STATUS_ACTIVE.equals(status) && !hasText(member.getLastSeen())) {
                 member.setLastSeen(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
             }
         }
@@ -218,6 +240,12 @@ public class SettingsServiceImpl implements SettingsService {
         memberMapper.insert(member);
     }
 
+    private SettingsMemberEntity findMemberByEmail(String email) {
+        return memberMapper.selectOne(new LambdaQueryWrapper<SettingsMemberEntity>()
+                .eq(SettingsMemberEntity::getEmail, email)
+                .last("limit 1"));
+    }
+
     private void recordAudit(String action, String target) {
         SettingsAuditEventEntity event = new SettingsAuditEventEntity();
         LocalDateTime now = LocalDateTime.now();
@@ -275,6 +303,26 @@ public class SettingsServiceImpl implements SettingsService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String normalizeEmail(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeRole(String role) {
+        String normalized = role == null ? "" : role.trim();
+        if (!ALLOWED_ROLES.contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported settings member role");
+        }
+        return normalized;
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+        if (!ALLOWED_STATUSES.contains(normalized)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported settings member status");
+        }
+        return normalized;
     }
 
     private String defaultText(String value, String fallback) {

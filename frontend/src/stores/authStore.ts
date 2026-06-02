@@ -109,6 +109,18 @@ export const useAuthStore = defineStore('auth', {
         this.loading = false
       }
     },
+    async register(username: string, email: string, password: string) {
+      this.loading = true
+      try {
+        const result = await authApi.register({ username, email, password })
+        const session = sessionFromLoginResult(result)
+
+        tokenManager.setSession(session)
+        this.setActiveSession(session)
+      } finally {
+        this.loading = false
+      }
+    },
     async refreshSession() {
       if (refreshInFlight) {
         return refreshInFlight

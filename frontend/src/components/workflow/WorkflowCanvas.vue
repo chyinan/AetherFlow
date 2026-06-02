@@ -24,11 +24,24 @@ const implementedNodeKinds = new Set<WorkflowNodeKind>([
   'ffmpeg',
   'document-extractor',
   'whisper',
+  'llm',
+  'translate',
   'summary',
   'knowledge-retrieval',
   'export',
   'output',
+  'agent',
+  'question-understand',
+  'question-classifier',
   'condition',
+  'human',
+  'iteration',
+  'loop',
+  'code',
+  'template-transform',
+  'variable-aggregate',
+  'variable-assigner',
+  'parameter-extractor',
 ])
 
 const nodes = computed<WorkflowGraphNode[]>({
@@ -43,7 +56,7 @@ const edges = computed<WorkflowGraphEdge[]>({
 
 const availableTemplates = computed(() =>
   workflowStore.templates.filter((template) =>
-    template.catalog === 'node' && implementedNodeKinds.has(template.kind)),
+    implementedNodeKinds.has(template.kind)),
 )
 
 function selectNode(nodeId: string) {

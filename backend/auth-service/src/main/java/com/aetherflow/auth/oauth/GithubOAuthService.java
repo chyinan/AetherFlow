@@ -23,6 +23,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -89,6 +90,7 @@ public class GithubOAuthService {
         LocalDateTime now = LocalDateTime.now();
         User user = new User();
         user.setUsername(uniqueUsername(githubUser.login(), githubUser.id()));
+        user.setEmail(uniqueEmail(githubUser));
         user.setPasswordHash(passwordEncoder.encode(UUID.randomUUID().toString()));
         user.setStatus(ENABLED);
         user.setCreatedAt(now);
@@ -108,6 +110,19 @@ public class GithubOAuthService {
             return baseUsername;
         }
         return baseUsername + "-github-" + providerUserId;
+    }
+
+    private String uniqueEmail(GithubOAuthUser githubUser) {
+        String baseEmail = StringUtils.hasText(githubUser.email())
+                ? githubUser.email().trim().toLowerCase(Locale.ROOT)
+                : "github-" + githubUser.id() + "@oauth.aetherflow.local";
+        User existing = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getEmail, baseEmail)
+                .last("limit 1"));
+        if (existing == null) {
+            return baseEmail;
+        }
+        return "github-" + githubUser.id() + "@oauth.aetherflow.local";
     }
 
     private void bindOAuthAccount(User user, GithubOAuthUser githubUser) {

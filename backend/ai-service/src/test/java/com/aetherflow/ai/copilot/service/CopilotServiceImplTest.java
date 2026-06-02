@@ -9,6 +9,10 @@ import com.aetherflow.ai.copilot.entity.CopilotMessageEntity;
 import com.aetherflow.ai.copilot.mapper.CopilotConversationMapper;
 import com.aetherflow.ai.copilot.mapper.CopilotMessageMapper;
 import com.aetherflow.ai.copilot.service.impl.CopilotServiceImpl;
+import com.aetherflow.ai.provider.AiProviderRequest;
+import com.aetherflow.ai.provider.AiProviderResponse;
+import com.aetherflow.ai.provider.AiProviderRouter;
+import com.aetherflow.ai.provider.AiProviderType;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,15 +43,19 @@ class CopilotServiceImplTest {
     @Mock
     private CopilotMessageMapper messageMapper;
 
+    @Mock
+    private AiProviderRouter aiProviderRouter;
+
     private CopilotServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new CopilotServiceImpl(conversationMapper, messageMapper);
+        service = new CopilotServiceImpl(conversationMapper, messageMapper, aiProviderRouter);
     }
 
     @Test
     void chatCreatesConversationAndPersistsUserAndAssistantMessages() {
+        stubAiReply("Add a Summary node after Whisper.");
         CopilotChatRequest request = new CopilotChatRequest();
         request.setPrompt("Which node should I add next?");
         request.setWorkflowId("wf-1001");
@@ -68,7 +76,7 @@ class CopilotServiceImplTest {
 
         assertThat(response.conversationId()).isEqualTo("conv-11");
         assertThat(response.role()).isEqualTo("assistant");
-        assertThat(response.content()).contains("next node");
+        assertThat(response.content()).contains("Summary node");
         ArgumentCaptor<CopilotMessageEntity> messageCaptor = ArgumentCaptor.forClass(CopilotMessageEntity.class);
         verify(messageMapper, org.mockito.Mockito.times(2)).insert(messageCaptor.capture());
         assertThat(messageCaptor.getAllValues()).extracting(CopilotMessageEntity::getRole)
@@ -78,6 +86,7 @@ class CopilotServiceImplTest {
 
     @Test
     void chatReusesExistingConversation() {
+        stubAiReply("The latest error is from the Whisper runtime.");
         CopilotConversationEntity conversation = conversation(11L);
         when(conversationMapper.selectById(11L)).thenReturn(conversation);
         doAnswer(invocation -> {
@@ -92,8 +101,36 @@ class CopilotServiceImplTest {
         CopilotChatResponse response = service.chat(request);
 
         assertThat(response.conversationId()).isEqualTo("conv-11");
-        assertThat(response.content()).contains("failure point");
+        assertThat(response.content()).contains("Whisper runtime");
         verify(conversationMapper, never()).insert(any(CopilotConversationEntity.class));
+    }
+
+    @Test
+    void chatPassesRequestedProviderAndModelToAiProviderRouter() {
+        stubAiReply("Use Ollama qwen3.5 for this workflow suggestion.");
+        doAnswer(invocation -> {
+            CopilotConversationEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 22L : 21L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("帮我解释最新错误");
+        request.setProvider("OLLAMA");
+        request.setModel("qwen3.5:9b");
+
+        CopilotChatResponse response = service.chat(request);
+
+        assertThat(response.content()).contains("qwen3.5");
+        ArgumentCaptor<AiProviderRequest> requestCaptor = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().provider()).isEqualTo(AiProviderType.OLLAMA);
+        assertThat(requestCaptor.getValue().model()).isEqualTo("qwen3.5:9b");
+        assertThat(requestCaptor.getValue().prompt()).contains("AetherFlow workflow copilot", "帮我解释最新错误");
     }
 
     @Test
@@ -141,5 +178,10 @@ class CopilotServiceImplTest {
         message.setContent(content);
         message.setCreatedAt(LocalDateTime.parse("2026-05-29T19:36:00"));
         return message;
+    }
+
+    private void stubAiReply(String text) {
+        when(aiProviderRouter.complete(any(AiProviderRequest.class)))
+                .thenReturn(new AiProviderResponse(AiProviderType.OLLAMA, "qwen3.5:9b", text, java.util.Map.of()));
     }
 }

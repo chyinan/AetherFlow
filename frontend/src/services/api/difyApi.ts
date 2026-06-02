@@ -1,5 +1,6 @@
 import { apiClient } from '@/api/client/apiClient'
 import { getProviderLogs, getProviderMetrics } from '@/api/modules/ai'
+import { i18n } from '@/i18n'
 import { getRuntimeMetrics } from '@/api/modules/runtime'
 import type {
   ConversationLog,
@@ -79,6 +80,7 @@ interface RetrievalTestInput {
 }
 
 type MetricTone = MonitorMetric['tone']
+type ProviderRuntimeLog = NonNullable<Awaited<ReturnType<typeof getProviderLogs>>['logs']>[number]
 
 function stringOr(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -101,11 +103,21 @@ function statusOr(value: unknown): KnowledgeDataset['status'] {
   return 'ready'
 }
 
+function localizeDatasetDescription(value: unknown) {
+  const description = stringOr(value, '')
+  const source = /^Useful for when you want to answer queries about the (.+)$/i.exec(description)?.[1]?.trim()
+  if (!source) {
+    return description
+  }
+
+  return i18n.global.t('knowledge.flow.createdDescription', { source })
+}
+
 function mapDataset(dataset: KnowledgeDatasetResponse): KnowledgeDataset {
   return {
     id: stringOr(dataset.id, 'dataset-unknown'),
     name: stringOr(dataset.name, 'Untitled dataset'),
-    description: stringOr(dataset.description, ''),
+    description: localizeDatasetDescription(dataset.description),
     status: statusOr(dataset.status),
     documentCount: numberOr(dataset.documentCount),
     processingDocumentCount: numberOr(dataset.processingDocumentCount),
@@ -150,6 +162,19 @@ function mapDocument(document: KnowledgeDocumentResponse): KnowledgeDocument {
 
 function metric(id: string, label: string, value: string | number, delta: string, tone: MetricTone): MonitorMetric {
   return { id, label, value: String(value), delta, tone }
+}
+
+function isFailedProviderLog(log: ProviderRuntimeLog) {
+  const level = String(log.level ?? '').trim().toLowerCase()
+  const eventType = String(log.eventType ?? '').trim().toUpperCase()
+  const message = String(log.message ?? log.errorMessage ?? '').trim().toUpperCase()
+
+  return level === 'error'
+    || eventType.includes('FAIL')
+    || eventType.includes('DOWN')
+    || eventType.includes('ERROR')
+    || eventType === 'CIRCUIT_OPEN'
+    || message.includes('CONNECTION REFUSED')
 }
 
 export const difyApi = {
@@ -211,9 +236,10 @@ export const difyApi = {
     return (response.results ?? []).map(mapChunk)
   },
   async listMonitorMetrics() {
-    const [runtimeMetrics, providerMetrics] = await Promise.all([
+    const [runtimeMetrics, providerMetrics, providerLogs] = await Promise.all([
       getRuntimeMetrics(),
       getProviderMetrics(),
+      getProviderLogs(50),
     ])
     const metrics = providerMetrics.metrics ?? {}
     const providerTotals = Object.values(metrics).reduce<{ calls: number; failures: number; latency: number }>(
@@ -225,16 +251,20 @@ export const difyApi = {
       },
       { calls: 0, failures: 0, latency: 0 },
     )
+    const logs = providerLogs.logs ?? []
+    const failedLogCount = logs.filter(isFailedProviderLog).length
+    const observedCalls = Math.max(providerTotals.calls, logs.length)
+    const observedFailures = Math.max(providerTotals.failures, failedLogCount)
 
-    const errorRate = providerTotals.calls > 0
-      ? `${Math.round((providerTotals.failures / providerTotals.calls) * 100)}%`
+    const errorRate = observedCalls > 0
+      ? `${Math.round((observedFailures / observedCalls) * 100)}%`
       : '0%'
 
     return [
-      metric('provider-calls', 'AI provider calls', providerTotals.calls, '', 'online'),
+      metric('provider-calls', 'AI provider calls', observedCalls, '', 'online'),
       metric('provider-latency', 'Max provider latency', `${providerTotals.latency}ms`, '', providerTotals.latency > 3000 ? 'degraded' : 'online'),
       metric('provider-cost', 'Estimated cost', '$0', '', 'online'),
-      metric('provider-error-rate', 'Provider error rate', errorRate, '', providerTotals.failures > 0 ? 'degraded' : 'online'),
+      metric('provider-error-rate', 'Provider error rate', errorRate, '', observedFailures > 0 ? 'degraded' : 'online'),
       metric('runtime-workflows', 'Runtime workflows', numberOr(runtimeMetrics.currentWorkflowCount), '', 'online'),
     ]
   },

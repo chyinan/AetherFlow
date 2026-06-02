@@ -104,11 +104,14 @@ function eventDotClass(status: ConversationLog['status']) {
   return 'bg-status-success ring-status-success/15'
 }
 
-function latencyClass(latencyMs: number) {
-  if (latencyMs >= 3000) {
+function latencyClass(latencyMs: number, status: ConversationLog['status']) {
+  if (status === 'success') {
+    return 'text-text-primary'
+  }
+  if (status === 'failed') {
     return 'text-status-error'
   }
-  if (latencyMs >= 1000) {
+  if (status === 'running' && latencyMs >= 3000) {
     return 'text-status-warning'
   }
   return 'text-text-primary'
@@ -207,7 +210,7 @@ onMounted(async () => {
 
                   <div class="rounded-lg border border-app-border bg-app-bg2 px-3 py-2 text-right">
                     <p class="text-[11px] uppercase tracking-wide text-text-muted">{{ t('monitor.latency') }}</p>
-                    <p class="mt-1 truncate text-sm font-semibold" :class="latencyClass(log.latencyMs)">{{ log.latencyMs }}ms</p>
+                    <p class="mt-1 truncate text-sm font-semibold" :class="latencyClass(log.latencyMs, log.status)">{{ log.latencyMs }}ms</p>
                   </div>
                 </div>
               </button>
@@ -239,7 +242,7 @@ onMounted(async () => {
                 </div>
                 <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-3 rounded-md bg-app-bg2 px-3 py-2">
                   <span class="text-text-muted">{{ t('monitor.duration') }}</span>
-                  <span class="truncate text-text-primary" :class="latencyClass(selectedConversation.latencyMs)">{{ selectedConversation.latencyMs }}ms</span>
+                  <span class="truncate text-text-primary" :class="latencyClass(selectedConversation.latencyMs, selectedConversation.status)">{{ selectedConversation.latencyMs }}ms</span>
                 </div>
                 <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-3 rounded-md bg-app-bg2 px-3 py-2">
                   <span class="text-text-muted">Trace</span>

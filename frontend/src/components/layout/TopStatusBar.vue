@@ -52,7 +52,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <header class="flex h-14 items-center justify-between border-b border-app-border bg-white/90 px-5 backdrop-blur">
+  <header class="relative z-[100] flex h-14 items-center justify-between border-b border-app-border bg-white/90 px-5 backdrop-blur">
     <div class="flex items-center gap-4">
       <div>
         <p class="text-xs text-text-muted">{{ t('workspace.label') }}</p>
@@ -76,7 +76,7 @@ onBeforeUnmount(() => {
       </button>
       <div
         v-if="showNotifications"
-        class="absolute right-[52px] top-11 z-40 w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-app-border bg-white shadow-panel"
+        class="absolute right-[52px] top-11 z-[110] w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-app-border bg-white shadow-panel"
       >
         <div class="flex items-center justify-between gap-3 border-b border-app-border px-3 py-2">
           <div>

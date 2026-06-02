@@ -50,6 +50,7 @@ class DemoUserInitializerTest {
         verify(userMapper).insert(userCaptor.capture());
         User user = userCaptor.getValue();
         assertThat(user.getUsername()).isEqualTo("aether.operator");
+        assertThat(user.getEmail()).isEqualTo("aether.operator@aetherflow.local");
         assertThat(user.getPasswordHash()).isEqualTo("encoded-demo-password");
         assertThat(user.getStatus()).isEqualTo("ENABLED");
         assertThat(user.getCreatedAt()).isNotNull();

@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import {
-  AudioLines,
   BookOpen,
   Brain,
   Braces,
   ChevronDown,
-  Clock3,
   Code2,
   Copy,
   Database,
-  FileJson,
   FileText,
   Film,
   GitBranch,
-  Globe2,
   Hand,
   Languages,
-  ListChecks,
   MessageSquare,
   Mic,
   MoreHorizontal,
@@ -32,7 +27,6 @@ import {
   Trash2,
   Upload,
   Variable,
-  Wrench,
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
@@ -90,17 +84,6 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   'document-extractor': FileText,
   'variable-assigner': Variable,
   'parameter-extractor': Braces,
-  http: Globe2,
-  'list-operator': ListChecks,
-  audio: AudioLines,
-  'code-interpreter': Code2,
-  time: Clock3,
-  'web-scraper': Globe2,
-  json: FileJson,
-  markdown: FileText,
-  tavily: Globe2,
-  firecrawl: Wrench,
-  mineru: FileText,
 }
 
 const nodeIcon = computed(() => (selectedNode.value ? iconMap[selectedNode.value.data.kind] : SlidersHorizontal))
@@ -118,10 +101,9 @@ const runtimeDurationMs = computed(() =>
     ?? selectedNode.value?.data.runtime?.durationMs
     ?? 0,
 )
-const canRunNode = computed(() => selectedNode.value?.data.kind !== 'list-operator')
+const canRunNode = computed(() => Boolean(selectedNode.value))
 
 const sysVariables = ['sys.user_id', 'sys.app_id', 'sys.workflow_id', 'sys.workflow_run_id']
-const httpBodyModes = ['none', 'form-data', 'x-www-form-urlencoded', 'JSON', 'raw', 'binary']
 const fileTypes = ['msg', 'pdf', 'xls', 'pptx', 'eml', 'htm', 'docx', 'epub', 'xlsx', 'doc', 'markdown', 'vtt', 'mdx', 'html', 'xml', 'md', 'csv', 'txt', 'properties', 'ppt']
 const defaultPythonCode = 'def main(arg1: str, arg2: str):\n    return {\n        "result": arg1 + arg2,\n    }'
 const defaultJinjaTemplate = '{{ arg1 }}'
@@ -709,7 +691,7 @@ watch(selectedNode, (node) => {
           </label>
         </section>
 
-        <section v-else-if="selectedKind === 'code' || selectedKind === 'code-interpreter'" class="space-y-5 p-5">
+        <section v-else-if="selectedKind === 'code'" class="space-y-5 p-5">
           <div>
             <div class="mb-3 flex items-center justify-between">
               <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</p>
@@ -818,87 +800,6 @@ watch(selectedNode, (node) => {
             <textarea class="min-h-32 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.instructionPlaceholder')" :value="textConfig('instruction', '')" @input="handleTextInput('instruction', $event)" />
           </label>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
-        </section>
-
-        <section v-else-if="selectedKind === 'http'" class="space-y-5 p-5">
-          <div>
-            <div class="mb-2 flex items-center justify-between">
-              <span class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.api') }} <span class="text-status-error">*</span></span>
-              <span class="text-sm text-text-secondary">{{ t('workflow.inspector.authNone') }} · {{ t('workflow.inspector.importCurl') }}</span>
-            </div>
-            <div class="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
-              <select class="rounded-lg border border-app-border bg-white px-3 py-3 text-sm" :value="textConfig('method', 'GET')" @change="handleTextInput('method', $event)">
-                <option>GET</option>
-                <option>POST</option>
-                <option>PUT</option>
-                <option>DELETE</option>
-              </select>
-              <input class="rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.enterUrl')" :value="textConfig('url', '')" @input="handleTextInput('url', $event)" />
-            </div>
-          </div>
-          <div v-for="table in ['headers', 'params']" :key="table">
-            <p class="mb-2 text-sm font-semibold uppercase text-text-primary">{{ t(`workflow.inspector.${table}`) }}</p>
-            <div class="grid grid-cols-2 overflow-hidden rounded-lg border border-app-border text-sm">
-              <div class="border-b border-r border-app-border px-3 py-2 font-medium text-text-muted">{{ t('workflow.inspector.key') }}</div>
-              <div class="border-b border-app-border px-3 py-2 font-medium text-text-muted">{{ t('workflow.inspector.value') }}</div>
-              <input class="border-r border-app-border px-3 py-2 outline-none" :placeholder="t('workflow.inspector.variableSlash')" />
-              <input class="px-3 py-2 outline-none" :placeholder="t('workflow.inspector.variableSlash')" />
-            </div>
-          </div>
-          <div>
-            <p class="mb-2 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.body') }} <span class="text-status-error">*</span></p>
-            <div class="flex flex-wrap gap-3">
-              <label v-for="mode in httpBodyModes" :key="mode" class="inline-flex items-center gap-2 text-sm text-text-secondary">
-                <input name="bodyMode" type="radio" class="accent-primary" :checked="textConfig('bodyMode', 'none') === mode" @change="updateConfig('bodyMode', mode)" />
-                {{ mode }}
-              </label>
-            </div>
-          </div>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.ssl') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('ssl', true)" @change="handleToggle('ssl', $event)" />
-          </label>
-          <div class="border-t border-app-border pt-4">
-            <p class="mb-3 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.timeout') }}</p>
-            <label class="mb-3 block text-sm text-text-secondary">{{ t('workflow.inspector.connectionTimeout') }}<input class="mt-1 w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 outline-none" :placeholder="t('workflow.inspector.secondsPlaceholder')" /></label>
-            <label class="mb-3 block text-sm text-text-secondary">{{ t('workflow.inspector.readTimeout') }}<input class="mt-1 w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 outline-none" :placeholder="t('workflow.inspector.secondsPlaceholder')" /></label>
-            <label class="block text-sm text-text-secondary">{{ t('workflow.inspector.writeTimeout') }}<input class="mt-1 w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 outline-none" :placeholder="t('workflow.inspector.secondsPlaceholder')" /></label>
-          </div>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.retryOnFailure') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('retry', true)" @change="handleToggle('retry', $event)" />
-          </label>
-        </section>
-
-        <section v-else-if="selectedKind === 'list-operator'" class="space-y-5 p-5">
-          <label class="block">
-            <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">Array</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('input', '')" @input="handleTextInput('input', $event)" />
-          </label>
-          <label class="flex items-center justify-between text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.filterCondition') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('filter', false)" @change="handleToggle('filter', $event)" />
-          </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.nthItem') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('nth', false)" @change="handleToggle('nth', $event)" />
-          </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.firstN') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('firstN', true)" @change="handleToggle('firstN', $event)" />
-          </label>
-          <label v-if="boolConfig('firstN', true)" class="block">
-            <input type="range" min="1" max="50" class="w-full accent-primary" :value="numberConfig('limit', 10)" @input="handleNumberInput('limit', $event)" />
-          </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.sort') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('sort', true)" @change="handleToggle('sort', $event)" />
-          </label>
-          <div v-if="boolConfig('sort', true)" class="grid grid-cols-2 gap-2">
-            <button class="rounded-lg border border-primary px-3 py-3 text-sm font-medium text-primary">{{ t('workflow.inspector.ascending') }}</button>
-            <button class="rounded-lg border border-app-border px-3 py-3 text-sm font-medium text-text-secondary">{{ t('workflow.inspector.descending') }}</button>
-          </div>
-          <p class="border-t border-app-border pt-4 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
 
         <section v-else class="space-y-5 p-5">

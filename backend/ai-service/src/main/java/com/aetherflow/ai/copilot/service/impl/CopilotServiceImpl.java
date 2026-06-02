@@ -9,6 +9,10 @@ import com.aetherflow.ai.copilot.entity.CopilotMessageEntity;
 import com.aetherflow.ai.copilot.mapper.CopilotConversationMapper;
 import com.aetherflow.ai.copilot.mapper.CopilotMessageMapper;
 import com.aetherflow.ai.copilot.service.CopilotService;
+import com.aetherflow.ai.provider.AiProviderRequest;
+import com.aetherflow.ai.provider.AiProviderResponse;
+import com.aetherflow.ai.provider.AiProviderRouter;
+import com.aetherflow.ai.provider.AiProviderType;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -16,10 +20,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -30,9 +36,13 @@ public class CopilotServiceImpl implements CopilotService {
     private static final String ROLE_USER = "user";
     private static final String ROLE_ASSISTANT = "assistant";
     private static final DateTimeFormatter MESSAGE_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+    private static final Duration COPILOT_TIMEOUT = Duration.ofSeconds(60);
+    private static final int MAX_CONTEXT_ENTRIES = 12;
+    private static final int MAX_CONTEXT_VALUE_LENGTH = 600;
 
     private final CopilotConversationMapper conversationMapper;
     private final CopilotMessageMapper messageMapper;
+    private final AiProviderRouter aiProviderRouter;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -45,7 +55,7 @@ public class CopilotServiceImpl implements CopilotService {
 
         insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
         CopilotMessageEntity assistantMessage = insertMessage(conversation.getId(), ROLE_ASSISTANT,
-                assistantReply(request.getPrompt()), now);
+                assistantReply(request), now);
 
         conversation.setMessageCount(defaultNumber(conversation.getMessageCount(), 0) + 2);
         conversation.setLastMessageAt(now);
@@ -122,15 +132,89 @@ public class CopilotServiceImpl implements CopilotService {
         return message;
     }
 
-    private String assistantReply(String prompt) {
-        String lowered = prompt.toLowerCase(Locale.ROOT);
-        if (lowered.contains("error")) {
-            return "The likely failure point is the active Whisper node. Check input media format, runtime queue capacity, and transcript output mapping before rerunning.";
+    private String assistantReply(CopilotChatRequest request) {
+        AiProviderResponse response = aiProviderRouter.complete(new AiProviderRequest(
+                parseProvider(request.getProvider()),
+                normalizeOptionalText(request.getModel()),
+                copilotPrompt(request),
+                Map.of(
+                        "temperature", 0.2,
+                        "maxTokens", 900
+                ),
+                COPILOT_TIMEOUT
+        ));
+        if (response == null || !hasText(response.text())) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
         }
-        if (lowered.contains("node")) {
-            return "A solid next node is Summary after Translate. Keep the summary node output as summary.md and actions.json so Files can show final artifacts.";
+        return response.text().strip();
+    }
+
+    private String copilotPrompt(CopilotChatRequest request) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("""
+                You are the AetherFlow workflow copilot.
+                Help users design workflow nodes, explain run failures, and suggest the next practical action.
+                Keep answers concise, concrete, and grounded in AetherFlow workflow concepts.
+                Answer in Simplified Chinese when the user writes Chinese; otherwise answer in the user's language.
+                Do not invent unavailable node types, credentials, files, or execution results.
+                """);
+        if (hasText(request.getWorkflowId())) {
+            builder.append("\nworkflowId: ").append(request.getWorkflowId().strip());
         }
-        return "I can turn that into a workflow draft by adding media input, FFmpeg, Whisper, Translate, and Summary nodes with typed outputs.";
+        if (hasText(request.getProjectId())) {
+            builder.append("\nprojectId: ").append(request.getProjectId().strip());
+        }
+        String contextText = contextText(request.getContext());
+        if (hasText(contextText)) {
+            builder.append("\ncontext:\n").append(contextText);
+        }
+        builder.append("\nuser request:\n").append(request.getPrompt().strip());
+        return builder.toString();
+    }
+
+    private String contextText(Map<String, Object> context) {
+        if (context == null || context.isEmpty()) {
+            return "";
+        }
+        Map<String, Object> safeContext = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : context.entrySet()) {
+            if (safeContext.size() >= MAX_CONTEXT_ENTRIES) {
+                break;
+            }
+            if (hasText(entry.getKey()) && entry.getValue() != null) {
+                safeContext.put(entry.getKey().strip(), entry.getValue());
+            }
+        }
+        return safeContext.entrySet().stream()
+                .map(entry -> "- " + entry.getKey() + ": " + truncateContextValue(entry.getValue()))
+                .toList()
+                .stream()
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("");
+    }
+
+    private String truncateContextValue(Object value) {
+        String text = String.valueOf(value).strip();
+        if (text.length() <= MAX_CONTEXT_VALUE_LENGTH) {
+            return text;
+        }
+        return text.substring(0, MAX_CONTEXT_VALUE_LENGTH) + "...";
+    }
+
+    private AiProviderType parseProvider(String provider) {
+        String normalized = normalizeOptionalText(provider);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            return AiProviderType.from(normalized, null);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot provider is invalid");
+        }
+    }
+
+    private String normalizeOptionalText(String value) {
+        return hasText(value) ? value.strip() : null;
     }
 
     private CopilotConversationSummary toConversationSummary(CopilotConversationEntity entity) {

@@ -45,7 +45,7 @@ public class UserController {
                     description = "Registration payload.",
                     required = true,
                     content = @Content(schema = @Schema(implementation = UserRegisterRequest.class),
-                            examples = @ExampleObject(value = "{\"username\":\"alice\",\"password\":\"Password123\"}")))
+                            examples = @ExampleObject(value = "{\"username\":\"alice\",\"email\":\"alice@aetherflow.local\",\"password\":\"Password123\"}")))
             @Valid @RequestBody UserRegisterRequest request,
                                               HttpServletRequest servletRequest) {
         return Result.success(userService.register(request, AuthRequestContext.from(servletRequest)));

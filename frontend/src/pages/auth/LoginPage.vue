@@ -1,31 +1,38 @@
 <script setup lang="ts">
-import { Moon, Sun } from 'lucide-vue-next'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import { useAuthStore } from '@/stores/authStore'
-import { useUiStore } from '@/stores/uiStore'
 
 const authStore = useAuthStore()
-const uiStore = useUiStore()
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 
 const form = reactive({
+  username: '',
   email: '',
+  password: '',
 })
 const errorMessage = ref('')
+const showPassword = ref(false)
 const authMode = ref<'login' | 'register'>('login')
-const canSendVerification = computed(() => form.email.trim().length > 0 && !authStore.loading)
+const canSubmitCredentials = computed(
+  () =>
+    form.username.trim().length > 0 &&
+    form.password.length > 0 &&
+    (authMode.value === 'login' || form.email.trim().length > 0) &&
+    !authStore.loading,
+)
 const pageTitle = computed(() =>
   authMode.value === 'register' ? t('auth.signUpTitle') : t('auth.signInTitle'),
 )
-const emailActionText = computed(() =>
-  authMode.value === 'register' ? t('auth.sendRegistrationCode') : t('auth.sendVerificationCode'),
+const submitButtonText = computed(() =>
+  authMode.value === 'register' ? t('auth.signUp') : t('auth.signIn'),
 )
 const githubActionText = computed(() =>
   authMode.value === 'register' ? t('auth.signUpWithGithub') : t('auth.continueWithGithub'),
@@ -40,10 +47,10 @@ const modeActionText = computed(() =>
   authMode.value === 'register' ? t('auth.loginAction') : t('auth.registerAction'),
 )
 
-async function finishLogin(username = 'aether.operator') {
+async function finishLogin(username = 'aether.operator', password = 'mock-password') {
   errorMessage.value = ''
   try {
-    await authStore.login(username, 'mock-password')
+    await authStore.login(username, password)
     await router.push((route.query.redirect as string) || '/projects')
   } catch {
     errorMessage.value = t('auth.loginUnavailable')
@@ -54,11 +61,22 @@ async function submitProvider() {
   await finishLogin()
 }
 
-async function submitEmailVerification() {
-  if (!canSendVerification.value) {
+async function submitCredentials() {
+  if (!canSubmitCredentials.value) {
     return
   }
-  await finishLogin(form.email.trim())
+  errorMessage.value = ''
+  try {
+    if (authMode.value === 'register') {
+      await authStore.register(form.username.trim(), form.email.trim(), form.password)
+    } else {
+      await authStore.login(form.username.trim(), form.password)
+    }
+    await router.push((route.query.redirect as string) || '/projects')
+  } catch {
+    errorMessage.value =
+      authMode.value === 'register' ? t('auth.registerUnavailable') : t('auth.loginUnavailable')
+  }
 }
 
 function submitGithubProvider() {
@@ -75,21 +93,9 @@ function toggleAuthMode() {
 
 <template>
   <main class="relative flex min-h-screen flex-col overflow-hidden bg-[#f7f8fb] text-[#111827] [color-scheme:light]">
-    <header class="relative z-30 flex h-[88px] items-center justify-between px-6 sm:px-10">
-      <RouterLink to="/" class="font-display text-3xl font-semibold tracking-normal text-[#111827] transition hover:text-[#2563eb] sm:text-4xl" :aria-label="t('app.name')">
-        {{ t('app.name') }}
-      </RouterLink>
-      <div class="flex items-center gap-4">
+    <header class="relative z-30 flex h-[88px] items-center justify-end px-6 sm:px-10">
+      <div class="flex items-center gap-3">
         <LocaleSwitcher />
-        <button
-          type="button"
-          class="grid h-10 w-10 place-items-center rounded-lg text-[#667085] transition hover:bg-[#ffffff] hover:text-[#111827]"
-          :aria-label="t('accountMenu.theme')"
-          @click="uiStore.toggleTheme()"
-        >
-          <Sun v-if="uiStore.theme === 'light'" class="h-5 w-5" />
-          <Moon v-else class="h-5 w-5" />
-        </button>
       </div>
     </header>
 
@@ -101,9 +107,22 @@ function toggleAuthMode() {
           </h1>
         </div>
 
-        <form class="space-y-3" @submit.prevent="submitEmailVerification">
+        <form class="space-y-3" @submit.prevent="submitCredentials">
           <label class="block">
             <span class="mb-2 block text-base font-semibold text-[#111827]">{{ t('auth.username') }}</span>
+            <span class="flex h-11 items-center rounded-lg border border-transparent bg-[#edf0f6] px-4 transition focus-within:border-[#2563eb] focus-within:bg-[#ffffff] focus-within:ring-4 focus-within:ring-[#2563eb]/10">
+              <input
+                v-model="form.username"
+                type="text"
+                class="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#111827] outline-none placeholder:text-[#98a2b3]"
+                autocomplete="username"
+                :placeholder="t('auth.usernamePlaceholder')"
+              />
+            </span>
+          </label>
+
+          <label v-if="authMode === 'register'" class="block">
+            <span class="mb-2 block text-base font-semibold text-[#111827]">{{ t('auth.email') }}</span>
             <span class="flex h-11 items-center rounded-lg border border-transparent bg-[#edf0f6] px-4 transition focus-within:border-[#2563eb] focus-within:bg-[#ffffff] focus-within:ring-4 focus-within:ring-[#2563eb]/10">
               <input
                 v-model="form.email"
@@ -115,11 +134,33 @@ function toggleAuthMode() {
             </span>
           </label>
 
+          <label class="block">
+            <span class="mb-2 block text-base font-semibold text-[#111827]">{{ t('auth.password') }}</span>
+            <span class="flex h-11 items-center rounded-lg border border-transparent bg-[#edf0f6] px-4 transition focus-within:border-[#2563eb] focus-within:bg-[#ffffff] focus-within:ring-4 focus-within:ring-[#2563eb]/10">
+              <input
+                v-model="form.password"
+                :type="showPassword ? 'text' : 'password'"
+                class="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#111827] outline-none placeholder:text-[#98a2b3]"
+                :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
+                :placeholder="t('auth.passwordPlaceholder')"
+              />
+              <button
+                type="button"
+                class="ml-2 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#667085] transition hover:bg-white hover:text-[#111827]"
+                :aria-label="showPassword ? t('auth.hidePassword') : t('auth.showPassword')"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" class="h-4 w-4" />
+                <Eye v-else class="h-4 w-4" />
+              </button>
+            </span>
+          </label>
+
           <button
             class="h-11 w-full rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:bg-[#dbe4ff] disabled:text-white/80"
-            :disabled="!canSendVerification"
+            :disabled="!canSubmitCredentials"
           >
-            {{ emailActionText }}
+            {{ submitButtonText }}
           </button>
         </form>
 
@@ -131,7 +172,7 @@ function toggleAuthMode() {
 
         <div class="grid gap-3">
           <button
-            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] shadow-sm transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
             @click="submitGithubProvider"
@@ -145,7 +186,7 @@ function toggleAuthMode() {
             {{ githubActionText }}
           </button>
           <button
-            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] shadow-sm transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
             @click="submitProvider"

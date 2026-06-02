@@ -37,15 +37,15 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
     {{ t('common.noResult') }}
   </div>
   <div v-else :class="gridClass">
-    <article v-for="file in files" :key="file.id" class="rounded-lg border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/25 hover:shadow-node">
-      <div class="flex items-start justify-between gap-3">
+    <article v-for="file in files" :key="file.id" class="min-w-0 rounded-lg border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/25 hover:shadow-node">
+      <div class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div class="flex min-w-0 items-center gap-3">
           <span class="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-app-muted text-primary">
             <component :is="iconMap[file.type]" class="h-5 w-5" />
           </span>
-          <div class="min-w-0">
-            <p class="truncate text-sm font-semibold text-text-primary">{{ file.name }}</p>
-            <p class="truncate text-xs text-text-muted">{{ file.size }} · {{ file.mime }} · {{ file.updatedAt }}</p>
+          <div class="min-w-0 flex-1">
+            <p class="block max-w-full truncate text-sm font-semibold text-text-primary" :title="file.name">{{ file.name }}</p>
+            <p class="block max-w-full truncate text-xs text-text-muted" :title="`${file.size} · ${file.mime} · ${file.updatedAt}`">{{ file.size }} · {{ file.mime }} · {{ file.updatedAt }}</p>
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
@@ -54,6 +54,7 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
             class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-primary/30 hover:bg-primary-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="props.downloadingIds?.includes(file.id)"
             :title="t('files.download')"
+            :aria-label="t('files.download')"
             @click="emit('download', file.id)"
           >
             <Download class="h-4 w-4" />
@@ -63,6 +64,7 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
             class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-status-error/30 hover:bg-red-50 hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="props.deletingIds?.includes(file.id)"
             :title="t('files.delete')"
+            :aria-label="t('files.delete')"
             @click="emit('delete', file.id)"
           >
             <Trash2 class="h-4 w-4" />

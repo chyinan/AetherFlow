@@ -1,25 +1,44 @@
+import { apiClient } from '@/api/client/apiClient'
 import type { CopilotMessage } from '@/types/copilot'
 
-import { delay } from '../mock/timing'
+export interface CopilotAskOptions {
+  conversationId?: string
+  workflowId?: string
+  projectId?: string
+  provider?: string
+  model?: string
+  context?: Record<string, unknown>
+}
+
+interface CopilotChatResponse {
+  id: string
+  conversationId?: string
+  role: 'assistant'
+  content: string
+  createdAt: string
+}
 
 export const copilotApi = {
-  ask(prompt: string) {
-    const lowered = prompt.toLowerCase()
-    const content = lowered.includes('error')
-      ? 'The likely failure point is the active Whisper node. Check input media format, runtime queue capacity, and transcript output mapping before rerunning.'
-      : lowered.includes('node')
-        ? 'A solid next node is Summary after Translate. Keep the summary node output as summary.md and actions.json so Files can show final artifacts.'
-        : 'I can turn that into a workflow draft by adding media input, FFmpeg, Whisper, Translate, and Summary nodes with typed outputs.'
-
-    return delay<CopilotMessage>({
-      id: `copilot-${Date.now()}`,
-      role: 'assistant',
-      content,
-      createdAt: new Date().toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }),
+  async ask(prompt: string, options: CopilotAskOptions = {}) {
+    const response = await apiClient.post<CopilotChatResponse>('/copilot/chat', {
+      conversationId: options.conversationId,
+      workflowId: options.workflowId,
+      projectId: options.projectId,
+      provider: options.provider,
+      model: options.model,
+      context: options.context,
+      prompt,
+    }, {
+      source: 'ai',
+      timeout: 65_000,
     })
+
+    return {
+      id: response.id,
+      conversationId: response.conversationId,
+      role: 'assistant',
+      content: response.content,
+      createdAt: response.createdAt,
+    } satisfies CopilotMessage
   },
 }

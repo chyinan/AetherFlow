@@ -33,6 +33,7 @@ public class AuthProperties {
 
         private boolean enabled = true;
         private String username = "aether.operator";
+        private String email = "aether.operator@aetherflow.local";
         private String password = "mock-password";
     }
 

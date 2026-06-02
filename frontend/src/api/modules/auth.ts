@@ -33,6 +33,12 @@ export interface AuthLoginRequest {
   password: string
 }
 
+export interface AuthRegisterRequest {
+  username: string
+  email: string
+  password: string
+}
+
 export interface AuthRefreshRequest {
   refreshToken: string
 }
@@ -179,6 +185,11 @@ function mapTokenResponse(rawResponse: unknown): AuthSessionResult {
 
 export async function login(payload: AuthLoginRequest): Promise<AuthSessionResult> {
   const response = await apiClient.post<unknown>('/auth/login', payload, { source: 'auth' })
+  return mapTokenResponse(response)
+}
+
+export async function register(payload: AuthRegisterRequest): Promise<AuthSessionResult> {
+  const response = await apiClient.post<unknown>('/auth/register', payload, { source: 'auth' })
   return mapTokenResponse(response)
 }
 

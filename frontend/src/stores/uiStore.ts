@@ -10,6 +10,7 @@ import {
   type NotifyMessageDTO,
 } from '@/api/modules/notify'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
+import { mergeNotificationHistory } from '@/services/notifications/notificationHistory'
 import type { ServiceStatus } from '@/types/api'
 
 export interface UiNotification {
@@ -254,7 +255,7 @@ export const useUiStore = defineStore('ui', {
       this.notificationsLoading = true
       try {
         const records = await listNotificationMessages(limit)
-        this.notifications = records.map(normalizeRecord)
+        this.notifications = mergeNotificationHistory(this.notifications, records.map(normalizeRecord))
         writeStoredNotifications(this.notifications)
       } finally {
         this.notificationsLoading = false

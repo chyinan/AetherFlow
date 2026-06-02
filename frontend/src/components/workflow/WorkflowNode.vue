@@ -1,22 +1,17 @@
 <script setup lang="ts">
 import {
-  AudioLines,
   BookOpen,
   Brain,
   Braces,
   CheckCircle2,
-  Clock3,
   Code2,
   Copy,
   Database,
   Film,
-  FileJson,
   FileText,
   GitBranch,
-  Globe2,
   Hand,
   Languages,
-  ListChecks,
   MessageSquare,
   Mic,
   Plus,
@@ -27,7 +22,6 @@ import {
   Trash2,
   Upload,
   Variable,
-  Wrench,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import { computed } from 'vue'
@@ -76,17 +70,6 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   'document-extractor': FileText,
   'variable-assigner': Variable,
   'parameter-extractor': Braces,
-  http: Globe2,
-  'list-operator': ListChecks,
-  audio: AudioLines,
-  'code-interpreter': Code2,
-  time: Clock3,
-  'web-scraper': Globe2,
-  json: FileJson,
-  markdown: FileText,
-  tavily: Globe2,
-  firecrawl: Wrench,
-  mineru: FileText,
 }
 
 const icon = computed(() => iconMap[props.data.kind])
@@ -110,8 +93,6 @@ const nodeRows = computed(() => {
       return [t('workflow.nodeCard.parallelMode')]
     case 'agent':
       return [t('workflow.nodeCard.agentNotSet')]
-    case 'http':
-      return [t('workflow.nodeCard.retryTimes', { count: Number(props.data.config.retries ?? 3) })]
     default:
       return []
   }

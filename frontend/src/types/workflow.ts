@@ -21,17 +21,6 @@ export type WorkflowNodeKind =
   | 'document-extractor'
   | 'variable-assigner'
   | 'parameter-extractor'
-  | 'http'
-  | 'list-operator'
-  | 'audio'
-  | 'code-interpreter'
-  | 'time'
-  | 'web-scraper'
-  | 'json'
-  | 'markdown'
-  | 'tavily'
-  | 'firecrawl'
-  | 'mineru'
 
 export type WorkflowNodeStatus =
   | 'idle'
@@ -63,9 +52,8 @@ export interface NodeTemplate {
   description: string
   category: 'Input' | 'AI' | 'Media' | 'Transform' | 'Output' | 'Logic' | 'Tool' | 'Plugin' | 'Workflow' | 'MCP'
   catalog?: 'node' | 'tool'
-  group?: 'recommended' | 'logic' | 'transform' | 'allTools' | 'plugin' | 'custom' | 'workflow' | 'mcp'
+  group?: 'recommended' | 'logic' | 'transform' | 'allTools' | 'custom' | 'workflow' | 'mcp'
   provider?: string
-  installCount?: string
   config: Record<string, string | number | boolean>
   inputs: string[]
   outputs: string[]

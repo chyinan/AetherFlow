@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 
 import { i18n } from '@/i18n'
+import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotActions'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
@@ -120,6 +121,22 @@ export const useWorkflowStore = defineStore('workflow', {
       this.savingError = null
       this.runError = null
       return node
+    },
+    applyMediaSummaryWorkflowDraft() {
+      const maxX = this.nodes.reduce((value, node) => Math.max(value, node.position.x), 0)
+      const graph = buildMediaSummaryDraftGraph(this.templates, {
+        idPrefix: `copilot-media-${Date.now()}`,
+        startPosition: {
+          x: this.nodes.length === 0 ? 80 : maxX + 360,
+          y: this.nodes.length === 0 ? 180 : 140,
+        },
+      })
+      this.nodes.push(...graph.nodes)
+      this.edges.push(...graph.edges)
+      this.dirty = true
+      this.savingError = null
+      this.runError = null
+      return graph
     },
     duplicateNode(nodeId: string) {
       const source = this.nodes.find((node) => node.id === nodeId)

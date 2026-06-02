@@ -104,8 +104,9 @@ class SettingsServiceImplTest {
 
         MemberCreateRequest createRequest = new MemberCreateRequest();
         createRequest.setName("Workflow Operator");
-        createRequest.setEmail("ops@aetherflow.mock");
+        createRequest.setEmail("OPS@AETHERFLOW.MOCK ");
         createRequest.setRole("Operator");
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(null);
         doAnswer(invocation -> {
             SettingsMemberEntity entity = invocation.getArgument(0);
             entity.setId(2L);
@@ -115,6 +116,7 @@ class SettingsServiceImplTest {
         SettingsMemberResponse created = service.createMember(createRequest);
 
         assertThat(created.id()).isEqualTo("2");
+        assertThat(created.email()).isEqualTo("ops@aetherflow.mock");
         assertThat(created.status()).isEqualTo("invited");
 
         SettingsMemberEntity existing = member(2L, "Workflow Operator", "Operator", "invited");
@@ -133,6 +135,56 @@ class SettingsServiceImplTest {
 
         assertThat(existing.getStatus()).isEqualTo("removed");
         verify(memberMapper).updateById(existing);
+    }
+
+    @Test
+    void createMemberRejectsDuplicateActiveEmail() {
+        MemberCreateRequest request = new MemberCreateRequest();
+        request.setName("Another Operator");
+        request.setEmail("OPS@AETHERFLOW.MOCK");
+        request.setRole("Operator");
+        when(memberMapper.selectOne(any(Wrapper.class)))
+                .thenReturn(member(2L, "Workflow Operator", "Operator", "invited"));
+
+        assertThatThrownBy(() -> service.createMember(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("settings member email already exists");
+    }
+
+    @Test
+    void createMemberReactivatesRemovedEmailInsteadOfInsertingDuplicate() {
+        SettingsMemberEntity removed = member(2L, "Old Operator", "Operator", "removed");
+        removed.setDeletedAt(LocalDateTime.parse("2026-05-30T10:00:00"));
+        MemberCreateRequest request = new MemberCreateRequest();
+        request.setName("New Operator");
+        request.setEmail("OPS@AETHERFLOW.MOCK");
+        request.setRole("Admin");
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(removed);
+
+        SettingsMemberResponse response = service.createMember(request);
+
+        assertThat(response.id()).isEqualTo("2");
+        assertThat(response.name()).isEqualTo("New Operator");
+        assertThat(response.email()).isEqualTo("ops@aetherflow.mock");
+        assertThat(response.role()).isEqualTo("Admin");
+        assertThat(response.status()).isEqualTo("invited");
+        assertThat(removed.getDeletedAt()).isNull();
+        verify(memberMapper).updateById(removed);
+    }
+
+    @Test
+    void updateMemberRejectsDuplicateEmail() {
+        SettingsMemberEntity current = member(2L, "Workflow Operator", "Operator", "invited");
+        SettingsMemberEntity duplicate = member(3L, "Other Operator", "Operator", "active");
+        duplicate.setEmail("other@aetherflow.mock");
+        when(memberMapper.selectById(2L)).thenReturn(current);
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(duplicate);
+        MemberUpdateRequest request = new MemberUpdateRequest();
+        request.setEmail("OTHER@AETHERFLOW.MOCK");
+
+        assertThatThrownBy(() -> service.updateMember(2L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("settings member email already exists");
     }
 
     @Test

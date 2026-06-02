@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderKanban, Play, Plus, RotateCcw, Save, Workflow } from 'lucide-vue-next'
+import { FolderKanban, LoaderCircle, Play, Plus, RotateCcw, Save, Workflow } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -9,12 +9,14 @@ import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { toApiError } from '@/api/client/apiError'
+import type { WorkflowCopilotCanvasAction } from '@/services/copilot/workflowCopilotActions'
 import { workflowApi } from '@/services/api/workflowApi'
 import { useFileStore } from '@/stores/fileStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import type { WorkflowNodeKind } from '@/types/workflow'
 
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
@@ -27,6 +29,11 @@ const { t } = useI18n()
 const showCopilot = ref(false)
 const showRunConsole = ref(false)
 const startingRun = ref(false)
+const currentWorkflowRunActive = computed(() =>
+  runStore.currentRun?.workflowId === workflowStore.workflowId
+  && ['queued', 'running'].includes(runStore.currentRun.status),
+)
+const runButtonBusy = computed(() => startingRun.value || currentWorkflowRunActive.value)
 
 const hasWorkflowContext = computed(() => {
   return String(route.params.id || '') !== 'new'
@@ -36,6 +43,18 @@ const hasWorkflowContext = computed(() => {
 const shouldShowEmptyWorkflowGuide = computed(() => {
   return !hasWorkflowContext.value
 })
+const copilotContext = computed(() => ({
+  workflowId: workflowStore.workflowId,
+  workflowName: workflowStore.workflowName,
+  backendDefinitionId: workflowStore.backendDefinitionId,
+  selectedNodeId: uiStore.selectedNodeId,
+  nodes: workflowStore.nodes,
+  edges: workflowStore.edges,
+  templates: workflowStore.templates,
+  currentRun: runStore.currentRun,
+  logs: runStore.logs,
+  runError: workflowStore.runError,
+}))
 
 function routeQueryString(value: unknown) {
   return Array.isArray(value) ? value[0] : typeof value === 'string' ? value : undefined
@@ -122,7 +141,7 @@ function runErrorMessage(error: unknown) {
 }
 
 async function startRun() {
-  if (startingRun.value || workflowStore.saving) {
+  if (runButtonBusy.value || workflowStore.saving) {
     return
   }
 
@@ -186,6 +205,34 @@ function openCopilot() {
 function openRunConsole() {
   showCopilot.value = false
   showRunConsole.value = true
+}
+
+function templateByKind(kind: WorkflowNodeKind) {
+  return workflowStore.templates.find((template) => template.kind === kind)
+}
+
+function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
+  if (action.type === 'apply-media-summary-draft') {
+    const graph = workflowStore.applyMediaSummaryWorkflowDraft()
+    uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
+    return
+  }
+
+  const template = templateByKind(action.nodeKind)
+  if (!template) {
+    return
+  }
+
+  const node = action.type === 'add-node-after'
+    ? workflowStore.addNodeAfter(action.sourceNodeId, template)
+    : workflowStore.addNodeFromTemplate(template, {
+        x: 80 + workflowStore.nodes.length * 40,
+        y: 160 + workflowStore.nodes.length * 30,
+      })
+
+  if (node) {
+    uiStore.setSelectedNode(node.id)
+  }
 }
 </script>
 
@@ -256,9 +303,10 @@ function openRunConsole() {
           <Save class="h-4 w-4" />
           {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveMock') : t('workflow.saved') }}
         </button>
-        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:opacity-60" :disabled="startingRun || workflowStore.saving" @click="startRun">
-          <Play class="h-4 w-4" />
-          {{ startingRun ? t('workflow.startingRun') : t('workflow.run') }}
+        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
+          <LoaderCircle v-if="runButtonBusy" class="h-4 w-4 animate-spin" />
+          <Play v-else class="h-4 w-4" />
+          {{ runButtonBusy ? t('status.running') : t('workflow.run') }}
         </button>
       </div>
     </header>
@@ -276,7 +324,11 @@ function openRunConsole() {
         leave-to-class="translate-x-6 opacity-0"
       >
         <div v-if="showCopilot" class="absolute inset-y-0 right-0 z-30 w-[min(390px,calc(100%-1rem))] border-l border-app-border bg-white shadow-panel">
-          <AICopilotPanel @close="showCopilot = false" />
+          <AICopilotPanel
+            :context="copilotContext"
+            @apply-canvas-action="handleCopilotCanvasAction"
+            @close="showCopilot = false"
+          />
         </div>
       </Transition>
 

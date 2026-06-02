@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Activity, BarChart3, BookOpen, Brain, FileText, FolderKanban, Workflow } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -24,9 +24,10 @@ const workflowStore = useWorkflowStore()
 const dockRoot = ref<HTMLElement | null>(null)
 const dockItemRefs = ref<(HTMLElement | null)[]>([])
 const pointerY = ref<number | null>(null)
+const optimisticActiveKey = ref<string | null>(null)
 
-const magnificationRange = 112
-const maxScale = 1.62
+const magnificationRange = 88
+const maxScale = 1.22
 
 const translatedNavItems = computed(() =>
   navItems.map((item) => ({
@@ -49,6 +50,21 @@ const workflowNavTarget = computed(() => {
   }
   return '/projects'
 })
+
+const routeActiveKey = computed(() => {
+  if (route.path.startsWith('/workflows')) return 'workflows'
+  if (route.path.startsWith('/runs')) return 'runs'
+  return navItems.find((item) => item.to && route.path === item.to)?.key ?? null
+})
+
+const displayedActiveKey = computed(() => optimisticActiveKey.value ?? routeActiveKey.value)
+
+watch(
+  () => route.fullPath,
+  () => {
+    optimisticActiveKey.value = null
+  },
+)
 
 function setDockItemRef(element: unknown, index: number) {
   dockItemRefs.value[index] = element instanceof HTMLElement ? element : null
@@ -82,16 +98,28 @@ function dockScale(index: number) {
 function dockItemStyle(index: number) {
   const scale = dockScale(index)
   return {
-    transform: `translateX(${(scale - 1) * 10}px) scale(${scale})`,
+    transform: `translateX(${(scale - 1) * 5}px) scale(${scale})`,
     transformOrigin: 'left center',
     zIndex: Math.round(scale * 100),
   }
 }
 
-function isNavActive(key: string, to: string) {
-  if (key === 'workflows') return route.path.startsWith('/workflows')
-  if (key === 'runs') return route.path.startsWith('/runs')
-  return route.path === to
+function markOptimisticActive(key: string) {
+  optimisticActiveKey.value = key
+  window.setTimeout(() => {
+    if (optimisticActiveKey.value === key) {
+      optimisticActiveKey.value = null
+    }
+  }, 800)
+}
+
+function handleNavClick(event: MouseEvent, key: string, navigate: (event?: MouseEvent) => void) {
+  markOptimisticActive(key)
+  navigate(event)
+}
+
+function isNavActive(key: string) {
+  return displayedActiveKey.value === key
 }
 </script>
 
@@ -125,10 +153,15 @@ function isNavActive(key: string, to: string) {
           :href="href"
           :title="item.label"
           :aria-label="item.label"
-          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[background-color,color,box-shadow,transform] duration-100 ease-out will-change-transform hover:bg-sidebar-soft hover:text-white hover:shadow-node"
-          :class="isNavActive(item.key, item.to) ? 'bg-primary text-white shadow-node' : ''"
+          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[transform,box-shadow] duration-100 ease-out will-change-transform"
+          :class="
+            isNavActive(item.key)
+              ? '!bg-primary !text-white shadow-node'
+              : 'hover:bg-sidebar-soft hover:text-white hover:shadow-node'
+          "
           :style="dockItemStyle(index)"
-          @click="navigate"
+          @pointerdown="markOptimisticActive(item.key)"
+          @click="(event) => handleNavClick(event, item.key, navigate)"
         >
           <component :is="item.icon" class="h-5 w-5" />
           <span

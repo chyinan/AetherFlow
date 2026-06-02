@@ -10,11 +10,13 @@ USE aetherflow;
 CREATE TABLE IF NOT EXISTS af_user (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(64) NOT NULL,
+    email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    UNIQUE KEY uk_af_user_username (username)
+    UNIQUE KEY uk_af_user_username (username),
+    UNIQUE KEY uk_af_user_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS af_oauth_account (

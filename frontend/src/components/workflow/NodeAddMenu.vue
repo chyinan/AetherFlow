@@ -1,20 +1,15 @@
 <script setup lang="ts">
 import {
-  AudioLines,
   BookOpen,
   Brain,
   Braces,
-  Clock3,
   Code2,
   Database,
-  FileJson,
   FileText,
   Film,
   GitBranch,
-  Globe2,
   Hand,
   Languages,
-  ListChecks,
   MessageSquare,
   Mic,
   Repeat2,
@@ -23,7 +18,6 @@ import {
   Split,
   Upload,
   Variable,
-  Wrench,
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
@@ -72,20 +66,9 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   'document-extractor': FileText,
   'variable-assigner': Variable,
   'parameter-extractor': Braces,
-  http: Globe2,
-  'list-operator': ListChecks,
-  audio: AudioLines,
-  'code-interpreter': Code2,
-  time: Clock3,
-  'web-scraper': Globe2,
-  json: FileJson,
-  markdown: FileText,
-  tavily: Globe2,
-  firecrawl: Wrench,
-  mineru: FileText,
 }
 
-const groupOrder = ['recommended', 'logic', 'transform', 'plugin', 'allTools', 'workflow', 'mcp', 'custom'] as const
+const groupOrder = ['recommended', 'logic', 'transform', 'allTools', 'workflow', 'mcp', 'custom'] as const
 
 const panelStyle = computed(() => {
   const width = typeof window === 'undefined' ? 1280 : window.innerWidth
@@ -203,7 +186,6 @@ function selectTemplate(template: NodeTemplate) {
               <span class="block truncate text-sm font-semibold text-text-primary">{{ templateLabel(template) }}</span>
               <span class="mt-0.5 block truncate text-xs text-text-muted">
                 {{ template.provider ?? t(`workflow.catalog.categories.${template.category}`) }}
-                <template v-if="template.installCount"> · {{ template.installCount }} {{ t('workflow.catalog.installs') }}</template>
               </span>
             </span>
           </button>

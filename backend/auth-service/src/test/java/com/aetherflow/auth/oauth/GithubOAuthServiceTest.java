@@ -116,6 +116,9 @@ class GithubOAuthServiceTest {
         assertThat(accountCaptor.getValue().getProvider()).isEqualTo("GITHUB");
         assertThat(accountCaptor.getValue().getProviderUserId()).isEqualTo("42");
         assertThat(accountCaptor.getValue().getUserId()).isEqualTo(11L);
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).insert(userCaptor.capture());
+        assertThat(userCaptor.getValue().getEmail()).isEqualTo("octocat@example.com");
     }
 
     private AuthProperties authProperties() {

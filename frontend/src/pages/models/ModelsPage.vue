@@ -103,8 +103,8 @@ onMounted(() => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-x-hidden overflow-y-auto bg-app-bg px-4 pb-8 pt-5 sm:px-5 lg:px-6">
-      <div class="flex min-h-full w-full flex-col gap-4">
+    <main class="min-h-0 overflow-hidden bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
+      <div class="flex h-full min-h-0 w-full flex-col gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article
             v-for="card in summaryCards"
@@ -142,8 +142,8 @@ onMounted(() => {
           </div>
         </section>
 
-        <section class="grid min-h-[calc(100vh-190px)] gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <aside class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white shadow-sm">
+        <section class="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
+          <aside class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
                 <div>
@@ -257,8 +257,8 @@ onMounted(() => {
             </div>
           </aside>
 
-          <section class="flex min-h-0 flex-col gap-4">
-            <div class="overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
+          <section class="flex min-h-0 flex-col gap-4 overflow-hidden">
+            <div class="shrink-0 overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
                 <div>
                   <p class="text-sm font-semibold text-text-primary">{{ selectedProvider?.name ?? t('models.providers') }}</p>
@@ -324,9 +324,9 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="grid min-h-0 shrink-0 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
-                <div class="flex items-center justify-between">
+            <div class="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+              <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
+                <div class="flex shrink-0 items-center justify-between">
                   <div>
                     <p class="text-sm font-semibold text-text-primary">{{ t('models.runtimeLogs') }}</p>
                     <p class="text-xs text-text-muted">{{ t('models.runtimeLogsHint') }}</p>
@@ -335,7 +335,7 @@ onMounted(() => {
                     <Cpu class="h-4 w-4" />
                   </span>
                 </div>
-                <div class="mt-4 space-y-2 font-mono text-xs leading-6">
+                <div class="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 font-mono text-xs leading-6">
                   <p v-if="modelStore.logs.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
                     {{ t('models.noLogs') }}
                   </p>
@@ -347,9 +347,9 @@ onMounted(() => {
                 </div>
               </section>
 
-              <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
-                <p class="text-sm font-semibold text-text-primary">{{ t('models.providerSnapshot') }}</p>
-                <div v-if="selectedProvider" class="mt-4 space-y-3">
+              <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
+                <p class="shrink-0 text-sm font-semibold text-text-primary">{{ t('models.providerSnapshot') }}</p>
+                <div v-if="selectedProvider" class="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
                   <div class="rounded-lg bg-app-bg2 p-3">
                     <p class="text-xs text-text-muted">{{ t('models.endpoint') }}</p>
                     <p class="mt-1 break-all text-sm text-text-primary">{{ selectedProvider.endpoint }}</p>

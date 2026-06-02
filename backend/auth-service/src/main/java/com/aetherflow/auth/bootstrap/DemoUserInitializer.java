@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 
 @Slf4j
 @Component
@@ -35,6 +36,7 @@ public class DemoUserInitializer implements ApplicationRunner {
         }
 
         String username = demoUser.getUsername();
+        String email = demoUser.getEmail();
         String password = demoUser.getPassword();
         if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
             log.warn("auth demo user seed skipped because username or password is blank");
@@ -51,11 +53,16 @@ public class DemoUserInitializer implements ApplicationRunner {
         LocalDateTime now = LocalDateTime.now();
         User user = new User();
         user.setUsername(username.trim());
+        user.setEmail(normalizeEmail(StringUtils.hasText(email) ? email : username.trim() + "@aetherflow.local"));
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setStatus(ENABLED);
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
         userMapper.insert(user);
         log.info("auth demo user seeded username={}", user.getUsername());
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }
