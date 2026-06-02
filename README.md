@@ -13,11 +13,14 @@
 
 ## 技术栈
 
-- Java 17, Spring Boot 3.2, Spring Cloud 2023, Spring Cloud Alibaba 2023
-- Nacos, OpenFeign, Sentinel, Seata, Spring Cloud Gateway
-- RabbitMQ, Redis, MySQL 8.0.26, MyBatis Plus
-- Activiti, XXL-Job, MinIO, WebSocket/SSE, Swagger/OpenAPI
-- Python FastAPI, faster-whisper, OpenAI/Ollama SDK, FFmpeg
+- Java 17, Maven，Spring Boot 3.2.12
+- Spring Cloud 2023.0.5，Spring Cloud Alibaba 2023.0.3.3
+- Spring Cloud Gateway、Nacos、OpenFeign、Sentinel、Seata
+- Spring AI、Springdoc OpenAPI / Swagger
+- MyBatis Plus、Activiti BPM、XXL-Job、RabbitMQ、Redis、MySQL 8.0.26、MinIO
+- Docker Compose、Nginx、WebSocket/SSE
+- Python FastAPI、Uvicorn、Pydantic、OpenAI SDK、Ollama SDK、faster-whisper、ctranslate2、torch、ffmpeg-python、pydub
+- Vue 3、Vue Router 5、Pinia、Vite 8、TypeScript、Tailwind CSS、Vue Flow、axios、vue-i18n、Orval、lucide-vue-next
 
 ## 目录结构
 
@@ -146,7 +149,7 @@ GET /health
 
 ## 本机演示 runtime
 
-`ai-runtime/` 是本机 Demo 工具，不是注册到 Nacos 的微服务。它用于在 Windows 开发机上准备模型、验证 CUDA / FFmpeg / Ollama，并一键跑通
+`ai-runtime/` 是演示机器 Demo 工具，不是注册到 Nacos 中的微服务。它用于在 Windows 开发机上准备模型、验证 CUDA / FFmpeg / Ollama工作流链路，并一键跑通
 `视频 -> 转录 -> 总结 -> SRT` 的本地演示流程。
 正式业务链路中的 Python AI 接口仍由 `python-ai-service/` 提供，`ai-runtime/` 不替代它。
 
