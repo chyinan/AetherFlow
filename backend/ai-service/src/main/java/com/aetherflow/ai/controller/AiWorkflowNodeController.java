@@ -36,7 +36,7 @@ public class AiWorkflowNodeController {
     private final DefaultAiNodeExecutorRegistry executorRegistry;
 
     @Operation(summary = "Execute AI workflow node internally",
-            description = "Internal service-to-service endpoint for workflow-service to execute WHISPER/SUMMARY AI nodes. Frontend should use workflow-service APIs and node catalog instead.")
+            description = "Internal service-to-service endpoint for workflow-service to execute ASR, LLM, translate and summary AI nodes. Frontend should use workflow-service APIs and node catalog instead.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "AI workflow node executed.",
                     content = @Content(schema = @Schema(implementation = AiWorkflowNodeResponseDTO.class))),

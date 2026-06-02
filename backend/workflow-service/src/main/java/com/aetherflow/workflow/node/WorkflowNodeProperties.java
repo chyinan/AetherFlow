@@ -13,4 +13,6 @@ public class WorkflowNodeProperties {
     private String defaultWhisperLanguage = "auto";
     private String defaultSummaryLanguage = "English";
     private String exportObjectPrefix = "workflow/exports";
+    private boolean codeExecutionEnabled = false;
+    private boolean humanAutoApproveEnabled = false;
 }

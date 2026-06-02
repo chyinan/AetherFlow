@@ -17,11 +17,24 @@ public class WorkflowNodeCatalogService {
                 upload(),
                 ocr(),
                 whisper(),
+                llm(),
+                translate(),
                 summary(),
                 embedding(),
                 export(),
                 notifyNode(),
+                agent(),
+                questionUnderstand(),
+                questionClassifier(),
                 condition(),
+                human(),
+                iteration(),
+                loop(),
+                code(),
+                templateTransform(),
+                variableAggregate(),
+                variableAssigner(),
+                parameterExtractor(),
                 mock()
         );
     }
@@ -150,6 +163,56 @@ public class WorkflowNodeCatalogService {
         );
     }
 
+    private WorkflowNodeCatalogItem llm() {
+        return item(
+                "LLM",
+                "LLM",
+                "AI",
+                "Runs a general LLM prompt through ai-service provider routing and exposes completion variables.",
+                List.of(
+                        field("prompt", "STRING", false, "Fixed prompt. Prefer promptVariable for workflow binding.", "Draft an answer"),
+                        field("promptVariable", "STRING", false, "Workflow variable used as prompt input.", "question"),
+                        field("context", "STRING", false, "Fallback fixed context used when prompt is empty.", "Context text"),
+                        field("provider", "STRING", false, "Optional AI provider override.", "OLLAMA", List.of("OPENAI", "OLLAMA")),
+                        field("model", "STRING", false, "Optional model override.", "llama3"),
+                        field("temperature", "NUMBER", false, "Sampling temperature.", 0.3),
+                        field("maxTokens", "NUMBER", false, "Optional token cap.", 1200),
+                        field("structuredOutput", "BOOLEAN", false, "Whether the model should return structured output.", false)
+                ),
+                List.of(variable("question", "STRING", "Prompt text from upstream nodes or workflow input.", "Explain the workflow")),
+                List.of(
+                        variable("completionText", "STRING", "Generated text.", "Generated answer"),
+                        variable("completion", "STRING", "Alias of completionText.", "Generated answer"),
+                        variable("jsonData", "OBJECT", "Structured output metadata when available.", Map.of())
+                ),
+                mapOf("promptVariable", "question", "temperature", 0.3, "structuredOutput", false)
+        );
+    }
+
+    private WorkflowNodeCatalogItem translate() {
+        return item(
+                "TRANSLATE",
+                "Translate",
+                "AI",
+                "Translates text through ai-service translate execution and exposes translated text variables.",
+                List.of(
+                        field("text", "STRING", false, "Fixed text. Prefer textVariable for workflow binding.", "你好"),
+                        field("textVariable", "STRING", false, "Workflow variable used as source text.", "transcription"),
+                        field("sourceLanguage", "STRING", false, "Source language hint.", "auto"),
+                        field("targetLanguage", "STRING", false, "Target language.", "en-US"),
+                        field("provider", "STRING", false, "Optional AI provider override.", "OLLAMA", List.of("OPENAI", "OLLAMA")),
+                        field("model", "STRING", false, "Optional model override.", "llama3"),
+                        field("promptVersion", "STRING", false, "Optional prompt version.", "translate-v1")
+                ),
+                List.of(variable("transcription", "STRING", "Text produced by WHISPER or another upstream node.", "你好")),
+                List.of(
+                        variable("translatedText", "STRING", "Translated text.", "hello"),
+                        variable("translation", "STRING", "Alias of translatedText.", "hello")
+                ),
+                mapOf("textVariable", "transcription", "sourceLanguage", "auto", "targetLanguage", "en-US")
+        );
+    }
+
     private WorkflowNodeCatalogItem embedding() {
         return item(
                 "EMBEDDING",
@@ -257,6 +320,195 @@ public class WorkflowNodeCatalogService {
                         variable("branchKey", "STRING", "Selected branch key.", "true")
                 ),
                 mapOf("variable", "summary", "operator", "EXISTS", "trueBranch", "true", "falseBranch", "false")
+        );
+    }
+
+    private WorkflowNodeCatalogItem agent() {
+        return item(
+                "AGENT",
+                "Agent",
+                "AI",
+                "Creates a plan for a task through the LLM provider path. Tool execution is intentionally kept outside this node.",
+                List.of(
+                        field("task", "STRING", false, "Fixed task text. Prefer taskVariable for workflow binding.", "Research this question"),
+                        field("taskVariable", "STRING", false, "Workflow variable used as task input.", "question"),
+                        field("strategy", "STRING", false, "Planning strategy label.", "plan"),
+                        field("model", "STRING", false, "Optional model override.", "llama3")
+                ),
+                List.of(variable("question", "STRING", "Task input.", "What should happen next?")),
+                List.of(variable("plan", "OBJECT", "Generated plan or plan JSON.", Map.of("steps", List.of()))),
+                mapOf("taskVariable", "question", "strategy", "plan")
+        );
+    }
+
+    private WorkflowNodeCatalogItem questionUnderstand() {
+        return item(
+                "QUESTION_UNDERSTAND",
+                "Question Understand",
+                "AI",
+                "Normalizes a free-form question into intent and entities through LLM structured output.",
+                List.of(
+                        field("input", "STRING", false, "Fixed question. Prefer inputVariable for workflow binding.", "How do I reset billing?"),
+                        field("inputVariable", "STRING", false, "Workflow variable used as question input.", "question"),
+                        field("model", "STRING", false, "Optional model override.", "llama3")
+                ),
+                List.of(variable("question", "STRING", "Question input.", "How do I reset billing?")),
+                List.of(variable("intentJson", "OBJECT", "Normalized intent and entities.", Map.of("intent", "billing"))),
+                mapOf("inputVariable", "question")
+        );
+    }
+
+    private WorkflowNodeCatalogItem questionClassifier() {
+        return item(
+                "QUESTION_CLASSIFIER",
+                "Question Classifier",
+                "AI",
+                "Classifies a question into one route through LLM structured output.",
+                List.of(
+                        field("input", "STRING", false, "Fixed question. Prefer inputVariable for workflow binding.", "Why was I charged?"),
+                        field("inputVariable", "STRING", false, "Workflow variable used as question input.", "question"),
+                        field("routes", "ARRAY", false, "Allowed route names.", List.of("billing", "support")),
+                        field("threshold", "NUMBER", false, "Confidence threshold hint.", 0.5)
+                ),
+                List.of(variable("question", "STRING", "Question input.", "Why was I charged?")),
+                List.of(variable("routeJson", "OBJECT", "Classification route and confidence.", Map.of("route", "billing"))),
+                mapOf("inputVariable", "question", "routes", List.of("billing", "support"), "threshold", 0.5)
+        );
+    }
+
+    private WorkflowNodeCatalogItem human() {
+        return item(
+                "HUMAN",
+                "Human in the Loop",
+                "Control",
+                "Requires explicit approval support. Auto-approval is only allowed when configured.",
+                List.of(
+                        field("reviewer", "STRING", false, "Reviewer identifier.", "ops"),
+                        field("methods", "STRING", false, "Notification methods.", "webapp,email"),
+                        field("autoApprove", "BOOLEAN", false, "Explicitly allow this node to pass without pause/resume support.", false)
+                ),
+                List.of(variable("draft", "STRING", "Content requiring review.", "Draft answer")),
+                List.of(variable("approved", "BOOLEAN", "Approval result.", true)),
+                mapOf("methods", "webapp,email", "autoApprove", false)
+        );
+    }
+
+    private WorkflowNodeCatalogItem iteration() {
+        return item(
+                "ITERATION",
+                "Iteration",
+                "Control",
+                "Publishes a bounded list slice for downstream processing. Nested subgraph execution is not performed by this node.",
+                List.of(
+                        field("inputVariable", "STRING", false, "Workflow list variable.", "items"),
+                        field("outputVariable", "STRING", false, "Variable written with selected items.", "iterationItems"),
+                        field("maxIterations", "NUMBER", false, "Maximum items to publish.", 100)
+                ),
+                List.of(variable("items", "ARRAY", "Items to iterate.", List.of("a", "b"))),
+                List.of(variable("iterationItems", "ARRAY", "Selected items.", List.of("a", "b"))),
+                mapOf("inputVariable", "items", "outputVariable", "iterationItems", "maxIterations", 100)
+        );
+    }
+
+    private WorkflowNodeCatalogItem loop() {
+        return item(
+                "LOOP",
+                "Loop",
+                "Control",
+                "Publishes bounded loop state metadata. Runtime-level cyclic scheduling is not introduced.",
+                List.of(
+                        field("inputVariable", "STRING", false, "Workflow state variable.", "state"),
+                        field("outputVariable", "STRING", false, "Variable written with loop state.", "loopState"),
+                        field("stopWhen", "STRING", false, "Stop marker matched against the state text.", "done"),
+                        field("maxIterations", "NUMBER", false, "Maximum loop count metadata.", 10)
+                ),
+                List.of(variable("state", "OBJECT", "Loop state.", Map.of("done", false))),
+                List.of(variable("loopState", "OBJECT", "Published loop state.", Map.of("done", false))),
+                mapOf("inputVariable", "state", "outputVariable", "loopState", "maxIterations", 10)
+        );
+    }
+
+    private WorkflowNodeCatalogItem code() {
+        return item(
+                "CODE",
+                "Code Execution",
+                "Transform",
+                "Code execution node with safe default: execution is disabled unless an isolated runtime is explicitly configured.",
+                List.of(
+                        field("language", "STRING", false, "Requested language.", "python3"),
+                        field("code", "STRING", false, "Code text retained for an external isolated runtime.", "def main(): return {}"),
+                        field("outputVariable", "STRING", false, "Variable written when isolated runtime integration is enabled.", "codeResult")
+                ),
+                List.of(variable("payload", "OBJECT", "Input payload.", Map.of())),
+                List.of(variable("codeResult", "OBJECT", "Code runtime result.", Map.of())),
+                mapOf("language", "python3", "outputVariable", "codeResult")
+        );
+    }
+
+    private WorkflowNodeCatalogItem templateTransform() {
+        return item(
+                "TEMPLATE_TRANSFORM",
+                "Template Transform",
+                "Transform",
+                "Renders a simple {{ variable }} template from workflow variables.",
+                List.of(
+                        field("template", "STRING", true, "Template string.", "Hello {{ name }}"),
+                        field("outputVariable", "STRING", false, "Variable written with rendered text.", "renderedText")
+                ),
+                List.of(variable("name", "STRING", "Template variable.", "AetherFlow")),
+                List.of(variable("renderedText", "STRING", "Rendered text.", "Hello AetherFlow")),
+                mapOf("template", "{{ arg1 }}", "outputVariable", "renderedText")
+        );
+    }
+
+    private WorkflowNodeCatalogItem variableAggregate() {
+        return item(
+                "VARIABLE_AGGREGATE",
+                "Variable Aggregator",
+                "Transform",
+                "Collects selected workflow variables into one map variable.",
+                List.of(
+                        field("variables", "ARRAY", false, "Variable names to collect.", List.of("left", "right")),
+                        field("outputVariable", "STRING", false, "Variable written with aggregate map.", "merged")
+                ),
+                List.of(variable("left", "OBJECT", "Left branch data.", Map.of("a", 1))),
+                List.of(variable("merged", "OBJECT", "Aggregated variables.", Map.of("left", Map.of("a", 1)))),
+                mapOf("variables", List.of("left", "right"), "outputVariable", "merged")
+        );
+    }
+
+    private WorkflowNodeCatalogItem variableAssigner() {
+        return item(
+                "VARIABLE_ASSIGNER",
+                "Variable Assigner",
+                "Transform",
+                "Writes a configured value or source variable value into a workflow variable.",
+                List.of(
+                        field("variable", "STRING", true, "Target workflow variable name.", "result"),
+                        field("value", "OBJECT", false, "Fixed value.", "ready"),
+                        field("sourceVariable", "STRING", false, "Source variable used when value is empty.", "draft")
+                ),
+                List.of(variable("draft", "OBJECT", "Source value.", "ready")),
+                List.of(variable("result", "OBJECT", "Assigned value.", "ready")),
+                mapOf("variable", "result", "value", "")
+        );
+    }
+
+    private WorkflowNodeCatalogItem parameterExtractor() {
+        return item(
+                "PARAMETER_EXTRACTOR",
+                "Parameter Extractor",
+                "AI",
+                "Extracts structured parameters from text through LLM structured output.",
+                List.of(
+                        field("input", "STRING", false, "Fixed input text. Prefer inputVariable.", "Book a meeting tomorrow"),
+                        field("inputVariable", "STRING", false, "Workflow variable used as input text.", "text"),
+                        field("instruction", "STRING", false, "Extraction instruction.", "Extract date and intent"),
+                        field("model", "STRING", false, "Optional model override.", "llama3")
+                ),
+                List.of(variable("text", "STRING", "Input text.", "Book a meeting tomorrow")),
+                List.of(variable("paramsJson", "OBJECT", "Extracted parameters.", Map.of("intent", "book_meeting"))),
+                mapOf("inputVariable", "text", "instruction", "Extract named parameters")
         );
     }
 
