@@ -26,8 +26,9 @@ const dockItemRefs = ref<(HTMLElement | null)[]>([])
 const pointerY = ref<number | null>(null)
 const optimisticActiveKey = ref<string | null>(null)
 
-const magnificationRange = 88
-const maxScale = 1.22
+const magnificationRange = 136
+const maxScale = 1.55
+const outwardShift = 32
 
 const translatedNavItems = computed(() =>
   navItems.map((item) => ({
@@ -91,14 +92,15 @@ function dockScale(index: number) {
   const rect = item.getBoundingClientRect()
   const center = rect.top + rect.height / 2
   const distance = Math.abs(pointerY.value - center)
-  const influence = Math.max(0, 1 - distance / magnificationRange)
+  const normalizedDistance = Math.min(distance / magnificationRange, 1)
+  const influence = normalizedDistance >= 1 ? 0 : (1 + Math.cos(normalizedDistance * Math.PI)) / 2
   return 1 + influence * (maxScale - 1)
 }
 
 function dockItemStyle(index: number) {
   const scale = dockScale(index)
   return {
-    transform: `translateX(${(scale - 1) * 5}px) scale(${scale})`,
+    transform: `translateX(${(scale - 1) * outwardShift}px) scale(${scale})`,
     transformOrigin: 'left center',
     zIndex: Math.round(scale * 100),
   }
@@ -135,7 +137,7 @@ function isNavActive(key: string) {
 
     <nav
       ref="dockRoot"
-      class="flex w-28 flex-1 flex-col items-center justify-center gap-2.5 overflow-visible pb-16 pt-1"
+      class="flex w-28 flex-1 flex-col items-center justify-center gap-5 overflow-visible pb-16 pt-1"
       @pointerenter="handleDockPointerMove"
       @pointermove="handleDockPointerMove"
       @pointerleave="clearDockPointer"
@@ -153,11 +155,11 @@ function isNavActive(key: string) {
           :href="href"
           :title="item.label"
           :aria-label="item.label"
-          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[transform,box-shadow] duration-100 ease-out will-change-transform"
+          class="group relative grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_6px_18px_rgba(0,0,0,0.12)] transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
           :class="
             isNavActive(item.key)
-              ? '!bg-primary !text-white shadow-node'
-              : 'hover:bg-sidebar-soft hover:text-white hover:shadow-node'
+              ? '!border-primary !bg-primary !text-white shadow-node'
+              : 'hover:border-white/25 hover:bg-sidebar-soft hover:text-white hover:shadow-node'
           "
           :style="dockItemStyle(index)"
           @pointerdown="markOptimisticActive(item.key)"
@@ -165,7 +167,7 @@ function isNavActive(key: string) {
         >
           <component :is="item.icon" class="h-5 w-5" />
           <span
-            class="pointer-events-none absolute left-[52px] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md border border-app-border bg-white px-2 py-1 text-xs font-medium text-text-primary opacity-0 shadow-panel transition-opacity group-hover:opacity-100"
+            class="pointer-events-none absolute left-[68px] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md border border-app-border bg-white px-2 py-1 text-xs font-medium text-text-primary opacity-0 shadow-panel transition-opacity group-hover:opacity-100"
           >
             {{ item.label }}
           </span>
