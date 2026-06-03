@@ -50,6 +50,26 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void permitsGoogleOauthPathsWithoutToken() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+
+        List.of("/oauth2/authorization/google", "/login/oauth2/code/google").forEach(path -> {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.get(path).build()
+            );
+            AtomicBoolean called = new AtomicBoolean(false);
+
+            filter.filter(exchange, chain(exchange1 -> {
+                called.set(true);
+                return Mono.empty();
+            })).block(Duration.ofSeconds(1));
+
+            assertThat(called).as(path).isTrue();
+            assertThat(exchange.getResponse().getStatusCode()).as(path).isNull();
+        });
+    }
+
+    @Test
     void permitsNotifyWebSocketPathWithoutBearerTokenForStreamTokenHandshake() {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
         MockServerWebExchange exchange = MockServerWebExchange.from(

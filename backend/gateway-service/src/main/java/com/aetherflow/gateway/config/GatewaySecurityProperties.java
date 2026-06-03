@@ -17,6 +17,8 @@ public class GatewaySecurityProperties {
 
     private List<String> permitAll = new ArrayList<>(List.of(
             "/auth/**",
+            "/oauth2/**",
+            "/login/oauth2/**",
             "/actuator/**",
             "/health",
             "/gateway/status",

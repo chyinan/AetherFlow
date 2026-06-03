@@ -41,6 +41,7 @@ public class AuthProperties {
     public static class OAuth {
 
         private final Github github = new Github();
+        private final Google google = new Google();
 
         @Data
         public static class Github {
@@ -56,6 +57,19 @@ public class AuthProperties {
             private String successPath = "/auth/oauth/callback";
             private String failurePath = "/login";
             private String stateSecret = "aetherflow-github-oauth-state-secret-32bytes";
+            private long stateTtlMinutes = 10;
+        }
+
+        @Data
+        public static class Google {
+
+            private String clientId = "";
+            private String clientSecret = "";
+            private String redirectUri = "{baseUrl}/login/oauth2/code/{registrationId}";
+            private String frontendBaseUrl = "";
+            private String successPath = "/auth/oauth/callback";
+            private String failurePath = "/login";
+            private String defaultRedirectPath = "/projects";
             private long stateTtlMinutes = 10;
         }
     }

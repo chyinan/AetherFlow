@@ -47,20 +47,6 @@ const modeActionText = computed(() =>
   authMode.value === 'register' ? t('auth.loginAction') : t('auth.registerAction'),
 )
 
-async function finishLogin(username = 'aether.operator', password = 'mock-password') {
-  errorMessage.value = ''
-  try {
-    await authStore.login(username, password)
-    await router.push((route.query.redirect as string) || '/projects')
-  } catch {
-    errorMessage.value = t('auth.loginUnavailable')
-  }
-}
-
-async function submitProvider() {
-  await finishLogin()
-}
-
 async function submitCredentials() {
   if (!canSubmitCredentials.value) {
     return
@@ -82,6 +68,12 @@ async function submitCredentials() {
 function submitGithubProvider() {
   const redirectPath = (route.query.redirect as string) || '/projects'
   const authorizeUrl = `${runtimeEnv.apiBase}/auth/oauth/github/authorize?redirect=${encodeURIComponent(redirectPath)}`
+  window.location.assign(authorizeUrl)
+}
+
+function submitGoogleProvider() {
+  const redirectPath = (route.query.redirect as string) || '/projects'
+  const authorizeUrl = `${runtimeEnv.apiBase}/oauth2/authorization/google?redirect=${encodeURIComponent(redirectPath)}`
   window.location.assign(authorizeUrl)
 }
 
@@ -189,7 +181,7 @@ function toggleAuthMode() {
             class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             :disabled="authStore.loading"
-            @click="submitProvider"
+            @click="submitGoogleProvider"
           >
             <svg class="h-5 w-5" viewBox="0 0 533.5 544.3" aria-hidden="true">
               <path

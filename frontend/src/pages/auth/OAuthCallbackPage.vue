@@ -65,7 +65,7 @@ onMounted(async () => {
     authStore.setActiveSession(session)
     await router.replace(redirectPath.startsWith('/') ? redirectPath : '/projects')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'GitHub OAuth login failed'
+    errorMessage.value = error instanceof Error ? error.message : 'OAuth login failed'
     authStore.clearLocalSession()
     await router.replace({ path: '/login', query: { oauth: 'failed' } })
   }
@@ -75,7 +75,7 @@ onMounted(async () => {
 <template>
   <main class="grid min-h-screen place-items-center bg-white px-6 text-text-primary">
     <div class="rounded-xl border border-app-border bg-app-bg2 px-6 py-5 text-center shadow-panel">
-      <p class="text-base font-semibold">正在完成 GitHub 登录</p>
+      <p class="text-base font-semibold">正在完成登录</p>
       <p class="mt-2 text-sm text-text-secondary">{{ errorMessage || '请稍候...' }}</p>
     </div>
   </main>

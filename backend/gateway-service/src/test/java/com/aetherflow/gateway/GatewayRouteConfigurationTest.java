@@ -158,6 +158,29 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
+    void googleOauthPathsRouteToAuthService() {
+        RouteDefinition authServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "auth-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(authServiceRoute).isNotNull();
+        assertThat(authServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString())
+                        .contains("Path", "/oauth2/**", "/login/oauth2/**"));
+
+        List.of(
+                "/oauth2/authorization/google",
+                "/login/oauth2/code/google"
+        ).forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("auth-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://auth-service");
+        });
+    }
+
+    @Test
     void copilotPathsRouteToAiService() {
         RouteDefinition aiServiceRoute = routeDefinitionLocator.getRouteDefinitions()
                 .filter(routeDefinition -> "ai-service".equals(routeDefinition.getId()))

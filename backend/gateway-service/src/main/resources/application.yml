@@ -90,7 +90,7 @@ spring:
         - id: auth-service
           uri: lb://auth-service
           predicates:
-            - Path=/auth/**,/settings/**
+            - Path=/auth/**,/settings/**,/oauth2/**,/login/oauth2/**
         - id: workflow-service
           uri: lb://workflow-service
           predicates:
@@ -128,6 +128,8 @@ aetherflow:
       auth-enabled: true
       permit-all:
         - /auth/**
+        - /oauth2/**
+        - /login/oauth2/**
         - /actuator/**
         - /health
         - /gateway/status
