@@ -26,9 +26,8 @@ const dockItemRefs = ref<(HTMLElement | null)[]>([])
 const pointerY = ref<number | null>(null)
 const optimisticActiveKey = ref<string | null>(null)
 
-const magnificationRange = 132
-const maxScale = 1.62
-const outwardShift = 34
+const magnificationRange = 88
+const maxScale = 1.22
 
 const translatedNavItems = computed(() =>
   navItems.map((item) => ({
@@ -92,15 +91,14 @@ function dockScale(index: number) {
   const rect = item.getBoundingClientRect()
   const center = rect.top + rect.height / 2
   const distance = Math.abs(pointerY.value - center)
-  const normalizedDistance = Math.min(distance / magnificationRange, 1)
-  const influence = normalizedDistance >= 1 ? 0 : (1 + Math.cos(normalizedDistance * Math.PI)) / 2
+  const influence = Math.max(0, 1 - distance / magnificationRange)
   return 1 + influence * (maxScale - 1)
 }
 
 function dockItemStyle(index: number) {
   const scale = dockScale(index)
   return {
-    transform: `translateX(${(scale - 1) * outwardShift}px) scale(${scale})`,
+    transform: `translateX(${(scale - 1) * 5}px) scale(${scale})`,
     transformOrigin: 'left center',
     zIndex: Math.round(scale * 100),
   }
@@ -155,7 +153,7 @@ function isNavActive(key: string) {
           :href="href"
           :title="item.label"
           :aria-label="item.label"
-          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[transform,box-shadow,background-color,color] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+          class="group relative grid h-10 w-10 place-items-center rounded-md text-slate-400 shadow-sm transition-[transform,box-shadow] duration-100 ease-out will-change-transform"
           :class="
             isNavActive(item.key)
               ? '!bg-primary !text-white shadow-node'
