@@ -26,8 +26,8 @@ const dockItemRefs = ref<(HTMLElement | null)[]>([])
 const pointerY = ref<number | null>(null)
 const optimisticActiveKey = ref<string | null>(null)
 
-const magnificationRange = 88
-const maxScale = 1.22
+const magnificationRange = 64
+const maxScale = 1.1
 
 const translatedNavItems = computed(() =>
   navItems.map((item) => ({
@@ -98,7 +98,7 @@ function dockScale(index: number) {
 function dockItemStyle(index: number) {
   const scale = dockScale(index)
   return {
-    transform: `translateX(${(scale - 1) * 5}px) scale(${scale})`,
+    transform: `translateX(${(scale - 1) * 2}px) scale(${scale})`,
     transformOrigin: 'left center',
     zIndex: Math.round(scale * 100),
   }
