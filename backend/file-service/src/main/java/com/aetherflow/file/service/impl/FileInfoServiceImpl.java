@@ -205,6 +205,7 @@ public class FileInfoServiceImpl implements FileInfoService {
 
         if (shouldRemovePhysicalObject(fileInfo)) {
             afterCommit(() -> {
+                cacheService.evictHashCache(fileInfo.getHash());
                 try {
                     removePhysicalObject(fileInfo);
                     log.info("File object removed traceId={} fileId={} userId={} hash={}",
@@ -407,14 +408,15 @@ public class FileInfoServiceImpl implements FileInfoService {
     }
 
     private FileInfo findReusableFile(String sha256) {
-        FileInfo cachedFile = cacheService.findCachedHashFileId(sha256)
-                .map(fileInfoMapper::selectById)
-                .filter(fileInfo -> fileInfo != null
-                        && STATUS_AVAILABLE.equals(fileInfo.getStatus())
-                        && sha256.equals(fileInfo.getHash()))
-                .orElse(null);
-        if (cachedFile != null) {
-            return cachedFile;
+        var cachedFileId = cacheService.findCachedHashFileId(sha256);
+        if (cachedFileId.isPresent()) {
+            FileInfo cachedFile = fileInfoMapper.selectById(cachedFileId.get());
+            if (cachedFile != null
+                    && STATUS_AVAILABLE.equals(cachedFile.getStatus())
+                    && sha256.equals(cachedFile.getHash())) {
+                return cachedFile;
+            }
+            cacheService.evictHashCache(sha256);
         }
 
         FileInfo databaseFile = fileInfoMapper.selectFirstAvailableByHash(sha256);

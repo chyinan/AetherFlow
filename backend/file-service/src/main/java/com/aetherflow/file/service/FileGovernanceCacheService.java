@@ -17,6 +17,8 @@ public interface FileGovernanceCacheService {
 
     void cacheHash(String sha256, Long fileId);
 
+    void evictHashCache(String sha256);
+
     void recordUpload(Long fileId, Long userId, String taskId, String sha256, ProgressState state);
 
     void recordProgress(String taskId,

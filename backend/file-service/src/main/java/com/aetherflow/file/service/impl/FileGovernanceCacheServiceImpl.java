@@ -155,6 +155,19 @@ public class FileGovernanceCacheServiceImpl implements FileGovernanceCacheServic
     }
 
     @Override
+    public void evictHashCache(String sha256) {
+        if (!StringUtils.hasText(sha256)) {
+            return;
+        }
+        try {
+            redisTemplate.delete(FileRedisKeys.hash(sha256));
+        } catch (DataAccessException exception) {
+            log.warn("Redis hash cache evict skipped traceId={} fileId={} userId={} sha256={}",
+                    FileLogContext.traceId(), FileLogContext.fileId(), FileLogContext.userId(), sha256, exception);
+        }
+    }
+
+    @Override
     public void recordUpload(Long fileId, Long userId, String taskId, String sha256, ProgressState state) {
         if (fileId == null || fileId <= 0) {
             return;

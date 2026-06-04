@@ -77,6 +77,34 @@ class FileInfoServiceImplReviewTest {
     }
 
     @Test
+    void uploadShouldEvictStaleDeletedHashCacheAndUploadNewObject() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "demo.txt", "text/plain", "hello".getBytes());
+        when(fileUploadGuardService.validate(file)).thenReturn(new FileUploadProfile("demo.txt", "txt", "text/plain", 5));
+        when(fileHashService.sha256(file)).thenReturn("hash-stale");
+        when(cacheService.findCachedHashFileId("hash-stale")).thenReturn(java.util.Optional.of(55L));
+        FileInfo deletedFile = new FileInfo();
+        deletedFile.setId(55L);
+        deletedFile.setHash("hash-stale");
+        deletedFile.setStatus("DELETED");
+        when(fileInfoMapper.selectById(55L)).thenReturn(deletedFile);
+        when(fileInfoMapper.selectFirstAvailableByHash("hash-stale")).thenReturn(null);
+        when(cacheService.tryReserveHashUpload("hash-stale", "task-stale")).thenReturn(true);
+        when(minioClient.bucketExists(any(BucketExistsArgs.class))).thenReturn(true);
+        when(minioClient.putObject(any(PutObjectArgs.class))).thenReturn((ObjectWriteResponse) null);
+        doAnswer(invocation -> {
+            FileInfo fileInfo = invocation.getArgument(0);
+            fileInfo.setId(102L);
+            return 1;
+        }).when(fileInfoMapper).insert(any(FileInfo.class));
+
+        var metadata = service.upload(1001L, file, "task-stale");
+
+        assertThat(metadata.getId()).isEqualTo(102L);
+        verify(cacheService).evictHashCache("hash-stale");
+        verify(cacheService).cacheHash("hash-stale", 102L);
+    }
+
+    @Test
     void downloadShouldRejectOwnerlessMetadata() throws Exception {
         FileInfo fileInfo = new FileInfo();
         fileInfo.setId(1L);
@@ -98,6 +126,27 @@ class FileInfoServiceImplReviewTest {
                 });
 
         verify(minioClient, never()).getObject(any(GetObjectArgs.class));
+    }
+
+    @Test
+    void deleteShouldEvictHashCacheWhenLastReferenceIsDeleted() throws Exception {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setId(77L);
+        fileInfo.setUserId(1001L);
+        fileInfo.setBucket("aetherflow");
+        fileInfo.setObjectKey("objects/hash/demo.txt");
+        fileInfo.setOriginalName("demo.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setHash("hash-delete");
+        fileInfo.setStatus("AVAILABLE");
+        fileInfo.setCreatedAt(LocalDateTime.now());
+        fileInfo.setUpdatedAt(LocalDateTime.now());
+        when(fileInfoMapper.selectById(77L)).thenReturn(fileInfo);
+        when(fileInfoMapper.countAvailableByHash("hash-delete")).thenReturn(0L);
+
+        service.delete(1001L, 77L);
+
+        verify(cacheService).evictHashCache("hash-delete");
     }
 
     @Test

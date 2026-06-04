@@ -63,6 +63,13 @@ class FileGovernanceCacheServiceImplTest {
     }
 
     @Test
+    void evictHashCacheShouldDeleteHashKey() {
+        service.evictHashCache("abc");
+
+        verify(redisTemplate).delete("file:hash:abc");
+    }
+
+    @Test
     void getProgressShouldRejectDifferentUser() {
         when(hashOperations.entries("file:progress:task-2")).thenReturn(Map.of(
                 "taskId", "task-2",

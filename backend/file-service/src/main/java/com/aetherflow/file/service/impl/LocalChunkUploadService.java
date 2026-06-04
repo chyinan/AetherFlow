@@ -152,7 +152,17 @@ public class LocalChunkUploadService implements ChunkUploadService {
 
     @Override
     public void abort(Long userId, String uploadId) {
-        UploadSession session = requireSession(userId, uploadId);
+        requireUserId(userId);
+        if (!StringUtils.hasText(uploadId)) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
+        }
+        UploadSession session = sessions.get(uploadId);
+        if (session == null) {
+            return;
+        }
+        if (!session.userId().equals(userId)) {
+            throw new UploadException(ResultCode.FORBIDDEN, "chunk upload session does not belong to current user");
+        }
         sessions.remove(uploadId);
         deleteDirectory(session.directory());
     }

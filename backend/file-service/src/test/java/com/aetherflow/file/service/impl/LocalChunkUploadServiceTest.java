@@ -84,6 +84,14 @@ class LocalChunkUploadServiceTest {
         assertThat(Files.exists(tempDir.resolve(init.uploadId()))).isFalse();
     }
 
+    @Test
+    void abortShouldBeIdempotentWhenSessionIsMissing() {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        LocalChunkUploadService service = new LocalChunkUploadService(fileInfoService, tempDir);
+
+        service.abort(1001L, "missing-upload");
+    }
+
     private MockMultipartFile part(String name, String value) {
         return new MockMultipartFile("file", name, "application/octet-stream", value.getBytes(StandardCharsets.UTF_8));
     }
