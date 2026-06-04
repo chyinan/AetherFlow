@@ -15,6 +15,7 @@ public class NotificationRecord {
     private Long id;
 
     private Long userId;
+    private String eventId;
     private String channel;
     private String eventType;
     private String payloadJson;

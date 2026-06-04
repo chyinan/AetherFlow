@@ -9,7 +9,7 @@ import org.springframework.web.client.RestClient;
 import java.time.Duration;
 
 @Configuration
-@EnableConfigurationProperties({PythonAiProperties.class, AiTaskProperties.class, FileClientProperties.class})
+@EnableConfigurationProperties({PythonAiProperties.class, AiTaskProperties.class, FileClientProperties.class, TaskClientProperties.class})
 public class AiClientConfig {
 
     @Bean

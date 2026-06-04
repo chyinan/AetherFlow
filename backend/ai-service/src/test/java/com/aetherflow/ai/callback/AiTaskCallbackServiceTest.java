@@ -1,6 +1,7 @@
 package com.aetherflow.ai.callback;
 
 import com.aetherflow.ai.client.TaskStatusClient;
+import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import org.junit.jupiter.api.Test;
@@ -21,13 +22,13 @@ class AiTaskCallbackServiceTest {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
         RestClient restClient = mock(RestClient.class);
         TaskStatusClient taskStatusClient = mock(TaskStatusClient.class);
-        AiTaskCallbackService service = new AiTaskCallbackService(rabbitTemplate, restClient, taskStatusClient);
+        AiTaskCallbackService service = new AiTaskCallbackService(rabbitTemplate, restClient, taskStatusClient, properties());
         TaskMessageDTO message = taskMessage();
         AiNodeResult result = new AiNodeResult("AI_TRANSCRIPTION", "SUCCEEDED", Map.of("text", "done"), List.of());
 
         service.notifySuccess(message, result);
 
-        verify(taskStatusClient).markSucceeded(59L);
+        verify(taskStatusClient).markSucceeded("expected-token", 59L);
     }
 
     @Test
@@ -35,14 +36,20 @@ class AiTaskCallbackServiceTest {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
         RestClient restClient = mock(RestClient.class);
         TaskStatusClient taskStatusClient = mock(TaskStatusClient.class);
-        doThrow(new IllegalStateException("task-service down")).when(taskStatusClient).markSucceeded(59L);
-        AiTaskCallbackService service = new AiTaskCallbackService(rabbitTemplate, restClient, taskStatusClient);
+        doThrow(new IllegalStateException("task-service down")).when(taskStatusClient).markSucceeded("expected-token", 59L);
+        AiTaskCallbackService service = new AiTaskCallbackService(rabbitTemplate, restClient, taskStatusClient, properties());
         TaskMessageDTO message = taskMessage();
         AiNodeResult result = new AiNodeResult("AI_TRANSCRIPTION", "SUCCEEDED", Map.of("text", "done"), List.of());
 
         service.notifySuccess(message, result);
 
-        verify(taskStatusClient).markSucceeded(59L);
+        verify(taskStatusClient).markSucceeded("expected-token", 59L);
+    }
+
+    private TaskClientProperties properties() {
+        TaskClientProperties properties = new TaskClientProperties();
+        properties.setInternalToken("expected-token");
+        return properties;
     }
 
     private TaskMessageDTO taskMessage() {

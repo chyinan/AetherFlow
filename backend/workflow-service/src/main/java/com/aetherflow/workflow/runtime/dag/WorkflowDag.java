@@ -5,11 +5,15 @@ import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
 
 public class WorkflowDag {
 
@@ -58,12 +62,15 @@ public class WorkflowDag {
         }
         Map<String, List<String>> outgoingEdges = buildOutgoingEdges(nodes, orderedIds, !hasExplicitEdges);
         Map<String, List<String>> incomingEdges = buildIncomingEdges(nodes, outgoingEdges);
+        validateAcyclic(orderedIds, outgoingEdges, incomingEdges);
+        List<String> startNodeIds = startNodeIds(orderedIds, incomingEdges);
+        validateReachable(orderedIds, outgoingEdges, startNodeIds);
         return new WorkflowDag(
                 Map.copyOf(nodes),
                 List.copyOf(orderedIds),
                 copyEdgeMap(outgoingEdges),
                 copyEdgeMap(incomingEdges),
-                startNodeIds(orderedIds, incomingEdges),
+                startNodeIds,
                 !hasExplicitEdges
         );
     }
@@ -181,6 +188,53 @@ public class WorkflowDag {
             throw new IllegalArgumentException("workflow dag must contain at least one start node");
         }
         return List.copyOf(starts);
+    }
+
+    private static void validateAcyclic(List<String> orderedIds,
+                                        Map<String, List<String>> outgoingEdges,
+                                        Map<String, List<String>> incomingEdges) {
+        Map<String, Integer> indegree = new LinkedHashMap<>();
+        Queue<String> ready = new ArrayDeque<>();
+        for (String nodeId : orderedIds) {
+            int degree = incomingEdges.getOrDefault(nodeId, List.of()).size();
+            indegree.put(nodeId, degree);
+            if (degree == 0) {
+                ready.add(nodeId);
+            }
+        }
+        int visited = 0;
+        while (!ready.isEmpty()) {
+            String nodeId = ready.remove();
+            visited++;
+            for (String target : outgoingEdges.getOrDefault(nodeId, List.of())) {
+                int remaining = indegree.compute(target, (ignored, current) -> current == null ? 0 : current - 1);
+                if (remaining == 0) {
+                    ready.add(target);
+                }
+            }
+        }
+        if (visited != orderedIds.size()) {
+            throw new IllegalArgumentException("workflow dag contains cycle");
+        }
+    }
+
+    private static void validateReachable(List<String> orderedIds,
+                                          Map<String, List<String>> outgoingEdges,
+                                          List<String> startNodeIds) {
+        Set<String> reachable = new HashSet<>();
+        Queue<String> queue = new ArrayDeque<>(List.of(startNodeIds.get(0)));
+        while (!queue.isEmpty()) {
+            String nodeId = queue.remove();
+            if (!reachable.add(nodeId)) {
+                continue;
+            }
+            queue.addAll(outgoingEdges.getOrDefault(nodeId, List.of()));
+        }
+        for (String nodeId : orderedIds) {
+            if (!reachable.contains(nodeId)) {
+                throw new IllegalArgumentException("workflow dag contains unreachable node: " + nodeId);
+            }
+        }
     }
 
     private static List<String> orderedFallbackTargets(List<String> orderedIds, String nodeId) {

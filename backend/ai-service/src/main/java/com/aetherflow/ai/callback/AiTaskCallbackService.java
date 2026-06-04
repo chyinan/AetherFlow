@@ -1,6 +1,7 @@
 package com.aetherflow.ai.callback;
 
 import com.aetherflow.ai.client.TaskStatusClient;
+import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.RabbitMqNames;
 import com.aetherflow.common.dto.NotifyMessageDTO;
@@ -22,13 +23,16 @@ public class AiTaskCallbackService {
     private final RabbitTemplate rabbitTemplate;
     private final RestClient callbackRestClient;
     private final TaskStatusClient taskStatusClient;
+    private final TaskClientProperties taskClientProperties;
 
     public AiTaskCallbackService(RabbitTemplate rabbitTemplate,
                                  @Qualifier("aiCallbackRestClient") RestClient callbackRestClient,
-                                 TaskStatusClient taskStatusClient) {
+                                 TaskStatusClient taskStatusClient,
+                                 TaskClientProperties taskClientProperties) {
         this.rabbitTemplate = rabbitTemplate;
         this.callbackRestClient = callbackRestClient;
         this.taskStatusClient = taskStatusClient;
+        this.taskClientProperties = taskClientProperties;
     }
 
     public void notifySuccess(TaskMessageDTO taskMessage, AiNodeResult result) {
@@ -60,6 +64,7 @@ public class AiTaskCallbackService {
 
     private void publishNotify(String eventType, Map<String, Object> payload) {
         NotifyMessageDTO notifyMessage = new NotifyMessageDTO();
+        notifyMessage.setEventId(eventId(eventType, payload));
         notifyMessage.setEventType(eventType);
         notifyMessage.setChannel("WORKFLOW");
         notifyMessage.setPayload(payload);
@@ -67,12 +72,21 @@ public class AiTaskCallbackService {
         rabbitTemplate.convertAndSend(RabbitMqNames.NOTIFY_EXCHANGE, RabbitMqNames.NOTIFY_ROUTING_KEY, notifyMessage);
     }
 
+    private String eventId(String eventType, Map<String, Object> payload) {
+        Object taskId = payload.get("taskId");
+        Object nodeId = payload.get("nodeId");
+        if (taskId == null) {
+            return eventType;
+        }
+        return "ai-task:" + taskId + ":" + (nodeId == null ? "" : nodeId) + ":" + eventType;
+    }
+
     private void markTaskSucceeded(TaskMessageDTO taskMessage) {
         if (taskMessage.getTaskId() == null) {
             return;
         }
         try {
-            taskStatusClient.markSucceeded(taskMessage.getTaskId());
+            taskStatusClient.markSucceeded(taskClientProperties.getInternalToken(), taskMessage.getTaskId());
         } catch (RuntimeException exception) {
             log.warn("task-service success status callback failed, taskId={}", taskMessage.getTaskId(), exception);
         }

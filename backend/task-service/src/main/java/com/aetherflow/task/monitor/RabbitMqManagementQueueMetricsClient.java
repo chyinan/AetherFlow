@@ -15,6 +15,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.net.URLEncoder;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 @Slf4j
@@ -40,7 +41,7 @@ public class RabbitMqManagementQueueMetricsClient implements QueueMetricsClient 
                     .defaultHeaders(headers -> applyBasicAuth(headers, managementApi))
                     .build()
                     .get()
-                    .uri(url)
+                    .uri(URI.create(url))
                     .accept(MediaType.APPLICATION_JSON)
                     .retrieve()
                     .body(String.class);

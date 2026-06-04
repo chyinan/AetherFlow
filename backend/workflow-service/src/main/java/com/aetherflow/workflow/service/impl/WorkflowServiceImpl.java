@@ -12,8 +12,11 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
+import com.aetherflow.workflow.runtime.api.NodeRegistry;
+import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
@@ -51,12 +54,14 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final WorkflowRuntimeEngine runtimeEngine;
     private final ObjectMapper objectMapper;
     private final WorkflowRuntimeProperties runtimeProperties;
+    private final NodeRegistry nodeRegistry;
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public WorkflowDefinition createDefinition(WorkflowDefinitionDTO request) {
+        validateDag(request);
         Long userId = currentUserId();
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setName(request.getName());
@@ -91,6 +96,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Transactional(rollbackFor = Exception.class)
     public WorkflowDefinition updateDefinition(Long definitionId, WorkflowDefinitionDTO request) {
         WorkflowDefinition definition = getExistingDefinition(definitionId);
+        validateDag(request);
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
         if (request.getProjectId() != null) {
@@ -119,6 +125,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         WorkflowDefinition definition = getExistingDefinition(definitionId);
 
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
+        validateDag(definitionDTO);
         Map<String, Object> input = request == null || request.getInput() == null ? Map.of() : request.getInput();
 
         WorkflowInstance instance = new WorkflowInstance();
@@ -228,6 +235,27 @@ public class WorkflowServiceImpl implements WorkflowService {
         }
         return new BusinessException(ResultCode.INTERNAL_ERROR,
                 "workflow runtime execution failed: " + exception.getMessage());
+    }
+
+    private void validateDag(WorkflowDefinitionDTO definition) {
+        try {
+            WorkflowDag.from(definition);
+            validateNodeTypes(definition);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow dag invalid: " + exception.getMessage());
+        }
+    }
+
+    private void validateNodeTypes(WorkflowDefinitionDTO definition) {
+        if (definition.getNodes() == null) {
+            return;
+        }
+        for (WorkflowNodeDTO node : definition.getNodes()) {
+            NodeType nodeType = NodeType.of(node.getNodeType());
+            if (nodeRegistry.get(nodeType).isEmpty()) {
+                throw new IllegalArgumentException("unsupported workflow node type: " + nodeType.value());
+            }
+        }
     }
 
     private String newTraceId() {

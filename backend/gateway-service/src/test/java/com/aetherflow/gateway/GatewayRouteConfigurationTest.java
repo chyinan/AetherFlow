@@ -64,6 +64,20 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
+    void taskServiceGatewayRouteDoesNotExposeInternalTaskApi() {
+        RouteDefinition taskServiceRoute = routeDefinitionLocator.getRouteDefinitions()
+                .filter(routeDefinition -> "task-service".equals(routeDefinition.getId()))
+                .blockFirst(Duration.ofSeconds(2));
+
+        assertThat(taskServiceRoute).isNotNull();
+        assertThat(taskServiceRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.toString()).contains("Path", "/tasks/**"));
+        assertThat(taskServiceRoute.getPredicates())
+                .noneSatisfy(predicate -> assertThat(predicate.toString()).contains("/internal/tasks/**"));
+        assertThat(matchingRoutes("/internal/tasks/dispatch")).isEmpty();
+    }
+
+    @Test
     void aiProviderManagementRouteIsDefinedAheadOfGenericAiRoute() {
         RouteDefinition providerRoute = routeDefinitionLocator.getRouteDefinitions()
                 .filter(routeDefinition -> "ai-provider-management".equals(routeDefinition.getId()))
@@ -205,14 +219,7 @@ class GatewayRouteConfigurationTest {
     }
 
     private Route firstMatchingRoute(String path) {
-        MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get(path).build()
-        );
-
-        List<Route> matchingRoutes = routeLocator.getRoutes()
-                .filterWhen(route -> Mono.from(route.getPredicate().apply(exchange)))
-                .collectList()
-                .block(Duration.ofSeconds(2));
+        List<Route> matchingRoutes = matchingRoutes(path);
 
         assertThat(matchingRoutes).isNotNull();
         assertThat(matchingRoutes).isNotEmpty();
@@ -220,6 +227,17 @@ class GatewayRouteConfigurationTest {
                 .sorted(Comparator.comparingInt(Route::getOrder).thenComparing(Route::getId))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private List<Route> matchingRoutes(String path) {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get(path).build()
+        );
+
+        return routeLocator.getRoutes()
+                .filterWhen(route -> Mono.from(route.getPredicate().apply(exchange)))
+                .collectList()
+                .block(Duration.ofSeconds(2));
     }
 
     @Test

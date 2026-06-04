@@ -11,7 +11,12 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
+import com.aetherflow.workflow.runtime.api.NodeExecutor;
+import com.aetherflow.workflow.runtime.api.NodeRegistry;
+import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
@@ -57,11 +62,13 @@ class WorkflowServiceImplTest {
     private ObjectMapper objectMapper;
 
     private WorkflowRuntimeProperties runtimeProperties;
+    private NodeRegistry nodeRegistry;
     private WorkflowServiceImpl workflowService;
 
     @BeforeEach
     void setUp() {
         runtimeProperties = new WorkflowRuntimeProperties();
+        nodeRegistry = new NodeRegistry(List.of(executor("START"), executor("SUMMARY"), executor("EXPORT"), executor("END")));
         workflowService = new WorkflowServiceImpl(
                 definitionMapper,
                 instanceMapper,
@@ -69,6 +76,7 @@ class WorkflowServiceImplTest {
                 runtimeEngine,
                 objectMapper,
                 runtimeProperties,
+                nodeRegistry,
                 Runnable::run
         );
     }
@@ -195,6 +203,28 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void createDefinitionRejectsInvalidDagBeforePersisting() {
+        WorkflowDefinitionDTO request = definition(
+                node("start", "START", Map.of("next", "missing"))
+        );
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.createDefinition(request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow dag invalid");
+    }
+
+    @Test
+    void createDefinitionRejectsUnsupportedNodeTypeBeforePersisting() {
+        WorkflowDefinitionDTO request = definition(
+                node("start", "UNSUPPORTED", Map.of())
+        );
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.createDefinition(request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("unsupported workflow node type");
+    }
+
+    @Test
     void rejectsDefinitionProjectOwnedByAnotherUser() {
         WorkflowDefinitionDTO request = definitionDTO();
         request.setProjectId(30L);
@@ -236,6 +266,33 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void updateDefinitionRejectsInvalidDagBeforePersisting() {
+        WorkflowDefinition definition = definitionEntity();
+        WorkflowDefinitionDTO request = definition(
+                node("start", "START", Map.of("next", "missing"))
+        );
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.updateDefinition(10L, request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow dag invalid");
+    }
+
+    @Test
+    void startInstanceRejectsInvalidDagBeforeCreatingInstance() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        WorkflowDefinitionDTO invalidDefinition = definition(
+                node("start", "START", Map.of("next", "missing"))
+        );
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(invalidDefinition);
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.startInstance(10L, request())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow dag invalid");
+    }
+
+    @Test
     void deletesDefinitionByStatus() {
         WorkflowDefinition definition = definitionEntity();
         when(definitionMapper.selectById(10L)).thenReturn(definition);
@@ -260,20 +317,42 @@ class WorkflowServiceImplTest {
     }
 
     private static WorkflowDefinitionDTO definitionDTO() {
-        WorkflowNodeDTO input = node("node-input", "INPUT");
+        WorkflowNodeDTO input = node("node-input", "START");
         WorkflowNodeDTO summary = node("node-summary", "SUMMARY");
-        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
-        definition.setName("test");
-        definition.setNodes(List.of(input, summary));
-        return definition;
+        return definition(input, summary);
     }
 
     private static WorkflowNodeDTO node(String nodeId, String nodeType) {
+        return node(nodeId, nodeType, Map.of());
+    }
+
+    private static WorkflowNodeDTO node(String nodeId, String nodeType, Map<String, Object> config) {
         WorkflowNodeDTO node = new WorkflowNodeDTO();
         node.setNodeId(nodeId);
         node.setNodeType(nodeType);
-        node.setConfig(Map.of());
+        node.setConfig(config);
         return node;
+    }
+
+    private static WorkflowDefinitionDTO definition(WorkflowNodeDTO... nodes) {
+        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
+        definition.setName("test");
+        definition.setNodes(List.of(nodes));
+        return definition;
+    }
+
+    private static NodeExecutor executor(String type) {
+        return new NodeExecutor() {
+            @Override
+            public NodeType nodeType() {
+                return NodeType.of(type);
+            }
+
+            @Override
+            public NodeResult execute(WorkflowContext context) {
+                return NodeResult.success(Map.of());
+            }
+        };
     }
 
     private static StartWorkflowRequest request() {

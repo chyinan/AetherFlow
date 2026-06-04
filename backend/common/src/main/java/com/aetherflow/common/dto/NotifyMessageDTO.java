@@ -13,6 +13,9 @@ public class NotifyMessageDTO {
     @Schema(description = "Target user id.", example = "10001")
     private Long userId;
 
+    @Schema(description = "Stable notification event id for idempotent delivery.", example = "ai-task:59:node-1:succeeded")
+    private String eventId;
+
     @Schema(description = "Notification channel.", example = "WORKFLOW")
     private String channel;
 

@@ -252,6 +252,7 @@ public class WorkflowRuntimeEngine {
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Queue<String> readyQueue = initialReadyNodes(dag, tracker, remainingPredecessors);
         Set<String> scheduled = new LinkedHashSet<>(tracker.completedNodeIds());
+        Set<String> expectedNodeIds = new LinkedHashSet<>(readyQueue);
         int inFlight = 0;
 
         try {
@@ -263,6 +264,7 @@ public class WorkflowRuntimeEngine {
                 recordCompletedNode(request, context, tracker, execution);
 
                 for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
+                    expectedNodeIds.add(nextNodeId);
                     int remaining = remainingPredecessors.compute(nextNodeId, (ignored, current) -> {
                         int currentCount = current == null ? 0 : current;
                         return Math.max(0, currentCount - 1);
@@ -274,8 +276,19 @@ public class WorkflowRuntimeEngine {
                 inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight);
                 saveSnapshot(request, context, tracker);
             }
+            assertExpectedNodesCompleted(expectedNodeIds, tracker);
         } finally {
             executorService.shutdownNow();
+        }
+    }
+
+    private void assertExpectedNodesCompleted(Set<String> expectedNodeIds, ExecutionTracker tracker) {
+        Set<String> completedNodeIds = Set.copyOf(tracker.completedNodeIds());
+        List<String> incompleteNodeIds = expectedNodeIds.stream()
+                .filter(nodeId -> !completedNodeIds.contains(nodeId))
+                .toList();
+        if (!incompleteNodeIds.isEmpty()) {
+            throw new IllegalStateException("workflow runtime completed with incomplete expected nodes: " + incompleteNodeIds);
         }
     }
 

@@ -15,6 +15,7 @@ public class AiJob {
     private Long id;
 
     private Long taskId;
+    private String idempotencyKey;
     private Long workflowInstanceId;
     private String jobType;
     private String inputJson;

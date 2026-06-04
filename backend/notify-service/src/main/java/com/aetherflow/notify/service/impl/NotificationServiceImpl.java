@@ -15,12 +15,15 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -37,17 +40,34 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void send(NotifyMessageDTO message) {
+        if (StringUtils.hasText(message.getEventId()) && existsEvent(message.getEventId())) {
+            return;
+        }
         NotificationRecord record = new NotificationRecord();
         record.setUserId(message.getUserId());
+        record.setEventId(message.getEventId());
         record.setChannel(message.getChannel());
         record.setEventType(message.getEventType());
         record.setPayloadJson(writeJson(message.getPayload()));
         record.setStatus("SENT");
         record.setCreatedAt(LocalDateTime.now());
-        notificationRecordMapper.insert(record);
+        try {
+            notificationRecordMapper.insert(record);
+        } catch (DuplicateKeyException exception) {
+            if (StringUtils.hasText(message.getEventId())) {
+                return;
+            }
+            throw exception;
+        }
 
         webSocketHandler.send(message.getUserId(), message);
         sseEmitterRegistry.send(message.getUserId(), message);
+    }
+
+    private boolean existsEvent(String eventId) {
+        Long count = notificationRecordMapper.selectCount(new LambdaQueryWrapper<NotificationRecord>()
+                .eq(NotificationRecord::getEventId, eventId));
+        return count != null && count > 0;
     }
 
     @Override

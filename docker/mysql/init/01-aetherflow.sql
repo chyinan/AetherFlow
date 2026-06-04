@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS af_task_record (
 CREATE TABLE IF NOT EXISTS af_ai_job (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT,
+    idempotency_key VARCHAR(128),
     workflow_instance_id BIGINT,
     job_type VARCHAR(64) NOT NULL,
     input_json LONGTEXT,
@@ -188,6 +189,7 @@ CREATE TABLE IF NOT EXISTS af_ai_job (
     started_at DATETIME NOT NULL,
     completed_at DATETIME,
     updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_af_ai_job_idempotency (idempotency_key),
     KEY idx_af_ai_job_task (task_id),
     KEY idx_af_ai_job_instance (workflow_instance_id),
     KEY idx_af_ai_job_status (status)
@@ -294,11 +296,13 @@ CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
 CREATE TABLE IF NOT EXISTS af_notification_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT,
+    event_id VARCHAR(128),
     channel VARCHAR(64),
     event_type VARCHAR(128) NOT NULL,
     payload_json LONGTEXT,
     status VARCHAR(32) NOT NULL,
     created_at DATETIME NOT NULL,
+    UNIQUE KEY uk_af_notification_event_id (event_id),
     KEY idx_af_notification_user (user_id),
     KEY idx_af_notification_event (event_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

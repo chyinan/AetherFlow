@@ -1,7 +1,9 @@
 package com.aetherflow.notify.controller;
 
 import com.aetherflow.common.core.Result;
+import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.NotifyMessageDTO;
+import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.notify.dto.NotificationRecordResponse;
 import com.aetherflow.notify.dto.StreamTokenResponse;
 import com.aetherflow.notify.service.NotificationService;
@@ -47,7 +49,12 @@ public class NotifyController {
     })
     @GetMapping("/sse/{userId}")
     public SseEmitter subscribe(@Parameter(description = "Target user id.", example = "10001")
-                                @PathVariable Long userId) {
+                                @PathVariable Long userId,
+                                @RequestParam("streamToken") String streamToken) {
+        StreamTokenService.StreamTokenClaims claims = streamTokenService.validate(streamToken);
+        if (claims.userId() == null || !claims.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "stream token user does not match requested user");
+        }
         return sseEmitterRegistry.register(userId);
     }
 

@@ -18,6 +18,7 @@ public class TaskProperties {
     private Duration executionTimeout = Duration.ofMinutes(30);
     private Duration retryInitialInterval = Duration.ofMinutes(1);
     private Duration retryMaxInterval = Duration.ofMinutes(10);
+    private String internalToken = "aetherflow-task-internal-dev-token";
     private Scheduler scheduler = new Scheduler();
     private Consumer consumer = new Consumer();
     private Mq mq = new Mq();

@@ -3,6 +3,7 @@ package com.aetherflow.workflow.demo;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.workflow.client.TaskClient;
+import com.aetherflow.workflow.config.TaskClientProperties;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
@@ -21,6 +22,7 @@ public class WorkflowSeataDemoService {
 
     private final WorkflowInstanceMapper instanceMapper;
     private final TaskClient taskClient;
+    private final TaskClientProperties taskClientProperties;
 
     @GlobalTransactional(name = "aetherflow-demo-workflow-task", rollbackFor = Exception.class)
     public WorkflowSeataDemoResponse createDemoTransaction(int holdSeconds, boolean rollback) {
@@ -56,7 +58,7 @@ public class WorkflowSeataDemoService {
         message.setNodeType("SEATA_DEMO");
         message.setPayload(Map.of("source", "workflow-service", "demo", "seata"));
         message.setEnqueue(false);
-        Result<Long> result = taskClient.dispatch(message);
+        Result<Long> result = taskClient.dispatch(taskClientProperties.getInternalToken(), message);
         if (result == null || !result.isSuccess()) {
             String messageText = result == null ? "task-service returned null" : result.getMessage();
             throw new IllegalStateException("task-service dispatch failed: " + messageText);

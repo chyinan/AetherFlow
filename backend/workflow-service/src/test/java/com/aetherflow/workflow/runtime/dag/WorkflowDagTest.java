@@ -47,7 +47,7 @@ class WorkflowDagTest {
     void rejectsRuntimeNextNodeThatWasNotDeclaredInDag() {
         WorkflowDag dag = WorkflowDag.from(definition(
                 node("start", "START", Map.of("next", "declared")),
-                node("declared", "DECLARED", Map.of()),
+                node("declared", "DECLARED", Map.of("next", "hidden")),
                 node("hidden", "HIDDEN", Map.of())
         ));
 
@@ -57,6 +57,70 @@ class WorkflowDagTest {
         ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not declared");
+    }
+
+    @Test
+    void rejectsSelfLoop() {
+        assertThatThrownBy(() -> WorkflowDag.from(definition(
+                node("start", "START", Map.of("next", "start"))
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void rejectsTwoNodeCycle() {
+        assertThatThrownBy(() -> WorkflowDag.from(definition(
+                node("a", "START", Map.of("next", "b")),
+                node("b", "SUMMARY", Map.of("next", "a"))
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void rejectsMultiNodeCycle() {
+        assertThatThrownBy(() -> WorkflowDag.from(definition(
+                node("a", "START", Map.of("next", "b")),
+                node("b", "SUMMARY", Map.of("next", "c")),
+                node("c", "EXPORT", Map.of("next", "a"))
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cycle");
+    }
+
+    @Test
+    void rejectsUnreachableNodeWhenExplicitEdgesExist() {
+        assertThatThrownBy(() -> WorkflowDag.from(definition(
+                node("start", "START", Map.of("next", "summary")),
+                node("summary", "SUMMARY", Map.of()),
+                node("orphan", "EXPORT", Map.of())
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unreachable");
+    }
+
+    @Test
+    void rejectsUnknownEdgeTarget() {
+        assertThatThrownBy(() -> WorkflowDag.from(definition(
+                node("start", "START", Map.of("next", "missing"))
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("target not found");
+    }
+
+    @Test
+    void acceptsLegalBranchGraph() {
+        WorkflowDag dag = WorkflowDag.from(definition(
+                node("start", "START", Map.of("nextNodes", List.of("left", "right"))),
+                node("left", "SUMMARY", Map.of("next", "join")),
+                node("right", "EXPORT", Map.of("next", "join")),
+                node("join", "END", Map.of())
+        ));
+
+        assertThat(dag.startNodeIds()).containsExactly("start");
+        assertThat(dag.nodeIds()).containsExactly("start", "left", "right", "join");
+        assertThat(dag.requiredPredecessorCount("join")).isEqualTo(2);
     }
 
     private static WorkflowDefinitionDTO definition(WorkflowNodeDTO... nodes) {

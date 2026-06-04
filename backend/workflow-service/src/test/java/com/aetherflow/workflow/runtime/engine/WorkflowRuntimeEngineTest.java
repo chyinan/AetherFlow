@@ -103,6 +103,33 @@ class WorkflowRuntimeEngineTest {
     }
 
     @Test
+    void failsWhenTriggeredJoinCannotCompleteBecauseAnotherPredecessorWasSkipped() {
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("CONDITION", context -> NodeResult.success(Map.of()).withBranchKey("left")),
+                executor("LEFT", context -> NodeResult.success(Map.of("left", true))),
+                executor("RIGHT", context -> NodeResult.success(Map.of("right", true))),
+                executor("JOIN", context -> NodeResult.success(Map.of("joined", true)))
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        assertThatThrownBy(() -> engine.execute(new WorkflowRuntimeRequest(
+                "workflow-incomplete-join",
+                "trace-incomplete-join",
+                "task-incomplete-join",
+                definition(
+                        node("condition", "CONDITION", Map.of("branches", Map.of("left", "left", "right", "right"))),
+                        node("left", "LEFT", Map.of("next", "join")),
+                        node("right", "RIGHT", Map.of("next", "join")),
+                        node("join", "JOIN", Map.of())
+                ),
+                Map.of(),
+                RetryPolicy.none()
+        )))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("incomplete expected nodes");
+    }
+
+    @Test
     void failsWhenNodeExecutorIsMissing() {
         WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(new NodeRegistry(List.of()));
 

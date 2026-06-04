@@ -1,5 +1,9 @@
 package com.aetherflow.workflow.runtime.controller;
 
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.metrics.RuntimeMetricsSnapshot;
@@ -38,22 +42,39 @@ public class WorkflowRuntimeController {
     private final InMemoryRuntimeObservationStore observationStore;
     private final RuntimeEventStore runtimeEventStore;
     private final RuntimeEventStreamService streamService;
+    private final WorkflowInstanceMapper workflowInstanceMapper;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore,
-                                     RuntimeEventStreamService streamService) {
+                                     RuntimeEventStreamService streamService,
+                                     WorkflowInstanceMapper workflowInstanceMapper) {
         this.metrics = metrics;
         this.observationStore = observationStore;
         this.runtimeEventStore = runtimeEventStore;
         this.streamService = streamService;
+        this.workflowInstanceMapper = workflowInstanceMapper;
+    }
+
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     RuntimeEventStreamService streamService) {
+        this(metrics, observationStore, runtimeEventStore, streamService, null);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore) {
         this(metrics, observationStore, runtimeEventStore, new RuntimeEventStreamService(runtimeEventStore));
+    }
+
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     WorkflowInstanceMapper workflowInstanceMapper) {
+        this(metrics, observationStore, runtimeEventStore, new RuntimeEventStreamService(runtimeEventStore), workflowInstanceMapper);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -91,7 +112,9 @@ public class WorkflowRuntimeController {
     })
     @GetMapping("/observability/{workflowId}")
     public Result<WorkflowRuntimeObservation> observability(@Parameter(description = "Workflow instance id.", example = "workflow-1001")
-                                                            @PathVariable String workflowId) {
+                                                            @PathVariable String workflowId,
+                                                            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(workflowId, userId);
         WorkflowRuntimeObservation observation = observationStore.snapshot(workflowId)
                 .orElseGet(() -> RuntimeObservationRebuilder.rebuild(workflowId, runtimeEventStore.safeEvents(workflowId))
                         .orElse(null));
@@ -107,7 +130,9 @@ public class WorkflowRuntimeController {
     })
     @GetMapping("/events/{workflowId}")
     public Result<List<RuntimeEvent>> events(@Parameter(description = "Workflow instance id.", example = "workflow-1001")
-                                             @PathVariable String workflowId) {
+                                             @PathVariable String workflowId,
+                                             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(workflowId, userId);
         return Result.success(runtimeEventStore.safeEvents(workflowId));
     }
 
@@ -122,10 +147,34 @@ public class WorkflowRuntimeController {
     @GetMapping(value = "/stream/{workflowId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@Parameter(description = "Workflow instance id.", example = "workflow-1001")
                              @PathVariable String workflowId,
+                             @RequestHeader(value = "X-User-Id", required = false) Long userId,
                              @Parameter(description = "Last SSE event id observed by the client.", example = "event-1")
                              @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
                              @Parameter(description = "Explicit event cursor. Takes precedence over Last-Event-ID.", example = "event-1")
                              @RequestParam(required = false) String cursor) {
+        assertWorkflowOwner(workflowId, userId);
         return streamService.stream(workflowId, lastEventId, cursor);
+    }
+
+    private void assertWorkflowOwner(String workflowId, Long userId) {
+        if (workflowInstanceMapper == null) {
+            return;
+        }
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
+        }
+        Long instanceId;
+        try {
+            instanceId = Long.valueOf(workflowId);
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow id is invalid");
+        }
+        WorkflowInstance instance = workflowInstanceMapper.selectById(instanceId);
+        if (instance == null || instance.getUserId() == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "workflow instance not found");
+        }
+        if (!instance.getUserId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "workflow instance forbidden");
+        }
     }
 }

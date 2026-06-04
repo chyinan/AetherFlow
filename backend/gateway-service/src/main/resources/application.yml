@@ -98,7 +98,7 @@ spring:
         - id: task-service
           uri: lb://task-service
           predicates:
-            - Path=/tasks/**,/internal/tasks/**
+            - Path=/tasks/**
         - id: ai-provider-management
           uri: lb://ai-service
           order: -50

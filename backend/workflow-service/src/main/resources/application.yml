@@ -73,6 +73,8 @@ aetherflow:
     bucket: ${MINIO_BUCKET:aetherflow}
   file:
     internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
+  task:
+    internal-token: ${TASK_INTERNAL_TOKEN:aetherflow-task-internal-dev-token}
   workflow:
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}

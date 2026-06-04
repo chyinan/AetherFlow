@@ -1,5 +1,9 @@
 package com.aetherflow.workflow.runtime.controller;
 
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
@@ -17,6 +21,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -116,6 +122,44 @@ class WorkflowRuntimeControllerTest {
 
         verify(streamService).stream("workflow-1", "event-1", "event-2");
         emitter.complete();
+    }
+
+    @Test
+    void rejectsRuntimeEventsWhenWorkflowInstanceBelongsToAnotherUser() {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(8L);
+        when(instanceMapper.selectById(1001L)).thenReturn(instance);
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(metrics, store, eventStore, instanceMapper);
+
+        assertThatThrownBy(() -> controller.events("1001", 7L))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.FORBIDDEN));
+    }
+
+    @Test
+    void streamsRuntimeEventsWhenWorkflowInstanceBelongsToCurrentUser() {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        RuntimeEventStreamService streamService = mock(RuntimeEventStreamService.class);
+        SseEmitter emitter = new SseEmitter(1000L);
+        when(streamService.stream("1001", null, null)).thenReturn(emitter);
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(7L);
+        when(instanceMapper.selectById(1001L)).thenReturn(instance);
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(metrics, store, eventStore, streamService, instanceMapper);
+
+        SseEmitter result = controller.stream("1001", 7L, null, null);
+
+        assertThat(result).isSameAs(emitter);
+        verify(streamService).stream("1001", null, null);
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,
