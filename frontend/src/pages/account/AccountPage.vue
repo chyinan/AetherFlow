@@ -38,7 +38,12 @@ const sessionExpiresAt = computed(() => {
   }
   return new Date(expiresAt).toLocaleString('zh-CN', { hour12: false })
 })
-const avatarText = computed(() => displayName.value.slice(0, 2).toUpperCase())
+const avatarText = computed(() => initialsFromName(displayName.value))
+
+function initialsFromName(name: string) {
+  const characters = Array.from(name.trim().replace(/\s+/g, ''))
+  return (characters.slice(0, 2).join('') || 'AE').toUpperCase()
+}
 
 const cards = computed(() => [
   {
@@ -69,7 +74,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="min-h-screen bg-app-bg px-6 py-10 text-text-primary">
+  <section class="h-full overflow-y-auto bg-app-bg px-6 py-10 text-text-primary">
     <div class="mx-auto w-full max-w-4xl">
       <header class="mb-6 flex items-center justify-between gap-4">
         <div>

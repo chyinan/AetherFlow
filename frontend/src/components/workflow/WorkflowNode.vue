@@ -14,7 +14,6 @@ import {
   Languages,
   MessageSquare,
   Mic,
-  Plus,
   Play,
   Repeat2,
   RotateCcw,
@@ -38,7 +37,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  addAfter: [nodeId: string, event: MouseEvent]
+  openNodeMenu: [nodeId: string, event: MouseEvent]
   select: [nodeId: string]
   testNode: [nodeId: string]
   duplicateNode: [nodeId: string]
@@ -97,13 +96,22 @@ const nodeRows = computed(() => {
       return []
   }
 })
+
+function handleNodeDoubleClick(event: MouseEvent) {
+  if (!event.metaKey && !event.ctrlKey) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  emit('openNodeMenu', props.id, event)
+}
 </script>
 
 <template>
   <div
     class="group relative w-[244px] rounded-lg border bg-white shadow-sm transition"
     :class="isActive ? 'border-primary shadow-node' : 'border-app-border hover:border-primary/30 hover:shadow-node'"
-    @click.stop="emit('select', id)"
+    @dblclick="handleNodeDoubleClick"
   >
     <Handle type="target" :position="Position.Left" class="!h-3 !w-3 !border-2 !border-white !bg-primary" />
     <div class="border-b border-app-border p-3">
@@ -172,13 +180,5 @@ const nodeRows = computed(() => {
       </button>
     </div>
     <Handle type="source" :position="Position.Right" class="!h-3 !w-3 !border-2 !border-white !bg-primary" />
-    <button
-      type="button"
-      class="absolute right-[-13px] top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full border border-primary bg-primary text-white opacity-0 shadow-node transition hover:bg-primary-dark group-hover:opacity-100"
-      :title="t('workflow.addNextNode')"
-      @click.stop="emit('addAfter', id, $event)"
-    >
-      <Plus class="h-3.5 w-3.5" />
-    </button>
   </div>
 </template>

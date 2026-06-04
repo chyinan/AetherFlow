@@ -28,3 +28,5 @@ application-*.local.yml
 .env
 data/
 
+# Local brainstorming companion
+.superpowers/

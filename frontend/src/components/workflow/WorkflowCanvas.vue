@@ -4,7 +4,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Node } from '@vue-flow/core'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useUiStore } from '@/stores/uiStore'
@@ -90,6 +90,40 @@ function openAddMenu(nodeId: string, event: MouseEvent) {
   }
 }
 
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+  const tagName = target.tagName.toLowerCase()
+  return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select'
+}
+
+function onWorkspaceKeydown(event: KeyboardEvent) {
+  if (isEditableTarget(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
+    return
+  }
+
+  const key = event.key.toLowerCase()
+  const step = event.shiftKey ? 96 : 48
+  const deltaByKey: Record<string, { x: number; y: number }> = {
+    arrowup: { x: 0, y: -step },
+    w: { x: 0, y: -step },
+    arrowdown: { x: 0, y: step },
+    s: { x: 0, y: step },
+    arrowleft: { x: -step, y: 0 },
+    a: { x: -step, y: 0 },
+    arrowright: { x: step, y: 0 },
+    d: { x: step, y: 0 },
+  }
+  const delta = deltaByKey[key]
+  if (!delta) {
+    return
+  }
+
+  event.preventDefault()
+  flow.panBy(delta)
+}
+
 async function addNodeAfter(template: NodeTemplate) {
   if (!addMenu.value) {
     return
@@ -166,9 +200,14 @@ function deleteNode(nodeId: string) {
 }
 
 onMounted(() => {
+  window.addEventListener('keydown', onWorkspaceKeydown)
   window.setTimeout(() => {
     ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2 })
   }, 80)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWorkspaceKeydown)
 })
 </script>
 
@@ -225,7 +264,7 @@ onMounted(() => {
             :id="nodeProps.id"
             :data="nodeProps.data"
             :selected="nodeProps.selected"
-            @add-after="openAddMenu"
+            @open-node-menu="openAddMenu"
             @select="selectNode"
             @test-node="testNode"
             @duplicate-node="duplicateNode"

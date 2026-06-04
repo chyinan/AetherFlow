@@ -16,9 +16,18 @@ const root = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const open = ref(false)
 
+const displayName = computed(() =>
+  authStore.user?.name ?? authStore.user?.username ?? 'aether.operator',
+)
+const avatarText = computed(() => initialsFromName(displayName.value))
 const themeLabel = computed(() =>
   uiStore.theme === 'light' ? t('accountMenu.themeLight') : t('accountMenu.themeDark'),
 )
+
+function initialsFromName(name: string) {
+  const characters = Array.from(name.trim().replace(/\s+/g, ''))
+  return (characters.slice(0, 2).join('') || 'AE').toUpperCase()
+}
 
 function closeMenu() {
   open.value = false
@@ -83,7 +92,7 @@ onBeforeUnmount(() => {
       @click="toggleMenu"
     >
       <span class="grid h-8 w-8 place-items-center rounded-full bg-primary-soft text-[11px] font-semibold text-primary">
-        AE
+        {{ avatarText }}
       </span>
     </button>
 
@@ -104,10 +113,10 @@ onBeforeUnmount(() => {
         >
           <div class="flex items-center gap-3 px-4 py-3">
             <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-semibold text-primary">
-              AE
+              {{ avatarText }}
             </span>
             <div class="min-w-0">
-              <p class="truncate text-sm font-semibold text-text-primary">{{ authStore.user?.name ?? 'aether.operator' }}</p>
+              <p class="truncate text-sm font-semibold text-text-primary">{{ displayName }}</p>
               <p class="truncate text-xs text-text-muted">{{ authStore.user?.workspace ?? authStore.workspace }}</p>
             </div>
           </div>

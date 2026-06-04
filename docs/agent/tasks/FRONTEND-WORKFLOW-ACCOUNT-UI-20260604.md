@@ -87,3 +87,24 @@ Agent 编码计划：
 2. 2026-06-04 20:38，用户已确认任务边界。
 3. 2026-06-04 20:38，已完成前端环境检测，node/npm 可用。
 4. 2026-06-04 20:38，当前进行 docs-only claim；claim push 成功前不修改业务代码。
+5. 2026-06-04 20:40，docs-only claim 已提交并推送：404c437。
+6. 2026-06-04 20:40，用户要求“先不推送”；后续只做本地改动和验证，不再执行 git push。
+7. 2026-06-04 20:44，完成业务改动：普通节点点击不再阻断 Vue Flow 连线；Command/Ctrl + 双击节点打开节点菜单；画布支持 WASD/方向键平移；账户和设置页进入 AppShell；头像缩写根据用户名实时计算。
+8. 2026-06-04 20:46，Browser 插件所需的 node_repl/js 工具当前会话不可用，未执行真实浏览器点击自动化；改用构建、路由响应和代码级检查验证。
+
+验证结果：
+1. `cd frontend && npm run build`：通过；Vite 仅输出既有 chunk size warning。
+2. `git diff --check`：通过，无 whitespace error。
+3. `curl --noproxy '*' -I http://localhost:5177/workflows/new`：200 OK。
+4. `curl --noproxy '*' -I http://localhost:5177/account`：200 OK。
+5. `curl --noproxy '*' -I http://localhost:5177/settings`：200 OK。
+6. 本地浏览器真实点击验证：未执行；原因是当前会话没有 Browser 插件要求的 JavaScript 执行工具，且用户要求先不推送，本轮不额外扩大工具操作范围。
+
+提交记录：
+1. 404c437 docs(agent): claim FRONTEND-WORKFLOW-ACCOUNT-UI-20260604
+
+交接：
+1. 当前状态：本地业务改动已完成，待本地提交或用户复核后再决定是否推送。
+2. 合入 main：未合入。
+3. 统一运行电脑验证：未运行。
+4. 文件锁：保持 ACTIVE，业务代码尚未推送。
