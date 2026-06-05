@@ -6,6 +6,7 @@ import {
 } from '@/api/mappers/runtimeMapper'
 import {
   buildNotifySseUrl,
+  issueNotifyStreamToken,
   safeParseNotifyMessage,
   type NotifyMessageDTO,
 } from '@/api/modules/notify'
@@ -240,6 +241,7 @@ export const realtimeClient = {
     let closed = false
     let sseOnline = false
     let ssePermanentlyUnavailable = false
+    let sse: SseConnection | null = null
     let socket: NotificationSocketConnection | null = null
 
     const startSocket = () => {
@@ -262,40 +264,60 @@ export const realtimeClient = {
       socket.connect()
     }
 
-    const sse: SseConnection = createSseClient({
-      url: buildNotifySseUrl(userId),
-      idleTimeoutMs: 30_000,
-      onOpen: () => {
-        sseOnline = true
-        socket?.close()
-        socket = null
-      },
-      onMessage: (message) => {
-        const notifyMessage = safeParseNotifyMessage(message.data)
-        if (notifyMessage) {
-          handlers.onMessage?.(notifyMessage)
+    const startSse = async () => {
+      try {
+        const streamToken = await issueNotifyStreamToken()
+        if (closed) {
+          return
         }
-      },
-      onConnectionChange: (state) => {
-        sseOnline = state === 'online'
-        handlers.onConnectionChange?.(state)
-      },
-      onError: (error) => {
-        handlers.onError?.(error)
-        ssePermanentlyUnavailable = error instanceof SseHttpError && !error.retryable
-        if (!sseOnline && !ssePermanentlyUnavailable) {
-          startSocket()
-        }
-      },
-      onReconnect: (attempt, delayMs) => {
-        handlers.onReconnect?.('sse', attempt, delayMs)
-        if (attempt >= 2) {
-          startSocket()
-        }
-      },
-    })
 
-    sse.connect()
+        const streamUserId = streamToken.userId ?? userId
+        sse = createSseClient({
+          url: buildNotifySseUrl(
+            streamUserId,
+            streamToken.token,
+            streamToken.queryParam || 'streamToken',
+          ),
+          idleTimeoutMs: 30_000,
+          onOpen: () => {
+            sseOnline = true
+            socket?.close()
+            socket = null
+          },
+          onMessage: (message) => {
+            const notifyMessage = safeParseNotifyMessage(message.data)
+            if (notifyMessage) {
+              handlers.onMessage?.(notifyMessage)
+            }
+          },
+          onConnectionChange: (state) => {
+            sseOnline = state === 'online'
+            handlers.onConnectionChange?.(state)
+          },
+          onError: (error) => {
+            handlers.onError?.(error)
+            ssePermanentlyUnavailable = error instanceof SseHttpError && !error.retryable
+            if (!sseOnline && !ssePermanentlyUnavailable) {
+              startSocket()
+            }
+          },
+          onReconnect: (attempt, delayMs) => {
+            handlers.onReconnect?.('sse', attempt, delayMs)
+            if (attempt >= 2) {
+              startSocket()
+            }
+          },
+        })
+        sse.connect()
+      } catch (error) {
+        handlers.onError?.(error)
+        if (!closed) {
+          handlers.onConnectionChange?.('offline')
+        }
+      }
+    }
+
+    void startSse()
 
     const fallbackTimer = window.setTimeout(() => {
       if (!sseOnline && !ssePermanentlyUnavailable) {
@@ -306,7 +328,7 @@ export const realtimeClient = {
     return () => {
       closed = true
       window.clearTimeout(fallbackTimer)
-      sse.close()
+      sse?.close()
       socket?.close()
       socket = null
       handlers.onConnectionChange?.('offline')

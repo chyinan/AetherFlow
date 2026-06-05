@@ -68,8 +68,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-export function buildNotifySseUrl(userId: number | string) {
-  return resolveUrl(runtimeEnv.sseBase, `/notify/sse/${encodeURIComponent(String(userId))}`)
+export function buildNotifySseUrl(
+  userId: number | string,
+  streamToken?: string,
+  queryParam = 'streamToken',
+) {
+  const url = resolveUrl(runtimeEnv.sseBase, `/notify/sse/${encodeURIComponent(String(userId))}`)
+  if (!streamToken) {
+    return url
+  }
+
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}${encodeURIComponent(queryParam)}=${encodeURIComponent(streamToken)}`
 }
 
 export function issueNotifyStreamToken() {

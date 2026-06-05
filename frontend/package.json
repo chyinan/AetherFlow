@@ -8,7 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "check:workflow-mapping": "node scripts/check-workflow-node-backend-mapping.mjs",
     "check:copilot-actions": "node scripts/check-copilot-workflow-actions.mjs",
-    "check:notifications": "node --experimental-strip-types scripts/check-notification-history-merge.mjs",
+    "check:notifications": "node scripts/check-notify-stream-contract.mjs && node --experimental-strip-types scripts/check-notification-history-merge.mjs",
     "api:generate": "orval --config src/api/openapi/orval.config.ts",
     "preview": "vite preview --host 0.0.0.0"
   },
