@@ -33,6 +33,7 @@ import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 const { t } = useI18n()
 
 const landingRoot = ref<HTMLElement | null>(null)
+const scrollViewport = ref<HTMLElement | null>(null)
 const buildStorySection = ref<HTMLElement | null>(null)
 const buildStoryPanel = ref<HTMLElement | null>(null)
 const cursorVisible = ref(false)
@@ -209,7 +210,7 @@ function selectBuildStage(index: number) {
 }
 
 function getBuildStoryMetrics() {
-  if (!landingRoot.value || !buildStorySection.value || !buildStoryPanel.value) return null
+  if (!landingRoot.value || !scrollViewport.value || !buildStorySection.value || !buildStoryPanel.value) return null
 
   const stageCount = Math.max(buildStages.value.length - 1, 1)
   const scrollableDistance = Math.max(
@@ -218,7 +219,7 @@ function getBuildStoryMetrics() {
   )
 
   return {
-    root: landingRoot.value,
+    root: scrollViewport.value,
     sectionTop: buildStorySection.value.offsetTop,
     scrollableDistance,
     step: scrollableDistance / stageCount,
@@ -361,8 +362,8 @@ function handleLandingPointerMove(event: PointerEvent) {
 
     landingRoot.value.style.setProperty('--landing-pointer-x', String(x.toFixed(4)))
     landingRoot.value.style.setProperty('--landing-pointer-y', String(y.toFixed(4)))
-    tiltStageX(58 + y * 7)
-    tiltStageZ(-24 + x * 5)
+    tiltStageX(40 + y * 7)
+    tiltStageZ(-14 + x * 5)
   }
 }
 
@@ -375,8 +376,8 @@ function handleLandingPointerLeave() {
     cursorAnimationFrame = undefined
   }
 
-  tiltStageX?.(58)
-  tiltStageZ?.(-24)
+  tiltStageX?.(40)
+  tiltStageZ?.(-14)
 }
 
 onMounted(() => {
@@ -390,7 +391,9 @@ onMounted(() => {
     tiltStageZ = gsap.quickTo(stage, 'rotation', { duration: 0.55, ease: 'power3.out' })
   }
 
-  landingRoot.value.addEventListener('scroll', syncBuildStageFromPageScroll, { passive: true })
+  if (scrollViewport.value) {
+    scrollViewport.value.addEventListener('scroll', syncBuildStageFromPageScroll, { passive: true })
+  }
   window.addEventListener('resize', syncBuildStageFromPageScroll)
   window.requestAnimationFrame(syncBuildStageFromPageScroll)
 
@@ -447,7 +450,7 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(cursorAnimationFrame)
   }
 
-  landingRoot.value?.removeEventListener('scroll', syncBuildStageFromPageScroll)
+  scrollViewport.value?.removeEventListener('scroll', syncBuildStageFromPageScroll)
   window.removeEventListener('resize', syncBuildStageFromPageScroll)
 
   landingAnimationContext?.revert()
@@ -457,7 +460,7 @@ onBeforeUnmount(() => {
 <template>
   <main
     ref="landingRoot"
-    class="landing-snap-root relative min-h-screen w-full max-w-full overflow-x-hidden bg-white text-text-primary"
+    class="landing-snap-root relative w-full max-w-full overflow-hidden bg-white text-text-primary"
     @pointermove="handleLandingPointerMove"
     @pointerleave="handleLandingPointerLeave"
   >
@@ -480,7 +483,7 @@ onBeforeUnmount(() => {
     <div class="absolute right-[7%] top-0 hidden h-full w-px bg-primary/10 lg:block" />
     <div class="absolute left-1/2 top-0 hidden h-full w-px bg-primary/10 lg:block" />
 
-    <header class="sticky top-0 z-50 border-b border-primary/10 bg-white/85 backdrop-blur">
+    <header class="sticky top-0 z-50 shrink-0 border-b border-primary/10 bg-white/85 backdrop-blur">
       <div class="mx-auto flex h-24 max-w-[1720px] items-center justify-between px-5 sm:px-8 lg:px-14">
         <RouterLink to="/" class="flex items-center" :aria-label="t('app.name')">
           <span class="font-display text-2xl font-semibold tracking-normal text-text-primary sm:text-3xl">
@@ -511,8 +514,9 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <section class="landing-snap-section relative z-10 mx-auto grid min-h-[calc(100vh-96px)] w-full max-w-[1720px] grid-cols-1 overflow-x-hidden px-5 sm:px-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-14">
-      <div id="workspace" class="flex min-h-[650px] min-w-0 flex-col justify-center border-primary/10 py-14 lg:border-r lg:py-20">
+    <div ref="scrollViewport" class="landing-scroll-viewport">
+    <section class="landing-snap-section relative z-10 mx-auto grid w-full max-w-[1720px] grid-cols-1 overflow-x-hidden px-5 sm:px-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)] lg:px-14">
+      <div id="workspace" class="relative z-10 flex min-h-[650px] min-w-0 flex-col justify-start border-primary/10 pt-12 pb-14 lg:border-r">
         <p class="landing-reveal mb-8 inline-flex w-fit items-center gap-2 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">
           <Zap class="h-4 w-4" />
           {{ t('landing.badge') }}
@@ -560,7 +564,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div aria-hidden="true" class="relative flex min-h-[520px] min-w-0 max-w-full items-center justify-center overflow-hidden py-8 lg:min-h-[650px] lg:py-0">
+      <div aria-hidden="true" class="relative flex min-h-[520px] min-w-0 max-w-full items-center justify-center overflow-visible py-8 lg:min-h-[650px] lg:py-0 lg:pl-4">
         <span class="landing-depth-line absolute inset-x-12 bottom-28 h-px bg-primary/10" />
         <span class="landing-depth-line absolute right-10 top-28 h-px w-52 bg-gradient-to-r from-transparent via-primary/25 to-transparent" />
         <span class="landing-depth-line absolute right-28 top-28 h-52 w-px bg-gradient-to-b from-primary/20 via-primary/10 to-transparent" />
@@ -910,5 +914,6 @@ onBeforeUnmount(() => {
         </a>
       </div>
     </footer>
+    </div>
   </main>
 </template>

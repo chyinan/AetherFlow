@@ -12,9 +12,9 @@ export const zhCN = {
       docs: '文档',
     },
     badge: '面向企业的 AI 工作流运行平台',
-    heroTitle: '让 AI 工作流',
-    heroAccent: '进入运行态',
-    subtitle: 'AetherFlow 将模型、文件、Agent 步骤与运行遥测统一到一张可观测蓝图。',
+    heroTitle: '为用户打造企业级',
+    heroAccent: 'AI 工作流',
+    subtitle: '模型、知识、文件和 API 接入同一个运行面——不只展示编排，也展示运行后的确定性。',
     primaryCta: '立即开始',
     secondaryCta: '查看流程',
     stats: {
