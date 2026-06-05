@@ -21,6 +21,7 @@ public class WorkflowNodeCatalogService {
                 translate(),
                 summary(),
                 embedding(),
+                knowledgeRetrieval(),
                 export(),
                 notifyNode(),
                 agent(),
@@ -253,6 +254,35 @@ public class WorkflowNodeCatalogService {
                         "overlap", 128,
                         "vectorCollection", "workflow-embeddings"
                 )
+        );
+    }
+
+    private WorkflowNodeCatalogItem knowledgeRetrieval() {
+        return item(
+                "KNOWLEDGE_RETRIEVAL",
+                "Knowledge Retrieval",
+                "AI",
+                "Retrieves top-k chunks from a configured knowledge dataset and exposes context for downstream LLM nodes.",
+                List.of(
+                        field("datasetId", "STRING", true, "Knowledge dataset id selected from the knowledge base.", "42"),
+                        field("queryText", "STRING", false, "Fixed retrieval query. Usually omitted in favor of queryVariable.", "pricing policy"),
+                        field("queryVariable", "STRING", false, "Workflow variable used as retrieval query.", "question"),
+                        field("topK", "NUMBER", false, "Maximum number of chunks to retrieve.", 3),
+                        field("outputVariable", "STRING", false, "Variable name used for joined retrieval context.", "retrievalContext"),
+                        field("metadataFilter", "STRING", false, "Metadata filtering mode for retrieval.", "disabled")
+                ),
+                List.of(variable("question", "STRING", "Query produced by upstream nodes or workflow input.", "How is pricing calculated?")),
+                List.of(
+                        variable("retrievalContext", "STRING", "Joined retrieved chunk previews for downstream LLM context.", "Pricing policy paragraph"),
+                        variable("retrievalResults", "ARRAY", "Retrieved chunks with source, preview, score and status.", List.of(Map.of(
+                                "source", "pricing.md",
+                                "preview", "Pricing policy paragraph",
+                                "score", 0.91
+                        ))),
+                        variable("retrievalCount", "NUMBER", "Number of retrieved chunks.", 3),
+                        variable("retrievalDatasetId", "STRING", "Dataset used for retrieval.", "42")
+                ),
+                mapOf("datasetId", "42", "queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "disabled")
         );
     }
 

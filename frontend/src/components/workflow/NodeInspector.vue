@@ -30,11 +30,14 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
+import { useModelStore } from '@/stores/modelStore'
 import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -46,7 +49,9 @@ type ConfigRecord = Record<string, ConfigValue>
 
 const uiStore = useUiStore()
 const workflowStore = useWorkflowStore()
+const difyStore = useDifyStore()
 const fileStore = useFileStore()
+const modelStore = useModelStore()
 const runStore = useRunStore()
 const selectedNode = computed(() => {
   const selectedByFlow = workflowStore.nodes.find((node) => node.selected)
@@ -54,8 +59,10 @@ const selectedNode = computed(() => {
   return selectedByFlow ?? selectedByStore ?? null
 })
 const { t } = useI18n()
+const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
+const retrievalSettingsExpanded = ref(false)
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
@@ -110,6 +117,18 @@ const defaultJinjaTemplate = '{{ arg1 }}'
 const summaryLanguages = ['Chinese', 'English']
 const summaryProviders = ['ollama', 'openai']
 const exportFormats = ['MARKDOWN', 'TXT', 'JSON']
+const agentOutputVariables = [
+  { name: 'text', type: 'String', descriptionKey: 'workflow.inspector.generatedContent' },
+  { name: 'usage', type: 'object', descriptionKey: 'workflow.inspector.modelUsage' },
+  { name: 'files', type: 'Array[File]', descriptionKey: 'workflow.inspector.generatedFiles' },
+  { name: 'json', type: 'Array[Object]', descriptionKey: 'workflow.inspector.generatedJson' },
+]
+const humanOutputVariables = [
+  { name: '__action_id', type: 'string', descriptionKey: 'workflow.inspector.actionId' },
+]
+const documentExtractorOutputVariables = [
+  { name: 'text', type: 'string', descriptionKey: 'workflow.inspector.extractedText' },
+]
 
 const selectableInputFiles = computed(() =>
   fileStore.inputFiles.filter((file) => file.status !== 'failed' && file.backendFileId),
@@ -119,6 +138,26 @@ const selectedInputFile = computed(() => {
   const fileId = textConfig('fileId', '')
   return selectableInputFiles.value.find((file) => String(file.backendFileId) === fileId)
 })
+
+const knowledgeDatasets = computed(() => difyStore.datasets.filter((dataset) => dataset.status !== 'disabled'))
+
+const selectedKnowledgeDataset = computed(() => {
+  const datasetId = textConfig('dataset', '')
+  return knowledgeDatasets.value.find((dataset) => dataset.id === datasetId)
+})
+
+const availableChatModels = computed(() =>
+  modelStore.models.filter((model) => model.kind === 'chat' && model.status !== 'disabled'),
+)
+
+function modelOptionLabel(model: { name: string; providerId: string }) {
+  const provider = modelStore.providers.find((item) => item.id === model.providerId)
+  return provider ? `${model.name} · ${provider.name}` : model.name
+}
+
+function knowledgeDatasetLabel(dataset: { name: string; documentCount: number; chunkCount: number }) {
+  return `${dataset.name} · ${dataset.documentCount} docs · ${dataset.chunkCount} chunks`
+}
 
 function nodeLabel(kind: string) {
   return t(`workflow.catalog.items.${kind}.label`)
@@ -223,11 +262,21 @@ async function handleInputFileUpload(event: Event) {
   }
 }
 
+function openKnowledgePage() {
+  void router.push({ name: 'knowledge' })
+}
+
 watch(selectedNode, (node) => {
   if (node && node.id !== uiStore.selectedNodeId) {
     uiStore.setSelectedNode(node.id)
   }
   activeTab.value = 'settings'
+  retrievalSettingsExpanded.value = false
+})
+
+onMounted(() => {
+  void modelStore.loadModels()
+  void difyStore.refreshDatasets()
 })
 </script>
 
@@ -438,8 +487,7 @@ watch(selectedNode, (node) => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option value="aether-runtime/mock-gpt">aether-runtime/mock-gpt</option>
-              <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">
@@ -484,19 +532,61 @@ watch(selectedNode, (node) => {
           <div>
             <div class="mb-2 flex items-center justify-between">
               <span class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.knowledgeBase') }} <span class="text-status-error">*</span></span>
-              <button class="inline-flex items-center gap-2 text-sm text-text-muted"><SlidersHorizontal class="h-4 w-4" />{{ t('workflow.inspector.retrievalSettings') }}</button>
+              <div class="flex items-center gap-3">
+                <button type="button" class="inline-flex items-center gap-1 text-sm font-medium text-primary" @click="openKnowledgePage">
+                  <Plus class="h-4 w-4" />
+                  {{ t('knowledge.flow.createKnowledge') }}
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-text-muted hover:bg-app-bg2 hover:text-primary"
+                  :aria-expanded="retrievalSettingsExpanded"
+                  @click="retrievalSettingsExpanded = !retrievalSettingsExpanded"
+                >
+                  <SlidersHorizontal class="h-4 w-4" />
+                  {{ t('workflow.inspector.retrievalSettings') }}
+                  <ChevronDown class="h-3.5 w-3.5 transition-transform" :class="{ 'rotate-180': retrievalSettingsExpanded }" />
+                </button>
+              </div>
             </div>
-            <button class="w-full rounded-lg bg-app-bg2 px-3 py-5 text-sm font-medium text-text-muted" @click="updateConfig('dataset', 'kb-product-docs')">
-              {{ textConfig('dataset', '') || t('workflow.inspector.clickAddKnowledge') }}
-            </button>
-          </div>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.metadataFilter') }}
-            <select class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" :value="textConfig('metadataFilter', 'disabled')" @change="handleTextInput('metadataFilter', $event)">
-              <option value="disabled">{{ t('workflow.inspector.disabled') }}</option>
-              <option value="enabled">{{ t('status.active') }}</option>
+            <select
+              v-if="knowledgeDatasets.length > 0"
+              class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm font-medium text-text-primary outline-none focus:border-primary"
+              :value="textConfig('dataset', '')"
+              @change="handleTextInput('dataset', $event)"
+            >
+              <option value="">{{ t('workflow.inspector.clickAddKnowledge') }}</option>
+              <option v-for="dataset in knowledgeDatasets" :key="dataset.id" :value="dataset.id">
+                {{ knowledgeDatasetLabel(dataset) }}
+              </option>
             </select>
-          </label>
+            <button v-else type="button" class="w-full rounded-lg border border-dashed border-app-border bg-app-bg2 px-3 py-5 text-sm font-medium text-text-muted hover:border-primary/50 hover:text-primary" @click="openKnowledgePage">
+              {{ t('workflow.inspector.clickAddKnowledge') }}
+            </button>
+            <p v-if="selectedKnowledgeDataset" class="mt-2 text-xs leading-5 text-text-secondary">
+              {{ selectedKnowledgeDataset.description || selectedKnowledgeDataset.retrievalMode }}
+            </p>
+          </div>
+          <div v-if="retrievalSettingsExpanded" class="space-y-4 rounded-lg border border-app-border bg-app-bg2 p-4">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">Top K</span>
+              <div class="flex items-center gap-3">
+                <input type="range" min="1" max="10" class="min-w-0 flex-1 accent-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="number" min="1" max="10" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+              </div>
+            </label>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</span>
+              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'retrievalContext')" @input="handleTextInput('outputVariable', $event)" />
+            </label>
+            <label class="flex items-center justify-between text-sm font-semibold text-text-primary">
+              {{ t('workflow.inspector.metadataFilter') }}
+              <select class="rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary" :value="textConfig('metadataFilter', 'disabled')" @change="handleTextInput('metadataFilter', $event)">
+                <option value="disabled">{{ t('workflow.inspector.disabled') }}</option>
+                <option value="enabled">{{ t('status.active') }}</option>
+              </select>
+            </label>
+          </div>
         </section>
 
         <section v-else-if="selectedKind === 'output'" class="space-y-5 p-5">
@@ -555,11 +645,14 @@ watch(selectedNode, (node) => {
           </div>
           <div>
             <p class="mb-3 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
-            <div class="space-y-3 text-sm">
-              <p><span class="font-mono text-lg font-semibold">text</span> <span class="ml-2 text-text-muted">String</span><br /><span class="text-text-secondary">{{ t('workflow.inspector.generatedContent') }}</span></p>
-              <p><span class="font-mono text-lg font-semibold">usage</span> <span class="ml-2 text-text-muted">object</span><br /><span class="text-text-secondary">{{ t('workflow.inspector.modelUsage') }}</span></p>
-              <p><span class="font-mono text-lg font-semibold">files</span> <span class="ml-2 text-text-muted">Array[File]</span><br /><span class="text-text-secondary">{{ t('workflow.inspector.generatedFiles') }}</span></p>
-              <p><span class="font-mono text-lg font-semibold">json</span> <span class="ml-2 text-text-muted">Array[Object]</span><br /><span class="text-text-secondary">{{ t('workflow.inspector.generatedJson') }}</span></p>
+            <div class="space-y-4">
+              <label v-for="variable in agentOutputVariables" :key="variable.name" class="block">
+                <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t(variable.descriptionKey) }}</span>
+                <span class="flex w-full items-center justify-between rounded-lg border border-app-border bg-white px-3 py-3 text-sm">
+                  <span class="font-medium text-text-primary">{{ variable.name }}</span>
+                  <span class="text-xs font-medium text-text-muted">{{ variable.type }}</span>
+                </span>
+              </label>
             </div>
           </div>
         </section>
@@ -569,7 +662,7 @@ watch(selectedNode, (node) => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option value="aether-runtime/mock-gpt">aether-runtime/mock-gpt</option>
+              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">
@@ -653,8 +746,15 @@ watch(selectedNode, (node) => {
           </label>
           <div>
             <p class="mb-2 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
-            <p><span class="font-mono text-lg font-semibold">__action_id</span> <span class="ml-2 text-text-muted">string</span></p>
-            <p class="text-sm text-text-secondary">{{ t('workflow.inspector.actionId') }}</p>
+            <div class="space-y-4">
+              <label v-for="variable in humanOutputVariables" :key="variable.name" class="block">
+                <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t(variable.descriptionKey) }}</span>
+                <span class="flex w-full items-center justify-between rounded-lg border border-app-border bg-white px-3 py-3 text-sm">
+                  <span class="font-medium text-text-primary">{{ variable.name }}</span>
+                  <span class="text-xs font-medium text-text-muted">{{ variable.type }}</span>
+                </span>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -755,8 +855,15 @@ watch(selectedNode, (node) => {
           </label>
           <div>
             <p class="mb-3 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
-            <p><span class="font-mono text-lg font-semibold">text</span> <span class="ml-2 text-text-muted">string</span></p>
-            <p class="text-sm text-text-secondary">{{ t('workflow.inspector.extractedText') }}</p>
+            <div class="space-y-4">
+              <label v-for="variable in documentExtractorOutputVariables" :key="variable.name" class="block">
+                <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t(variable.descriptionKey) }}</span>
+                <span class="flex w-full items-center justify-between rounded-lg border border-app-border bg-white px-3 py-3 text-sm">
+                  <span class="font-medium text-text-primary">{{ variable.name }}</span>
+                  <span class="text-xs font-medium text-text-muted">{{ variable.type }}</span>
+                </span>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -777,7 +884,7 @@ watch(selectedNode, (node) => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
             <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option value="aether-runtime/mock-gpt">aether-runtime/mock-gpt</option>
+              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">

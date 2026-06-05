@@ -13,6 +13,7 @@ public final class WorkflowNodeTypes {
     public static final NodeType TRANSLATE = NodeType.of("TRANSLATE");
     public static final NodeType SUMMARY = NodeType.of("SUMMARY");
     public static final NodeType EMBEDDING = NodeType.of("EMBEDDING");
+    public static final NodeType KNOWLEDGE_RETRIEVAL = NodeType.of("KNOWLEDGE_RETRIEVAL");
     public static final NodeType EXPORT = NodeType.of("EXPORT");
     public static final NodeType NOTIFY = NodeType.of("NOTIFY");
     public static final NodeType AGENT = NodeType.of("AGENT");

@@ -107,7 +107,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'AI',
     catalog: 'node',
     group: 'recommended',
-    config: { strategy: '', model: 'aether-runtime/mock-gpt', memory: true },
+    config: { strategy: '', model: '', memory: true },
     inputs: ['task.text', 'memory.json'],
     outputs: ['plan.json', 'action.log'],
   },

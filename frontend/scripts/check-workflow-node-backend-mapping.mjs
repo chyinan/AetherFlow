@@ -14,7 +14,7 @@ const requiredMappings = {
   translate: 'TRANSLATE',
   summary: 'SUMMARY',
   export: 'EXPORT',
-  'knowledge-retrieval': 'EMBEDDING',
+  'knowledge-retrieval': 'KNOWLEDGE_RETRIEVAL',
   output: 'END',
   agent: 'AGENT',
   'question-understand': 'QUESTION_UNDERSTAND',

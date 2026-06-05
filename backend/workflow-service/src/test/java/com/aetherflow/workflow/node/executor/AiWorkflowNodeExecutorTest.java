@@ -90,6 +90,7 @@ class AiWorkflowNodeExecutorTest {
 
         assertThat(result.variables()).containsEntry("route", "billing");
         assertThat(result.variables()).containsKey("routeJson");
+        assertThat(result.branchKey()).isEqualTo("billing");
     }
 
     private static DefaultWorkflowContext context(String nodeId,

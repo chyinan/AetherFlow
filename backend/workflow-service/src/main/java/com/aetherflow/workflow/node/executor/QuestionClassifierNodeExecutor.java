@@ -44,7 +44,8 @@ public class QuestionClassifierNodeExecutor extends AbstractAiWorkflowNodeExecut
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put("route", route);
         variables.put("routeJson", routeJson.isEmpty() ? Map.of("route", route) : routeJson);
-        return aiResult(response, variables);
+        return aiResult(response, variables)
+                .withBranchKey(NodeValueSupport.stringValue(route));
     }
 
     private List<String> routes(Map<String, Object> config) {

@@ -1,5 +1,5 @@
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
-import type { WorkflowDefinition, WorkflowGraphNode } from '@/types/workflow'
+import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 
 type BackendNodeType =
   | 'START'
@@ -10,6 +10,7 @@ type BackendNodeType =
   | 'TRANSLATE'
   | 'SUMMARY'
   | 'EMBEDDING'
+  | 'KNOWLEDGE_RETRIEVAL'
   | 'EXPORT'
   | 'END'
   | 'CONDITION'
@@ -46,13 +47,15 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'document-extractor': 'OCR',
   'variable-assigner': 'VARIABLE_ASSIGNER',
   'parameter-extractor': 'PARAMETER_EXTRACTOR',
-  'knowledge-retrieval': 'EMBEDDING',
+  'knowledge-retrieval': 'KNOWLEDGE_RETRIEVAL',
   ffmpeg: 'UPLOAD',
 }
 
 const UNSUPPORTED_NODE_HINTS: Record<string, string> = {
   'video-generate': 'VideoGenerate is not available in the backend workflow node catalog yet.',
 }
+
+const LEGACY_MOCK_MODEL_VALUES = new Set(['aether-runtime/mock-gpt', 'mock-gpt'])
 
 function toRecord(value: unknown) {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
@@ -70,6 +73,14 @@ function stringValue(value: unknown, fallback = '') {
 function optionalString(value: unknown) {
   const normalized = stringValue(value)
   return normalized || undefined
+}
+
+function optionalModel(value: unknown) {
+  const normalized = optionalString(value)
+  if (!normalized || LEGACY_MOCK_MODEL_VALUES.has(normalized)) {
+    return undefined
+  }
+  return normalized
 }
 
 function booleanValue(value: unknown, fallback = false) {
@@ -98,6 +109,9 @@ function stringList(value: unknown) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean)
   }
+  if (typeof value !== 'string') {
+    return []
+  }
   const normalized = stringValue(value)
   if (!normalized) {
     return []
@@ -105,10 +119,25 @@ function stringList(value: unknown) {
   return normalized.split(',').map((item) => item.trim()).filter(Boolean)
 }
 
-function withNextNodes(config: Record<string, unknown>, nextNodes: string[]) {
+interface BranchRoutingConfig {
+  branches: Record<string, string>
+  defaultNext?: string
+}
+
+function withNextNodes(
+  config: Record<string, unknown>,
+  nextNodes: string[],
+  branchRouting?: BranchRoutingConfig,
+) {
   return {
     ...config,
     nextNodes: [...nextNodes],
+    ...(branchRouting && Object.keys(branchRouting.branches).length > 0
+      ? {
+          branches: branchRouting.branches,
+          ...(branchRouting.defaultNext ? { defaultNext: branchRouting.defaultNext } : {}),
+        }
+      : {}),
   }
 }
 
@@ -171,6 +200,7 @@ function normalizeWhisperConfig(config: Record<string, unknown>, nextNodes: stri
 }
 
 function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.prompt) ? { prompt: optionalString(config.prompt) } : {}),
     promptVariable: stringValue(config.promptVariable, 'question'),
@@ -178,7 +208,7 @@ function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]
     ...(optionalString(config.context) ? { contextVariable: optionalString(config.context) } : {}),
     ...(optionalString(config.contextVariable) ? { contextVariable: optionalString(config.contextVariable) } : {}),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
     temperature: numberValue(config.temperature, 0.3),
     maxTokens: Math.max(0, Math.floor(numberValue(config.maxTokens, 1200))),
     structuredOutput: booleanValue(config.structuredOutput, false),
@@ -187,25 +217,27 @@ function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]
 }
 
 function normalizeTranslateConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.text) ? { text: optionalString(config.text) } : {}),
     textVariable: stringValue(config.textVariable ?? config.sourceVariable, 'transcription'),
     sourceLanguage: stringValue(config.sourceLanguage, 'auto'),
     targetLanguage: stringValue(config.targetLanguage, 'English'),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
     ...(optionalString(config.promptVersion) ? { promptVersion: optionalString(config.promptVersion) } : {}),
   }, nextNodes)
 }
 
 function normalizeSummaryConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.text) ? { text: optionalString(config.text) } : {}),
     textVariable: stringValue(config.textVariable ?? config.context, 'transcription'),
     language: stringValue(config.language, 'Chinese'),
     prompt: stringValue(config.prompt, 'Focus on action items'),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
     ...(optionalString(config.promptVersion) ? { promptVersion: optionalString(config.promptVersion) } : {}),
   }, nextNodes)
 }
@@ -221,7 +253,7 @@ function normalizeEmbeddingConfig(config: Record<string, unknown>, nextNodes: st
     textVariable: stringValue(config.textVariable, 'ocrText'),
     chunkSize,
     overlap,
-    vectorCollection: stringValue(config.vectorCollection, 'workflow-embeddings'),
+    vectorCollection: stringValue(config.vectorCollection ?? config.dataset, 'workflow-embeddings'),
   }, nextNodes)
 }
 
@@ -249,6 +281,16 @@ function normalizeExportConfig(
   }, nextNodes)
 }
 
+function normalizeKnowledgeRetrievalConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    datasetId: stringValue(config.datasetId ?? config.dataset, ''),
+    queryVariable: stringValue(config.queryVariable ?? config.query, 'question'),
+    topK: Math.min(10, Math.max(1, Math.floor(numberValue(config.topK, 3)))),
+    outputVariable: stringValue(config.outputVariable, 'retrievalContext'),
+    metadataFilter: stringValue(config.metadataFilter, 'disabled'),
+  }, nextNodes)
+}
+
 function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const output = toRecord(config.output)
   const outputName = stringValue(config.outputName, 'result')
@@ -262,40 +304,51 @@ function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]
   }, nextNodes)
 }
 
-function normalizeConditionConfig(config: Record<string, unknown>, nextNodes: string[]) {
+function normalizeConditionConfig(
+  config: Record<string, unknown>,
+  nextNodes: string[],
+  branchRouting?: BranchRoutingConfig,
+) {
   return withNextNodes({
     variable: stringValue(config.variable ?? config.input, 'summary'),
     operator: stringValue(config.operator, 'EXISTS'),
     ...(config.value === undefined || config.value === '' ? {} : { value: config.value }),
     trueBranch: stringValue(config.trueBranch, 'true'),
     falseBranch: stringValue(config.falseBranch, 'false'),
-  }, nextNodes)
+  }, nextNodes, branchRouting)
 }
 
 function normalizeAgentConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.task) ? { task: optionalString(config.task) } : {}),
     taskVariable: stringValue(config.taskVariable, 'question'),
     strategy: stringValue(config.strategy, 'plan'),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
     temperature: numberValue(config.temperature, 0.2),
     memory: booleanValue(config.memory, true),
   }, nextNodes)
 }
 
 function normalizeQuestionUnderstandConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.input) ? { input: optionalString(config.input) } : {}),
     inputVariable: stringValue(config.inputVariable, 'question'),
     language: stringValue(config.language, 'auto'),
     mode: stringValue(config.mode, 'intent'),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
   }, nextNodes)
 }
 
-function normalizeQuestionClassifierConfig(config: Record<string, unknown>, nextNodes: string[]) {
+function normalizeQuestionClassifierConfig(
+  config: Record<string, unknown>,
+  nextNodes: string[],
+  branchRouting?: BranchRoutingConfig,
+) {
+  const model = optionalModel(config.model)
   const routes = stringList(config.routes)
   const fallbackRoutes = [
     stringValue(config.class1, 'CLASS 1'),
@@ -303,13 +356,12 @@ function normalizeQuestionClassifierConfig(config: Record<string, unknown>, next
   ].filter(Boolean)
 
   return withNextNodes({
-    ...(optionalString(config.input) ? { input: optionalString(config.input) } : {}),
-    inputVariable: stringValue(config.inputVariable, 'question'),
+    inputVariable: stringValue(config.inputVariable ?? config.input, 'question'),
     routes: routes.length > 0 ? routes : fallbackRoutes,
     threshold: numberValue(config.threshold, 0.5),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
-  }, nextNodes)
+    ...(model ? { model } : {}),
+  }, nextNodes, branchRouting)
 }
 
 function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string[]) {
@@ -385,13 +437,14 @@ function normalizeVariableAssignerConfig(config: Record<string, unknown>, nextNo
 }
 
 function normalizeParameterExtractorConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const model = optionalModel(config.model)
   return withNextNodes({
     ...(optionalString(config.input) ? { input: optionalString(config.input) } : {}),
     inputVariable: stringValue(config.inputVariable, 'text'),
     instruction: stringValue(config.instruction, 'Extract named parameters'),
     mode: stringValue(config.mode, 'structured'),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
-    ...(optionalString(config.model) ? { model: optionalString(config.model) } : {}),
+    ...(model ? { model } : {}),
   }, nextNodes)
 }
 
@@ -399,6 +452,7 @@ function normalizeNodeConfig(
   node: WorkflowGraphNode,
   nodeType: BackendNodeType,
   nextNodes: string[],
+  branchRouting?: BranchRoutingConfig,
   deliveryConfig: Record<string, unknown> = {},
 ) {
   const config = toRecord(node.data.config)
@@ -420,18 +474,20 @@ function normalizeNodeConfig(
       return normalizeSummaryConfig(config, nextNodes)
     case 'EMBEDDING':
       return normalizeEmbeddingConfig(config, nextNodes)
+    case 'KNOWLEDGE_RETRIEVAL':
+      return normalizeKnowledgeRetrievalConfig(config, nextNodes)
     case 'EXPORT':
       return normalizeExportConfig(config, nextNodes, deliveryConfig)
     case 'END':
       return normalizeEndConfig(config, nextNodes)
     case 'CONDITION':
-      return normalizeConditionConfig(config, nextNodes)
+      return normalizeConditionConfig(config, nextNodes, branchRouting)
     case 'AGENT':
       return normalizeAgentConfig(config, nextNodes)
     case 'QUESTION_UNDERSTAND':
       return normalizeQuestionUnderstandConfig(config, nextNodes)
     case 'QUESTION_CLASSIFIER':
-      return normalizeQuestionClassifierConfig(config, nextNodes)
+      return normalizeQuestionClassifierConfig(config, nextNodes, branchRouting)
     case 'HUMAN':
       return normalizeHumanConfig(config, nextNodes)
     case 'ITERATION':
@@ -462,6 +518,97 @@ function buildNextNodeIndex(workflow: WorkflowDefinition) {
   }, {})
 }
 
+function normalizedBranchLabel(value: unknown) {
+  return stringValue(value).toLowerCase()
+}
+
+function classifierRoutes(config: Record<string, unknown>) {
+  const routes = stringList(config.routes)
+  if (routes.length > 0) {
+    return routes
+  }
+  return [
+    stringValue(config.class1, 'CLASS 1'),
+    stringValue(config.class2, 'CLASS 2'),
+  ].filter(Boolean)
+}
+
+function branchKeysForNode(node: WorkflowGraphNode) {
+  const config = toRecord(node.data.config)
+  switch (node.data.kind) {
+    case 'condition':
+      return [
+        stringValue(config.trueBranch, 'true'),
+        stringValue(config.falseBranch, 'false'),
+      ]
+    case 'question-classifier':
+      return classifierRoutes(config)
+    default:
+      return []
+  }
+}
+
+function assignBranches(branchKeys: string[], edges: WorkflowGraphEdge[]) {
+  const branches: Record<string, string> = {}
+  const usedEdgeIndexes = new Set<number>()
+
+  for (const branchKey of branchKeys) {
+    const matchIndex = edges.findIndex((edge, index) =>
+      !usedEdgeIndexes.has(index)
+      && Boolean(edge.target)
+      && normalizedBranchLabel(edge.label) === normalizedBranchLabel(branchKey))
+    if (matchIndex >= 0) {
+      branches[branchKey] = edges[matchIndex].target
+      usedEdgeIndexes.add(matchIndex)
+    }
+  }
+
+  let edgeIndex = 0
+  for (const branchKey of branchKeys) {
+    if (branches[branchKey]) {
+      continue
+    }
+    while (edgeIndex < edges.length && usedEdgeIndexes.has(edgeIndex)) {
+      edgeIndex += 1
+    }
+    const edge = edges[edgeIndex]
+    if (edge?.target) {
+      branches[branchKey] = edge.target
+      usedEdgeIndexes.add(edgeIndex)
+      edgeIndex += 1
+    }
+  }
+
+  return branches
+}
+
+function buildBranchRoutingIndex(workflow: WorkflowDefinition) {
+  const edgesBySource = workflow.edges.reduce<Record<string, WorkflowGraphEdge[]>>((acc, edge) => {
+    if (!edge.source || !edge.target) {
+      return acc
+    }
+    acc[edge.source] = [...(acc[edge.source] ?? []), edge]
+    return acc
+  }, {})
+
+  return workflow.nodes.reduce<Record<string, BranchRoutingConfig>>((acc, node) => {
+    const branchKeys = branchKeysForNode(node)
+    if (branchKeys.length === 0) {
+      return acc
+    }
+    const outgoingEdges = edgesBySource[node.id] ?? []
+    const branches = assignBranches(branchKeys, outgoingEdges)
+    if (Object.keys(branches).length === 0) {
+      return acc
+    }
+    acc[node.id] = {
+      branches,
+      ...(outgoingEdges[0]?.target ? { defaultNext: outgoingEdges[0].target } : {}),
+    }
+    return acc
+  }, {})
+}
+
 function buildExportDeliveryConfigIndex(workflow: WorkflowDefinition) {
   const nodesById = Object.fromEntries(workflow.nodes.map((node) => [node.id, node]))
   return workflow.edges.reduce<Record<string, Record<string, unknown>>>((acc, edge) => {
@@ -482,6 +629,7 @@ function buildExportDeliveryConfigIndex(workflow: WorkflowDefinition) {
 
 export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): WorkflowDefinitionDTO {
   const nextNodeIndex = buildNextNodeIndex(workflow)
+  const branchRoutingIndex = buildBranchRoutingIndex(workflow)
   const exportDeliveryConfigIndex = buildExportDeliveryConfigIndex(workflow)
 
   return {
@@ -497,6 +645,7 @@ export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): Workfl
           node,
           nodeType,
           nextNodeIndex[node.id] ?? [],
+          branchRoutingIndex[node.id],
           exportDeliveryConfigIndex[node.id],
         ),
       }

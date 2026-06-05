@@ -1,6 +1,10 @@
 package com.aetherflow.workflow.node.executor;
 
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
+import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
@@ -14,6 +18,10 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class WorkflowUtilityNodeExecutorTest {
 
@@ -113,6 +121,36 @@ class WorkflowUtilityNodeExecutorTest {
         assertThatThrownBy(() -> executor.execute(context("code", Map.of("language", "python3", "code", "print(1)"), Map.of())))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("code execution is disabled");
+    }
+
+    @Test
+    void knowledgeRetrievalNodeFetchesDatasetChunksAndPublishesContext() throws Exception {
+        KnowledgeService knowledgeService = mock(KnowledgeService.class);
+        KnowledgeRetrievalNodeExecutor executor = new KnowledgeRetrievalNodeExecutor(new WorkflowNodeMetrics(), knowledgeService);
+        when(knowledgeService.runRetrievalTest(eq(42L), org.mockito.ArgumentMatchers.any(RetrievalTestRequest.class)))
+                .thenReturn(new RetrievalTestResponse("42", "pricing", List.of(
+                        new KnowledgeChunkSummary("chunk-1", "42", "doc-1", "pricing.md", "Pricing policy paragraph", 120, 0.91D, "ready"),
+                        new KnowledgeChunkSummary("chunk-2", "42", "doc-2", "faq.md", "Billing FAQ paragraph", 80, 0.83D, "ready")
+                )));
+
+        NodeResult result = executor.execute(context("knowledge", Map.of(
+                "datasetId", "42",
+                "queryVariable", "question",
+                "topK", 2,
+                "outputVariable", "context",
+                "metadataFilter", "enabled"
+        ), Map.of("question", "pricing")));
+
+        assertThat(result.output()).containsEntry("datasetId", "42");
+        assertThat(result.output()).containsEntry("query", "pricing");
+        assertThat(result.output()).containsEntry("retrievalCount", 2);
+        assertThat(result.output()).containsEntry("metadataFilter", "enabled");
+        assertThat(result.variables()).containsEntry("context", "Pricing policy paragraph\n\nBilling FAQ paragraph");
+        assertThat(result.variables()).containsEntry("retrievalCount", 2);
+        assertThat(result.variables().get("retrievalResults")).asList().hasSize(2);
+        verify(knowledgeService).runRetrievalTest(eq(42L), org.mockito.ArgumentMatchers.argThat(request ->
+                request != null && "pricing".equals(request.getQuery()) && Integer.valueOf(2).equals(request.getTopK())
+        ));
     }
 
     private static DefaultWorkflowContext context(String nodeId,

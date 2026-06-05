@@ -7,8 +7,13 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vue-tsc -b && vite build",
     "check:workflow-mapping": "node scripts/check-workflow-node-backend-mapping.mjs",
+    "check:workflow-branch-routing": "node --experimental-strip-types scripts/check-workflow-branch-routing.mjs",
+    "check:workflow-model-options": "node scripts/check-workflow-real-model-options.mjs",
+    "check:workflow-knowledge-entry": "node scripts/check-workflow-knowledge-entry.mjs",
+    "check:sidebar-motion": "node scripts/check-sidebar-motion.mjs",
     "check:copilot-actions": "node scripts/check-copilot-workflow-actions.mjs",
     "check:notifications": "node scripts/check-notify-stream-contract.mjs && node --experimental-strip-types scripts/check-notification-history-merge.mjs",
+    "check:public-home": "node scripts/check-public-home-no-auth-redirect.mjs",
     "api:generate": "orval --config src/api/openapi/orval.config.ts",
     "preview": "vite preview --host 0.0.0.0"
   },

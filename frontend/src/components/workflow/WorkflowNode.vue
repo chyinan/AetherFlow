@@ -145,40 +145,42 @@ const nodeRows = computed(() => {
       </div>
     </div>
 
-    <div class="flex items-center justify-end gap-1 border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
+    <div class="flex items-center justify-between border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
       <button
         type="button"
         class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
-        :title="t('workflow.testNode')"
-        @click.stop="emit('testNode', id)"
+        :title="t('workflow.addNextNode')"
+        @click.stop="emit('addAfter', id, $event)"
       >
-        <Play class="h-3.5 w-3.5" />
+        <Plus class="h-3.5 w-3.5" />
       </button>
-      <button
-        type="button"
-        class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
-        :title="t('workflow.duplicateNode')"
-        @click.stop="emit('duplicateNode', id)"
-      >
-        <Copy class="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
-        :title="t('workflow.deleteNode')"
-        @click.stop="emit('deleteNode', id)"
-      >
-        <Trash2 class="h-3.5 w-3.5" />
-      </button>
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
+          :title="t('workflow.testNode')"
+          @click.stop="emit('testNode', id)"
+        >
+          <Play class="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
+          :title="t('workflow.duplicateNode')"
+          @click.stop="emit('duplicateNode', id)"
+        >
+          <Copy class="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
+          :title="t('workflow.deleteNode')"
+          @click.stop="emit('deleteNode', id)"
+        >
+          <Trash2 class="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
     <Handle type="source" :position="Position.Right" class="!h-3 !w-3 !border-2 !border-white !bg-primary" />
-    <button
-      type="button"
-      class="absolute right-[-13px] top-1/2 z-10 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full border border-primary bg-primary text-white opacity-0 shadow-node transition hover:bg-primary-dark group-hover:opacity-100"
-      :title="t('workflow.addNextNode')"
-      @click.stop="emit('addAfter', id, $event)"
-    >
-      <Plus class="h-3.5 w-3.5" />
-    </button>
   </div>
 </template>

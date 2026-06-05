@@ -21,14 +21,7 @@ const { t } = useI18n()
 const route = useRoute()
 const projectStore = useProjectStore()
 const workflowStore = useWorkflowStore()
-const dockRoot = ref<HTMLElement | null>(null)
-const dockItemRefs = ref<(HTMLElement | null)[]>([])
-const pointerY = ref<number | null>(null)
 const optimisticActiveKey = ref<string | null>(null)
-
-const magnificationRange = 136
-const maxScale = 1.55
-const outwardShift = 32
 
 const translatedNavItems = computed(() =>
   navItems.map((item) => ({
@@ -67,45 +60,6 @@ watch(
   },
 )
 
-function setDockItemRef(element: unknown, index: number) {
-  dockItemRefs.value[index] = element instanceof HTMLElement ? element : null
-}
-
-function handleDockPointerMove(event: PointerEvent) {
-  if (!dockRoot.value) return
-  if (event.pointerType && event.pointerType !== 'mouse') {
-    clearDockPointer()
-    return
-  }
-
-  pointerY.value = event.clientY
-}
-
-function clearDockPointer() {
-  pointerY.value = null
-}
-
-function dockScale(index: number) {
-  const item = dockItemRefs.value[index]
-  if (pointerY.value === null || !item) return 1
-
-  const rect = item.getBoundingClientRect()
-  const center = rect.top + rect.height / 2
-  const distance = Math.abs(pointerY.value - center)
-  const normalizedDistance = Math.min(distance / magnificationRange, 1)
-  const influence = normalizedDistance >= 1 ? 0 : (1 + Math.cos(normalizedDistance * Math.PI)) / 2
-  return 1 + influence * (maxScale - 1)
-}
-
-function dockItemStyle(index: number) {
-  const scale = dockScale(index)
-  return {
-    transform: `translateX(${(scale - 1) * outwardShift}px) scale(${scale})`,
-    transformOrigin: 'left center',
-    zIndex: Math.round(scale * 100),
-  }
-}
-
 function markOptimisticActive(key: string) {
   optimisticActiveKey.value = key
   window.setTimeout(() => {
@@ -136,32 +90,25 @@ function isNavActive(key: string) {
     </RouterLink>
 
     <nav
-      ref="dockRoot"
-      class="flex w-28 flex-1 flex-col items-center justify-center gap-5 overflow-visible pb-16 pt-1"
-      @pointerenter="handleDockPointerMove"
-      @pointermove="handleDockPointerMove"
-      @pointerleave="clearDockPointer"
-      @pointercancel="clearDockPointer"
+      class="flex w-full flex-1 flex-col items-center justify-center gap-5 pb-16 pt-1"
     >
       <RouterLink
-        v-for="(item, index) in translatedNavItems"
+        v-for="item in translatedNavItems"
         :key="item.key"
         :to="item.to"
         custom
         v-slot="{ href, navigate }"
       >
         <a
-          :ref="(element) => setDockItemRef(element, index)"
           :href="href"
           :title="item.label"
           :aria-label="item.label"
-          class="group relative grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_6px_18px_rgba(0,0,0,0.12)] transition-[transform,box-shadow,background-color,border-color,color] duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+          class="group relative grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-[box-shadow,background-color,border-color,color] duration-150 ease-out"
           :class="
             isNavActive(item.key)
-              ? '!border-primary !bg-primary !text-white shadow-node'
-              : 'hover:border-white/25 hover:bg-sidebar-soft hover:text-white hover:shadow-node'
+              ? '!border-primary !bg-primary !text-white shadow-[0_8px_18px_rgba(37,99,235,0.26)]'
+              : 'hover:border-white/20 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_6px_14px_rgba(0,0,0,0.14)]'
           "
-          :style="dockItemStyle(index)"
           @pointerdown="markOptimisticActive(item.key)"
           @click="(event) => handleNavClick(event, item.key, navigate)"
         >

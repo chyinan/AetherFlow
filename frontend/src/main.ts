@@ -32,4 +32,6 @@ if (typeof window !== 'undefined') {
   })
 }
 
-app.mount('#app')
+void router.isReady().then(() => {
+  app.mount('#app')
+})

@@ -6,6 +6,8 @@ import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotA
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
+import { duplicateWorkflowNode } from '@/utils/workflowNodeClone'
+import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 
 function cloneNodes() {
   return [] as WorkflowGraphNode[]
@@ -143,20 +145,11 @@ export const useWorkflowStore = defineStore('workflow', {
       if (!source) {
         return null
       }
-      const node = {
-        ...structuredClone(source),
+      const node = duplicateWorkflowNode(source, {
         id: `${source.id}-copy-${nodeCounter++}`,
-        selected: false,
-        position: {
-          x: source.position.x,
-          y: source.position.y + 170,
-        },
-        data: {
-          ...structuredClone(source.data),
-          status: 'idle' as WorkflowNodeStatus,
-          runtime: { lastResult: i18n.global.t('workflow.mockResults.newNode') },
-        },
-      }
+        position: findDuplicateNodePosition(source, this.nodes),
+        lastResult: i18n.global.t('workflow.mockResults.newNode'),
+      })
       this.nodes.push(node)
       this.dirty = true
       this.savingError = null

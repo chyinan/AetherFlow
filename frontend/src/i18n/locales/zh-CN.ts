@@ -368,7 +368,7 @@ export const zhCN = {
       queryText: '查询文本',
       knowledgeBase: '知识库',
       retrievalSettings: '召回设置',
-      clickAddKnowledge: '点击“+”按钮添加知识库',
+      clickAddKnowledge: '导入知识库数据',
       metadataFilter: '元数据过滤',
       disabled: '禁用',
       agentStrategy: 'Agent 策略',
