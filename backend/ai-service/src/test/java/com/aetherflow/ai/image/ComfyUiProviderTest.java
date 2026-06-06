@@ -20,6 +20,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
 import static org.springframework.test.web.client.ExpectedCount.once;
@@ -140,6 +141,13 @@ class ComfyUiProviderTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         ComfyUiProvider provider = provider(builder);
 
+        server.expect(once(), requestTo("http://comfy/upload/image"))
+                .andExpect(method(POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(content().string(containsString("source-image")))
+                .andRespond(withSuccess("""
+                        {"name":"uploaded-source.png","subfolder":"","type":"input"}
+                        """, MediaType.APPLICATION_JSON));
         server.expect(once(), requestTo("http://comfy/prompt"))
                 .andExpect(method(POST))
                 .andExpect(content().json("""
@@ -147,7 +155,7 @@ class ComfyUiProviderTest {
                           "prompt": {
                             "4": {
                               "class_type": "LoadImage",
-                              "inputs": {"image": "source.png"}
+                              "inputs": {"image": "uploaded-source.png"}
                             },
                             "5": {
                               "class_type": "VAEEncode",
@@ -345,6 +353,7 @@ class ComfyUiProviderTest {
                 "flux-dev.safetensors",
                 null,
                 List.of(
+                        Map.of("name", " ", "weight", 0.2),
                         Map.of("name", "style.safetensors", "weight", 0.7),
                         Map.of("name", "detail.safetensors", "weight", 0.4)
                 ),

@@ -4,9 +4,13 @@ import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -58,7 +62,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         String mode = normalizeMode(request.mode());
         try {
             RestClient client = restClient(request);
-            Map<String, Object> queuePayload = queuePayload(request, mode);
+            ComfyUploadResponse upload = "img2img".equals(mode) ? uploadSourceImage(client, request) : null;
+            Map<String, Object> queuePayload = queuePayload(request, mode, upload);
             QueueResponse queue = client.post()
                     .uri("/prompt")
                     .body(queuePayload)
@@ -91,22 +96,22 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
     }
 
-    private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode) {
+    private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
         Map<String, Object> payload = new LinkedHashMap<>(request.options());
-        payload.put("prompt", workflow(request, mode));
+        payload.put("prompt", workflow(request, mode, upload));
         payload.putIfAbsent("client_id", "aetherflow");
         return payload;
     }
 
-    private Map<String, Object> workflow(ImageGenerationRequest request, String mode) {
+    private Map<String, Object> workflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
         if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
         }
         if (request.workflowJson().isEmpty()) {
-            return defaultWorkflow(request, mode);
+            return defaultWorkflow(request, mode, upload);
         }
         Map<String, Object> workflow = mutableWorkflow(request.workflowJson());
-        applyParameters(workflow, request, mode);
+        applyParameters(workflow, request, mode, upload);
         return workflow;
     }
 
@@ -118,7 +123,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported comfyui mode: " + mode);
     }
 
-    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode) {
+    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
         Map<String, Object> workflow = new LinkedHashMap<>();
         workflow.put("1", node("CheckpointLoaderSimple", Map.of(
                 "ckpt_name", textOrDefault(request.checkpoint(), DEFAULT_CHECKPOINT)
@@ -135,7 +140,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         String samplerNodeId;
         if ("img2img".equals(mode)) {
             workflow.put("4", node("LoadImage", Map.of(
-                    "image", sourceImageName(request)
+                    "image", sourceImageName(request, upload)
             )));
             workflow.put("5", node("VAEEncode", Map.of(
                     "pixels", List.of("4", 0),
@@ -178,7 +183,10 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return workflow;
     }
 
-    private String sourceImageName(ImageGenerationRequest request) {
+    private String sourceImageName(ImageGenerationRequest request, ComfyUploadResponse upload) {
+        if (upload != null && upload.name() != null && !upload.name().isBlank()) {
+            return upload.name();
+        }
         Object configured = request.options().get("sourceImageName");
         String name = configured == null ? "" : String.valueOf(configured).trim();
         return name.isBlank() ? "source.png" : name;
@@ -258,7 +266,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return value;
     }
 
-    private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request, String mode) {
+    private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request, String mode,
+                                 ComfyUploadResponse upload) {
         int clipTextIndex = 0;
         int loraIndex = 0;
         for (Object nodeValue : workflow.values()) {
@@ -296,7 +305,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             } else if ("vaeloader".equals(classType)) {
                 put(inputs, "vae_name", request.vae());
             } else if ("loraloader".equals(classType) || "loraloadermodelonly".equals(classType)) {
-                loraIndex += applyLora(inputs, request.lora(), loraIndex);
+                loraIndex = applyLora(inputs, request.lora(), loraIndex);
             } else if ("emptysd3latentimage".equals(classType)) {
                 put(inputs, "width", request.width());
                 put(inputs, "height", request.height());
@@ -312,7 +321,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             } else if ("ksamplerselect".equals(classType)) {
                 put(inputs, "sampler_name", request.sampler());
             } else if ("loadimage".equals(classType) && "img2img".equals(mode)) {
-                inputs.put("image", sourceImageName(request));
+                inputs.put("image", sourceImageName(request, upload));
             }
         }
     }
@@ -339,9 +348,40 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             inputs.put("lora_name", name);
             inputs.put("strength_model", effectiveWeight);
             inputs.put("strength_clip", effectiveWeight);
-            return 1;
+            return index + 1;
         }
-        return 0;
+        return loras.size();
+    }
+
+    private ComfyUploadResponse uploadSourceImage(RestClient client, ImageGenerationRequest request) {
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(request.sourceImageBase64());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is not valid base64");
+        }
+        if (bytes.length == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+        }
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("image", new ByteArrayResource(bytes) {
+            @Override
+            public String getFilename() {
+                return sourceImageName(request, null);
+            }
+        });
+        body.add("type", "input");
+        body.add("overwrite", "true");
+        ComfyUploadResponse response = client.post()
+                .uri("/upload/image")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(body)
+                .retrieve()
+                .body(ComfyUploadResponse.class);
+        if (response == null || response.name() == null || response.name().isBlank()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui upload returned no image name");
+        }
+        return response;
     }
 
     private HistoryResult waitForHistory(RestClient client, String promptId, Duration timeout) {
@@ -503,6 +543,9 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     record QueueResponse(String prompt_id) {
+    }
+
+    record ComfyUploadResponse(String name, String subfolder, String type) {
     }
 
     record HistoryResult(Map<String, Object> history, Map<String, Object> queue) {
