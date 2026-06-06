@@ -45,6 +45,36 @@ class PythonAiServiceApiTest(unittest.TestCase):
             body["models"]["ollama"],
         )
 
+    def test_ollama_runtime_client_ignores_system_proxy_environment(self):
+        captured = {}
+
+        class FakeOllamaClient:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def list(self):
+                return {"models": [{"name": "qwen3.5:9b"}]}
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "HTTP_PROXY": "http://127.0.0.1:7890",
+                    "HTTPS_PROXY": "http://127.0.0.1:7890",
+                    "OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+                },
+                clear=False,
+            ),
+            patch("ollama.Client", FakeOllamaClient),
+        ):
+            from app.main import _ollama_model_names
+
+            names = _ollama_model_names()
+
+        self.assertEqual(["qwen3.5:9b"], names)
+        self.assertEqual("http://host.docker.internal:11434", captured["host"])
+        self.assertFalse(captured["trust_env"])
+
     def test_provider_config_updates_runtime_without_exposing_secret(self):
         with (
             patch.dict("os.environ", {}, clear=False),

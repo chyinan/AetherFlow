@@ -212,6 +212,11 @@ export const difyApi = {
     })
     return mapDataset(dataset)
   },
+  async deleteKnowledgeDataset(datasetId: string) {
+    await apiClient.delete(`/knowledge/datasets/${encodeURIComponent(datasetId)}`, {
+      source: 'workflow',
+    })
+  },
   async listDatasetDocuments(datasetId: string) {
     const page = await apiClient.get<PageResult<KnowledgeDocumentResponse>>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,

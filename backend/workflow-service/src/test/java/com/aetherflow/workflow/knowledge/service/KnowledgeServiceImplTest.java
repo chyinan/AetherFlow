@@ -151,6 +151,20 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void deletesOwnedDatasetWithDocumentsAndChunks() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+
+        asUser(7L, () -> {
+            service.deleteDataset(11L);
+            return null;
+        });
+
+        verify(chunkMapper).delete(any(Wrapper.class));
+        verify(documentMapper).delete(any(Wrapper.class));
+        verify(datasetMapper).deleteById(11L);
+    }
+
+    @Test
     void throwsNotFoundWhenDatasetIsMissing() {
         when(datasetMapper.selectById(404L)).thenReturn(null);
 

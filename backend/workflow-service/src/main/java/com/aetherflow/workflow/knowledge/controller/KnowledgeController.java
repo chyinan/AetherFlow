@@ -11,6 +11,7 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +47,12 @@ public class KnowledgeController {
     @GetMapping("/datasets/{id}")
     public Result<KnowledgeDatasetSummary> getDataset(@PathVariable Long id) {
         return Result.success(knowledgeService.getDataset(id));
+    }
+
+    @DeleteMapping("/datasets/{id}")
+    public Result<Void> deleteDataset(@PathVariable Long id) {
+        knowledgeService.deleteDataset(id);
+        return Result.success();
     }
 
     @GetMapping("/datasets/{id}/documents")

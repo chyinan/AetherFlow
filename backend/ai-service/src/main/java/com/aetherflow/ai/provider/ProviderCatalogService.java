@@ -79,7 +79,7 @@ public class ProviderCatalogService {
                     "cloud llm",
                     "OpenAI API",
                     "provider-managed://openai",
-                    defaultModel(provider, runtimeCatalog),
+                    catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "summary", "translate", "json", "governed failover"),
                     Map.of("pricingConfigured", false, "managedBy", "python-ai-service")
             );
@@ -90,7 +90,7 @@ public class ProviderCatalogService {
                     "local llm",
                     "Ollama Local Runtime",
                     "provider-managed://ollama",
-                    defaultModel(provider, runtimeCatalog),
+                    catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "summary", "translate", "local fallback", "offline capable"),
                     Map.of("pricingConfigured", true, "managedBy", "python-ai-service")
             );
@@ -101,7 +101,7 @@ public class ProviderCatalogService {
                     "local runtime",
                     "Local Model Runtime",
                     "provider-managed://local-model",
-                    defaultModel(provider, runtimeCatalog),
+                    catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "private runtime", "contract pending"),
                     Map.of("pricingConfigured", true, "managedBy", "python-ai-service")
             );
@@ -175,19 +175,7 @@ public class ProviderCatalogService {
                     .map(name -> runtimeOllamaModel(provider, name, name.equals(defaultModel)))
                     .toList();
         }
-        List<ProviderCatalogResponse.ProviderCatalogModel> models = new ArrayList<>();
-        addIfAbsent(models, model(
-                provider,
-                defaultModel(provider, runtimeCatalog),
-                "chat",
-                "runtime configured",
-                null,
-                LOCAL_PRICING,
-                List.of("chat", "summary", "translate"),
-                List.of("configured", "local", "private"),
-                "warming"
-        ));
-        return models;
+        return List.of();
     }
 
     private ProviderCatalogResponse.ProviderCatalogModel runtimeOllamaModel(AiProviderType provider,
@@ -295,6 +283,14 @@ public class ProviderCatalogService {
             case OLLAMA -> hasText(properties.getDefaultModel()) ? properties.getDefaultModel().trim() : "llama3";
             case LOCAL_MODEL -> "local-runtime-default";
         };
+    }
+
+    private String catalogDefaultModel(AiProviderType provider, ProviderRuntimeCatalog runtimeCatalog) {
+        if ((provider == AiProviderType.OLLAMA || provider == AiProviderType.LOCAL_MODEL)
+                && runtimeModelNames(provider, runtimeCatalog).isEmpty()) {
+            return "";
+        }
+        return defaultModel(provider, runtimeCatalog);
     }
 
     private List<String> runtimeModelNames(AiProviderType provider, ProviderRuntimeCatalog runtimeCatalog) {

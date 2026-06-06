@@ -190,6 +190,13 @@ function catalogProviderFor(input: AiModelMappingInput, provider: string): Provi
   })
 }
 
+function hasCatalogModelsForProvider(input: AiModelMappingInput, provider: string) {
+  return (input.catalogResponse?.models ?? []).some((model) => {
+    const modelProvider = normalizeProvider(model.provider ?? providerFromId(model.providerId))
+    return modelProvider === provider
+  })
+}
+
 function mapProviderStatus(health?: AiProviderHealth, circuit?: ProviderCircuitSnapshot): ModelProviderStatus {
   const healthStatus = String(health?.status ?? '').toUpperCase()
   const circuitState = String(circuit?.state ?? '').toUpperCase()
@@ -222,6 +229,10 @@ function defaultModelForProvider(
   const catalogDefault = catalogProvider?.defaultModel?.trim()
   if (catalogDefault) {
     return catalogDefault
+  }
+
+  if (catalogProvider && !hasCatalogModelsForProvider(input, provider)) {
+    return ''
   }
 
   const serviceDefaultProvider = normalizeProvider(input.serviceStatus?.defaultProvider)
@@ -273,10 +284,6 @@ function mapProvider(
   const circuit = readMapValue(input.providerStatus?.circuitStates, provider)
   const catalogProvider = catalogProviderFor(input, provider)
   const calls = Math.max(0, numberOrZero(metrics?.calls))
-  const successes = Math.max(0, numberOrZero(metrics?.successes))
-  const failures = Math.max(0, numberOrZero(metrics?.failures))
-  const retries = Math.max(0, numberOrZero(metrics?.retries))
-  const quotaLikeTotal = Math.max(calls, successes + failures, calls + retries, 1)
   const metadata = providerMetadata[provider]
   const active = normalizeProvider(input.providerStatus?.activeProvider) === provider
   const defaultModel = defaultModelForProvider(provider, input, logs, catalogProvider)
@@ -292,7 +299,7 @@ function mapProvider(
     defaultModel,
     latencyMs: positiveLatency(health?.latencyMillis, metrics?.lastLatencyMillis, metrics?.averageLatencyMillis),
     quotaUsed: calls,
-    quotaLimit: quotaLikeTotal,
+    quotaLimit: undefined,
     capabilities: capabilitySet(provider, input.serviceStatus, catalogProvider),
     lastCheckedAt: formatDateTime(health?.checkedAt ?? metrics?.updatedAt ?? circuit?.updatedAt ?? input.serviceStatus?.time),
     healthStatus: textOr(health?.status, health?.healthy === true ? 'UP' : 'UNKNOWN'),
@@ -374,7 +381,7 @@ function mapFallbackCatalogItem(provider: ModelProvider): ModelCatalogItem {
 
 function mapCatalog(input: AiModelMappingInput, providers: ModelProvider[]): ModelCatalogItem[] {
   const catalogModels = input.catalogResponse?.models ?? []
-  if (catalogModels.length > 0) {
+  if (input.catalogResponse) {
     return catalogModels.map((model) => mapCatalogModel(model, providers))
   }
 

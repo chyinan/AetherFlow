@@ -44,8 +44,12 @@ const summaryCards = computed(() => [
   },
   {
     label: t('models.quotaUsed'),
-    value: selectedProvider.value ? `${selectedProvider.value.quotaUsed}/${selectedProvider.value.quotaLimit}` : '--',
-    hint: selectedProvider.value?.name ?? t('models.selectProvider'),
+    value: selectedProvider.value && hasProviderQuota(selectedProvider.value)
+      ? `${selectedProvider.value.quotaUsed}/${selectedProvider.value.quotaLimit}`
+      : '--',
+    hint: selectedProvider.value && !hasProviderQuota(selectedProvider.value)
+      ? quotaStatusText(selectedProvider.value)
+      : selectedProvider.value?.name ?? t('models.selectProvider'),
     icon: ShieldCheck,
   },
 ])
@@ -62,6 +66,23 @@ function providerTone(status: string) {
 
 function quotaPercent(quotaUsed: number, quotaLimit: number) {
   return Math.min(100, Math.round((quotaUsed / Math.max(quotaLimit, 1)) * 100))
+}
+
+function providerTypeOf(provider: { providerType?: string; id: string }) {
+  return (provider.providerType || provider.id.replace(/^provider-/, '').replace(/-/g, '_')).toUpperCase()
+}
+
+function isLocalProvider(provider: { providerType?: string; id: string; runtime?: string }) {
+  const providerType = providerTypeOf(provider)
+  return providerType === 'OLLAMA' || providerType === 'LOCAL_MODEL' || String(provider.runtime ?? '').toLowerCase().includes('local')
+}
+
+function hasProviderQuota(provider: { providerType?: string; id: string; runtime?: string; quotaLimit?: number }) {
+  return !isLocalProvider(provider) && typeof provider.quotaLimit === 'number' && provider.quotaLimit > 0
+}
+
+function quotaStatusText(provider: { providerType?: string; id: string; runtime?: string }) {
+  return isLocalProvider(provider) ? t('models.quotaNotApplicable') : t('models.quotaUnavailable')
 }
 
 function refreshStatus() {
@@ -182,7 +203,7 @@ onMounted(() => {
                 <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-text-secondary">
                   <div class="rounded-md bg-app-bg2 p-2">
                     <p class="text-text-muted">{{ t('models.defaultLabel') }}</p>
-                    <p class="mt-1 font-medium text-text-primary">{{ provider.defaultModel }}</p>
+                    <p class="mt-1 font-medium text-text-primary">{{ provider.defaultModel || t('common.none') }}</p>
                   </div>
                   <div class="rounded-md bg-app-bg2 p-2">
                     <p class="text-text-muted">{{ t('models.latencyLabel') }}</p>
@@ -199,15 +220,18 @@ onMounted(() => {
                     <p class="mt-1 font-medium text-text-primary">{{ provider.circuitState || '--' }}</p>
                   </div>
                 </div>
-                <div class="mt-3">
+                <div v-if="hasProviderQuota(provider)" class="mt-3">
                   <div class="mb-1 flex items-center justify-between text-[11px] text-text-muted">
                     <span>{{ t('models.quotaUsage') }}</span>
-                    <span>{{ quotaPercent(provider.quotaUsed, provider.quotaLimit) }}%</span>
+                    <span>{{ quotaPercent(provider.quotaUsed, provider.quotaLimit ?? 0) }}%</span>
                   </div>
                   <div class="h-1.5 rounded-full bg-app-muted">
-                    <div class="h-1.5 rounded-full bg-ai" :style="{ width: `${quotaPercent(provider.quotaUsed, provider.quotaLimit)}%` }" />
+                    <div class="h-1.5 rounded-full bg-ai" :style="{ width: `${quotaPercent(provider.quotaUsed, provider.quotaLimit ?? 0)}%` }" />
                   </div>
                 </div>
+                <p v-else class="mt-3 rounded bg-app-bg2 px-2 py-1.5 text-[11px] text-text-muted">
+                  {{ quotaStatusText(provider) }}
+                </p>
               </button>
 
               <section class="rounded-lg border border-app-border bg-app-bg2 p-3">
@@ -226,11 +250,11 @@ onMounted(() => {
                   </div>
                   <p class="mt-1 text-xs leading-5 text-text-secondary">{{ policy.description }}</p>
                   <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div class="rounded bg-app-bg2 p-2">
+                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.primary') }}</p>
-                      <p class="mt-1 font-medium text-text-primary">{{ policy.primaryModel }}</p>
+                    <p class="mt-1 font-medium text-text-primary">{{ policy.primaryModel || t('common.none') }}</p>
                     </div>
-                    <div class="rounded bg-app-bg2 p-2">
+                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.fallback') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ policy.fallbackModels.join(' -> ') || '--' }}</p>
                     </div>
@@ -281,8 +305,8 @@ onMounted(() => {
                     <RotateCcw class="h-3.5 w-3.5" :class="{ 'animate-spin': modelStore.recoveringProviderId === selectedProvider?.id }" />
                     {{ modelStore.recoveringProviderId === selectedProvider?.id ? t('models.recovering') : t('models.recoverProvider') }}
                   </button>
-                  <span class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
-                    {{ selectedProvider?.defaultModel ?? t('common.none') }}
+                  <span v-if="selectedProvider?.defaultModel" class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
+                    {{ selectedProvider.defaultModel }}
                   </span>
                 </div>
               </div>
@@ -355,7 +379,7 @@ onMounted(() => {
                     <p class="mt-1 break-all text-sm text-text-primary">{{ selectedProvider.endpoint }}</p>
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="rounded bg-app-bg2 p-2">
+                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.health') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.healthStatus || '--' }}</p>
                     </div>
@@ -377,15 +401,19 @@ onMounted(() => {
                     </p>
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="rounded bg-app-bg2 p-2">
+                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.quota') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.quotaUsed }} / {{ selectedProvider.quotaLimit }}</p>
                       <div class="mt-2 h-1.5 rounded-full bg-white">
                         <div
                           class="h-1.5 rounded-full bg-ai"
-                          :style="{ width: `${quotaPercent(selectedProvider.quotaUsed, selectedProvider.quotaLimit)}%` }"
+                          :style="{ width: `${quotaPercent(selectedProvider.quotaUsed, selectedProvider.quotaLimit ?? 0)}%` }"
                         />
                       </div>
+                    </div>
+                    <div v-else class="rounded bg-app-bg2 p-2">
+                      <p class="text-text-muted">{{ t('models.quota') }}</p>
+                      <p class="mt-1 font-medium text-text-primary">{{ quotaStatusText(selectedProvider) }}</p>
                     </div>
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.checked') }}</p>

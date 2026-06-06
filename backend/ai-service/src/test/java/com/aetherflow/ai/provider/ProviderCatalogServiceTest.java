@@ -29,12 +29,10 @@ class ProviderCatalogServiceTest {
                     assertThat(model.contextWindowTokens()).isGreaterThan(0);
                     assertThat(model.pricing().source()).isEqualTo("backend-static-metadata");
                     assertThat(model.capabilities()).contains("chat", "summary");
-                })
-                .anySatisfy(model -> {
-                    assertThat(model.provider()).isEqualTo(AiProviderType.OLLAMA);
-                    assertThat(model.name()).isEqualTo("qwen2.5:7b");
-                    assertThat(model.pricing().priceHint()).contains("local");
                 });
+        assertThat(catalog.models())
+                .filteredOn(model -> model.provider() == AiProviderType.OLLAMA)
+                .isEmpty();
     }
 
     @Test
@@ -102,5 +100,25 @@ class ProviderCatalogServiceTest {
                 .extracting(ProviderCatalogResponse.ProviderCatalogModel::name)
                 .containsExactly("qwen/qwen3.5-9b")
                 .doesNotContain("gpt-4o-mini");
+    }
+
+    @Test
+    void omitsStaticOllamaFallbackModelWhenRuntimeCatalogIsEmpty() {
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("qwen3.5:9b");
+        ProviderCatalogService service = new ProviderCatalogService(properties, ProviderRuntimeCatalogClient.empty());
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OLLAMA));
+
+        ProviderCatalogResponse catalog = service.catalog(policy);
+
+        assertThat(catalog.providers())
+                .singleElement()
+                .satisfies(provider -> {
+                    assertThat(provider.provider()).isEqualTo(AiProviderType.OLLAMA);
+                    assertThat(provider.defaultModel()).isBlank();
+                });
+        assertThat(catalog.models()).isEmpty();
     }
 }

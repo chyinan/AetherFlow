@@ -349,9 +349,8 @@ def _call_openai(request: LlmRequest) -> LlmResponse:
 
 def _call_ollama(request: LlmRequest) -> LlmResponse:
     _ensure_runtime_env_loaded()
-    import ollama
 
-    client = ollama.Client(host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+    client = _ollama_client()
     response = client.generate(
         model=request.model,
         prompt=request.prompt,
@@ -362,9 +361,7 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
 
 def _ollama_model_names() -> list[str]:
     try:
-        import ollama
-
-        client = ollama.Client(host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"))
+        client = _ollama_client()
         response = client.list()
         models = response.get("models", []) if isinstance(response, dict) else getattr(response, "models", [])
         names: list[str] = []
@@ -376,6 +373,15 @@ def _ollama_model_names() -> list[str]:
     except Exception as exc:
         logger.warning("Failed to list Ollama models: %s", exc)
         return []
+
+
+def _ollama_client():
+    import ollama
+
+    return ollama.Client(
+        host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        trust_env=False,
+    )
 
 
 def _ollama_model_name(model: Any) -> str:

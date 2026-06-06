@@ -152,6 +152,16 @@ export const useDifyStore = defineStore('difySurface', {
 
       return dataset
     },
+    async deleteDataset(datasetId: string) {
+      await difyApi.deleteKnowledgeDataset(datasetId)
+      this.datasets = this.datasets.filter((dataset) => dataset.id !== datasetId)
+      this.documents = this.documents.filter((document) => document.datasetId !== datasetId)
+      this.segments = this.segments.filter((segment) => segment.datasetId !== datasetId)
+      this.retrievalResults = []
+      if (this.selectedDatasetId === datasetId) {
+        this.selectedDatasetId = this.datasets[0]?.id ?? ''
+      }
+    },
     async runRetrievalTest(query: string, topK = 3) {
       if (!this.selectedDatasetId) {
         this.retrievalResults = []

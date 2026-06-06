@@ -7,10 +7,10 @@ import {
   Database,
   FileText,
   Loader2,
-  MoreHorizontal,
   Plus,
   Search,
   Sparkles,
+  Trash2,
   Upload,
   Workflow,
   Zap,
@@ -64,6 +64,7 @@ const cleanSpaces = ref(true)
 const cleanUrls = ref(false)
 const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
+const deletingDatasetId = ref('')
 
 let progressTimer: number | undefined
 
@@ -274,6 +275,25 @@ async function importSelectedFileToDataset() {
     mode: segmentMode.value,
   })
   viewMode.value = 'documents'
+}
+
+async function deleteSelectedDataset() {
+  const dataset = selectedDataset.value
+  if (!dataset) {
+    return
+  }
+  const confirmed = window.confirm(t('knowledge.confirmDeleteDataset', { name: dataset.name }))
+  if (!confirmed) {
+    return
+  }
+
+  deletingDatasetId.value = dataset.id
+  try {
+    await difyStore.deleteDataset(dataset.id)
+    viewMode.value = 'datasets'
+  } finally {
+    deletingDatasetId.value = ''
+  }
 }
 
 onMounted(async () => {
@@ -712,8 +732,16 @@ onUnmounted(() => {
               <p class="mt-4 truncate text-lg font-semibold text-text-primary">{{ selectedDataset?.name }}</p>
               <p class="mt-2 line-clamp-3 text-sm leading-6 text-text-secondary">{{ selectedDataset?.description }}</p>
             </div>
-            <button class="rounded-md p-1.5 text-text-muted hover:bg-white hover:text-text-primary">
-              <MoreHorizontal class="h-4 w-4" />
+            <button
+              type="button"
+              class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-white hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
+              :title="t('knowledge.deleteDataset')"
+              :aria-label="t('knowledge.deleteDataset')"
+              :disabled="Boolean(selectedDataset && deletingDatasetId === selectedDataset.id)"
+              @click.stop="deleteSelectedDataset"
+            >
+              <Loader2 v-if="selectedDataset && deletingDatasetId === selectedDataset.id" class="h-4 w-4 animate-spin" />
+              <Trash2 v-else class="h-4 w-4" />
             </button>
           </div>
 

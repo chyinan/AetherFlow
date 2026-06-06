@@ -721,6 +721,8 @@ export const enUS = {
     embeddingSettings: 'Embedding settings',
     embeddingModel: 'Embedding model',
     retrievalMode: 'Retrieval mode',
+    deleteDataset: 'Delete knowledge base',
+    confirmDeleteDataset: 'Delete knowledge base "{name}"? Its documents and chunks will also be deleted.',
     flow: {
       serviceApi: 'Service API',
       externalApi: 'External knowledge API',
@@ -915,6 +917,8 @@ export const enUS = {
     capabilities: 'Capabilities',
     quota: 'Quota',
     quotaUsage: 'Quota usage',
+    quotaNotApplicable: 'Quota does not apply to local runtimes',
+    quotaUnavailable: 'No quota data available',
     health: 'Health',
     circuit: 'Circuit',
     timeout: 'Timeout',

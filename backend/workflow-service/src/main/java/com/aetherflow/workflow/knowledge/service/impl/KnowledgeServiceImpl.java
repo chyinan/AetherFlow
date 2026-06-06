@@ -115,6 +115,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteDataset(Long datasetId) {
+        requireDataset(datasetId);
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDatasetId, datasetId));
+        documentMapper.delete(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                .eq(KnowledgeDocumentEntity::getDatasetId, datasetId));
+        datasetMapper.deleteById(datasetId);
+    }
+
+    @Override
     public PageResult<KnowledgeDocumentSummary> listDocuments(Long datasetId, int page, int pageSize) {
         requireDataset(datasetId);
         LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = new LambdaQueryWrapper<KnowledgeDocumentEntity>()

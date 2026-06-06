@@ -723,6 +723,8 @@ export const jaJP = {
     embeddingSettings: '埋め込み設定',
     embeddingModel: '埋め込みモデル',
     retrievalMode: '検索モード',
+    deleteDataset: 'ナレッジベースを削除',
+    confirmDeleteDataset: 'ナレッジベース「{name}」を削除しますか？ドキュメントとチャンクも削除されます。',
     flow: {
       serviceApi: 'サービス API',
       externalApi: '外部ナレッジ API',
@@ -917,6 +919,8 @@ export const jaJP = {
     capabilities: '機能',
     quota: 'クォータ',
     quotaUsage: 'クォータ使用量',
+    quotaNotApplicable: 'ローカルランタイムにはクォータは適用されません',
+    quotaUnavailable: 'クォータデータはありません',
     health: 'ヘルス',
     circuit: 'サーキット',
     timeout: 'タイムアウト',

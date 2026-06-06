@@ -19,6 +19,8 @@ public interface KnowledgeService {
 
     KnowledgeDatasetSummary getDataset(Long datasetId);
 
+    void deleteDataset(Long datasetId);
+
     PageResult<KnowledgeDocumentSummary> listDocuments(Long datasetId, int page, int pageSize);
 
     KnowledgeDocumentSummary createDocument(Long datasetId, DocumentCreateRequest request);

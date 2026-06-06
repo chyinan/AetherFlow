@@ -12,7 +12,7 @@ export interface ModelProvider {
   defaultModel: string
   latencyMs: number
   quotaUsed: number
-  quotaLimit: number
+  quotaLimit?: number
   capabilities: string[]
   lastCheckedAt: string
   healthStatus?: string
