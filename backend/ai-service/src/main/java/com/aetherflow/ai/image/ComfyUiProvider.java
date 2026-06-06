@@ -354,6 +354,9 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     private ComfyUploadResponse uploadSourceImage(RestClient client, ImageGenerationRequest request) {
+        if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+        }
         byte[] bytes;
         try {
             bytes = Base64.getDecoder().decode(request.sourceImageBase64());

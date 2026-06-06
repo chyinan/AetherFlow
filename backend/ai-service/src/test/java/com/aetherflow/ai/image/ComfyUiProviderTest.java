@@ -238,6 +238,38 @@ class ComfyUiProviderTest {
     }
 
     @Test
+    void rejectsImg2imgNullSourceImage() {
+        ComfyUiProvider provider = provider(RestClient.builder());
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "img2img",
+                "cat",
+                "blur",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                "image/png",
+                null,
+                null,
+                Duration.ofSeconds(1)
+        )))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("img2img source image is required");
+    }
+
+    @Test
     void rejectsUnsupportedMode() {
         ComfyUiProvider provider = provider(RestClient.builder());
 
