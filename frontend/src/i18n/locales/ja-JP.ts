@@ -395,6 +395,7 @@ export const jaJP = {
       emailHint: 'メールで入力リクエストを送信',
       comingSoon: '近日公開',
       timeoutSetting: 'タイムアウト設定',
+      minutes: '分',
       days: '日',
       hours: '時間',
       actionId: 'ユーザーがトリガーした Action ID',

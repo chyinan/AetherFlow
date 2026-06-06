@@ -161,6 +161,11 @@ const agentOutputVariables = [
 const humanOutputVariables = [
   { name: '__action_id', type: 'string', descriptionKey: 'workflow.inspector.actionId' },
 ]
+const humanTimeoutUnits = [
+  { value: 'minutes', labelKey: 'workflow.inspector.minutes' },
+  { value: 'hours', labelKey: 'workflow.inspector.hours' },
+  { value: 'days', labelKey: 'workflow.inspector.days' },
+]
 const documentExtractorOutputVariables = [
   { name: 'text', type: 'string', descriptionKey: 'workflow.inspector.extractedText' },
 ]
@@ -270,6 +275,10 @@ function handleNumberInput(key: string, event: Event) {
 
 function handleToggle(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement).checked)
+}
+
+function isTimeoutUnitSelected(unit: string) {
+  return textConfig('timeoutUnit', 'days') === unit
 }
 
 function fieldMode(field: WorkflowNodeConfigSchema) {
@@ -891,10 +900,18 @@ onMounted(() => {
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.timeoutSetting') }}</span>
-            <div class="grid grid-cols-[minmax(0,1fr)_88px_88px] gap-2">
-              <input type="number" class="rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="numberConfig('timeoutValue', 3)" @input="handleNumberInput('timeoutValue', $event)" />
-              <button class="rounded-lg border border-primary bg-white text-sm font-medium text-primary">{{ t('workflow.inspector.days') }}</button>
-              <button class="rounded-lg bg-app-muted text-sm font-medium text-text-secondary">{{ t('workflow.inspector.hours') }}</button>
+            <div class="grid grid-cols-[minmax(0,1fr)_repeat(3,minmax(64px,76px))] gap-2">
+              <input type="number" min="0" class="rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="numberConfig('timeoutValue', 3)" @input="handleNumberInput('timeoutValue', $event)" />
+              <button
+                v-for="unit in humanTimeoutUnits"
+                :key="unit.value"
+                type="button"
+                class="rounded-lg px-2 py-3 text-sm font-medium transition"
+                :class="isTimeoutUnitSelected(unit.value) ? 'border border-primary bg-white text-primary shadow-sm' : 'border border-transparent bg-app-muted text-text-secondary hover:border-primary/40 hover:text-primary'"
+                @click="updateConfig('timeoutUnit', unit.value)"
+              >
+                {{ t(unit.labelKey) }}
+              </button>
             </div>
           </label>
           <div>
