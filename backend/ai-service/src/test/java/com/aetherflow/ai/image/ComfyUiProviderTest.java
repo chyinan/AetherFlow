@@ -556,6 +556,76 @@ class ComfyUiProviderTest {
                 .hasMessageContaining("comfyui request failed");
     }
 
+    @Test
+    void upscaleUploadsSourceAndBuildsScaleWorkflow() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://comfy/upload/image"))
+                .andExpect(method(POST))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.MULTIPART_FORM_DATA))
+                .andExpect(content().string(containsString("source-image")))
+                .andRespond(withSuccess("""
+                        {"name":"uploaded-source.png","subfolder":"","type":"input"}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "prompt": {
+                            "1": {
+                              "class_type": "LoadImage",
+                              "inputs": {"image": "uploaded-source.png"}
+                            },
+                            "2": {
+                              "class_type": "ImageScaleBy",
+                              "inputs": {
+                                "image": ["1", 0],
+                                "scale_by": 4
+                              }
+                            },
+                            "3": {
+                              "class_type": "SaveImage",
+                              "inputs": {"images": ["2", 0]}
+                            }
+                          }
+                        }
+                        """))
+                .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
+        expectQueue(server);
+        expectHistory(server, "abc", "upscaled.png", "", "output");
+        expectView(server, "upscaled.png", "", "output");
+
+        ImageGenerationResponse response = provider.upscale(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "upscale",
+                "",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "c291cmNlLWltYWdl",
+                "image/png",
+                null,
+                Map.of("scale", 4),
+                Duration.ofSeconds(1)
+        ));
+
+        assertThat(response.mode()).isEqualTo("upscale");
+        assertThat(response.images()).hasSize(1);
+        server.verify();
+    }
+
     private ComfyUiProvider provider(RestClient.Builder builder) {
         RestClient restClient = builder.baseUrl("http://comfy").build();
         ImageProviderProperties properties = new ImageProviderProperties();

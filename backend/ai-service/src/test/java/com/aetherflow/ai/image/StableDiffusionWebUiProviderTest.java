@@ -417,6 +417,55 @@ class StableDiffusionWebUiProviderTest {
     }
 
     @Test
+    void upscaleUsesExtraSingleImageApi() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://sd/sdapi/v1/extra-single-image"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "image": "aW1n",
+                          "upscaling_resize": 4,
+                          "upscaler_1": "R-ESRGAN 4x+"
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {"image":"dXBzY2FsZWQ=","html_info":"{}"}
+                        """, MediaType.APPLICATION_JSON));
+
+        ImageGenerationResponse response = provider.upscale(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                "upscale",
+                "",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "aW1n",
+                "image/png",
+                null,
+                Map.of("scale", 4, "upscaler", "R-ESRGAN 4x+"),
+                Duration.ofSeconds(30)
+        ));
+
+        assertThat(response.mode()).isEqualTo("upscale");
+        assertThat(response.images()).hasSize(1);
+        assertThat(response.images().get(0).base64Data()).isEqualTo("dXBzY2FsZWQ=");
+        server.verify();
+    }
+
+    @Test
     void appliesDefaultTimeoutToSlowWebUiResponse() throws IOException {
         String baseUrl = slowImageServer(Duration.ofMillis(250));
         ImageProviderProperties properties = new ImageProviderProperties();

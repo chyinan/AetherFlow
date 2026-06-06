@@ -87,6 +87,35 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         return new ImageGenerationResponse(type().name(), mode, images, metadata);
     }
 
+    @Override
+    public ImageGenerationResponse upscale(ImageGenerationRequest request) {
+        StableDiffusionUpscaleResponse response;
+        try {
+            response = restClient(request).post()
+                    .uri("/sdapi/v1/extra-single-image")
+                    .body(toUpscalePayload(request))
+                    .retrieve()
+                    .body(StableDiffusionUpscaleResponse.class);
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui upscale request failed");
+        }
+        if (response == null || response.image() == null || response.image().isBlank()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned blank upscale image");
+        }
+        GeneratedImagePayload image = new GeneratedImagePayload(
+                "sd-webui-upscale-1.png",
+                "image/png",
+                response.image(),
+                null,
+                Map.of("index", 0)
+        );
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("info", response.html_info() == null ? "" : response.html_info());
+        return new ImageGenerationResponse(type().name(), "upscale", List.of(image), metadata);
+    }
+
     private Map<String, Object> toPayload(ImageGenerationRequest request, boolean img2img) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.putAll(request.options());
@@ -108,6 +137,21 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
                 throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
             }
             payload.put("init_images", List.of(request.sourceImageBase64()));
+        }
+        return payload;
+    }
+
+    private Map<String, Object> toUpscalePayload(ImageGenerationRequest request) {
+        if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "upscale source image is required");
+        }
+        Map<String, Object> payload = new LinkedHashMap<>(request.options());
+        Object scale = payload.remove("scale");
+        Object upscaler = payload.remove("upscaler");
+        payload.put("image", request.sourceImageBase64());
+        payload.put("upscaling_resize", positiveNumber(scale, 2));
+        if (upscaler != null && !String.valueOf(upscaler).isBlank()) {
+            payload.put("upscaler_1", String.valueOf(upscaler));
         }
         return payload;
     }
@@ -162,6 +206,18 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         }
     }
 
+    private Object positiveNumber(Object value, int fallback) {
+        if (value instanceof Number number && number.doubleValue() > 0) {
+            return number;
+        }
+        try {
+            double parsed = value == null ? fallback : Double.parseDouble(String.valueOf(value));
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
     private RestClient restClient(ImageGenerationRequest request) {
         if (!perRequestTimeoutEnabled || request.timeout() == null) {
             return restClient;
@@ -191,5 +247,8 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
     }
 
     record StableDiffusionResponse(List<String> images, Map<String, Object> parameters, String info) {
+    }
+
+    record StableDiffusionUpscaleResponse(String image, String html_info) {
     }
 }

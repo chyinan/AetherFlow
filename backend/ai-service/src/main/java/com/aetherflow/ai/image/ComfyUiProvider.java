@@ -64,36 +64,57 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             RestClient client = restClient(request);
             ComfyUploadResponse upload = "img2img".equals(mode) ? uploadSourceImage(client, request) : null;
             Map<String, Object> queuePayload = queuePayload(request, mode, upload);
-            QueueResponse queue = client.post()
-                    .uri("/prompt")
-                    .body(queuePayload)
-                    .retrieve()
-                    .body(QueueResponse.class);
-            if (queue == null || queue.prompt_id() == null || queue.prompt_id().isBlank()) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui queue returned no prompt id");
-            }
-
-            HistoryResult history = waitForHistory(client, queue.prompt_id(), timeout(request));
-            List<ComfyImageRef> refs = imageRefs(queue.prompt_id(), history.history());
-            if (refs.isEmpty()) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui history returned no images");
-            }
-
-            List<GeneratedImagePayload> images = new ArrayList<>(refs.size());
-            for (ComfyImageRef ref : refs) {
-                images.add(download(client, ref));
-            }
-
-            Map<String, Object> metadata = new LinkedHashMap<>();
-            metadata.put("promptId", queue.prompt_id());
-            metadata.put("imageCount", images.size());
-            metadata.put("queue", history.queue() == null ? Map.of() : history.queue());
-            return new ImageGenerationResponse(type().name(), mode, images, metadata);
+            return executeQueuedWorkflow(client, request, mode, queuePayload);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RestClientException exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui request failed");
         }
+    }
+
+    @Override
+    public ImageGenerationResponse upscale(ImageGenerationRequest request) {
+        try {
+            RestClient client = restClient(request);
+            ComfyUploadResponse upload = uploadSourceImage(client, request);
+            Map<String, Object> queuePayload = new LinkedHashMap<>(request.options());
+            queuePayload.put("prompt", upscaleWorkflow(request, upload));
+            queuePayload.putIfAbsent("client_id", "aetherflow");
+            return executeQueuedWorkflow(client, request, "upscale", queuePayload);
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui request failed");
+        }
+    }
+
+    private ImageGenerationResponse executeQueuedWorkflow(RestClient client, ImageGenerationRequest request, String mode,
+                                                         Map<String, Object> queuePayload) {
+        QueueResponse queue = client.post()
+                .uri("/prompt")
+                .body(queuePayload)
+                .retrieve()
+                .body(QueueResponse.class);
+        if (queue == null || queue.prompt_id() == null || queue.prompt_id().isBlank()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui queue returned no prompt id");
+        }
+
+        HistoryResult history = waitForHistory(client, queue.prompt_id(), timeout(request));
+        List<ComfyImageRef> refs = imageRefs(queue.prompt_id(), history.history());
+        if (refs.isEmpty()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui history returned no images");
+        }
+
+        List<GeneratedImagePayload> images = new ArrayList<>(refs.size());
+        for (ComfyImageRef ref : refs) {
+            images.add(download(client, ref));
+        }
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("promptId", queue.prompt_id());
+        metadata.put("imageCount", images.size());
+        metadata.put("queue", history.queue() == null ? Map.of() : history.queue());
+        return new ImageGenerationResponse(type().name(), mode, images, metadata);
     }
 
     private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
@@ -180,6 +201,22 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "images", List.of(decodeNodeId, 0)
         )));
         addDefaultLoraAndVae(workflow, request, samplerNodeId, decodeNodeId);
+        return workflow;
+    }
+
+    private Map<String, Object> upscaleWorkflow(ImageGenerationRequest request, ComfyUploadResponse upload) {
+        Map<String, Object> workflow = new LinkedHashMap<>();
+        workflow.put("1", node("LoadImage", Map.of(
+                "image", sourceImageName(request, upload)
+        )));
+        workflow.put("2", node("ImageScaleBy", Map.of(
+                "image", List.of("1", 0),
+                "scale_by", positiveNumber(request.options().get("scale"), 2)
+        )));
+        workflow.put("3", node("SaveImage", Map.of(
+                "filename_prefix", "aetherflow-upscale",
+                "images", List.of("2", 0)
+        )));
         return workflow;
     }
 
@@ -504,6 +541,18 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private Object valueOrDefault(Object value, Object fallback) {
         return value == null ? fallback : value;
+    }
+
+    private Object positiveNumber(Object value, int fallback) {
+        if (value instanceof Number number && number.doubleValue() > 0) {
+            return number;
+        }
+        try {
+            double parsed = value == null ? fallback : Double.parseDouble(String.valueOf(value));
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
     }
 
     private String textOrDefault(Object value, String fallback) {
