@@ -7,6 +7,9 @@ import com.aetherflow.auth.settings.dto.SettingsDtos.MemberUpdateRequest;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsMemberResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileUpdateRequest;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationResponse;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationTestResponse;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationUpdateRequest;
 import com.aetherflow.auth.settings.entity.SettingsAuditEventEntity;
 import com.aetherflow.auth.settings.entity.SettingsBillingEntity;
 import com.aetherflow.auth.settings.entity.SettingsMemberEntity;
@@ -16,6 +19,7 @@ import com.aetherflow.auth.settings.mapper.SettingsBillingMapper;
 import com.aetherflow.auth.settings.mapper.SettingsMemberMapper;
 import com.aetherflow.auth.settings.mapper.SettingsProfileMapper;
 import com.aetherflow.auth.settings.service.SettingsService;
+import com.aetherflow.auth.settings.service.TelegramBotClient;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -49,6 +53,7 @@ public class SettingsServiceImpl implements SettingsService {
     private final SettingsMemberMapper memberMapper;
     private final SettingsBillingMapper billingMapper;
     private final SettingsAuditEventMapper auditEventMapper;
+    private final TelegramBotClient telegramBotClient;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -173,6 +178,60 @@ public class SettingsServiceImpl implements SettingsService {
                 .toList();
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TelegramIntegrationResponse getTelegramIntegration() {
+        return toTelegramIntegrationResponse(findOrCreateProfile());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TelegramIntegrationResponse updateTelegramIntegration(TelegramIntegrationUpdateRequest request) {
+        SettingsProfileEntity profile = findOrCreateProfile();
+        boolean enabled = Boolean.TRUE.equals(request.getEnabled());
+        String incomingToken = normalizeNullable(request.getBotToken());
+        String chatId = normalizeNullable(request.getChatId());
+        if (enabled && !hasText(incomingToken) && !hasText(profile.getTelegramBotToken())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "telegram bot token is required");
+        }
+        if (enabled && !hasText(chatId) && !hasText(profile.getTelegramChatId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "telegram chat id is required");
+        }
+        profile.setTelegramEnabled(enabled);
+        if (incomingToken != null) {
+            profile.setTelegramBotToken(incomingToken);
+        }
+        if (chatId != null) {
+            profile.setTelegramChatId(chatId);
+        }
+        profile.setUpdatedAt(LocalDateTime.now());
+        profileMapper.updateById(profile);
+        recordAudit("updated telegram integration", enabled ? "enabled" : "disabled");
+        return toTelegramIntegrationResponse(profile);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public TelegramIntegrationTestResponse testTelegramIntegration() {
+        SettingsProfileEntity profile = findOrCreateProfile();
+        if (!Boolean.TRUE.equals(profile.getTelegramEnabled())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "telegram integration is disabled");
+        }
+        if (!hasText(profile.getTelegramBotToken()) || !hasText(profile.getTelegramChatId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "telegram integration is incomplete");
+        }
+        telegramBotClient.sendMessage(
+                profile.getTelegramBotToken(),
+                profile.getTelegramChatId(),
+                "AetherFlow Telegram integration test"
+        );
+        profile.setTelegramLastTestStatus("success");
+        profile.setUpdatedAt(LocalDateTime.now());
+        profileMapper.updateById(profile);
+        recordAudit("tested telegram integration", profile.getTelegramChatId());
+        return new TelegramIntegrationTestResponse(true, "telegram test message sent");
+    }
+
     private SettingsProfileEntity findOrCreateProfile() {
         SettingsProfileEntity profile = profileMapper.selectOne(new LambdaQueryWrapper<SettingsProfileEntity>()
                 .last("limit 1"));
@@ -187,6 +246,7 @@ public class SettingsServiceImpl implements SettingsService {
         profile.setEnvironment("dev");
         profile.setDefaultTimeoutMin(45);
         profile.setRetentionDays(30);
+        profile.setTelegramEnabled(false);
         profile.setCreatedAt(now);
         profile.setUpdatedAt(now);
         profileMapper.insert(profile);
@@ -269,6 +329,17 @@ public class SettingsServiceImpl implements SettingsService {
         );
     }
 
+    private TelegramIntegrationResponse toTelegramIntegrationResponse(SettingsProfileEntity profile) {
+        String token = profile.getTelegramBotToken();
+        return new TelegramIntegrationResponse(
+                Boolean.TRUE.equals(profile.getTelegramEnabled()),
+                hasText(token),
+                previewSecret(token),
+                defaultText(profile.getTelegramChatId(), ""),
+                defaultText(profile.getTelegramLastTestStatus(), "untested")
+        );
+    }
+
     private SettingsMemberResponse toMemberResponse(SettingsMemberEntity member) {
         return new SettingsMemberResponse(
                 stringId(member.getId()),
@@ -303,6 +374,25 @@ public class SettingsServiceImpl implements SettingsService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String normalizeNullable(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String previewSecret(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= 8) {
+            return "****";
+        }
+        return trimmed.substring(0, 4) + "..." + trimmed.substring(trimmed.length() - 4);
     }
 
     private String normalizeEmail(String email) {

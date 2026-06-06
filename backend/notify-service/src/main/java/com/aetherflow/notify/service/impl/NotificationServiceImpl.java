@@ -9,6 +9,7 @@ import com.aetherflow.notify.mapper.NotificationRecordMapper;
 import com.aetherflow.notify.service.NotificationService;
 import com.aetherflow.notify.service.NotificationWebSocketHandler;
 import com.aetherflow.notify.service.SseEmitterRegistry;
+import com.aetherflow.notify.service.TelegramNotificationSender;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -35,6 +36,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationRecordMapper notificationRecordMapper;
     private final NotificationWebSocketHandler webSocketHandler;
     private final SseEmitterRegistry sseEmitterRegistry;
+    private final TelegramNotificationSender telegramNotificationSender;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -62,6 +64,7 @@ public class NotificationServiceImpl implements NotificationService {
 
         webSocketHandler.send(message.getUserId(), message);
         sseEmitterRegistry.send(message.getUserId(), message);
+        telegramNotificationSender.sendIfRequested(message);
     }
 
     private boolean existsEvent(String eventId) {

@@ -16,4 +16,8 @@ public class SettingsProfileEntity extends BaseEntity {
     private String environment;
     private Integer defaultTimeoutMin;
     private Integer retentionDays;
+    private Boolean telegramEnabled;
+    private String telegramBotToken;
+    private String telegramChatId;
+    private String telegramLastTestStatus;
 }

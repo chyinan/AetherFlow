@@ -14,6 +14,7 @@ import {
   Plus,
   Save,
   Search,
+  Send,
   Server,
   ShieldCheck,
   Trash2,
@@ -67,6 +68,14 @@ const memberForm = ref({
   name: '',
   email: '',
   role: 'Operator' as WorkspaceMember['role'],
+})
+const telegramSaving = ref(false)
+const telegramTesting = ref(false)
+const telegramMessage = ref('')
+const telegramForm = ref({
+  enabled: false,
+  botToken: '',
+  chatId: '',
 })
 
 const workspaceNav = [
@@ -567,6 +576,41 @@ async function removeMember(member: WorkspaceMember) {
   }
 }
 
+async function saveTelegramIntegration() {
+  if (telegramSaving.value) return
+  telegramSaving.value = true
+  telegramMessage.value = ''
+  try {
+    await settingsStore.configureTelegramIntegration({
+      enabled: telegramForm.value.enabled,
+      botToken: telegramForm.value.botToken.trim() || null,
+      chatId: telegramForm.value.chatId.trim(),
+    })
+    telegramForm.value.botToken = ''
+    telegramMessage.value = t('settings.telegramSaved')
+    markSaved()
+  } catch (error) {
+    telegramMessage.value = error instanceof Error ? error.message : t('settings.telegramSaveFailed')
+  } finally {
+    telegramSaving.value = false
+  }
+}
+
+async function testTelegramIntegration() {
+  if (telegramTesting.value) return
+  telegramTesting.value = true
+  telegramMessage.value = ''
+  try {
+    await settingsStore.testTelegramIntegration()
+    telegramMessage.value = t('settings.telegramTestSent')
+    markSaved()
+  } catch (error) {
+    telegramMessage.value = error instanceof Error ? error.message : t('settings.telegramTestFailed')
+  } finally {
+    telegramTesting.value = false
+  }
+}
+
 function statusBadgeClass(status: string) {
   if (status === 'installed' || status === 'connected' || status === 'configured' || status === 'active') {
     return 'border-status-success/30 bg-status-success/10 text-status-success'
@@ -602,6 +646,19 @@ watch(
   () => {
     activeTab.value = readRouteTab()
   },
+)
+
+watch(
+  () => settingsStore.telegramIntegration,
+  (integration) => {
+    if (!integration) return
+    telegramForm.value = {
+      enabled: integration.enabled,
+      botToken: '',
+      chatId: integration.chatId,
+    }
+  },
+  { immediate: true },
 )
 </script>
 
@@ -1165,6 +1222,81 @@ watch(
                 <span class="text-sm font-semibold text-text-primary">{{ card.value }}</span>
               </div>
             </article>
+          </section>
+
+          <section class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="flex min-w-0 items-start gap-3">
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+                  <Send class="h-4 w-4" />
+                </span>
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-text-primary">{{ t('settings.telegramIntegrationTitle') }}</p>
+                  <p class="mt-1 max-w-3xl text-xs leading-5 text-text-secondary">{{ t('settings.telegramIntegrationHint') }}</p>
+                </div>
+              </div>
+              <StatusDot
+                :tone="settingsStore.telegramIntegration?.enabled ? 'online' : 'offline'"
+                :label="settingsStore.telegramIntegration?.enabled ? t('settings.telegramEnabledStatus') : t('settings.telegramDisabledStatus')"
+              />
+            </div>
+
+            <div class="mt-4 grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_minmax(0,260px)]">
+              <label class="flex min-h-10 items-center gap-3 rounded-lg border border-app-border bg-app-bg2 px-3 py-2">
+                <input v-model="telegramForm.enabled" type="checkbox" class="h-5 w-5 rounded border-app-border text-primary focus:ring-primary" />
+                <span class="text-sm font-medium text-text-primary">{{ t('settings.telegramEnabled') }}</span>
+              </label>
+
+              <label class="block min-w-0">
+                <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.telegramBotToken') }}</span>
+                <input
+                  v-model="telegramForm.botToken"
+                  type="password"
+                  autocomplete="off"
+                  class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                  :placeholder="settingsStore.telegramIntegration?.botTokenConfigured ? t('settings.telegramBotTokenConfigured', { token: settingsStore.telegramIntegration.botTokenPreview }) : t('settings.telegramBotTokenPlaceholder')"
+                />
+              </label>
+
+              <label class="block min-w-0">
+                <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.telegramChatId') }}</span>
+                <input
+                  v-model="telegramForm.chatId"
+                  class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                  :placeholder="t('settings.telegramChatIdPlaceholder')"
+                />
+              </label>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p class="text-xs text-text-muted">
+                {{ t('settings.telegramLastTest') }}:
+                <span class="font-medium text-text-secondary">{{ settingsStore.telegramIntegration?.lastTestStatus || t('settings.telegramUntested') }}</span>
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  class="inline-flex h-10 items-center gap-2 rounded-md border border-app-border bg-white px-3 text-sm font-medium text-text-secondary hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  :disabled="telegramTesting || telegramSaving || !settingsStore.telegramIntegration?.enabled"
+                  @click="testTelegramIntegration"
+                >
+                  <Send class="h-4 w-4" />
+                  {{ telegramTesting ? t('settings.telegramTesting') : t('settings.telegramTest') }}
+                </button>
+                <button
+                  class="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white shadow-sm hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  :disabled="telegramSaving || telegramTesting"
+                  @click="saveTelegramIntegration"
+                >
+                  <Save class="h-4 w-4" />
+                  {{ telegramSaving ? t('settings.telegramSaving') : t('settings.telegramSave') }}
+                </button>
+              </div>
+            </div>
+            <p v-if="telegramMessage" class="mt-3 rounded-md border border-primary/20 bg-primary-soft px-3 py-2 text-sm text-text-secondary">
+              {{ telegramMessage }}
+            </p>
           </section>
 
           <section class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">

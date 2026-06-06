@@ -7,6 +7,9 @@ import com.aetherflow.auth.settings.dto.SettingsDtos.MemberUpdateRequest;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsMemberResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileUpdateRequest;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationResponse;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationTestResponse;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationUpdateRequest;
 import com.aetherflow.auth.settings.service.SettingsService;
 import com.aetherflow.common.core.Result;
 import jakarta.validation.Valid;
@@ -74,5 +77,21 @@ public class SettingsController {
     @GetMapping("/audit-events")
     public Result<List<AuditEventResponse>> listAuditEvents(@RequestParam(defaultValue = "20") int limit) {
         return Result.success(settingsService.listAuditEvents(limit));
+    }
+
+    @GetMapping("/integrations/telegram")
+    public Result<TelegramIntegrationResponse> getTelegramIntegration() {
+        return Result.success(settingsService.getTelegramIntegration());
+    }
+
+    @PutMapping("/integrations/telegram")
+    public Result<TelegramIntegrationResponse> updateTelegramIntegration(
+            @RequestBody TelegramIntegrationUpdateRequest request) {
+        return Result.success(settingsService.updateTelegramIntegration(request));
+    }
+
+    @PostMapping("/integrations/telegram/test")
+    public Result<TelegramIntegrationTestResponse> testTelegramIntegration() {
+        return Result.success(settingsService.testTelegramIntegration());
     }
 }

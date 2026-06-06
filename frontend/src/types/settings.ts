@@ -32,6 +32,14 @@ export interface IntegrationSetting {
   endpoint: string
 }
 
+export interface TelegramIntegration {
+  enabled: boolean
+  botTokenConfigured: boolean
+  botTokenPreview: string
+  chatId: string
+  lastTestStatus: string
+}
+
 export interface SettingsModelProvider {
   id: string
   providerKey: string

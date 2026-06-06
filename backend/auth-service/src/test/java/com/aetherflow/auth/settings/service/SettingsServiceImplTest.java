@@ -6,6 +6,7 @@ import com.aetherflow.auth.settings.dto.SettingsDtos.MemberUpdateRequest;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsMemberResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileResponse;
 import com.aetherflow.auth.settings.dto.SettingsDtos.SettingsProfileUpdateRequest;
+import com.aetherflow.auth.settings.dto.SettingsDtos.TelegramIntegrationUpdateRequest;
 import com.aetherflow.auth.settings.entity.SettingsAuditEventEntity;
 import com.aetherflow.auth.settings.entity.SettingsBillingEntity;
 import com.aetherflow.auth.settings.entity.SettingsMemberEntity;
@@ -15,6 +16,7 @@ import com.aetherflow.auth.settings.mapper.SettingsBillingMapper;
 import com.aetherflow.auth.settings.mapper.SettingsMemberMapper;
 import com.aetherflow.auth.settings.mapper.SettingsProfileMapper;
 import com.aetherflow.auth.settings.service.impl.SettingsServiceImpl;
+import com.aetherflow.auth.settings.service.TelegramBotClient;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,11 +52,14 @@ class SettingsServiceImplTest {
     @Mock
     private SettingsAuditEventMapper auditEventMapper;
 
+    @Mock
+    private TelegramBotClient telegramBotClient;
+
     private SettingsServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new SettingsServiceImpl(profileMapper, memberMapper, billingMapper, auditEventMapper);
+        service = new SettingsServiceImpl(profileMapper, memberMapper, billingMapper, auditEventMapper, telegramBotClient);
     }
 
     @Test
@@ -245,6 +250,30 @@ class SettingsServiceImplTest {
 
         assertThat(service.listAuditEvents(20)).hasSize(1);
         assertThat(service.listAuditEvents(20).get(0).time()).isEqualTo("02:34:20");
+    }
+
+    @Test
+    void configuresAndTestsTelegramIntegrationWithoutExposingToken() {
+        SettingsProfileEntity profile = profile();
+        when(profileMapper.selectOne(any(Wrapper.class))).thenReturn(profile);
+        TelegramIntegrationUpdateRequest request = new TelegramIntegrationUpdateRequest();
+        request.setEnabled(true);
+        request.setBotToken("123456:abcdef-token");
+        request.setChatId("-10042");
+
+        var response = service.updateTelegramIntegration(request);
+
+        assertThat(response.enabled()).isTrue();
+        assertThat(response.botTokenConfigured()).isTrue();
+        assertThat(response.botTokenPreview()).isEqualTo("1234...oken");
+        assertThat(response.chatId()).isEqualTo("-10042");
+        verify(profileMapper).updateById(profile);
+
+        var testResponse = service.testTelegramIntegration();
+
+        assertThat(testResponse.success()).isTrue();
+        verify(telegramBotClient).sendMessage("123456:abcdef-token", "-10042", "AetherFlow Telegram integration test");
+        assertThat(profile.getTelegramLastTestStatus()).isEqualTo("success");
     }
 
     private SettingsProfileEntity profile() {

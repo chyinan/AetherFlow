@@ -21,6 +21,8 @@ class SettingsSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_member")
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_billing")
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_audit_event")
+                .contains("telegram_enabled TINYINT(1) NOT NULL DEFAULT 0")
+                .contains("telegram_bot_token VARCHAR(255)")
                 .contains("KEY idx_af_settings_member_status")
                 .contains("KEY idx_af_settings_audit_event_occurred");
         assertThat(dockerInitSql)
@@ -28,6 +30,8 @@ class SettingsSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_member")
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_billing")
                 .contains("CREATE TABLE IF NOT EXISTS af_settings_audit_event")
+                .contains("telegram_enabled TINYINT(1) NOT NULL DEFAULT 0")
+                .contains("telegram_chat_id VARCHAR(128)")
                 .contains("monthly_budget VARCHAR(32) NOT NULL");
     }
 

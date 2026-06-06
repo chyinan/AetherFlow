@@ -9,6 +9,7 @@ import type {
   EnvironmentVariable,
   IntegrationSetting,
   SettingsModelProvider,
+  TelegramIntegration,
   WorkspaceMember,
   WorkspaceSettings,
 } from '@/types/settings'
@@ -23,6 +24,7 @@ export const useSettingsStore = defineStore('settings', {
     billing: null as BillingSnapshot | null,
     environmentVariables: [] as EnvironmentVariable[],
     integrations: [] as IntegrationSetting[],
+    telegramIntegration: null as TelegramIntegration | null,
     auditEvents: [] as AuditEvent[],
     loading: false,
   }),
@@ -53,6 +55,7 @@ export const useSettingsStore = defineStore('settings', {
           billing,
           environmentVariables,
           integrations,
+          telegramIntegration,
           auditEvents,
         ] = await Promise.all([
           settingsApi.getWorkspace(),
@@ -63,6 +66,7 @@ export const useSettingsStore = defineStore('settings', {
           settingsApi.getBillingSnapshot(),
           settingsApi.listEnvironmentVariables(),
           settingsApi.listIntegrations(),
+          settingsApi.getTelegramIntegration(),
           settingsApi.listAuditEvents(),
         ])
         this.workspace = workspace
@@ -73,6 +77,7 @@ export const useSettingsStore = defineStore('settings', {
         this.billing = billing
         this.environmentVariables = environmentVariables
         this.integrations = integrations
+        this.telegramIntegration = telegramIntegration
         this.auditEvents = auditEvents
       } finally {
         this.loading = false
@@ -157,6 +162,22 @@ export const useSettingsStore = defineStore('settings', {
       if (!extension) return
       extension.status = extension.status === 'disabled' ? 'configured' : extension.status
       this.recordAudit('configured API extension', extension.name)
+    },
+    async configureTelegramIntegration(payload: {
+      enabled: boolean
+      botToken?: string | null
+      chatId: string
+    }) {
+      const integration = await settingsApi.updateTelegramIntegration(payload)
+      this.telegramIntegration = integration
+      this.recordAudit('configured telegram integration', integration.enabled ? 'enabled' : 'disabled')
+      return integration
+    },
+    async testTelegramIntegration() {
+      const response = await settingsApi.testTelegramIntegration()
+      this.telegramIntegration = await settingsApi.getTelegramIntegration()
+      this.recordAudit('tested telegram integration', this.telegramIntegration.chatId || 'telegram')
+      return response
     },
   },
 })

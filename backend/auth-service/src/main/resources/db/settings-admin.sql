@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS af_settings_profile (
     environment VARCHAR(32) NOT NULL,
     default_timeout_min INT NOT NULL DEFAULT 45,
     retention_days INT NOT NULL DEFAULT 30,
+    telegram_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    telegram_bot_token VARCHAR(255),
+    telegram_chat_id VARCHAR(128),
+    telegram_last_test_status VARCHAR(64),
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_settings_profile_slug (slug)

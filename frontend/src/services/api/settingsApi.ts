@@ -15,6 +15,7 @@ import type {
   EnvironmentVariable,
   IntegrationSetting,
   SettingsModelProvider,
+  TelegramIntegration,
   WorkspaceMember,
   WorkspaceSettings,
 } from '@/types/settings'
@@ -67,6 +68,25 @@ interface AuditEventResponse {
   actor?: string
   action?: string
   target?: string
+}
+
+interface TelegramIntegrationResponse {
+  enabled?: boolean
+  botTokenConfigured?: boolean
+  botTokenPreview?: string
+  chatId?: string
+  lastTestStatus?: string
+}
+
+interface TelegramIntegrationUpdateRequest {
+  enabled: boolean
+  botToken?: string | null
+  chatId: string
+}
+
+export interface TelegramIntegrationTestResponse {
+  success?: boolean
+  message?: string
 }
 
 interface ModelProviderConfigUpdate {
@@ -140,6 +160,16 @@ function mapAudit(event: AuditEventResponse): AuditEvent {
     actor: stringOr(event.actor, 'system'),
     action: stringOr(event.action, ''),
     target: stringOr(event.target, ''),
+  }
+}
+
+function mapTelegramIntegration(value: TelegramIntegrationResponse): TelegramIntegration {
+  return {
+    enabled: Boolean(value.enabled),
+    botTokenConfigured: Boolean(value.botTokenConfigured),
+    botTokenPreview: stringOr(value.botTokenPreview, ''),
+    chatId: stringOr(value.chatId, ''),
+    lastTestStatus: stringOr(value.lastTestStatus, 'untested'),
   }
 }
 
@@ -295,5 +325,25 @@ export const settingsApi = {
       source: 'auth',
     })
     return events.map(mapAudit)
+  },
+  async getTelegramIntegration() {
+    return mapTelegramIntegration(await apiClient.get<TelegramIntegrationResponse>(
+      '/settings/integrations/telegram',
+      { source: 'auth' },
+    ))
+  },
+  async updateTelegramIntegration(payload: TelegramIntegrationUpdateRequest) {
+    return mapTelegramIntegration(await apiClient.put<TelegramIntegrationResponse>(
+      '/settings/integrations/telegram',
+      payload,
+      { source: 'auth' },
+    ))
+  },
+  async testTelegramIntegration() {
+    return apiClient.post<TelegramIntegrationTestResponse>(
+      '/settings/integrations/telegram/test',
+      undefined,
+      { source: 'auth' },
+    )
   },
 }

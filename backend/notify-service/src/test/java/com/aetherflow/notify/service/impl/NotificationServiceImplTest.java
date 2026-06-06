@@ -5,6 +5,7 @@ import com.aetherflow.notify.entity.NotificationRecord;
 import com.aetherflow.notify.mapper.NotificationRecordMapper;
 import com.aetherflow.notify.service.NotificationWebSocketHandler;
 import com.aetherflow.notify.service.SseEmitterRegistry;
+import com.aetherflow.notify.service.TelegramNotificationSender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
@@ -25,6 +26,7 @@ class NotificationServiceImplTest {
         NotificationRecordMapper notificationRecordMapper = mock(NotificationRecordMapper.class);
         NotificationWebSocketHandler webSocketHandler = mock(NotificationWebSocketHandler.class);
         SseEmitterRegistry sseEmitterRegistry = mock(SseEmitterRegistry.class);
+        TelegramNotificationSender telegramNotificationSender = mock(TelegramNotificationSender.class);
         when(notificationRecordMapper.selectCount(any())).thenReturn(0L);
         doAnswer(invocation -> {
             throw new DuplicateKeyException("duplicate event id");
@@ -33,6 +35,7 @@ class NotificationServiceImplTest {
                 notificationRecordMapper,
                 webSocketHandler,
                 sseEmitterRegistry,
+                telegramNotificationSender,
                 new ObjectMapper()
         );
         NotifyMessageDTO message = new NotifyMessageDTO();
@@ -46,5 +49,34 @@ class NotificationServiceImplTest {
 
         verify(webSocketHandler, never()).send(any(), any());
         verify(sseEmitterRegistry, never()).send(any(), any());
+        verify(telegramNotificationSender, never()).sendIfRequested(any());
+    }
+
+    @Test
+    void sendsTelegramWhenNotificationRequestsTelegramMethod() {
+        NotificationRecordMapper notificationRecordMapper = mock(NotificationRecordMapper.class);
+        NotificationWebSocketHandler webSocketHandler = mock(NotificationWebSocketHandler.class);
+        SseEmitterRegistry sseEmitterRegistry = mock(SseEmitterRegistry.class);
+        TelegramNotificationSender telegramNotificationSender = mock(TelegramNotificationSender.class);
+        when(notificationRecordMapper.selectCount(any())).thenReturn(0L);
+        NotificationServiceImpl service = new NotificationServiceImpl(
+                notificationRecordMapper,
+                webSocketHandler,
+                sseEmitterRegistry,
+                telegramNotificationSender,
+                new ObjectMapper()
+        );
+        NotifyMessageDTO message = new NotifyMessageDTO();
+        message.setUserId(7L);
+        message.setEventId("human:approval:1");
+        message.setChannel("WORKFLOW");
+        message.setEventType("HUMAN_APPROVAL_REQUESTED");
+        message.setPayload(Map.of("methods", "webapp,telegram", "title", "Approval required"));
+
+        service.send(message);
+
+        verify(webSocketHandler).send(7L, message);
+        verify(sseEmitterRegistry).send(7L, message);
+        verify(telegramNotificationSender).sendIfRequested(message);
     }
 }

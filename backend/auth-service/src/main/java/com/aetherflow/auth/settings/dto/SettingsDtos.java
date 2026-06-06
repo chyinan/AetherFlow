@@ -84,4 +84,26 @@ public final class SettingsDtos {
             String target
     ) {
     }
+
+    @Data
+    public static class TelegramIntegrationUpdateRequest {
+        private Boolean enabled;
+        private String botToken;
+        private String chatId;
+    }
+
+    public record TelegramIntegrationResponse(
+            Boolean enabled,
+            Boolean botTokenConfigured,
+            String botTokenPreview,
+            String chatId,
+            String lastTestStatus
+    ) {
+    }
+
+    public record TelegramIntegrationTestResponse(
+            Boolean success,
+            String message
+    ) {
+    }
 }
