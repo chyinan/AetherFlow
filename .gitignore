@@ -23,6 +23,7 @@ Thumbs.db
 # Logs and local config
 *.log
 logs/
+.worktrees/
 application-local.yml
 application-*.local.yml
 .env
