@@ -212,7 +212,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Logic',
     catalog: 'node',
     group: 'logic',
-    config: { methods: 'webapp,email', timeoutValue: 3, timeoutUnit: 'days', notify: true },
+    config: { methods: 'webapp,telegram', timeoutValue: 3, timeoutUnit: 'days', notify: true },
     inputs: ['draft.text'],
     outputs: ['approved.text', 'rejected.text'],
   },

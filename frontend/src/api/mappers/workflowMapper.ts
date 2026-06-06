@@ -439,7 +439,7 @@ function normalizeQuestionClassifierConfig(
 function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
     reviewer: stringValue(config.reviewer, 'ops'),
-    methods: stringValue(config.methods, 'webapp,email'),
+    methods: stringValue(config.methods, 'webapp,telegram'),
     timeoutValue: Math.max(0, Math.floor(numberValue(config.timeoutValue, 3))),
     timeoutUnit: stringValue(config.timeoutUnit, 'days'),
     notify: booleanValue(config.notify, true),

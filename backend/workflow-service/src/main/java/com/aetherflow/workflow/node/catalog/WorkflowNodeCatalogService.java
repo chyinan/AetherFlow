@@ -609,12 +609,12 @@ public class WorkflowNodeCatalogService {
                 "Requires explicit approval support. Auto-approval is only allowed when configured.",
                 List.of(
                         field("reviewer", "STRING", false, "Reviewer identifier.", "ops"),
-                        field("methods", "STRING", false, "Notification methods.", "webapp,email"),
+                        field("methods", "STRING", false, "Notification methods.", "webapp,telegram"),
                         field("autoApprove", "BOOLEAN", false, "Explicitly allow this node to pass without pause/resume support.", false)
                 ),
                 List.of(variable("draft", "STRING", "Content requiring review.", "Draft answer")),
                 List.of(variable("approved", "BOOLEAN", "Approval result.", true)),
-                mapOf("methods", "webapp,email", "autoApprove", false)
+                mapOf("methods", "webapp,telegram", "autoApprove", false)
         );
     }
 

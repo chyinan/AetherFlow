@@ -19,6 +19,7 @@ import {
   Repeat2,
   RotateCcw,
   Search,
+  Send,
   SlidersHorizontal,
   Sparkles,
   Split,
@@ -274,6 +275,25 @@ function handleNumberInput(key: string, event: Event) {
 
 function handleToggle(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement).checked)
+}
+
+function selectedHumanMethods() {
+  return textConfig('methods', 'webapp,telegram')
+    .split(',')
+    .map((method) => method.trim())
+    .filter(Boolean)
+}
+
+function isHumanMethodSelected(method: string) {
+  return selectedHumanMethods().includes(method)
+}
+
+function toggleHumanMethod(method: string) {
+  const methods = selectedHumanMethods()
+  const nextMethods = isHumanMethodSelected(method)
+    ? methods.filter((item) => item !== method)
+    : [...methods, method]
+  updateConfig('methods', (nextMethods.length > 0 ? nextMethods : [method]).join(','))
 }
 
 function closeInspector() {
@@ -894,17 +914,37 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'human'" class="space-y-5 p-5">
           <div>
             <div class="mb-3 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.submissionMethod') }}</p>
-              <button class="grid h-8 w-8 place-items-center rounded-md bg-app-bg2 text-text-muted"><Plus class="h-4 w-4" /></button>
+              <div>
+                <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.submissionMethod') }}</p>
+                <p class="mt-1 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.submissionMethodHint') }}</p>
+              </div>
             </div>
             <div class="rounded-xl border border-app-border bg-white shadow-sm">
-              <button class="flex w-full items-center gap-3 border-b border-app-border p-4 text-left">
+              <button
+                type="button"
+                class="flex w-full items-center gap-3 border-b border-app-border p-4 text-left transition hover:bg-primary-soft/30"
+                :class="isHumanMethodSelected('webapp') ? 'bg-primary-soft/30' : ''"
+                @click="toggleHumanMethod('webapp')"
+              >
                 <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white"><MessageSquare class="h-4 w-4" /></span>
-                <span><span class="block text-sm font-semibold text-text-primary">Webapp</span><span class="text-xs text-text-secondary">{{ t('workflow.inspector.webappHint') }}</span></span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.webappMethod') }}</span>
+                  <span class="text-xs leading-5 text-text-secondary">{{ t('workflow.inspector.webappHint') }}</span>
+                </span>
+                <span v-if="isHumanMethodSelected('webapp')" class="rounded-md bg-primary px-2 py-1 text-xs font-semibold text-white">{{ t('status.active') }}</span>
               </button>
-              <button class="flex w-full items-center gap-3 border-b border-app-border p-4 text-left">
-                <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white"><MessageSquare class="h-4 w-4" /></span>
-                <span><span class="block text-sm font-semibold text-text-primary">Email</span><span class="text-xs text-text-secondary">{{ t('workflow.inspector.emailHint') }}</span></span>
+              <button
+                type="button"
+                class="flex w-full items-center gap-3 border-b border-app-border p-4 text-left transition hover:bg-primary-soft/30"
+                :class="isHumanMethodSelected('telegram') ? 'bg-primary-soft/30' : ''"
+                @click="toggleHumanMethod('telegram')"
+              >
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white"><Send class="h-4 w-4" /></span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-semibold text-text-primary">Telegram</span>
+                  <span class="text-xs leading-5 text-text-secondary">{{ t('workflow.inspector.telegramHint') }}</span>
+                </span>
+                <span v-if="isHumanMethodSelected('telegram')" class="rounded-md bg-primary px-2 py-1 text-xs font-semibold text-white">{{ t('status.active') }}</span>
               </button>
               <p v-for="method in ['Slack', 'Teams', 'Discord']" :key="method" class="flex items-center justify-between p-4 text-text-muted">
                 <span class="font-semibold">{{ method }}</span>

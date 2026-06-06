@@ -147,6 +147,10 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("savedImageFiles", "savedImageFileIds", "savedImageUrls");
 
+        WorkflowNodeCatalogItem human = item(result.getData(), "HUMAN");
+        assertThat(human.exampleConfig())
+                .containsEntry("methods", "webapp,telegram");
+
         WorkflowNodeCatalogItem summary = item(result.getData(), "SUMMARY");
         assertThat(summary.configSchema())
                 .filteredOn(schema -> "prompt".equals(schema.name()))
