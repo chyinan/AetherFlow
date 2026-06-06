@@ -3,6 +3,7 @@ package com.aetherflow.workflow.controller;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
+import com.aetherflow.workflow.importer.ComfyUiWorkflowImportService;
 import com.aetherflow.workflow.service.WorkflowService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -33,12 +35,15 @@ class WorkflowControllerTest {
     @Mock
     private WorkflowService workflowService;
 
+    @Mock
+    private ComfyUiWorkflowImportService comfyUiWorkflowImportService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new WorkflowController(workflowService)).build();
+        mockMvc = MockMvcBuilders.standaloneSetup(new WorkflowController(workflowService, comfyUiWorkflowImportService)).build();
     }
 
     @Test
@@ -77,6 +82,29 @@ class WorkflowControllerTest {
                 .andExpect(jsonPath("$.data.name").value("Updated digest"));
 
         verify(workflowService).updateDefinition(eq(10L), any(WorkflowDefinitionDTO.class));
+    }
+
+    @Test
+    void importsComfyUiWorkflowDefinition() throws Exception {
+        WorkflowDefinitionDTO imported = definitionRequest("Imported ComfyUI");
+        imported.getNodes().get(0).setNodeType("IMAGE_GENERATION");
+        when(comfyUiWorkflowImportService.importWorkflow(eq("Imported ComfyUI"), eq("demo"), eq(12L), any()))
+                .thenReturn(imported);
+
+        mockMvc.perform(post("/workflows/definitions/import/comfyui")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "name", "Imported ComfyUI",
+                                "description", "demo",
+                                "projectId", 12,
+                                "workflowJson", Map.of("1", Map.of("class_type", "KSampler"))
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.name").value("Imported ComfyUI"))
+                .andExpect(jsonPath("$.data.nodes[0].nodeType").value("IMAGE_GENERATION"));
+
+        verify(comfyUiWorkflowImportService).importWorkflow(eq("Imported ComfyUI"), eq("demo"), eq(12L), any());
     }
 
     @Test

@@ -4,6 +4,8 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.importer.ComfyUiWorkflowImportRequest;
+import com.aetherflow.workflow.importer.ComfyUiWorkflowImportService;
 import com.aetherflow.workflow.service.WorkflowService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,6 +34,7 @@ import java.util.List;
 public class WorkflowController {
 
     private final WorkflowService workflowService;
+    private final ComfyUiWorkflowImportService comfyUiWorkflowImportService;
 
     @Operation(summary = "Create workflow definition",
             description = "Creates a workflow definition from frontend canvas nodes. Node config examples are available from GET /workflow/node/catalog.")
@@ -86,6 +89,24 @@ public class WorkflowController {
                                                        @PathVariable Long definitionId,
                                                        @Valid @RequestBody WorkflowDefinitionDTO request) {
         return Result.success(workflowService.updateDefinition(definitionId, request));
+    }
+
+    @Operation(summary = "Import ComfyUI workflow",
+            description = "Converts a ComfyUI workflow.json export into an AetherFlow workflow DAG for review and saving.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Imported workflow DAG returned.",
+                    content = @Content(schema = @Schema(implementation = WorkflowDefinitionDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid ComfyUI workflow json."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @PostMapping("/definitions/import/comfyui")
+    public Result<WorkflowDefinitionDTO> importComfyUi(@Valid @RequestBody ComfyUiWorkflowImportRequest request) {
+        return Result.success(comfyUiWorkflowImportService.importWorkflow(
+                request.getName(),
+                request.getDescription(),
+                request.getProjectId(),
+                request.getWorkflowJson()
+        ));
     }
 
     @Operation(summary = "Delete workflow definition",

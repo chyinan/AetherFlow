@@ -33,6 +33,10 @@ class WorkflowNodeCatalogControllerTest {
                         "SUMMARY",
                         "EMBEDDING",
                         "KNOWLEDGE_RETRIEVAL",
+                        "PROMPT",
+                        "IMAGE_GENERATION",
+                        "UPSCALE",
+                        "SAVE_IMAGE",
                         "EXPORT",
                         "NOTIFY",
                         "AGENT",
@@ -77,6 +81,63 @@ class WorkflowNodeCatalogControllerTest {
                 .contains("embeddingResults", "embeddingVectors", "embeddingVectorCount", "embeddingModel");
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
+
+        WorkflowNodeCatalogItem imageGeneration = item(result.getData(), "IMAGE_GENERATION");
+        assertThat(imageGeneration.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains(
+                        "provider",
+                        "mode",
+                        "prompt",
+                        "negativePrompt",
+                        "seed",
+                        "steps",
+                        "cfgScale",
+                        "sampler",
+                        "scheduler",
+                        "width",
+                        "height",
+                        "batchSize",
+                        "denoiseStrength",
+                        "checkpoint",
+                        "vae",
+                        "lora"
+                );
+        assertThat(imageGeneration.configSchema())
+                .filteredOn(schema -> "prompt".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.ui().mode()).isEqualTo("basic"));
+        assertThat(imageGeneration.configSchema())
+                .filteredOn(schema -> "checkpoint".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.ui().mode()).isEqualTo("advanced"));
+        assertThat(imageGeneration.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("imageFiles", "imageFileIds", "imageUrls", "imageGenerationMetadata");
+
+        WorkflowNodeCatalogItem prompt = item(result.getData(), "PROMPT");
+        assertThat(prompt.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("prompt", "negativePrompt", "stylePreset", "promptVersion");
+        assertThat(prompt.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("prompt", "negativePrompt", "promptMetadata");
+
+        WorkflowNodeCatalogItem upscale = item(result.getData(), "UPSCALE");
+        assertThat(upscale.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("provider", "sourceImageVariable", "scale", "upscaler");
+        assertThat(upscale.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("upscaledImageFiles", "upscaledImageFileIds", "upscaledImageUrls", "upscaleMetadata");
+
+        WorkflowNodeCatalogItem saveImage = item(result.getData(), "SAVE_IMAGE");
+        assertThat(saveImage.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("imagesVariable", "images");
+        assertThat(saveImage.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("savedImageFiles", "savedImageFileIds", "savedImageUrls");
 
         WorkflowNodeCatalogItem summary = item(result.getData(), "SUMMARY");
         assertThat(summary.configSchema())

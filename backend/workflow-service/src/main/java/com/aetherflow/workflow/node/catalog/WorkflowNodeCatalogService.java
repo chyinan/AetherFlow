@@ -23,6 +23,10 @@ public class WorkflowNodeCatalogService {
                 summary(),
                 embedding(),
                 knowledgeRetrieval(),
+                prompt(),
+                imageGeneration(),
+                upscale(),
+                saveImage(),
                 export(),
                 notifyNode(),
                 agent(),
@@ -284,6 +288,177 @@ public class WorkflowNodeCatalogService {
                         variable("retrievalDatasetId", "STRING", "Dataset used for retrieval.", "42")
                 ),
                 mapOf("datasetId", "42", "queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "disabled")
+        );
+    }
+
+    private WorkflowNodeCatalogItem prompt() {
+        return item(
+                "PROMPT",
+                "Prompt",
+                "Image",
+                "Builds reusable positive and negative prompts for image generation nodes.",
+                List.of(
+                        field("prompt", "STRING", true, "Positive image prompt.", "cinematic product photo",
+                                List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
+                        field("negativePrompt", "STRING", false, "Negative prompt used to suppress unwanted content.",
+                                "blur, low quality", List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
+                        field("stylePreset", "STRING", false, "Optional style preset label for downstream prompt management.",
+                                "commerce", List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
+                        field("promptVersion", "STRING", false, "Optional prompt version tag.", "image-prompt-v1",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
+                        field("tags", "ARRAY", false, "Prompt management tags.", List.of("product", "sdxl"),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("tags"))
+                ),
+                List.of(variable("variables", "OBJECT", "Current workflow variables.", Map.of())),
+                List.of(
+                        variable("prompt", "STRING", "Positive prompt for IMAGE_GENERATION.", "cinematic product photo"),
+                        variable("negativePrompt", "STRING", "Negative prompt for IMAGE_GENERATION.", "blur, low quality"),
+                        variable("promptMetadata", "OBJECT", "Prompt style, version and tags.", Map.of("stylePreset", "commerce"))
+                ),
+                mapOf("prompt", "cinematic product photo", "negativePrompt", "blur, low quality")
+        );
+    }
+
+    private WorkflowNodeCatalogItem imageGeneration() {
+        return item(
+                "IMAGE_GENERATION",
+                "Image Generation",
+                "Image",
+                "Generates images through Stable Diffusion WebUI or ComfyUI, stores results in MinIO, and writes file variables.",
+                List.of(
+                        field("provider", "STRING", false, "Image provider.", "SD_WEBUI",
+                                List.of("SD_WEBUI", "COMFYUI"), WorkflowNodeConfigUiSchema.basic("select")),
+                        field("mode", "STRING", false, "Generation mode.", "txt2img",
+                                List.of("txt2img", "img2img", "workflow"), WorkflowNodeConfigUiSchema.basic("segmented")),
+                        field("prompt", "STRING", false, "Fixed positive prompt. Prefer promptVariable when chained from PROMPT.",
+                                "cinematic product photo", List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
+                        field("promptVariable", "STRING", false, "Workflow variable containing the positive prompt.", "prompt",
+                                List.of(), WorkflowNodeConfigUiSchema.basic("input")),
+                        field("negativePrompt", "STRING", false, "Fixed negative prompt.", "blur, low quality",
+                                List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
+                        field("negativePromptVariable", "STRING", false, "Workflow variable containing the negative prompt.",
+                                "negativePrompt", List.of(), WorkflowNodeConfigUiSchema.basic("input")),
+                        field("sourceImage", "STRING", false, "Base64 source image used by img2img.", "",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("textarea")),
+                        field("sourceImageVariable", "STRING", false, "Workflow variable containing img2img base64 source image.",
+                                "sourceImage", List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
+                        field("seed", "NUMBER", false, "Generation seed. Use -1 for provider random seed.", -1,
+                                List.of(), WorkflowNodeConfigUiSchema.advancedNumber(-1, Long.MAX_VALUE, 1)),
+                        field("steps", "NUMBER", false, "Sampling steps.", 30,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(1, 150, 1)),
+                        field("cfgScale", "NUMBER", false, "Classifier-free guidance scale.", 7.5,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(0, 30, 0.5)),
+                        field("sampler", "STRING", false, "Sampler name.", "DPM++ 2M",
+                                List.of(), WorkflowNodeConfigUiSchema.basic("select")),
+                        field("scheduler", "STRING", false, "Scheduler name.", "karras",
+                                List.of("normal", "karras", "exponential", "sgm_uniform"), WorkflowNodeConfigUiSchema.basic("select")),
+                        field("width", "NUMBER", false, "Output width in pixels.", 1024,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(64, 4096, 8)),
+                        field("height", "NUMBER", false, "Output height in pixels.", 1024,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(64, 4096, 8)),
+                        field("batchSize", "NUMBER", false, "Number of images generated in one request.", 1,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(1, 16, 1)),
+                        field("denoiseStrength", "NUMBER", false, "img2img denoise strength.", 0.65,
+                                List.of(), WorkflowNodeConfigUiSchema.advancedNumber(0, 1, 0.01)),
+                        field("checkpoint", "STRING", false, "Checkpoint/model name. Supports SDXL and Flux checkpoints where provider supports them.",
+                                "sdxl.safetensors", List.of(), WorkflowNodeConfigUiSchema.advanced("select")),
+                        field("vae", "STRING", false, "VAE model name.", "sdxl-vae.safetensors",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("select")),
+                        field("lora", "ARRAY", false, "LoRA configs with name and weight.", List.of(Map.of("name", "product-style", "weight", 0.8)),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("lora-list")),
+                        field("workflow", "OBJECT", false, "Imported ComfyUI workflow JSON object.", Map.of(),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("json")),
+                        field("workflowJson", "STRING", false, "Imported ComfyUI workflow JSON string.", "{}",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("textarea")),
+                        field("timeoutSeconds", "NUMBER", false, "Provider execution timeout in seconds.", 120,
+                                List.of(), WorkflowNodeConfigUiSchema.advancedNumber(1, 1800, 1)),
+                        field("options", "OBJECT", false, "Provider-specific advanced options merged into the request.", Map.of(),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("json"))
+                ),
+                List.of(
+                        variable("prompt", "STRING", "Positive prompt from PROMPT or upstream text node.", "cinematic product photo"),
+                        variable("negativePrompt", "STRING", "Negative prompt from PROMPT.", "blur, low quality"),
+                        variable("sourceImage", "STRING", "Base64 source image for img2img.", "base64")
+                ),
+                List.of(
+                        variable("imageFiles", "ARRAY", "Stored generated image file metadata.", List.of(Map.of("id", 7))),
+                        variable("imageFileIds", "ARRAY", "Stored generated image file ids.", List.of(7)),
+                        variable("imageUrls", "ARRAY", "Stored generated image URLs.", List.of("http://minio/image.png")),
+                        variable("imageObjectKeys", "ARRAY", "Stored generated image object keys.", List.of("workflow/exports/images/wf/node/image.png")),
+                        variable("imageGenerationMetadata", "OBJECT", "Provider generation metadata.", Map.of("seed", 1234))
+                ),
+                mapOf(
+                        "provider", "SD_WEBUI",
+                        "mode", "txt2img",
+                        "promptVariable", "prompt",
+                        "negativePromptVariable", "negativePrompt",
+                        "steps", 30,
+                        "cfgScale", 7.5,
+                        "width", 1024,
+                        "height", 1024,
+                        "batchSize", 1
+                )
+        );
+    }
+
+    private WorkflowNodeCatalogItem upscale() {
+        return item(
+                "UPSCALE",
+                "Upscale",
+                "Image",
+                "Upscales an image through the selected image provider and stores the upscaled result in MinIO.",
+                List.of(
+                        field("provider", "STRING", false, "Image provider.", "COMFYUI",
+                                List.of("COMFYUI", "SD_WEBUI"), WorkflowNodeConfigUiSchema.basic("select")),
+                        field("sourceImage", "STRING", false, "Base64 source image.", "",
+                                List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
+                        field("sourceImageVariable", "STRING", false, "Workflow variable containing the source image base64.",
+                                "sourceImage", List.of(), WorkflowNodeConfigUiSchema.basic("input")),
+                        field("scale", "NUMBER", false, "Upscale multiplier.", 2,
+                                List.of(), WorkflowNodeConfigUiSchema.basicNumber(1, 8, 1)),
+                        field("upscaler", "STRING", false, "Provider upscaler model or algorithm.", "R-ESRGAN 4x+",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("select")),
+                        field("workflow", "OBJECT", false, "Optional ComfyUI upscale workflow JSON.", Map.of(),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("json")),
+                        field("workflowJson", "STRING", false, "Optional ComfyUI upscale workflow JSON string.", "{}",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("textarea")),
+                        field("timeoutSeconds", "NUMBER", false, "Provider execution timeout in seconds.", 120,
+                                List.of(), WorkflowNodeConfigUiSchema.advancedNumber(1, 1800, 1)),
+                        field("options", "OBJECT", false, "Provider-specific options.", Map.of(),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("json"))
+                ),
+                List.of(variable("sourceImage", "STRING", "Base64 source image from upstream.", "base64")),
+                List.of(
+                        variable("upscaledImageFiles", "ARRAY", "Stored upscaled image file metadata.", List.of(Map.of("id", 8))),
+                        variable("upscaledImageFileIds", "ARRAY", "Stored upscaled image file ids.", List.of(8)),
+                        variable("upscaledImageUrls", "ARRAY", "Stored upscaled image URLs.", List.of("http://minio/upscaled.png")),
+                        variable("upscaleMetadata", "OBJECT", "Provider upscale metadata.", Map.of("scale", 2))
+                ),
+                mapOf("provider", "COMFYUI", "sourceImageVariable", "sourceImage", "scale", 2)
+        );
+    }
+
+    private WorkflowNodeCatalogItem saveImage() {
+        return item(
+                "SAVE_IMAGE",
+                "Save Image",
+                "Image",
+                "Stores base64 image payloads in MinIO and writes file metadata variables.",
+                List.of(
+                        field("imagesVariable", "STRING", false, "Workflow variable containing one image or an image array.",
+                                "images", List.of(), WorkflowNodeConfigUiSchema.basic("input")),
+                        field("images", "ARRAY", false, "Inline generated image payloads with fileName, contentType and base64Data.",
+                                List.of(Map.of("fileName", "image.png", "contentType", "image/png", "base64Data", "base64")),
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("image-list"))
+                ),
+                List.of(variable("images", "ARRAY", "Generated image payloads from upstream node.", List.of(Map.of("fileName", "image.png")))),
+                List.of(
+                        variable("savedImageFiles", "ARRAY", "Stored image file metadata.", List.of(Map.of("id", 9))),
+                        variable("savedImageFileIds", "ARRAY", "Stored image file ids.", List.of(9)),
+                        variable("savedImageUrls", "ARRAY", "Stored image URLs.", List.of("http://minio/image.png")),
+                        variable("saveImageMetadata", "OBJECT", "Save image metadata.", Map.of("imageCount", 1))
+                ),
+                mapOf("imagesVariable", "images")
         );
     }
 
