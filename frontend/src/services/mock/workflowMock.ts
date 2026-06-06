@@ -14,8 +14,8 @@ export const nodeTemplates: NodeTemplate[] = [
   },
   {
     kind: 'prompt',
-    label: 'Prompt',
-    description: 'Build reusable positive and negative prompts for image generation.',
+    label: 'Prompt Variables',
+    description: 'Prepare prompt variables for downstream image generation; this node does not generate images.',
     category: 'Image',
     catalog: 'node',
     group: 'recommended',
@@ -26,7 +26,7 @@ export const nodeTemplates: NodeTemplate[] = [
   {
     kind: 'image-generation',
     label: 'Image Generation',
-    description: 'Generate images through Stable Diffusion WebUI or ComfyUI and store outputs.',
+    description: 'Run SD WebUI or ComfyUI generation with model, sampler, LoRA, and workflow parameters.',
     category: 'Image',
     catalog: 'node',
     group: 'recommended',

@@ -546,12 +546,12 @@ export const enUS = {
           description: 'Workflow entry point that expects a selected video fileId at runtime.',
         },
         prompt: {
-          label: 'Prompt',
-          description: 'Build positive and negative prompts for image generation.',
+          label: 'Prompt Variables',
+          description: 'Prepare positive and negative prompt variables for image generation. This node does not generate images.',
         },
         'image-generation': {
           label: 'Image Generation',
-          description: 'Generate images with Stable Diffusion WebUI or ComfyUI.',
+          description: 'Run SD WebUI or ComfyUI generation with model, sampler, LoRA, and workflow parameters.',
         },
         upscale: {
           label: 'Upscale',

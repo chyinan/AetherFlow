@@ -546,12 +546,12 @@ export const zhCN = {
           description: '工作流入口，运行时选择视频文件并注入 fileId。',
         },
         prompt: {
-          label: '提示词',
-          description: '构建图像生成的正向和反向提示词。',
+          label: '提示词变量',
+          description: '整理正向/反向提示词并输出变量，供图像生成节点使用，不直接生成图片。',
         },
         'image-generation': {
           label: '图像生成',
-          description: '通过 Stable Diffusion WebUI 或 ComfyUI 生成图像。',
+          description: '调用 SD WebUI 或 ComfyUI 生图，支持模型、采样器、LoRA 和 workflow 参数。',
         },
         upscale: {
           label: '图像放大',

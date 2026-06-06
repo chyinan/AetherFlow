@@ -141,14 +141,14 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     outputs: ['fileId'],
   },
   prompt: {
-    label: 'Prompt',
-    description: 'Build reusable positive and negative prompts for image generation.',
+    label: 'Prompt Variables',
+    description: 'Prepare prompt variables for downstream image generation; this node does not generate images.',
     inputs: [],
     outputs: ['prompt', 'negativePrompt', 'promptMetadata'],
   },
   'image-generation': {
     label: 'Image Generation',
-    description: 'Generate images through Stable Diffusion WebUI or ComfyUI.',
+    description: 'Run SD WebUI or ComfyUI generation with model, sampler, LoRA, and workflow parameters.',
     inputs: ['prompt', 'negativePrompt', 'sourceImage'],
     outputs: ['imageFiles', 'imageFileIds', 'imageUrls'],
   },

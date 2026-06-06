@@ -315,7 +315,7 @@ public class WorkflowNodeCatalogService {
                 "PROMPT",
                 "Prompt",
                 "Image",
-                "Builds reusable positive and negative prompts for image generation nodes.",
+                "Prepares positive and negative prompt variables for downstream image generation nodes. It does not generate images itself.",
                 List.of(
                         field("prompt", "STRING", true, "Positive image prompt.", "cinematic product photo",
                                 List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
@@ -343,7 +343,7 @@ public class WorkflowNodeCatalogService {
                 "IMAGE_GENERATION",
                 "Image Generation",
                 "Image",
-                "Generates images through Stable Diffusion WebUI or ComfyUI, stores results in MinIO, and writes file variables.",
+                "Runs Stable Diffusion WebUI or ComfyUI generation with model, sampler, LoRA and workflow parameters, then stores results in MinIO.",
                 List.of(
                         field("provider", "STRING", false, "Image provider.", "SD_WEBUI",
                                 List.of("SD_WEBUI", "COMFYUI"), WorkflowNodeConfigUiSchema.basic("select")),

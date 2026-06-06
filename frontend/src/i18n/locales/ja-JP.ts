@@ -548,12 +548,12 @@ export const jaJP = {
           description: '実行時に選択された動画の fileId を期待するワークフローの入口です。',
         },
         prompt: {
-          label: 'プロンプト',
-          description: '画像生成用の正負プロンプトを作成します。',
+          label: 'プロンプト変数',
+          description: '正負プロンプトを変数として準備し、画像生成ノードに渡します。このノード自体は画像を生成しません。',
         },
         'image-generation': {
           label: '画像生成',
-          description: 'Stable Diffusion WebUI または ComfyUI で画像を生成します。',
+          description: 'SD WebUI または ComfyUI でモデル、サンプラー、LoRA、workflow パラメータを使って画像を生成します。',
         },
         upscale: {
           label: 'アップスケール',
