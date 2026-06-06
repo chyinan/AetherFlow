@@ -15,6 +15,7 @@ import {
   Repeat2,
   RotateCcw,
   Search,
+  Sparkles,
   Split,
   Upload,
   Variable,
@@ -45,6 +46,10 @@ const hoveredTemplate = ref<NodeTemplate | null>(null)
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
   start: Upload,
+  prompt: Sparkles,
+  'image-generation': Sparkles,
+  upscale: Film,
+  'save-image': FileText,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,

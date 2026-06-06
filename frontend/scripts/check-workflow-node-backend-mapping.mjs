@@ -8,6 +8,10 @@ const canvas = readFileSync(join(root, 'src/components/workflow/WorkflowCanvas.v
 
 const requiredMappings = {
   start: 'START',
+  prompt: 'PROMPT',
+  'image-generation': 'IMAGE_GENERATION',
+  upscale: 'UPSCALE',
+  'save-image': 'SAVE_IMAGE',
   whisper: 'WHISPER',
   llm: 'LLM',
   ffmpeg: 'UPLOAD',

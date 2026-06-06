@@ -35,6 +35,11 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import {
+  getNodeCatalog,
+  type WorkflowNodeCatalogItem,
+  type WorkflowNodeConfigSchema,
+} from '@/api/modules/node'
 import { useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useModelStore } from '@/stores/modelStore'
@@ -44,7 +49,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
 
-type ConfigValue = string | number | boolean
+type ConfigValue = unknown
 type ConfigRecord = Record<string, ConfigValue>
 
 const uiStore = useUiStore()
@@ -62,7 +67,9 @@ const { t } = useI18n()
 const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
+const dynamicMode = ref<'basic' | 'advanced'>('basic')
 const retrievalSettingsExpanded = ref(false)
+const nodeCatalog = ref<WorkflowNodeCatalogItem[]>([])
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
@@ -70,6 +77,10 @@ const emit = defineEmits<{
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
   start: Upload,
+  prompt: Sparkles,
+  'image-generation': Sparkles,
+  upscale: SlidersHorizontal,
+  'save-image': FileText,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,
@@ -95,6 +106,13 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
 
 const nodeIcon = computed(() => (selectedNode.value ? iconMap[selectedNode.value.data.kind] : SlidersHorizontal))
 const selectedKind = computed(() => selectedNode.value?.data.kind ?? '')
+const imageSchemaKinds = new Set<WorkflowNodeKind>(['prompt', 'image-generation', 'upscale', 'save-image'])
+const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
+  prompt: 'PROMPT',
+  'image-generation': 'IMAGE_GENERATION',
+  upscale: 'UPSCALE',
+  'save-image': 'SAVE_IMAGE',
+}
 const selectedRunNode = computed(() =>
   runStore.currentRun?.nodeStates.find((node) => node.nodeId === selectedNode.value?.id),
 )
@@ -109,6 +127,23 @@ const runtimeDurationMs = computed(() =>
     ?? 0,
 )
 const canRunNode = computed(() => Boolean(selectedNode.value))
+const selectedCatalogItem = computed(() => {
+  const backendType = selectedNode.value ? backendTypeByKind[selectedNode.value.data.kind] : undefined
+  if (!backendType) {
+    return null
+  }
+  return nodeCatalog.value.find((item) => item.type === backendType || item.nodeType === backendType) ?? null
+})
+const hasDynamicConfigPanel = computed(() =>
+  Boolean(selectedNode.value && imageSchemaKinds.has(selectedNode.value.data.kind) && selectedCatalogItem.value?.configSchema?.length),
+)
+const dynamicConfigFields = computed(() => selectedCatalogItem.value?.configSchema ?? [])
+const visibleDynamicConfigFields = computed(() =>
+  dynamicConfigFields.value.filter((field) => fieldMode(field) === dynamicMode.value),
+)
+const hasAdvancedConfigFields = computed(() =>
+  dynamicConfigFields.value.some((field) => fieldMode(field) === 'advanced'),
+)
 
 const sysVariables = ['sys.user_id', 'sys.app_id', 'sys.workflow_id', 'sys.workflow_run_id']
 const fileTypes = ['msg', 'pdf', 'xls', 'pptx', 'eml', 'htm', 'docx', 'epub', 'xlsx', 'doc', 'markdown', 'vtt', 'mdx', 'html', 'xml', 'md', 'csv', 'txt', 'properties', 'ppt']
@@ -237,6 +272,86 @@ function handleToggle(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement).checked)
 }
 
+function fieldMode(field: WorkflowNodeConfigSchema) {
+  return field.ui?.mode === 'advanced' ? 'advanced' : 'basic'
+}
+
+function fieldDefaultValue(field: WorkflowNodeConfigSchema) {
+  if (field.example !== undefined && field.example !== null) {
+    return field.example
+  }
+  if (field.type === 'NUMBER') {
+    return 0
+  }
+  if (field.type === 'BOOLEAN') {
+    return false
+  }
+  if (field.type === 'ARRAY') {
+    return []
+  }
+  if (field.type === 'OBJECT') {
+    return {}
+  }
+  return ''
+}
+
+function fieldCurrentValue(field: WorkflowNodeConfigSchema) {
+  return configValue(field.name, fieldDefaultValue(field))
+}
+
+function fieldStringValue(field: WorkflowNodeConfigSchema) {
+  const value = fieldCurrentValue(field)
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value, null, 2)
+  }
+  return String(value ?? '')
+}
+
+function isSelectField(field: WorkflowNodeConfigSchema) {
+  return Boolean(field.options?.length) || field.ui?.control === 'select' || field.ui?.control === 'segmented'
+}
+
+function isBooleanField(field: WorkflowNodeConfigSchema) {
+  return field.type === 'BOOLEAN' || field.ui?.control === 'toggle'
+}
+
+function isNumberField(field: WorkflowNodeConfigSchema) {
+  return field.type === 'NUMBER' || field.ui?.control === 'number'
+}
+
+function isTextareaField(field: WorkflowNodeConfigSchema) {
+  return field.type === 'OBJECT'
+    || field.type === 'ARRAY'
+    || ['textarea', 'json', 'lora-list', 'image-list', 'tags'].includes(field.ui?.control ?? '')
+}
+
+function parseDynamicFieldValue(field: WorkflowNodeConfigSchema, rawValue: string) {
+  if (field.type === 'NUMBER') {
+    const numericValue = Number(rawValue)
+    return Number.isFinite(numericValue) ? numericValue : fieldDefaultValue(field)
+  }
+  if (field.type === 'BOOLEAN') {
+    return rawValue === 'true'
+  }
+  if (field.type === 'OBJECT' || field.type === 'ARRAY' || ['json', 'lora-list', 'image-list', 'tags'].includes(field.ui?.control ?? '')) {
+    try {
+      return JSON.parse(rawValue)
+    } catch {
+      return rawValue
+    }
+  }
+  return rawValue
+}
+
+function handleDynamicFieldInput(field: WorkflowNodeConfigSchema, event: Event) {
+  const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+  updateConfig(field.name, parseDynamicFieldValue(field, target.value))
+}
+
+function handleDynamicFieldToggle(field: WorkflowNodeConfigSchema, event: Event) {
+  updateConfig(field.name, (event.target as HTMLInputElement).checked)
+}
+
 function selectInputFile(file: FileAsset) {
   if (!file.backendFileId) {
     return
@@ -271,12 +386,20 @@ watch(selectedNode, (node) => {
     uiStore.setSelectedNode(node.id)
   }
   activeTab.value = 'settings'
+  dynamicMode.value = 'basic'
   retrievalSettingsExpanded.value = false
 })
 
 onMounted(() => {
   void modelStore.loadModels()
   void difyStore.refreshDatasets()
+  void getNodeCatalog()
+    .then((items) => {
+      nodeCatalog.value = items
+    })
+    .catch(() => {
+      nodeCatalog.value = []
+    })
 })
 </script>
 
@@ -907,6 +1030,81 @@ onMounted(() => {
             <textarea class="min-h-32 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.instructionPlaceholder')" :value="textConfig('instruction', '')" @input="handleTextInput('instruction', $event)" />
           </label>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
+        </section>
+
+        <section v-else-if="hasDynamicConfigPanel" class="space-y-5 p-5">
+          <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
+            <p class="text-sm font-semibold text-text-primary">{{ selectedCatalogItem?.displayName ?? nodeLabel(selectedNode.data.kind) }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ selectedCatalogItem?.description ?? nodeDescription(selectedNode.data.kind) }}</p>
+          </div>
+
+          <div v-if="hasAdvancedConfigFields" class="grid grid-cols-2 rounded-lg border border-app-border bg-app-muted p-1">
+            <button
+              type="button"
+              class="rounded-md px-3 py-2 text-sm font-semibold transition"
+              :class="dynamicMode === 'basic' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
+              @click="dynamicMode = 'basic'"
+            >
+              Basic
+            </button>
+            <button
+              type="button"
+              class="rounded-md px-3 py-2 text-sm font-semibold transition"
+              :class="dynamicMode === 'advanced' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
+              @click="dynamicMode = 'advanced'"
+            >
+              Advanced
+            </button>
+          </div>
+
+          <label v-for="field in visibleDynamicConfigFields" :key="field.name" class="block">
+            <span class="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-text-primary">
+              <span class="min-w-0 truncate">{{ field.name }} <span v-if="field.required" class="text-status-error">*</span></span>
+              <span class="shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] font-medium uppercase text-text-muted">{{ field.type }}</span>
+            </span>
+
+            <select
+              v-if="isSelectField(field)"
+              class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
+              :value="String(fieldCurrentValue(field) ?? '')"
+              @change="handleDynamicFieldInput(field, $event)"
+            >
+              <option v-if="!field.required" value=""></option>
+              <option v-for="option in field.options ?? []" :key="option" :value="option">{{ option }}</option>
+            </select>
+
+            <input
+              v-else-if="isNumberField(field)"
+              type="number"
+              class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
+              :min="field.ui?.min"
+              :max="field.ui?.max"
+              :step="field.ui?.step ?? 'any'"
+              :value="String(fieldCurrentValue(field) ?? '')"
+              @input="handleDynamicFieldInput(field, $event)"
+            />
+
+            <label v-else-if="isBooleanField(field)" class="flex items-center justify-between rounded-lg border border-app-border bg-white px-3 py-3 text-sm font-medium text-text-primary">
+              <span>{{ String(fieldCurrentValue(field) ?? false) }}</span>
+              <input type="checkbox" class="accent-primary" :checked="boolConfig(field.name, Boolean(fieldDefaultValue(field)))" @change="handleDynamicFieldToggle(field, $event)" />
+            </label>
+
+            <textarea
+              v-else-if="isTextareaField(field)"
+              class="min-h-28 w-full resize-y rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary"
+              :value="fieldStringValue(field)"
+              @input="handleDynamicFieldInput(field, $event)"
+            />
+
+            <input
+              v-else
+              class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
+              :value="fieldStringValue(field)"
+              @input="handleDynamicFieldInput(field, $event)"
+            />
+
+            <p v-if="field.description" class="mt-2 text-xs leading-5 text-text-muted">{{ field.description }}</p>
+          </label>
         </section>
 
         <section v-else class="space-y-5 p-5">

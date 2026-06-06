@@ -3,6 +3,10 @@ import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@
 
 type BackendNodeType =
   | 'START'
+  | 'PROMPT'
+  | 'IMAGE_GENERATION'
+  | 'UPSCALE'
+  | 'SAVE_IMAGE'
   | 'UPLOAD'
   | 'OCR'
   | 'WHISPER'
@@ -28,6 +32,10 @@ type BackendNodeType =
 
 const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   start: 'START',
+  prompt: 'PROMPT',
+  'image-generation': 'IMAGE_GENERATION',
+  upscale: 'UPSCALE',
+  'save-image': 'SAVE_IMAGE',
   whisper: 'WHISPER',
   llm: 'LLM',
   translate: 'TRANSLATE',
@@ -59,6 +67,10 @@ const LEGACY_MOCK_MODEL_VALUES = new Set(['aether-runtime/mock-gpt', 'mock-gpt']
 
 function toRecord(value: unknown) {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function stringValue(value: unknown, fallback = '') {
@@ -254,6 +266,66 @@ function normalizeEmbeddingConfig(config: Record<string, unknown>, nextNodes: st
     chunkSize,
     overlap,
     vectorCollection: stringValue(config.vectorCollection ?? config.dataset, 'workflow-embeddings'),
+  }, nextNodes)
+}
+
+function normalizePromptConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    prompt: stringValue(config.prompt, ''),
+    negativePrompt: stringValue(config.negativePrompt, ''),
+    ...(optionalString(config.stylePreset) ? { stylePreset: optionalString(config.stylePreset) } : {}),
+    ...(optionalString(config.promptVersion) ? { promptVersion: optionalString(config.promptVersion) } : {}),
+    ...(Array.isArray(config.tags) ? { tags: config.tags } : {}),
+  }, nextNodes)
+}
+
+function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    provider: stringValue(config.provider, 'SD_WEBUI'),
+    mode: stringValue(config.mode, 'txt2img'),
+    ...(optionalString(config.prompt) ? { prompt: optionalString(config.prompt) } : {}),
+    promptVariable: stringValue(config.promptVariable, 'prompt'),
+    ...(optionalString(config.negativePrompt) ? { negativePrompt: optionalString(config.negativePrompt) } : {}),
+    negativePromptVariable: stringValue(config.negativePromptVariable, 'negativePrompt'),
+    ...(optionalString(config.sourceImage) ? { sourceImage: optionalString(config.sourceImage) } : {}),
+    ...(optionalString(config.sourceImageVariable) ? { sourceImageVariable: optionalString(config.sourceImageVariable) } : {}),
+    seed: numberValue(config.seed, -1),
+    steps: Math.max(1, Math.floor(numberValue(config.steps, 30))),
+    cfgScale: numberValue(config.cfgScale, 7.5),
+    sampler: stringValue(config.sampler, ''),
+    scheduler: stringValue(config.scheduler, ''),
+    width: Math.max(64, Math.floor(numberValue(config.width, 1024))),
+    height: Math.max(64, Math.floor(numberValue(config.height, 1024))),
+    batchSize: Math.max(1, Math.floor(numberValue(config.batchSize, 1))),
+    denoiseStrength: numberValue(config.denoiseStrength, 0.65),
+    ...(optionalString(config.checkpoint) ? { checkpoint: optionalString(config.checkpoint) } : {}),
+    ...(optionalString(config.vae) ? { vae: optionalString(config.vae) } : {}),
+    ...(Array.isArray(config.lora) ? { lora: config.lora } : {}),
+    ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
+    ...(optionalString(config.workflowJson) ? { workflowJson: optionalString(config.workflowJson) } : {}),
+    ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
+    ...(isRecord(config.options) ? { options: config.options } : {}),
+  }, nextNodes)
+}
+
+function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    provider: stringValue(config.provider, 'COMFYUI'),
+    ...(optionalString(config.sourceImage) ? { sourceImage: optionalString(config.sourceImage) } : {}),
+    sourceImageVariable: stringValue(config.sourceImageVariable, 'sourceImage'),
+    scale: Math.max(1, Math.floor(numberValue(config.scale, 2))),
+    ...(optionalString(config.upscaler) ? { upscaler: optionalString(config.upscaler) } : {}),
+    ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
+    ...(optionalString(config.workflowJson) ? { workflowJson: optionalString(config.workflowJson) } : {}),
+    ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
+    ...(isRecord(config.options) ? { options: config.options } : {}),
+  }, nextNodes)
+}
+
+function normalizeSaveImageConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    imagesVariable: stringValue(config.imagesVariable, 'images'),
+    ...(Array.isArray(config.images) ? { images: config.images } : {}),
   }, nextNodes)
 }
 
@@ -476,6 +548,14 @@ function normalizeNodeConfig(
       return normalizeEmbeddingConfig(config, nextNodes)
     case 'KNOWLEDGE_RETRIEVAL':
       return normalizeKnowledgeRetrievalConfig(config, nextNodes)
+    case 'PROMPT':
+      return normalizePromptConfig(config, nextNodes)
+    case 'IMAGE_GENERATION':
+      return normalizeImageGenerationConfig(config, nextNodes)
+    case 'UPSCALE':
+      return normalizeUpscaleConfig(config, nextNodes)
+    case 'SAVE_IMAGE':
+      return normalizeSaveImageConfig(config, nextNodes)
     case 'EXPORT':
       return normalizeExportConfig(config, nextNodes, deliveryConfig)
     case 'END':

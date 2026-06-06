@@ -496,6 +496,7 @@ export const enUS = {
         Input: 'Input',
         AI: 'AI',
         Media: 'Media',
+        Image: 'Image',
         Transform: 'Transform',
         Output: 'Output',
         Logic: 'Logic',
@@ -508,6 +509,22 @@ export const enUS = {
         start: {
           label: 'Input Video File',
           description: 'Workflow entry point that expects a selected video fileId at runtime.',
+        },
+        prompt: {
+          label: 'Prompt',
+          description: 'Build positive and negative prompts for image generation.',
+        },
+        'image-generation': {
+          label: 'Image Generation',
+          description: 'Generate images with Stable Diffusion WebUI or ComfyUI.',
+        },
+        upscale: {
+          label: 'Upscale',
+          description: 'Upscale an image and store the result.',
+        },
+        'save-image': {
+          label: 'Save Image',
+          description: 'Store image payloads and expose file metadata.',
         },
         whisper: {
           label: 'Whisper',

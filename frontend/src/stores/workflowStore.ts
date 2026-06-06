@@ -182,7 +182,7 @@ export const useWorkflowStore = defineStore('workflow', {
         }
       }
     },
-    updateNodeConfig(nodeId: string, key: string, value: string | number | boolean) {
+    updateNodeConfig(nodeId: string, key: string, value: unknown) {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
         node.data.config[key] = value

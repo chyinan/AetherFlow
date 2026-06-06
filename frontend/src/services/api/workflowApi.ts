@@ -119,6 +119,10 @@ interface BackendWorkflowNode {
 
 const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   START: 'start',
+  PROMPT: 'prompt',
+  IMAGE_GENERATION: 'image-generation',
+  UPSCALE: 'upscale',
+  SAVE_IMAGE: 'save-image',
   UPLOAD: 'ffmpeg',
   WHISPER: 'whisper',
   SUMMARY: 'summary',
@@ -135,6 +139,30 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     description: '工作流入口，运行时需要选择一个视频文件并注入 fileId。',
     inputs: [],
     outputs: ['fileId'],
+  },
+  prompt: {
+    label: 'Prompt',
+    description: 'Build reusable positive and negative prompts for image generation.',
+    inputs: [],
+    outputs: ['prompt', 'negativePrompt', 'promptMetadata'],
+  },
+  'image-generation': {
+    label: 'Image Generation',
+    description: 'Generate images through Stable Diffusion WebUI or ComfyUI.',
+    inputs: ['prompt', 'negativePrompt', 'sourceImage'],
+    outputs: ['imageFiles', 'imageFileIds', 'imageUrls'],
+  },
+  upscale: {
+    label: 'Upscale',
+    description: 'Upscale an image and store the result.',
+    inputs: ['sourceImage'],
+    outputs: ['upscaledImageFiles', 'upscaledImageFileIds', 'upscaledImageUrls'],
+  },
+  'save-image': {
+    label: 'Save Image',
+    description: 'Store image payloads and expose file metadata.',
+    inputs: ['images'],
+    outputs: ['savedImageFiles', 'savedImageFileIds', 'savedImageUrls'],
   },
   ffmpeg: {
     label: '读取视频文件',
@@ -176,8 +204,7 @@ function isBackendWorkflowNode(value: unknown): value is BackendWorkflowNode {
 
 function toFrontendNodeConfig(config: Record<string, unknown> = {}) {
   return Object.fromEntries(
-    Object.entries(config).filter(([key, value]) => !GRAPH_CONFIG_KEYS.has(key)
-      && ['string', 'number', 'boolean'].includes(typeof value)),
+    Object.entries(config).filter(([key]) => !GRAPH_CONFIG_KEYS.has(key)),
   ) as WorkflowGraphNode['data']['config']
 }
 

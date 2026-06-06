@@ -496,6 +496,7 @@ export const zhCN = {
         Input: '输入',
         AI: 'AI',
         Media: '媒体',
+        Image: '图像',
         Transform: '转换',
         Output: '输出',
         Logic: '逻辑',
@@ -508,6 +509,22 @@ export const zhCN = {
         start: {
           label: '输入视频文件',
           description: '工作流入口，运行时选择视频文件并注入 fileId。',
+        },
+        prompt: {
+          label: '提示词',
+          description: '构建图像生成的正向和反向提示词。',
+        },
+        'image-generation': {
+          label: '图像生成',
+          description: '通过 Stable Diffusion WebUI 或 ComfyUI 生成图像。',
+        },
+        upscale: {
+          label: '图像放大',
+          description: '放大图像并保存结果。',
+        },
+        'save-image': {
+          label: '保存图像',
+          description: '保存图像负载并暴露文件元数据。',
         },
         whisper: {
           label: 'Whisper',

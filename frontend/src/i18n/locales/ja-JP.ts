@@ -498,6 +498,7 @@ export const jaJP = {
         Input: '入力',
         AI: 'AI',
         Media: 'メディア',
+        Image: '画像',
         Transform: '変換',
         Output: '出力',
         Logic: 'ロジック',
@@ -510,6 +511,22 @@ export const jaJP = {
         start: {
           label: '入力動画ファイル',
           description: '実行時に選択された動画の fileId を期待するワークフローの入口です。',
+        },
+        prompt: {
+          label: 'プロンプト',
+          description: '画像生成用の正負プロンプトを作成します。',
+        },
+        'image-generation': {
+          label: '画像生成',
+          description: 'Stable Diffusion WebUI または ComfyUI で画像を生成します。',
+        },
+        upscale: {
+          label: 'アップスケール',
+          description: '画像を拡大して結果を保存します。',
+        },
+        'save-image': {
+          label: '画像保存',
+          description: '画像ペイロードを保存し、ファイルメタデータを公開します。',
         },
         whisper: {
           label: 'Whisper',

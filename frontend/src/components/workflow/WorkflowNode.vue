@@ -18,6 +18,7 @@ import {
   Play,
   Repeat2,
   RotateCcw,
+  Sparkles,
   Split,
   Trash2,
   Upload,
@@ -49,6 +50,10 @@ const { t } = useI18n()
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
   start: Upload,
+  prompt: Sparkles,
+  'image-generation': Sparkles,
+  upscale: Film,
+  'save-image': FileText,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,

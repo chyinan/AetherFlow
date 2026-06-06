@@ -1,5 +1,9 @@
 export type WorkflowNodeKind =
   | 'start'
+  | 'prompt'
+  | 'image-generation'
+  | 'upscale'
+  | 'save-image'
   | 'whisper'
   | 'llm'
   | 'ffmpeg'
@@ -35,7 +39,7 @@ export interface WorkflowNodeData {
   label: string
   description: string
   kind: WorkflowNodeKind
-  config: Record<string, string | number | boolean>
+  config: Record<string, unknown>
   inputs: string[]
   outputs: string[]
   status: WorkflowNodeStatus
@@ -50,11 +54,11 @@ export interface NodeTemplate {
   kind: WorkflowNodeKind
   label: string
   description: string
-  category: 'Input' | 'AI' | 'Media' | 'Transform' | 'Output' | 'Logic' | 'Tool' | 'Plugin' | 'Workflow' | 'MCP'
+  category: 'Input' | 'AI' | 'Media' | 'Image' | 'Transform' | 'Output' | 'Logic' | 'Tool' | 'Plugin' | 'Workflow' | 'MCP'
   catalog?: 'node' | 'tool'
   group?: 'recommended' | 'logic' | 'transform' | 'allTools' | 'custom' | 'workflow' | 'mcp'
   provider?: string
-  config: Record<string, string | number | boolean>
+  config: Record<string, unknown>
   inputs: string[]
   outputs: string[]
 }

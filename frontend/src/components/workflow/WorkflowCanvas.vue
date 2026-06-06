@@ -21,6 +21,10 @@ const { t } = useI18n()
 const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
 const implementedNodeKinds = new Set<WorkflowNodeKind>([
   'start',
+  'prompt',
+  'image-generation',
+  'upscale',
+  'save-image',
   'ffmpeg',
   'document-extractor',
   'whisper',
