@@ -5,6 +5,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
@@ -35,11 +36,18 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
         boolean img2img = "img2img".equals(request.mode().toLowerCase(Locale.ROOT));
-        StableDiffusionResponse response = restClient.post()
-                .uri(img2img ? "/sdapi/v1/img2img" : "/sdapi/v1/txt2img")
-                .body(toPayload(request, img2img))
-                .retrieve()
-                .body(StableDiffusionResponse.class);
+        StableDiffusionResponse response;
+        try {
+            response = restClient.post()
+                    .uri(img2img ? "/sdapi/v1/img2img" : "/sdapi/v1/txt2img")
+                    .body(toPayload(request, img2img))
+                    .retrieve()
+                    .body(StableDiffusionResponse.class);
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RestClientException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui request failed");
+        }
 
         if (response == null || response.images() == null || response.images().isEmpty()) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned no images");
@@ -75,6 +83,8 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         put(payload, "height", request.height());
         put(payload, "batch_size", request.batchSize());
         put(payload, "denoising_strength", request.denoiseStrength());
+        payload.putAll(request.options());
+        putOverrideSettings(payload, request);
 
         if (img2img) {
             if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
@@ -82,9 +92,25 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
             }
             payload.put("init_images", List.of(request.sourceImageBase64()));
         }
-
-        payload.putAll(request.options());
         return payload;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void putOverrideSettings(Map<String, Object> payload, ImageGenerationRequest request) {
+        Map<String, Object> overrideSettings = new LinkedHashMap<>();
+        Object configured = request.options().get("override_settings");
+        if (configured instanceof Map<?, ?> configuredMap) {
+            configuredMap.forEach((key, value) -> overrideSettings.put(String.valueOf(key), value));
+        }
+        if (request.checkpoint() != null && !request.checkpoint().isBlank()) {
+            overrideSettings.put("sd_model_checkpoint", request.checkpoint());
+        }
+        if (request.vae() != null && !request.vae().isBlank()) {
+            overrideSettings.put("sd_vae", request.vae());
+        }
+        if (!overrideSettings.isEmpty()) {
+            payload.put("override_settings", overrideSettings);
+        }
     }
 
     private String promptWithLora(String prompt, List<Map<String, Object>> loras) {
