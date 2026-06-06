@@ -2,6 +2,7 @@ package com.aetherflow.gateway.exception;
 
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.gateway.support.GatewayResponseWriter;
+import com.alibaba.csp.sentinel.slots.block.BlockException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.reactive.error.ErrorWebExceptionHandler;
@@ -58,6 +59,9 @@ public class GatewayGlobalExceptionHandler implements ErrorWebExceptionHandler, 
             HttpStatusCode statusCode = responseStatusException.getStatusCode();
             HttpStatus status = HttpStatus.resolve(statusCode.value());
             return status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
+        }
+        if (exception instanceof BlockException || BlockException.isBlockException(exception)) {
+            return HttpStatus.TOO_MANY_REQUESTS;
         }
         if (exception instanceof TimeoutException) {
             return HttpStatus.SERVICE_UNAVAILABLE;

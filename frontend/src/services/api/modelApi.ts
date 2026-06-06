@@ -66,15 +66,19 @@ function shouldUseMockFallback(error: unknown) {
 }
 
 async function loadRealSnapshot(force = false) {
+  if (snapshotPromise) {
+    return snapshotPromise
+  }
+
+  if (force) {
+    cachedSnapshot = null
+  }
+
   if (!force && cachedSnapshot) {
     return cachedSnapshot
   }
 
-  if (!force && snapshotPromise) {
-    return snapshotPromise
-  }
-
-  snapshotPromise = (async () => {
+  const currentPromise = (async () => {
     const [serviceStatus, providerStatus, metricsResponse, catalogResponse, runtimeLogsResponse, policy] = await Promise.all([
       getAiStatus(),
       getProviderStatus(),
@@ -95,14 +99,16 @@ async function loadRealSnapshot(force = false) {
     cachedSnapshot = snapshot
     return snapshot
   })()
+  snapshotPromise = currentPromise
 
   try {
-    return await snapshotPromise
+    return await currentPromise
   } catch (error) {
-    if (snapshotPromise) {
+    throw error
+  } finally {
+    if (snapshotPromise === currentPromise) {
       snapshotPromise = null
     }
-    throw error
   }
 }
 
