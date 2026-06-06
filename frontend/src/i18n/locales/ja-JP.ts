@@ -1162,7 +1162,7 @@ export const jaJP = {
     telegramEnabledStatus: '有効',
     telegramDisabledStatus: '無効',
     telegramBotToken: 'Bot Token',
-    telegramBotTokenPlaceholder: '@BotFather が生成した Bot Token を入力',
+    telegramBotTokenPlaceholder: 'BotFather が生成した Bot Token を入力',
     telegramBotTokenConfigured: '設定済み: {token}。空欄のまま保存すると現在の Token を保持します',
     telegramChatId: 'Chat ID',
     telegramChatIdPlaceholder: 'ユーザー、グループ、またはチャンネルの Chat ID を入力',

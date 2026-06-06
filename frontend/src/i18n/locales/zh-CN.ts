@@ -1160,7 +1160,7 @@ export const zhCN = {
     telegramEnabledStatus: '已启用',
     telegramDisabledStatus: '未启用',
     telegramBotToken: 'Bot Token',
-    telegramBotTokenPlaceholder: '输入 @BotFather 生成的 Bot Token',
+    telegramBotTokenPlaceholder: '输入 BotFather 生成的 Bot Token',
     telegramBotTokenConfigured: '已配置：{token}，留空保留当前 Token',
     telegramChatId: 'Chat ID',
     telegramChatIdPlaceholder: '输入用户、群组或频道 Chat ID',
