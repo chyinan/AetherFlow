@@ -14,7 +14,6 @@ import {
   Languages,
   MessageSquare,
   Mic,
-  MoreHorizontal,
   Plus,
   Play,
   Repeat2,
@@ -277,6 +276,14 @@ function handleToggle(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement).checked)
 }
 
+function closeInspector() {
+  uiStore.setSelectedNode(null)
+  workflowStore.setNodes(workflowStore.nodes.map((node) => ({
+    ...node,
+    selected: false,
+  })))
+}
+
 function isTimeoutUnitSelected(unit: string) {
   return textConfig('timeoutUnit', 'days') === unit
 }
@@ -481,8 +488,15 @@ onMounted(() => {
             >
               <Sparkles class="h-4 w-4" />
             </button>
-            <MoreHorizontal class="h-4 w-4" />
-            <X class="h-4 w-4" />
+            <button
+              type="button"
+              class="grid h-8 w-8 place-items-center rounded-md hover:bg-app-bg2 hover:text-text-primary"
+              :title="t('common.close')"
+              :aria-label="t('common.close')"
+              @click="closeInspector"
+            >
+              <X class="h-4 w-4" />
+            </button>
           </div>
         </div>
 
