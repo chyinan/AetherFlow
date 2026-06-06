@@ -4,10 +4,12 @@ import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,13 +21,23 @@ import java.util.Map;
 public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
     private final RestClient restClient;
+    private final String baseUrl;
+    private final boolean perRequestTimeoutEnabled;
 
     public StableDiffusionWebUiProvider(RestClient.Builder builder, ImageProviderProperties properties) {
-        this(builder.baseUrl(properties.getStableDiffusion().getBaseUrl()).build(), properties);
+        this(createRestClient(builder, properties.getStableDiffusion().getBaseUrl(), properties.getDefaultTimeout()),
+                properties, true);
     }
 
     StableDiffusionWebUiProvider(RestClient restClient, ImageProviderProperties properties) {
+        this(restClient, properties, false);
+    }
+
+    private StableDiffusionWebUiProvider(RestClient restClient, ImageProviderProperties properties,
+                                        boolean perRequestTimeoutEnabled) {
         this.restClient = restClient;
+        this.baseUrl = properties.getStableDiffusion().getBaseUrl();
+        this.perRequestTimeoutEnabled = perRequestTimeoutEnabled;
     }
 
     @Override
@@ -39,7 +51,7 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         boolean img2img = "img2img".equals(mode);
         StableDiffusionResponse response;
         try {
-            response = restClient.post()
+            response = restClient(request).post()
                     .uri(img2img ? "/sdapi/v1/img2img" : "/sdapi/v1/txt2img")
                     .body(toPayload(request, img2img))
                     .retrieve()
@@ -148,6 +160,34 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         if (value != null) {
             payload.put(key, value);
         }
+    }
+
+    private RestClient restClient(ImageGenerationRequest request) {
+        if (!perRequestTimeoutEnabled || request.timeout() == null) {
+            return restClient;
+        }
+        return createRestClient(RestClient.builder(), baseUrl, request.timeout());
+    }
+
+    private static RestClient createRestClient(RestClient.Builder builder, String baseUrl, Duration timeout) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        int timeoutMillis = timeoutMillis(timeout);
+        requestFactory.setConnectTimeout(timeoutMillis);
+        requestFactory.setReadTimeout(timeoutMillis);
+        return builder.baseUrl(baseUrl)
+                .requestFactory(requestFactory)
+                .build();
+    }
+
+    private static int timeoutMillis(Duration timeout) {
+        Duration effective = timeout == null || timeout.isNegative() || timeout.isZero()
+                ? Duration.ofMinutes(5)
+                : timeout;
+        long millis = effective.toMillis();
+        if (millis <= 0) {
+            return 1;
+        }
+        return Math.toIntExact(Math.min(millis, Integer.MAX_VALUE));
     }
 
     record StableDiffusionResponse(List<String> images, Map<String, Object> parameters, String info) {

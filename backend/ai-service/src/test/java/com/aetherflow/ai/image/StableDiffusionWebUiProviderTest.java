@@ -3,11 +3,16 @@ package com.aetherflow.ai.image;
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +28,16 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.http.HttpMethod.POST;
 
 class StableDiffusionWebUiProviderTest {
+
+    private HttpServer httpServer;
+
+    @AfterEach
+    void stopHttpServer() {
+        if (httpServer != null) {
+            httpServer.stop(0);
+            httpServer = null;
+        }
+    }
 
     @Test
     void mapsTxt2imgRequestAndResponse() {
@@ -401,6 +416,56 @@ class StableDiffusionWebUiProviderTest {
         server.verify();
     }
 
+    @Test
+    void appliesDefaultTimeoutToSlowWebUiResponse() throws IOException {
+        String baseUrl = slowImageServer(Duration.ofMillis(250));
+        ImageProviderProperties properties = new ImageProviderProperties();
+        properties.getStableDiffusion().setBaseUrl(baseUrl);
+        properties.setDefaultTimeout(Duration.ofMillis(50));
+        StableDiffusionWebUiProvider provider = new StableDiffusionWebUiProvider(RestClient.builder(), properties);
+
+        assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
+                .hasMessageContaining("stable diffusion webui request failed");
+    }
+
+    @Test
+    void requestTimeoutOverridesDefaultTimeout() throws IOException {
+        String baseUrl = slowImageServer(Duration.ofMillis(60));
+        ImageProviderProperties properties = new ImageProviderProperties();
+        properties.getStableDiffusion().setBaseUrl(baseUrl);
+        properties.setDefaultTimeout(Duration.ofSeconds(5));
+        StableDiffusionWebUiProvider provider = new StableDiffusionWebUiProvider(RestClient.builder(), properties);
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                "txt2img",
+                "cat",
+                "blur",
+                null,
+                25,
+                7.5,
+                null,
+                null,
+                1024,
+                768,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Duration.ofMillis(10)
+        )))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
+                .hasMessageContaining("stable diffusion webui request failed");
+    }
+
     private StableDiffusionWebUiProvider provider(RestClient.Builder builder) {
         RestClient restClient = builder.baseUrl("http://sd").build();
         ImageProviderProperties properties = new ImageProviderProperties();
@@ -439,5 +504,26 @@ class StableDiffusionWebUiProviderTest {
         map.put(firstKey, firstValue);
         map.put(secondKey, secondValue);
         return map;
+    }
+
+    private String slowImageServer(Duration delay) throws IOException {
+        httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        httpServer.createContext("/sdapi/v1/txt2img", exchange -> {
+            try {
+                Thread.sleep(delay.toMillis());
+                byte[] body = "{\"images\":[\"aW1n\"],\"parameters\":{},\"info\":\"{}\"}".getBytes();
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                try (OutputStream output = exchange.getResponseBody()) {
+                    output.write(body);
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        httpServer.start();
+        return "http://127.0.0.1:" + httpServer.getAddress().getPort();
     }
 }
