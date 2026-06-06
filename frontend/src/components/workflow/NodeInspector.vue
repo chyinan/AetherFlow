@@ -317,8 +317,28 @@ function dynamicFieldDescription(field: WorkflowNodeConfigSchema) {
   return te(key) ? t(key) : field.description ?? ''
 }
 
+function selectOptions(field: WorkflowNodeConfigSchema) {
+  return field.options ?? []
+}
+
+function fieldSelectValue(field: WorkflowNodeConfigSchema) {
+  const value = fieldCurrentValue(field)
+  if (typeof value === 'string' && value === '') {
+    const defaultValue = fieldDefaultValue(field)
+    if (typeof defaultValue === 'string' && defaultValue !== '') {
+      return defaultValue
+    }
+    return selectOptions(field)[0] ?? ''
+  }
+  return String(value ?? '')
+}
+
+function isSegmentedField(field: WorkflowNodeConfigSchema) {
+  return field.ui?.control === 'segmented' && selectOptions(field).length > 0
+}
+
 function isSelectField(field: WorkflowNodeConfigSchema) {
-  return Boolean(field.options?.length) || field.ui?.control === 'select' || field.ui?.control === 'segmented'
+  return field.ui?.control !== 'segmented' && selectOptions(field).length > 0
 }
 
 function isBooleanField(field: WorkflowNodeConfigSchema) {
@@ -1076,12 +1096,28 @@ onMounted(() => {
             <select
               v-if="isSelectField(field)"
               class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
-              :value="String(fieldCurrentValue(field) ?? '')"
+              :value="fieldSelectValue(field)"
               @change="handleDynamicFieldInput(field, $event)"
             >
-              <option v-if="!field.required" value=""></option>
-              <option v-for="option in field.options ?? []" :key="option" :value="option">{{ option }}</option>
+              <option v-for="option in selectOptions(field)" :key="option" :value="option">{{ option }}</option>
             </select>
+
+            <div
+              v-else-if="isSegmentedField(field)"
+              class="grid rounded-lg border border-app-border bg-app-muted p-1"
+              :style="{ gridTemplateColumns: `repeat(${selectOptions(field).length}, minmax(0, 1fr))` }"
+            >
+              <button
+                v-for="option in selectOptions(field)"
+                :key="option"
+                type="button"
+                class="rounded-md px-3 py-2 text-sm font-semibold transition"
+                :class="fieldSelectValue(field) === option ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
+                @click="updateConfig(field.name, option)"
+              >
+                {{ option }}
+              </button>
+            </div>
 
             <input
               v-else-if="isNumberField(field)"

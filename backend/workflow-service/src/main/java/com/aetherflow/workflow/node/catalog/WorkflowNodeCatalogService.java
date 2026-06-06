@@ -10,6 +10,25 @@ import java.util.Map;
 
 @Service
 public class WorkflowNodeCatalogService {
+    private static final List<String> IMAGE_SAMPLERS = List.of(
+            "Euler",
+            "Euler a",
+            "DPM++ 2M",
+            "DPM++ 2M Karras",
+            "DPM++ SDE",
+            "DPM++ SDE Karras",
+            "DPM++ 2M SDE",
+            "DPM++ 2M SDE Karras",
+            "DDIM",
+            "UniPC"
+    );
+    private static final List<String> IMAGE_UPSCALERS = List.of(
+            "R-ESRGAN 4x+",
+            "R-ESRGAN 4x+ Anime6B",
+            "ESRGAN_4x",
+            "Lanczos",
+            "Nearest"
+    );
 
     public List<WorkflowNodeCatalogItem> catalog() {
         return List.of(
@@ -349,7 +368,7 @@ public class WorkflowNodeCatalogService {
                         field("cfgScale", "NUMBER", false, "Classifier-free guidance scale.", 7.5,
                                 List.of(), WorkflowNodeConfigUiSchema.basicNumber(0, 30, 0.5)),
                         field("sampler", "STRING", false, "Sampler name.", "DPM++ 2M",
-                                List.of(), WorkflowNodeConfigUiSchema.basic("select")),
+                                IMAGE_SAMPLERS, WorkflowNodeConfigUiSchema.basic("select")),
                         field("scheduler", "STRING", false, "Scheduler name.", "karras",
                                 List.of("normal", "karras", "exponential", "sgm_uniform"), WorkflowNodeConfigUiSchema.basic("select")),
                         field("width", "NUMBER", false, "Output width in pixels.", 1024,
@@ -417,7 +436,7 @@ public class WorkflowNodeCatalogService {
                         field("scale", "NUMBER", false, "Upscale multiplier.", 2,
                                 List.of(), WorkflowNodeConfigUiSchema.basicNumber(1, 8, 1)),
                         field("upscaler", "STRING", false, "Provider upscaler model or algorithm.", "R-ESRGAN 4x+",
-                                List.of(), WorkflowNodeConfigUiSchema.advanced("select")),
+                                IMAGE_UPSCALERS, WorkflowNodeConfigUiSchema.advanced("select")),
                         field("workflow", "OBJECT", false, "Optional ComfyUI upscale workflow JSON.", Map.of(),
                                 List.of(), WorkflowNodeConfigUiSchema.advanced("json")),
                         field("workflowJson", "STRING", false, "Optional ComfyUI upscale workflow JSON string.", "{}",

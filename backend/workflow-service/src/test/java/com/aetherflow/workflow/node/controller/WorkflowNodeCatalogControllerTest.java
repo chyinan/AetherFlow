@@ -111,6 +111,10 @@ class WorkflowNodeCatalogControllerTest {
                 .filteredOn(schema -> "checkpoint".equals(schema.name()))
                 .singleElement()
                 .satisfies(schema -> assertThat(schema.ui().mode()).isEqualTo("advanced"));
+        assertThat(imageGeneration.configSchema())
+                .filteredOn(schema -> "sampler".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.options()).contains("DPM++ 2M", "Euler", "UniPC"));
         assertThat(imageGeneration.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("imageFiles", "imageFileIds", "imageUrls", "imageGenerationMetadata");
@@ -127,6 +131,10 @@ class WorkflowNodeCatalogControllerTest {
         assertThat(upscale.configSchema())
                 .extracting(WorkflowNodeConfigSchema::name)
                 .contains("provider", "sourceImageVariable", "scale", "upscaler");
+        assertThat(upscale.configSchema())
+                .filteredOn(schema -> "upscaler".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.options()).contains("R-ESRGAN 4x+", "Lanczos"));
         assertThat(upscale.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("upscaledImageFiles", "upscaledImageFileIds", "upscaledImageUrls", "upscaleMetadata");
