@@ -3,11 +3,16 @@ package com.aetherflow.ai.image;
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,6 +30,16 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class ComfyUiProviderTest {
+
+    private HttpServer httpServer;
+
+    @AfterEach
+    void stopHttpServer() {
+        if (httpServer != null) {
+            httpServer.stop(0);
+            httpServer = null;
+        }
+    }
 
     @Test
     void queuesWorkflowPollsQueueReadsHistoryAndDownloadsImages() {
@@ -116,6 +131,230 @@ class ComfyUiProviderTest {
         assertThat(response.metadata())
                 .containsEntry("promptId", "abc")
                 .containsEntry("imageCount", 1);
+        server.verify();
+    }
+
+    @Test
+    void buildsImg2imgWorkflowWithSourceImageAndNormalizedMode() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "prompt": {
+                            "4": {
+                              "class_type": "LoadImage",
+                              "inputs": {"image": "source.png"}
+                            },
+                            "5": {
+                              "class_type": "VAEEncode",
+                              "inputs": {"pixels": ["4", 0]}
+                            },
+                            "6": {
+                              "class_type": "KSampler",
+                              "inputs": {
+                                "denoise": 0.35,
+                                "latent_image": ["5", 0]
+                              }
+                            }
+                          },
+                          "client_id": "aetherflow"
+                        }
+                        """))
+                .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
+        expectQueue(server);
+        expectHistory(server, "abc", "out.png", "", "output");
+        expectView(server, "out.png", "", "output");
+
+        ImageGenerationResponse response = provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                " img2img ",
+                "cat",
+                "blur",
+                7L,
+                20,
+                6.5,
+                "euler",
+                "normal",
+                768,
+                1024,
+                2,
+                0.35,
+                "sdxl.safetensors",
+                null,
+                List.of(),
+                "c291cmNlLWltYWdl",
+                "image/png",
+                null,
+                null,
+                Duration.ofSeconds(1)
+        ));
+
+        assertThat(response.mode()).isEqualTo("img2img");
+        server.verify();
+    }
+
+    @Test
+    void rejectsImg2imgWithoutSourceImage() {
+        ComfyUiProvider provider = provider(RestClient.builder());
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "img2img",
+                "cat",
+                "blur",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "",
+                "image/png",
+                null,
+                null,
+                Duration.ofSeconds(1)
+        )))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("img2img source image is required");
+    }
+
+    @Test
+    void rejectsUnsupportedMode() {
+        ComfyUiProvider provider = provider(RestClient.builder());
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "inpaint",
+                "cat",
+                "blur",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                Duration.ofSeconds(1)
+        )))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("unsupported comfyui mode");
+    }
+
+    @Test
+    void appliesFluxWorkflowParametersAndMultipleLoras() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "prompt": {
+                            "1": {
+                              "class_type": "UNETLoader",
+                              "inputs": {"unet_name": "flux-dev.safetensors"}
+                            },
+                            "2": {
+                              "class_type": "EmptySD3LatentImage",
+                              "inputs": {
+                                "width": 1216,
+                                "height": 832,
+                                "batch_size": 4
+                              }
+                            },
+                            "3": {
+                              "class_type": "RandomNoise",
+                              "inputs": {"noise_seed": 42}
+                            },
+                            "4": {
+                              "class_type": "BasicScheduler",
+                              "inputs": {
+                                "steps": 28,
+                                "scheduler": "sgm_uniform",
+                                "denoise": 0.8
+                              }
+                            },
+                            "5": {
+                              "class_type": "CFGGuider",
+                              "inputs": {"cfg": 3.5}
+                            },
+                            "6": {
+                              "class_type": "KSamplerSelect",
+                              "inputs": {"sampler_name": "euler"}
+                            },
+                            "7": {
+                              "class_type": "LoraLoader",
+                              "inputs": {
+                                "lora_name": "style.safetensors",
+                                "strength_model": 0.7,
+                                "strength_clip": 0.7
+                              }
+                            },
+                            "8": {
+                              "class_type": "LoraLoader",
+                              "inputs": {
+                                "lora_name": "detail.safetensors",
+                                "strength_model": 0.4,
+                                "strength_clip": 0.4
+                              }
+                            }
+                          }
+                        }
+                        """))
+                .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
+        expectQueue(server);
+        expectHistory(server, "abc", "out.png", "", "output");
+        expectView(server, "out.png", "", "output");
+
+        provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "workflow",
+                "cat",
+                "blur",
+                42L,
+                28,
+                3.5,
+                "euler",
+                "sgm_uniform",
+                1216,
+                832,
+                4,
+                0.8,
+                "flux-dev.safetensors",
+                null,
+                List.of(
+                        Map.of("name", "style.safetensors", "weight", 0.7),
+                        Map.of("name", "detail.safetensors", "weight", 0.4)
+                ),
+                null,
+                null,
+                fluxWorkflowJson(),
+                null,
+                Duration.ofSeconds(1)
+        ));
+
         server.verify();
     }
 
@@ -260,6 +499,22 @@ class ComfyUiProviderTest {
         server.verify();
     }
 
+    @Test
+    void requestTimeoutAppliesToPromptHttpCall() throws IOException {
+        String baseUrl = slowPromptServer(Duration.ofMillis(120));
+        ImageProviderProperties properties = new ImageProviderProperties();
+        properties.getComfy().setBaseUrl(baseUrl);
+        properties.getComfy().setPollInterval(Duration.ZERO);
+        properties.getComfy().setMaxWait(Duration.ofSeconds(5));
+        properties.setDefaultTimeout(Duration.ofSeconds(5));
+        ComfyUiProvider provider = new ComfyUiProvider(RestClient.builder(), properties);
+
+        assertThatThrownBy(() -> provider.generate(txt2imgRequest(Duration.ofMillis(10))))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
+                .hasMessageContaining("comfyui request failed");
+    }
+
     private ComfyUiProvider provider(RestClient.Builder builder) {
         RestClient restClient = builder.baseUrl("http://comfy").build();
         ImageProviderProperties properties = new ImageProviderProperties();
@@ -318,6 +573,27 @@ class ComfyUiProviderTest {
         return workflow;
     }
 
+    private Map<String, Object> fluxWorkflowJson() {
+        Map<String, Object> workflow = new LinkedHashMap<>();
+        workflow.put("1", node("UNETLoader", Map.of("unet_name", "old-flux.safetensors")));
+        workflow.put("2", node("EmptySD3LatentImage", Map.of("width", 512, "height", 512, "batch_size", 1)));
+        workflow.put("3", node("RandomNoise", Map.of("noise_seed", 1)));
+        workflow.put("4", node("BasicScheduler", Map.of("steps", 1, "scheduler", "old", "denoise", 1.0)));
+        workflow.put("5", node("CFGGuider", Map.of("cfg", 1.0)));
+        workflow.put("6", node("KSamplerSelect", Map.of("sampler_name", "old")));
+        workflow.put("7", node("LoraLoader", Map.of(
+                "lora_name", "old-a.safetensors",
+                "strength_model", 0.1,
+                "strength_clip", 0.1
+        )));
+        workflow.put("8", node("LoraLoader", Map.of(
+                "lora_name", "old-b.safetensors",
+                "strength_model", 0.1,
+                "strength_clip", 0.1
+        )));
+        return workflow;
+    }
+
     private Map<String, Object> node(String classType, Map<String, Object> inputs) {
         return Map.of("class_type", classType, "inputs", inputs);
     }
@@ -354,5 +630,26 @@ class ComfyUiProviderTest {
                 + "&type=" + type))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("image-bytes", MediaType.IMAGE_PNG));
+    }
+
+    private String slowPromptServer(Duration delay) throws IOException {
+        httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        httpServer.createContext("/prompt", exchange -> {
+            try {
+                Thread.sleep(delay.toMillis());
+                byte[] body = "{\"prompt_id\":\"abc\"}".getBytes();
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                try (OutputStream output = exchange.getResponseBody()) {
+                    output.write(body);
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        httpServer.start();
+        return "http://127.0.0.1:" + httpServer.getAddress().getPort();
     }
 }

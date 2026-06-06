@@ -29,14 +29,23 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private final RestClient restClient;
     private final ImageProviderProperties properties;
+    private final String baseUrl;
+    private final boolean perRequestTimeoutEnabled;
 
     public ComfyUiProvider(RestClient.Builder builder, ImageProviderProperties properties) {
-        this(createRestClient(builder, properties), properties);
+        this(createRestClient(builder, properties.getComfy().getBaseUrl(), properties.getDefaultTimeout()),
+                properties, true);
     }
 
     ComfyUiProvider(RestClient restClient, ImageProviderProperties properties) {
+        this(restClient, properties, false);
+    }
+
+    private ComfyUiProvider(RestClient restClient, ImageProviderProperties properties, boolean perRequestTimeoutEnabled) {
         this.restClient = restClient;
         this.properties = properties;
+        this.baseUrl = properties.getComfy().getBaseUrl();
+        this.perRequestTimeoutEnabled = perRequestTimeoutEnabled;
     }
 
     @Override
@@ -46,9 +55,11 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
+        String mode = normalizeMode(request.mode());
         try {
-            Map<String, Object> queuePayload = queuePayload(request);
-            QueueResponse queue = restClient.post()
+            RestClient client = restClient(request);
+            Map<String, Object> queuePayload = queuePayload(request, mode);
+            QueueResponse queue = client.post()
                     .uri("/prompt")
                     .body(queuePayload)
                     .retrieve()
@@ -57,7 +68,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui queue returned no prompt id");
             }
 
-            HistoryResult history = waitForHistory(queue.prompt_id(), timeout(request));
+            HistoryResult history = waitForHistory(client, queue.prompt_id(), timeout(request));
             List<ComfyImageRef> refs = imageRefs(queue.prompt_id(), history.history());
             if (refs.isEmpty()) {
                 throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui history returned no images");
@@ -65,14 +76,14 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
             List<GeneratedImagePayload> images = new ArrayList<>(refs.size());
             for (ComfyImageRef ref : refs) {
-                images.add(download(ref));
+                images.add(download(client, ref));
             }
 
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("promptId", queue.prompt_id());
             metadata.put("imageCount", images.size());
             metadata.put("queue", history.queue() == null ? Map.of() : history.queue());
-            return new ImageGenerationResponse(type().name(), request.mode(), images, metadata);
+            return new ImageGenerationResponse(type().name(), mode, images, metadata);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RestClientException exception) {
@@ -80,22 +91,34 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
     }
 
-    private Map<String, Object> queuePayload(ImageGenerationRequest request) {
+    private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode) {
         Map<String, Object> payload = new LinkedHashMap<>(request.options());
-        payload.put("prompt", workflow(request));
+        payload.put("prompt", workflow(request, mode));
+        payload.putIfAbsent("client_id", "aetherflow");
         return payload;
     }
 
-    private Map<String, Object> workflow(ImageGenerationRequest request) {
+    private Map<String, Object> workflow(ImageGenerationRequest request, String mode) {
+        if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+        }
         if (request.workflowJson().isEmpty()) {
-            return defaultWorkflow(request);
+            return defaultWorkflow(request, mode);
         }
         Map<String, Object> workflow = mutableWorkflow(request.workflowJson());
-        applyParameters(workflow, request);
+        applyParameters(workflow, request, mode);
         return workflow;
     }
 
-    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request) {
+    private String normalizeMode(String mode) {
+        String normalized = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+        if ("txt2img".equals(normalized) || "img2img".equals(normalized) || "workflow".equals(normalized)) {
+            return normalized;
+        }
+        throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported comfyui mode: " + mode);
+    }
+
+    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode) {
         Map<String, Object> workflow = new LinkedHashMap<>();
         workflow.put("1", node("CheckpointLoaderSimple", Map.of(
                 "ckpt_name", textOrDefault(request.checkpoint(), DEFAULT_CHECKPOINT)
@@ -108,12 +131,28 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "text", textOrDefault(request.negativePrompt(), ""),
                 "clip", List.of("1", 1)
         )));
-        workflow.put("4", node("EmptyLatentImage", Map.of(
-                "width", valueOrDefault(request.width(), 512),
-                "height", valueOrDefault(request.height(), 512),
-                "batch_size", valueOrDefault(request.batchSize(), 1)
-        )));
-        workflow.put("5", node("KSampler", Map.of(
+        List<Object> latentRef;
+        String samplerNodeId;
+        if ("img2img".equals(mode)) {
+            workflow.put("4", node("LoadImage", Map.of(
+                    "image", sourceImageName(request)
+            )));
+            workflow.put("5", node("VAEEncode", Map.of(
+                    "pixels", List.of("4", 0),
+                    "vae", List.of("1", 2)
+            )));
+            latentRef = List.of("5", 0);
+            samplerNodeId = "6";
+        } else {
+            workflow.put("4", node("EmptyLatentImage", Map.of(
+                    "width", valueOrDefault(request.width(), 512),
+                    "height", valueOrDefault(request.height(), 512),
+                    "batch_size", valueOrDefault(request.batchSize(), 1)
+            )));
+            latentRef = List.of("4", 0);
+            samplerNodeId = "5";
+        }
+        workflow.put(samplerNodeId, node("KSampler", Map.of(
                 "seed", valueOrDefault(request.seed(), 1L),
                 "steps", valueOrDefault(request.steps(), 30),
                 "cfg", valueOrDefault(request.cfgScale(), 7.0D),
@@ -123,22 +162,31 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "model", List.of("1", 0),
                 "positive", List.of("2", 0),
                 "negative", List.of("3", 0),
-                "latent_image", List.of("4", 0)
+                "latent_image", latentRef
         )));
-        workflow.put("6", node("VAEDecode", Map.of(
-                "samples", List.of("5", 0),
+        String decodeNodeId = "img2img".equals(mode) ? "7" : "6";
+        String saveNodeId = "img2img".equals(mode) ? "8" : "7";
+        workflow.put(decodeNodeId, node("VAEDecode", Map.of(
+                "samples", List.of(samplerNodeId, 0),
                 "vae", List.of("1", 2)
         )));
-        workflow.put("7", node("SaveImage", Map.of(
+        workflow.put(saveNodeId, node("SaveImage", Map.of(
                 "filename_prefix", "aetherflow",
-                "images", List.of("6", 0)
+                "images", List.of(decodeNodeId, 0)
         )));
-        addDefaultLoraAndVae(workflow, request);
+        addDefaultLoraAndVae(workflow, request, samplerNodeId, decodeNodeId);
         return workflow;
     }
 
-    private void addDefaultLoraAndVae(Map<String, Object> workflow, ImageGenerationRequest request) {
-        int nextId = 8;
+    private String sourceImageName(ImageGenerationRequest request) {
+        Object configured = request.options().get("sourceImageName");
+        String name = configured == null ? "" : String.valueOf(configured).trim();
+        return name.isBlank() ? "source.png" : name;
+    }
+
+    private void addDefaultLoraAndVae(Map<String, Object> workflow, ImageGenerationRequest request,
+                                      String samplerNodeId, String decodeNodeId) {
+        int nextId = nextNumericNodeId(workflow);
         List<Object> modelRef = List.of("1", 0);
         List<Object> clipRef = List.of("1", 1);
         for (Map<String, Object> lora : request.lora()) {
@@ -163,13 +211,25 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         if (!modelRef.equals(List.of("1", 0))) {
             inputs((Map<?, ?>) workflow.get("2")).put("clip", clipRef);
             inputs((Map<?, ?>) workflow.get("3")).put("clip", clipRef);
-            inputs((Map<?, ?>) workflow.get("5")).put("model", modelRef);
+            inputs((Map<?, ?>) workflow.get(samplerNodeId)).put("model", modelRef);
         }
         if (request.vae() != null && !request.vae().isBlank()) {
             String nodeId = String.valueOf(nextId);
             workflow.put(nodeId, node("VAELoader", Map.of("vae_name", request.vae())));
-            inputs((Map<?, ?>) workflow.get("6")).put("vae", List.of(nodeId, 0));
+            inputs((Map<?, ?>) workflow.get(decodeNodeId)).put("vae", List.of(nodeId, 0));
         }
+    }
+
+    private int nextNumericNodeId(Map<String, Object> workflow) {
+        int max = 0;
+        for (String key : workflow.keySet()) {
+            try {
+                max = Math.max(max, Integer.parseInt(key));
+            } catch (NumberFormatException ignored) {
+                // ComfyUI node ids are usually numeric, but custom exports may include non-numeric ids.
+            }
+        }
+        return max + 1;
     }
 
     private Map<String, Object> node(String classType, Map<String, Object> inputs) {
@@ -198,8 +258,9 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return value;
     }
 
-    private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request) {
+    private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request, String mode) {
         int clipTextIndex = 0;
+        int loraIndex = 0;
         for (Object nodeValue : workflow.values()) {
             if (!(nodeValue instanceof Map<?, ?> node)) {
                 continue;
@@ -230,10 +291,28 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 put(inputs, "batch_size", request.batchSize());
             } else if ("checkpointloadersimple".equals(classType)) {
                 put(inputs, "ckpt_name", request.checkpoint());
+            } else if ("unetloader".equals(classType)) {
+                put(inputs, "unet_name", request.checkpoint());
             } else if ("vaeloader".equals(classType)) {
                 put(inputs, "vae_name", request.vae());
             } else if ("loraloader".equals(classType) || "loraloadermodelonly".equals(classType)) {
-                applyFirstLora(inputs, request.lora());
+                loraIndex += applyLora(inputs, request.lora(), loraIndex);
+            } else if ("emptysd3latentimage".equals(classType)) {
+                put(inputs, "width", request.width());
+                put(inputs, "height", request.height());
+                put(inputs, "batch_size", request.batchSize());
+            } else if ("randomnoise".equals(classType)) {
+                put(inputs, "noise_seed", request.seed());
+            } else if ("basicscheduler".equals(classType)) {
+                put(inputs, "steps", request.steps());
+                put(inputs, "scheduler", request.scheduler());
+                put(inputs, "denoise", request.denoiseStrength());
+            } else if ("cfgguider".equals(classType)) {
+                put(inputs, "cfg", request.cfgScale());
+            } else if ("ksamplerselect".equals(classType)) {
+                put(inputs, "sampler_name", request.sampler());
+            } else if ("loadimage".equals(classType) && "img2img".equals(mode)) {
+                inputs.put("image", sourceImageName(request));
             }
         }
     }
@@ -247,8 +326,9 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return null;
     }
 
-    private void applyFirstLora(Map<String, Object> inputs, List<Map<String, Object>> loras) {
-        for (Map<String, Object> lora : loras) {
+    private int applyLora(Map<String, Object> inputs, List<Map<String, Object>> loras, int startIndex) {
+        for (int index = startIndex; index < loras.size(); index++) {
+            Map<String, Object> lora = loras.get(index);
             Object rawName = lora.get("name");
             String name = rawName == null ? "" : String.valueOf(rawName).trim();
             if (name.isBlank()) {
@@ -259,16 +339,17 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             inputs.put("lora_name", name);
             inputs.put("strength_model", effectiveWeight);
             inputs.put("strength_clip", effectiveWeight);
-            return;
+            return 1;
         }
+        return 0;
     }
 
-    private HistoryResult waitForHistory(String promptId, Duration timeout) {
+    private HistoryResult waitForHistory(RestClient client, String promptId, Duration timeout) {
         Instant deadline = Instant.now().plus(timeout);
         Map<String, Object> lastQueue = Map.of();
         while (!Instant.now().isAfter(deadline)) {
-            lastQueue = queue();
-            Map<String, Object> history = history(promptId);
+            lastQueue = queue(client);
+            Map<String, Object> history = history(client, promptId);
             if (history.containsKey(promptId)) {
                 return new HistoryResult(history, lastQueue);
             }
@@ -278,8 +359,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> queue() {
-        Map<String, Object> queue = restClient.get()
+    private Map<String, Object> queue(RestClient client) {
+        Map<String, Object> queue = client.get()
                 .uri("/queue")
                 .retrieve()
                 .body(Map.class);
@@ -287,8 +368,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Object> history(String promptId) {
-        Map<String, Object> history = restClient.get()
+    private Map<String, Object> history(RestClient client, String promptId) {
+        Map<String, Object> history = client.get()
                 .uri("/history/{promptId}", promptId)
                 .retrieve()
                 .body(Map.class);
@@ -351,8 +432,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return refs;
     }
 
-    private GeneratedImagePayload download(ComfyImageRef ref) {
-        ResponseEntity<byte[]> response = restClient.get()
+    private GeneratedImagePayload download(RestClient client, ComfyImageRef ref) {
+        ResponseEntity<byte[]> response = client.get()
                 .uri(uriBuilder -> uriBuilder.path("/view")
                         .queryParam("filename", ref.filename())
                         .queryParam("subfolder", ref.subfolder())
@@ -393,12 +474,19 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return value == null ? "" : String.valueOf(value);
     }
 
-    private static RestClient createRestClient(RestClient.Builder builder, ImageProviderProperties properties) {
+    private RestClient restClient(ImageGenerationRequest request) {
+        if (!perRequestTimeoutEnabled || request.timeout() == null) {
+            return restClient;
+        }
+        return createRestClient(RestClient.builder(), baseUrl, request.timeout());
+    }
+
+    private static RestClient createRestClient(RestClient.Builder builder, String baseUrl, Duration timeout) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        int timeoutMillis = timeoutMillis(properties.getDefaultTimeout());
+        int timeoutMillis = timeoutMillis(timeout);
         requestFactory.setConnectTimeout(timeoutMillis);
         requestFactory.setReadTimeout(timeoutMillis);
-        return builder.baseUrl(properties.getComfy().getBaseUrl())
+        return builder.baseUrl(baseUrl)
                 .requestFactory(requestFactory)
                 .build();
     }
