@@ -2,9 +2,9 @@
 
 任务ID：IMAGE-WORKFLOW-20260606
 任务名称：企业级图像生成工作流节点体系
-负责人：当前任务发起人
+负责人：chyinan
 Agent ID：Codex
-Session ID：当前会话
+Session ID：20260606-image-workflow
 分支：feature/IMAGE-WORKFLOW-20260606-image-nodes
 状态：IN_PROGRESS
 
@@ -33,7 +33,11 @@ Session ID：当前会话
 1. backend/workflow-runtime-api/**
 2. backend/file-service/src/main/resources/db/**
 3. backend/workflow-service/src/main/resources/db/**
-4. 任何与本任务无关的已有改动
+4. backend/workflow-service/src/main/java/com/aetherflow/workflow/runtime/**
+5. 任何与本任务无关的已有改动
+
+Runtime 回写约束：
+生成图片回写必须仅使用既有 NodeResult/runtime snapshot 契约，不修改 DAG、engine、persistence 或 runtime core。
 
 是否允许新增文件：是
 允许新增的位置：
@@ -72,4 +76,4 @@ Agent 编码计划：
 当前风险：
 1. ComfyUI workflow JSON 版本差异，需要保留原始 workflowJson。
 2. SDXL/Flux/LoRA/VAE 能力依赖外部运行时安装的模型。
-3. 当前工作树已有无关改动，执行时必须只暂存本任务文件。
+3. 如发现工作树存在无关改动，执行时必须只暂存本任务文件。
