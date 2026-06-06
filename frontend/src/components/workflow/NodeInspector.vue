@@ -63,7 +63,7 @@ const selectedNode = computed(() => {
   const selectedByStore = workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId)
   return selectedByFlow ?? selectedByStore ?? null
 })
-const { t } = useI18n()
+const { t, te } = useI18n()
 const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
@@ -305,6 +305,16 @@ function fieldStringValue(field: WorkflowNodeConfigSchema) {
     return JSON.stringify(value, null, 2)
   }
   return String(value ?? '')
+}
+
+function dynamicFieldLabel(field: WorkflowNodeConfigSchema) {
+  const key = `workflow.inspector.imageFields.${field.name}.label`
+  return te(key) ? t(key) : field.name
+}
+
+function dynamicFieldDescription(field: WorkflowNodeConfigSchema) {
+  const key = `workflow.inspector.imageFields.${field.name}.description`
+  return te(key) ? t(key) : field.description ?? ''
 }
 
 function isSelectField(field: WorkflowNodeConfigSchema) {
@@ -1034,8 +1044,8 @@ onMounted(() => {
 
         <section v-else-if="hasDynamicConfigPanel" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
-            <p class="text-sm font-semibold text-text-primary">{{ selectedCatalogItem?.displayName ?? nodeLabel(selectedNode.data.kind) }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ selectedCatalogItem?.description ?? nodeDescription(selectedNode.data.kind) }}</p>
+            <p class="text-sm font-semibold text-text-primary">{{ nodeLabel(selectedNode.data.kind) }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ nodeDescription(selectedNode.data.kind) }}</p>
           </div>
 
           <div v-if="hasAdvancedConfigFields" class="grid grid-cols-2 rounded-lg border border-app-border bg-app-muted p-1">
@@ -1045,7 +1055,7 @@ onMounted(() => {
               :class="dynamicMode === 'basic' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
               @click="dynamicMode = 'basic'"
             >
-              Basic
+              {{ t('workflow.inspector.basicMode') }}
             </button>
             <button
               type="button"
@@ -1053,13 +1063,13 @@ onMounted(() => {
               :class="dynamicMode === 'advanced' ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
               @click="dynamicMode = 'advanced'"
             >
-              Advanced
+              {{ t('workflow.inspector.advancedMode') }}
             </button>
           </div>
 
           <label v-for="field in visibleDynamicConfigFields" :key="field.name" class="block">
             <span class="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-text-primary">
-              <span class="min-w-0 truncate">{{ field.name }} <span v-if="field.required" class="text-status-error">*</span></span>
+              <span class="min-w-0 truncate">{{ dynamicFieldLabel(field) }} <span v-if="field.required" class="text-status-error">*</span></span>
               <span class="shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] font-medium uppercase text-text-muted">{{ field.type }}</span>
             </span>
 
@@ -1103,7 +1113,7 @@ onMounted(() => {
               @input="handleDynamicFieldInput(field, $event)"
             />
 
-            <p v-if="field.description" class="mt-2 text-xs leading-5 text-text-muted">{{ field.description }}</p>
+            <p v-if="dynamicFieldDescription(field)" class="mt-2 text-xs leading-5 text-text-muted">{{ dynamicFieldDescription(field) }}</p>
           </label>
         </section>
 
