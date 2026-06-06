@@ -59,7 +59,7 @@ class ImageProviderRegistryTest {
     private record StubProvider(ImageProviderType type) implements ImageGenerationProvider {
         @Override
         public ImageGenerationResponse generate(ImageGenerationRequest request) {
-            return new ImageGenerationResponse(type, "txt2img", List.of(), null);
+            return new ImageGenerationResponse(type.name(), "txt2img", List.of(), null);
         }
     }
 }

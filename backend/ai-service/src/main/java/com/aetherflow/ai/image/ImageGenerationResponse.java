@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 public record ImageGenerationResponse(
-        ImageProviderType provider,
+        String provider,
         String mode,
         List<GeneratedImagePayload> images,
         Map<String, Object> metadata
