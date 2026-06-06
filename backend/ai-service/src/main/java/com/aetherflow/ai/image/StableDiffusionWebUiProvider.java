@@ -35,7 +35,8 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
-        boolean img2img = "img2img".equals(request.mode().toLowerCase(Locale.ROOT));
+        String mode = normalizeMode(request.mode());
+        boolean img2img = "img2img".equals(mode);
         StableDiffusionResponse response;
         try {
             response = restClient.post()
@@ -55,10 +56,14 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
         List<GeneratedImagePayload> images = new ArrayList<>();
         for (int index = 0; index < response.images().size(); index++) {
+            String base64Data = response.images().get(index);
+            if (base64Data == null || base64Data.isBlank()) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned blank image");
+            }
             images.add(new GeneratedImagePayload(
                     "sd-webui-" + (index + 1) + ".png",
                     "image/png",
-                    response.images().get(index),
+                    base64Data,
                     null,
                     Map.of("index", index)
             ));
@@ -67,11 +72,12 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("parameters", response.parameters() == null ? Map.of() : response.parameters());
         metadata.put("info", response.info() == null ? "" : response.info());
-        return new ImageGenerationResponse(type().name(), request.mode(), images, metadata);
+        return new ImageGenerationResponse(type().name(), mode, images, metadata);
     }
 
     private Map<String, Object> toPayload(ImageGenerationRequest request, boolean img2img) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.putAll(request.options());
         payload.put("prompt", promptWithLora(request.prompt(), request.lora()));
         payload.put("negative_prompt", request.negativePrompt() == null ? "" : request.negativePrompt());
         put(payload, "seed", request.seed());
@@ -83,7 +89,6 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         put(payload, "height", request.height());
         put(payload, "batch_size", request.batchSize());
         put(payload, "denoising_strength", request.denoiseStrength());
-        payload.putAll(request.options());
         putOverrideSettings(payload, request);
 
         if (img2img) {
@@ -93,6 +98,14 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
             payload.put("init_images", List.of(request.sourceImageBase64()));
         }
         return payload;
+    }
+
+    private String normalizeMode(String mode) {
+        String normalized = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+        if ("txt2img".equals(normalized) || "img2img".equals(normalized)) {
+            return normalized;
+        }
+        throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported stable diffusion webui mode: " + mode);
     }
 
     @SuppressWarnings("unchecked")
@@ -116,11 +129,13 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
     private String promptWithLora(String prompt, List<Map<String, Object>> loras) {
         StringBuilder builder = new StringBuilder(prompt == null ? "" : prompt);
         for (Map<String, Object> lora : loras) {
-            String name = String.valueOf(lora.getOrDefault("name", "")).trim();
+            Object rawName = lora.get("name");
+            String name = rawName == null ? "" : String.valueOf(rawName).trim();
             if (name.isBlank()) {
                 continue;
             }
-            Object weight = lora.getOrDefault("weight", 1.0D);
+            Object rawWeight = lora.get("weight");
+            Object weight = rawWeight == null || String.valueOf(rawWeight).isBlank() ? 1.0D : rawWeight;
             if (!builder.isEmpty()) {
                 builder.append(' ');
             }

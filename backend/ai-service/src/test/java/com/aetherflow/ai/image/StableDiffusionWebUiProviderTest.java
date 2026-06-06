@@ -148,6 +148,180 @@ class StableDiffusionWebUiProviderTest {
     }
 
     @Test
+    void trimsModeBeforeRoutingImg2img() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://sd/sdapi/v1/img2img"))
+                .andExpect(method(POST))
+                .andRespond(withSuccess("""
+                        {"images":["aW1n"],"parameters":{},"info":"{}"}
+                        """, MediaType.APPLICATION_JSON));
+
+        ImageGenerationRequest request = new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                " img2img ",
+                "cat",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0.45,
+                null,
+                null,
+                List.of(),
+                "c291cmNlLWltYWdl",
+                "image/png",
+                null,
+                null,
+                null
+        );
+
+        ImageGenerationResponse response = provider.generate(request);
+
+        assertThat(response.mode()).isEqualTo("img2img");
+        server.verify();
+    }
+
+    @Test
+    void rejectsUnsupportedMode() {
+        StableDiffusionWebUiProvider provider = provider(RestClient.builder());
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                "inpaint",
+                "cat",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null
+        )))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("unsupported stable diffusion webui mode");
+    }
+
+    @Test
+    void keepsExplicitFieldsWhenOptionsContainSameKeys() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://sd/sdapi/v1/txt2img"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "prompt": "cat <lora:detail:1.0>",
+                          "steps": 20,
+                          "denoising_strength": 0.4,
+                          "restore_faces": true
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {"images":["aW1n"],"parameters":{},"info":"{}"}
+                        """, MediaType.APPLICATION_JSON));
+
+        provider.generate(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                "txt2img",
+                "cat",
+                "",
+                null,
+                20,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0.4,
+                null,
+                null,
+                List.of(Map.of("name", "detail")),
+                null,
+                null,
+                null,
+                Map.of(
+                        "prompt", "dog",
+                        "steps", 3,
+                        "denoising_strength", 0.9,
+                        "restore_faces", true
+                ),
+                null
+        ));
+
+        server.verify();
+    }
+
+    @Test
+    void skipsBlankLoraNameAndDefaultsBlankWeight() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://sd/sdapi/v1/txt2img"))
+                .andExpect(method(POST))
+                .andExpect(content().json("""
+                        {
+                          "prompt": "cat <lora:detail:1.0>"
+                        }
+                        """))
+                .andRespond(withSuccess("""
+                        {"images":["aW1n"],"parameters":{},"info":"{}"}
+                        """, MediaType.APPLICATION_JSON));
+
+        provider.generate(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI,
+                "txt2img",
+                "cat",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(
+                        nullableMap("name", null, "weight", 0.8),
+                        nullableMap("name", " ", "weight", 0.6),
+                        nullableMap("name", "detail", "weight", null)
+                ),
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+
+        server.verify();
+    }
+
+    @Test
     void rejectsImg2imgWithoutSourceImage() {
         StableDiffusionWebUiProvider provider = provider(RestClient.builder());
 
@@ -192,6 +366,22 @@ class StableDiffusionWebUiProviderTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
                 .hasMessageContaining("stable diffusion webui returned no images");
+        server.verify();
+    }
+
+    @Test
+    void rejectsBlankImagePayload() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://sd/sdapi/v1/txt2img"))
+                .andRespond(withSuccess("{\"images\":[\"\"]}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
+                .hasMessageContaining("stable diffusion webui returned blank image");
         server.verify();
     }
 
@@ -242,5 +432,12 @@ class StableDiffusionWebUiProviderTest {
                 null,
                 null
         );
+    }
+
+    private Map<String, Object> nullableMap(String firstKey, Object firstValue, String secondKey, Object secondValue) {
+        java.util.LinkedHashMap<String, Object> map = new java.util.LinkedHashMap<>();
+        map.put(firstKey, firstValue);
+        map.put(secondKey, secondValue);
+        return map;
     }
 }
