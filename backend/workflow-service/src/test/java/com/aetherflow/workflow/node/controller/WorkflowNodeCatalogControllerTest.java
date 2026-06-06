@@ -32,6 +32,7 @@ class WorkflowNodeCatalogControllerTest {
                         "TRANSLATE",
                         "SUMMARY",
                         "EMBEDDING",
+                        "KNOWLEDGE_RETRIEVAL",
                         "EXPORT",
                         "NOTIFY",
                         "AGENT",
@@ -76,6 +77,12 @@ class WorkflowNodeCatalogControllerTest {
                 .contains("embeddingResults", "embeddingVectors", "embeddingVectorCount", "embeddingModel");
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
+
+        WorkflowNodeCatalogItem summary = item(result.getData(), "SUMMARY");
+        assertThat(summary.configSchema())
+                .filteredOn(schema -> "prompt".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.ui()).isNull());
 
         WorkflowNodeCatalogItem condition = item(result.getData(), "CONDITION");
         assertThat(condition.configSchema())

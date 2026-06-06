@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.node.catalog;
 
+import com.aetherflow.common.dto.WorkflowNodeConfigUiSchema;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -577,7 +578,7 @@ public class WorkflowNodeCatalogService {
     }
 
     private WorkflowNodeConfigSchema field(String name, String type, boolean required, String description, Object example) {
-        return field(name, type, required, description, example, List.of());
+        return field(name, type, required, description, example, List.of(), null);
     }
 
     private WorkflowNodeConfigSchema field(String name,
@@ -586,7 +587,17 @@ public class WorkflowNodeCatalogService {
                                            String description,
                                            Object example,
                                            List<String> options) {
-        return new WorkflowNodeConfigSchema(name, type, required, description, example, List.copyOf(options));
+        return field(name, type, required, description, example, options, null);
+    }
+
+    private WorkflowNodeConfigSchema field(String name,
+                                           String type,
+                                           boolean required,
+                                           String description,
+                                           Object example,
+                                           List<String> options,
+                                           WorkflowNodeConfigUiSchema ui) {
+        return new WorkflowNodeConfigSchema(name, type, required, description, example, List.copyOf(options), ui);
     }
 
     private WorkflowNodeVariableSchema variable(String name, String type, String description, Object example) {

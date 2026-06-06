@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.node.catalog;
 
+import com.aetherflow.common.dto.WorkflowNodeConfigUiSchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -23,6 +24,17 @@ public record WorkflowNodeConfigSchema(
         Object example,
 
         @Schema(description = "Allowed values for enum-like fields.", example = "[\"MARKDOWN\",\"TXT\",\"JSON\"]")
-        List<String> options
+        List<String> options,
+
+        @Schema(description = "Optional frontend UI metadata for rendering this config field.")
+        WorkflowNodeConfigUiSchema ui
 ) {
+    public WorkflowNodeConfigSchema(String name,
+                                    String type,
+                                    boolean required,
+                                    String description,
+                                    Object example,
+                                    List<String> options) {
+        this(name, type, required, description, example, options, null);
+    }
 }
