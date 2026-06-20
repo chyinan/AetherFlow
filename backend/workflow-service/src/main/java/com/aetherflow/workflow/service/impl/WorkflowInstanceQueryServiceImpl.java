@@ -60,10 +60,34 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 .orderByDesc(WorkflowInstance::getStartedAt)
                 .orderByDesc(WorkflowInstance::getId)
                 .last("LIMIT " + offset + ", " + normalizedPageSize);
-        List<RunView> items = instanceMapper.selectList(listQuery).stream()
-                .map(instance -> toRunView(instance, events(instance)))
+        List<WorkflowInstance> instances = instanceMapper.selectList(listQuery);
+        // Batch-load workflow definitions for the page to avoid an N+1 query
+        // (one selectById per instance). 20 rows previously meant 20 extra SQL
+        // roundtrips just to resolve the workflow name.
+        Map<Long, WorkflowDefinition> definitionById = batchLoadDefinitions(instances);
+        List<RunView> items = instances.stream()
+                .map(instance -> toRunView(instance,
+                        events(instance),
+                        resolveDefinitionName(instance.getDefinitionId(), definitionById)))
                 .toList();
         return new RunPageResponse(normalizedPage, normalizedPageSize, total, items);
+    }
+
+    private Map<Long, WorkflowDefinition> batchLoadDefinitions(List<WorkflowInstance> instances) {
+        List<Long> definitionIds = instances.stream()
+                .map(WorkflowInstance::getDefinitionId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (definitionIds.isEmpty()) {
+            return Map.of();
+        }
+        List<WorkflowDefinition> definitions = definitionMapper.selectBatchIds(definitionIds);
+        return definitions.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        WorkflowDefinition::getId,
+                        java.util.function.Function.identity(),
+                        (a, b) -> a));
     }
 
     @Override
@@ -108,11 +132,15 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
     }
 
     private RunView toRunView(WorkflowInstance instance, List<RuntimeEvent> events) {
+        return toRunView(instance, events, workflowName(instance.getDefinitionId()));
+    }
+
+    private RunView toRunView(WorkflowInstance instance, List<RuntimeEvent> events, String workflowName) {
         return new RunView(
                 instance.getId(),
                 instance.getDefinitionId(),
                 stringify(instance.getDefinitionId()),
-                workflowName(instance.getDefinitionId()),
+                workflowName,
                 stringify(instance.getId()),
                 instance.getUserId(),
                 instance.getStatus(),
@@ -131,6 +159,17 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
             return null;
         }
         WorkflowDefinition definition = definitionMapper.selectById(definitionId);
+        if (definition == null || !hasText(definition.getName())) {
+            return "Workflow Definition " + definitionId;
+        }
+        return definition.getName();
+    }
+
+    private String resolveDefinitionName(Long definitionId, Map<Long, WorkflowDefinition> definitionById) {
+        if (definitionId == null) {
+            return null;
+        }
+        WorkflowDefinition definition = definitionById.get(definitionId);
         if (definition == null || !hasText(definition.getName())) {
             return "Workflow Definition " + definitionId;
         }

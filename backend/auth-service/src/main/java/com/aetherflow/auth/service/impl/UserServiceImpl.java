@@ -25,6 +25,7 @@ import com.aetherflow.common.security.JwtUserClaims;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,7 +77,22 @@ public class UserServiceImpl implements UserService {
         user.setStatus(ENABLED);
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
-        userMapper.insert(user);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException exception) {
+            // Defense-in-depth against the TOCTOU window between the selectOne check
+            // above and the insert: the unique indexes uk_af_user_username and
+            // uk_af_user_email (see docker/mysql/init/01-aetherflow.sql) enforce
+            // uniqueness at the DB layer and raise this exception on a race. Re-check
+            // which column collided so we return a precise error to the client.
+            User existingUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                    .eq(User::getUsername, username)
+                    .last("limit 1"));
+            if (existingUser != null) {
+                throw new BusinessException(ResultCode.CONFLICT, "username already exists");
+            }
+            throw new BusinessException(ResultCode.CONFLICT, "email already exists");
+        }
         return issueAndStoreTokenPair(user, false);
     }
 
