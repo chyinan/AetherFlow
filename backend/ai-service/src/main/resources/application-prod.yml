@@ -27,3 +27,9 @@ aetherflow:
     provider-priority:
       - ${AI_PROVIDER_PRIMARY:OLLAMA}
       - ${AI_PROVIDER_SECONDARY:OPENAI}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

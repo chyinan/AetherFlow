@@ -245,6 +245,23 @@ def _is_dev_env() -> bool:
     return os.getenv("APP_ENV", "").lower() == "dev" or os.getenv("AI_SERVICE_DEV", "false").lower() == "true"
 
 
+def sanitize_error_message(exc: Exception) -> str:
+    """Return a client-safe error message for an exception.
+
+    ``str(exc)`` frequently contains absolute filesystem paths, environment
+    variable names, hostnames, or upstream configuration details (e.g. an
+    httpx error embedding ``http://127.0.0.1:11434``, a file open error
+    echoing the full temp dir, etc.). Relaying that to the client gives an
+    attacker useful internal intelligence, so in production we always return
+    a generic message and rely on the server-side log (written by the global
+    handler via ``logger.exception``) for diagnostics. In dev/test we keep
+    the raw text to aid debugging.
+    """
+    if _is_dev_env():
+        return str(exc)
+    return "internal error"
+
+
 def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
     """Protect provider config endpoints. In non-dev environments a valid X-API-Key is required."""
     if _is_dev_env():
@@ -260,10 +277,16 @@ def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled python ai runtime error path=%s", request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={"code": 500, "message": str(exc), "path": request.url.path},
-    )
+    if _is_dev_env():
+        # Dev/test: surface the raw exception text and request path so the
+        # caller can debug without inspecting server logs.
+        content = {"code": 500, "message": sanitize_error_message(exc), "path": request.url.path}
+    else:
+        # Production: never relay str(exc) (it may leak internal paths, env
+        # var names, hostnames, or upstream URLs) and do not echo the request
+        # path either. The full diagnostic is preserved in the server log.
+        content = {"code": 500, "message": sanitize_error_message(exc)}
+    return JSONResponse(status_code=500, content=content)
 
 
 @app.get("/health")

@@ -46,3 +46,9 @@ aetherflow:
     ocr:
       mock: ${WORKFLOW_OCR_MOCK:true}
       default-provider: ${WORKFLOW_OCR_PROVIDER:mock}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

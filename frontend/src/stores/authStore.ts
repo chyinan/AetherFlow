@@ -164,9 +164,22 @@ export const useAuthStore = defineStore('auth', {
     async ensureFreshSession() {
       const session = tokenManager.readSession()
 
-      if (!session?.accessToken) {
+      if (!session) {
         this.clearLocalSession()
         return false
+      }
+
+      // The access token lives only in memory (see tokenManager). After a tab
+      // reload memory is wiped, so `session.accessToken` will be empty even
+      // though we still have a valid refresh token in sessionStorage. In that
+      // case silently refresh to recover an access token instead of logging
+      // the user out.
+      if (!session.accessToken) {
+        if (!session.refreshToken) {
+          this.clearLocalSession()
+          return false
+        }
+        return this.refreshSession()
       }
 
       this.setActiveSession(session)

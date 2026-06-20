@@ -221,8 +221,15 @@ public class WorkflowDag {
     private static void validateReachable(List<String> orderedIds,
                                           Map<String, List<String>> outgoingEdges,
                                           List<String> startNodeIds) {
+        if (startNodeIds.isEmpty()) {
+            throw new IllegalArgumentException("workflow dag must contain at least one start node");
+        }
         Set<String> reachable = new HashSet<>();
-        Queue<String> queue = new ArrayDeque<>(List.of(startNodeIds.get(0)));
+        // Traverse from EVERY start node (zero-indegree / START-type node). Seeding the BFS
+        // queue with only startNodeIds.get(0) silently lets nodes reachable from later start
+        // nodes be misclassified as unreachable, which both rejects valid multi-source DAGs
+        // and hides genuinely orphaned subgraphs that happen to sit behind the first start.
+        Queue<String> queue = new ArrayDeque<>(startNodeIds);
         while (!queue.isEmpty()) {
             String nodeId = queue.remove();
             if (!reachable.add(nodeId)) {

@@ -34,11 +34,32 @@ class RedisTokenBlacklistServiceTest {
     }
 
     @Test
-    void treatsRedisFailureAsNotBlacklistedToAvoidBlockingHealthyTraffic() {
+    void treatsRedisFailureAsBlacklistedWhenFailClosedEnabled() {
+        // Default policy is fail-closed: when Redis is down we cannot prove the token
+        // has NOT been revoked, so we treat it as revoked and reject the request. This
+        // prevents a Redis outage from silently allowing revoked tokens through.
         ReactiveStringRedisTemplate redisTemplate = mock(ReactiveStringRedisTemplate.class);
         when(redisTemplate.hasKey(anyString())).thenReturn(Mono.error(new IllegalStateException("redis down")));
 
         RedisTokenBlacklistService service = new RedisTokenBlacklistService(redisTemplate, new GatewaySecurityProperties());
+
+        StepVerifier.create(service.isBlacklisted("Bearer raw-token-value"))
+                .expectNext(true)
+                .verifyComplete();
+    }
+
+    @Test
+    void treatsRedisFailureAsNotBlacklistedWhenFailClosedDisabled() {
+        // Local development may prefer fail-open so a Redis outage does not lock every
+        // authenticated user out. With blacklistFailClosed=false the old behaviour is
+        // preserved: an unreachable Redis returns "not blacklisted" and the request
+        // is allowed to continue to JWT validation.
+        ReactiveStringRedisTemplate redisTemplate = mock(ReactiveStringRedisTemplate.class);
+        when(redisTemplate.hasKey(anyString())).thenReturn(Mono.error(new IllegalStateException("redis down")));
+
+        GatewaySecurityProperties properties = new GatewaySecurityProperties();
+        properties.getToken().setBlacklistFailClosed(false);
+        RedisTokenBlacklistService service = new RedisTokenBlacklistService(redisTemplate, properties);
 
         StepVerifier.create(service.isBlacklisted("Bearer raw-token-value"))
                 .expectNext(false)

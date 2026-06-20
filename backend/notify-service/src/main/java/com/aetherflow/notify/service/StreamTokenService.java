@@ -26,6 +26,15 @@ public class StreamTokenService {
         this.tokenProvider = new JwtTokenProvider(streamProperties(jwtProperties), environment);
     }
 
+    /**
+     * Backwards-compatible constructor used by unit tests that do not have a Spring
+     * {@link Environment} available. Secret validation is skipped because the validator
+     * treats a null environment as a test-only signal.
+     */
+    public StreamTokenService(JwtProperties jwtProperties) {
+        this(jwtProperties, null);
+    }
+
     public StreamTokenResponse issue(Long userId, String username) {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");

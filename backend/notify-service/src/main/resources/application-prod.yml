@@ -14,3 +14,9 @@ spring:
     sentinel:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

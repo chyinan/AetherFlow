@@ -30,7 +30,12 @@ public class RedisTokenBlacklistService implements TokenBlacklistService {
         return redisTemplate.hasKey(buildRedisKey(bearerToken))
                 .defaultIfEmpty(false)
                 .onErrorResume(exception -> {
-                    log.warn("redis token blacklist check failed, allow request to continue reason={}: {}",
+                    if (properties.getToken().isBlacklistFailClosed()) {
+                        log.warn("redis token blacklist check failed, rejecting request (fail-closed) reason={}: {}",
+                                exception.getClass().getSimpleName(), exception.getMessage());
+                        return Mono.just(true);
+                    }
+                    log.warn("redis token blacklist check failed, allowing request to continue (fail-open) reason={}: {}",
                             exception.getClass().getSimpleName(), exception.getMessage());
                     return Mono.just(false);
                 });

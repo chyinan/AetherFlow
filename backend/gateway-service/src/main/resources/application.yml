@@ -43,7 +43,10 @@ spring:
     gateway:
       discovery:
         locator:
-          enabled: true
+          # Disabled: auto-exposing every registered service via /{serviceId}/** would
+          # bypass the explicit routes below and the JwtAuthenticationFilter permit-all
+          # rules, allowing unauthenticated access to internal endpoints.
+          enabled: false
           lower-case-service-id: true
           predicates:
             - name: Path

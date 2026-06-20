@@ -90,14 +90,41 @@ class WorkflowDagTest {
     }
 
     @Test
-    void rejectsUnreachableNodeWhenExplicitEdgesExist() {
-        assertThatThrownBy(() -> WorkflowDag.from(definition(
+    void acceptsDagWithMultipleZeroIndegreeStartNodes() {
+        // The DAG below has TWO zero-indegree nodes ("start" and "orphan"). Per the
+        // startNodeIds() definition, BOTH are start nodes, so the graph is well-formed:
+        // every node is reachable from at least one start. The pre-fix validateReachable
+        // implementation seeded its BFS queue with only startNodeIds.get(0) (== "start"),
+        // which made "orphan" appear unreachable and wrongly rejected this DAG. The fix
+        // seeds the queue with the whole start list, so this definition now builds cleanly.
+        WorkflowDag dag = WorkflowDag.from(definition(
                 node("start", "START", Map.of("next", "summary")),
                 node("summary", "SUMMARY", Map.of()),
                 node("orphan", "EXPORT", Map.of())
-        )))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("unreachable");
+        ));
+
+        assertThat(dag.startNodeIds()).containsExactlyInAnyOrder("start", "orphan");
+        assertThat(dag.nodeIds()).containsExactly("start", "summary", "orphan");
+    }
+
+    @Test
+    void acceptsMultiSourceDagReachableFromEveryStartNode() {
+        // Two independent zero-indegree start nodes, each with its own downstream subgraph.
+        // Prior to the reachability fix the BFS only seeded startNodeIds.get(0); nodes behind
+        // the second start ("b", "b2") were falsely classified as unreachable and the
+        // workflow definition was rejected even though every node genuinely has a start
+        // ancestor.
+        WorkflowDag dag = WorkflowDag.from(definition(
+                node("a", "START", Map.of("next", "a2")),
+                node("a2", "SUMMARY", Map.of()),
+                node("b", "START", Map.of("next", "b2")),
+                node("b2", "EXPORT", Map.of())
+        ));
+
+        assertThat(dag.startNodeIds()).containsExactlyInAnyOrder("a", "b");
+        assertThat(dag.nodeIds()).containsExactly("a", "a2", "b", "b2");
+        assertThat(dag.nextNodeIds("a", NodeResult.success(Map.of()))).containsExactly("a2");
+        assertThat(dag.nextNodeIds("b", NodeResult.success(Map.of()))).containsExactly("b2");
     }
 
     @Test

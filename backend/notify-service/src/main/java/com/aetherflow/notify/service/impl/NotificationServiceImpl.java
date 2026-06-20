@@ -19,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -62,9 +64,33 @@ public class NotificationServiceImpl implements NotificationService {
             throw exception;
         }
 
-        webSocketHandler.send(message.getUserId(), message);
-        sseEmitterRegistry.send(message.getUserId(), message);
+        // Defer the WebSocket / SSE push until AFTER the transaction commits. Sending inside
+        // the @Transactional method would push the notification immediately; if a later
+        // statement throws and the transaction rolls back, the user already received a
+        // "ghost" notification for a database change that never persisted. afterCommit() is
+        // only invoked by Spring once STATUS_COMMITTED has been reached, so a rollback
+        // silently drops the push along with the row.
+        Long userId = message.getUserId();
+        afterCommit(() -> {
+            webSocketHandler.send(userId, message);
+            sseEmitterRegistry.send(userId, message);
+        });
         telegramNotificationSender.sendIfRequested(message);
+    }
+
+    private void afterCommit(Runnable runnable) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // No transaction in progress (e.g. unit tests, listener-driven path) -> deliver
+            // eagerly so behaviour matches the pre-fix semantics outside a tx scope.
+            runnable.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                runnable.run();
+            }
+        });
     }
 
     private boolean existsEvent(String eventId) {
@@ -133,4 +159,3 @@ public class NotificationServiceImpl implements NotificationService {
         }
     }
 }
-

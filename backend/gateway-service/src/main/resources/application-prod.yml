@@ -30,3 +30,9 @@ aetherflow:
   gateway:
     security:
       auth-enabled: true
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

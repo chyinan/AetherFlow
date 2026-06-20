@@ -56,3 +56,9 @@ aetherflow:
         failure-path: ${GOOGLE_OAUTH_FAILURE_PATH:/login}
         default-redirect-path: ${GOOGLE_OAUTH_DEFAULT_REDIRECT:/projects}
         state-ttl-minutes: ${GOOGLE_OAUTH_STATE_TTL_MINUTES:10}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
