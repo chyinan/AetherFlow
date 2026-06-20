@@ -3,10 +3,12 @@ package com.aetherflow.auth.security;
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.exception.UnauthorizedException;
 import com.aetherflow.common.security.JwtProperties;
+import com.aetherflow.common.security.JwtSecretValidator;
 import com.aetherflow.common.security.JwtUserClaims;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,8 +35,17 @@ public class AuthTokenService {
     private final SecretKey refreshKey;
 
     public AuthTokenService(JwtProperties accessProperties, AuthProperties authProperties) {
+        this(accessProperties, authProperties, null);
+    }
+
+    public AuthTokenService(JwtProperties accessProperties, AuthProperties authProperties, Environment environment) {
         this.accessProperties = accessProperties;
         this.authProperties = authProperties;
+        // Fail fast in non-dev profiles if either the access or refresh secret is blank, weak,
+        // or one of the known hardcoded defaults. See JwtSecretValidator for the exact rules.
+        JwtSecretValidator.validate(accessProperties.getSecret(), environment, "aetherflow.security.jwt.secret");
+        JwtSecretValidator.validate(authProperties.getToken().getRefreshSecret(), environment,
+                "aetherflow.auth.token.refresh-secret");
         this.accessKey = Keys.hmacShaKeyFor(accessProperties.getSecret().getBytes(StandardCharsets.UTF_8));
         this.refreshKey = Keys.hmacShaKeyFor(authProperties.getToken().getRefreshSecret().getBytes(StandardCharsets.UTF_8));
     }

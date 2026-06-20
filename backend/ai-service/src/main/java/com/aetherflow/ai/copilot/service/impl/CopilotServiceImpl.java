@@ -16,9 +16,8 @@ import com.aetherflow.ai.provider.AiProviderType;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -29,7 +28,6 @@ import java.util.Map;
 import java.util.Objects;
 
 @Service
-@RequiredArgsConstructor
 public class CopilotServiceImpl implements CopilotService {
 
     private static final String STATUS_ACTIVE = "active";
@@ -43,32 +41,69 @@ public class CopilotServiceImpl implements CopilotService {
     private final CopilotConversationMapper conversationMapper;
     private final CopilotMessageMapper messageMapper;
     private final AiProviderRouter aiProviderRouter;
+    private final TransactionTemplate transactionTemplate;
 
+    public CopilotServiceImpl(CopilotConversationMapper conversationMapper,
+                              CopilotMessageMapper messageMapper,
+                              AiProviderRouter aiProviderRouter,
+                              TransactionTemplate transactionTemplate) {
+        this.conversationMapper = conversationMapper;
+        this.messageMapper = messageMapper;
+        this.aiProviderRouter = aiProviderRouter;
+        this.transactionTemplate = transactionTemplate;
+    }
+
+    /**
+     * Splits the chat turn into two short DB transactions with the (up to 60s) LLM
+     * call performed outside any transaction, so a slow AI provider can no longer
+     * hold a JDBC connection from the pool while waiting for the response.
+     *
+     * <ol>
+     *   <li>Tx 1: resolve/create the conversation and persist the user message.</li>
+     *   <li>Non-tx: invoke the AI provider and obtain the assistant reply.</li>
+     *   <li>Tx 2: persist the assistant message and update the conversation counters.</li>
+     * </ol>
+     * If the AI call fails the user prompt is still retained (its own transaction
+     * already committed) and the exception bubbles up to the caller.
+     */
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public CopilotChatResponse chat(CopilotChatRequest request) {
         if (request == null || !hasText(request.getPrompt())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
         }
-        CopilotConversationEntity conversation = resolveConversation(request);
-        LocalDateTime now = LocalDateTime.now();
-
-        insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
-        CopilotMessageEntity assistantMessage = insertMessage(conversation.getId(), ROLE_ASSISTANT,
-                assistantReply(request), now);
-
-        conversation.setMessageCount(defaultNumber(conversation.getMessageCount(), 0) + 2);
-        conversation.setLastMessageAt(now);
-        conversation.setUpdatedAt(now);
-        conversationMapper.updateById(conversation);
+        PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(request));
+        String assistantContent = assistantReply(request);
+        CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
+                persistAssistantReply(prepared, assistantContent));
 
         return new CopilotChatResponse(
                 messageId(assistantMessage.getId()),
-                conversationId(conversation.getId()),
+                conversationId(prepared.conversation().getId()),
                 ROLE_ASSISTANT,
                 assistantMessage.getContent(),
                 formatMessageTime(assistantMessage.getCreatedAt())
         );
+    }
+
+    private PreparedTurn prepareTurn(CopilotChatRequest request) {
+        CopilotConversationEntity conversation = resolveConversation(request);
+        LocalDateTime now = LocalDateTime.now();
+        insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
+        return new PreparedTurn(conversation, now);
+    }
+
+    private CopilotMessageEntity persistAssistantReply(PreparedTurn prepared, String assistantContent) {
+        CopilotConversationEntity conversation = prepared.conversation();
+        CopilotMessageEntity assistantMessage = insertMessage(
+                conversation.getId(), ROLE_ASSISTANT, assistantContent, prepared.now());
+        conversation.setMessageCount(defaultNumber(conversation.getMessageCount(), 0) + 2);
+        conversation.setLastMessageAt(prepared.now());
+        conversation.setUpdatedAt(LocalDateTime.now());
+        conversationMapper.updateById(conversation);
+        return assistantMessage;
+    }
+
+    private record PreparedTurn(CopilotConversationEntity conversation, LocalDateTime now) {
     }
 
     @Override

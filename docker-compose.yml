@@ -5,8 +5,8 @@ services:
     image: mysql:8.0.26
     container_name: aetherflow-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: mysql
-      MYSQL_DATABASE: aetherflow
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mysql}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
       TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
@@ -18,7 +18,7 @@ services:
       - --binlog-format=ROW
       - --binlog-row-image=FULL
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d
@@ -35,9 +35,9 @@ services:
   redis:
     image: redis:7.2
     container_name: aetherflow-redis
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-aetherflow}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -53,13 +53,13 @@ services:
     image: rabbitmq:3.13-management
     container_name: aetherflow-rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: aetherflow
-      RABBITMQ_DEFAULT_PASS: aetherflow
-      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-aetherflow}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
       RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -79,12 +79,12 @@ services:
     container_name: aetherflow-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
       TZ: Asia/Shanghai
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -102,14 +102,18 @@ services:
     environment:
       MODE: standalone
       PREFER_HOST_MODE: hostname
-      NACOS_AUTH_ENABLE: "false"
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+      NACOS_AUTH_TOKEN_EXPIRE_SECONDS: ${NACOS_AUTH_TOKEN_EXPIRE_SECONDS:-18000}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-nacos}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
       JVM_XMS: 512m
       JVM_XMX: 512m
       JVM_XMN: 256m
     ports:
-      - "8848:8848"
-      - "9848:9848"
-      - "9849:9849"
+      - "127.0.0.1:8848:8848"
+      - "127.0.0.1:9848:9848"
+      - "127.0.0.1:9849:9849"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness | grep -q OK"]
       interval: 15s
@@ -130,7 +134,7 @@ services:
     volumes:
       - ./docker/seata/application.yml:/seata-server/resources/application.yml:ro
     ports:
-      - "8091:8091"
+      - "127.0.0.1:8091:8091"
     depends_on:
       mysql:
         condition: service_healthy
@@ -144,7 +148,7 @@ services:
     image: bladex/sentinel-dashboard:1.8.8
     container_name: aetherflow-sentinel-dashboard
     ports:
-      - "8858:8858"
+      - "127.0.0.1:8858:8858"
     environment:
       JAVA_OPTS: "-Dserver.port=8858 -Dcsp.sentinel.dashboard.server=127.0.0.1:8858 -Dproject.name=sentinel-dashboard"
     restart: unless-stopped
@@ -157,11 +161,11 @@ services:
     environment:
       discovery.type: single-node
       ES_JAVA_OPTS: -Xms1g -Xmx1g
-      xpack.security.enabled: "false"
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-aetherflow}
       TZ: Asia/Shanghai
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch-data:/usr/share/elasticsearch/data
     healthcheck:
@@ -179,9 +183,11 @@ services:
     container_name: aetherflow-kibana
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:-aetherflow}
       TZ: Asia/Shanghai
     ports:
-      - "5601:5601"
+      - "127.0.0.1:5601:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -202,8 +208,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       FILE_URL_REWRITE_FROM: ${FILE_URL_REWRITE_FROM:-http://localhost:9000}
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
-    ports:
-      - "8200:8200"
+    expose:
+      - "8200"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8200/health"]
       interval: 20s
@@ -247,14 +253,14 @@ services:
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-nginx
     ports:
-      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTP_PORT:-80}:8080"
     depends_on:
       gateway-service:
         condition: service_started
       frontend:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health | grep -q ok"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -273,7 +279,7 @@ services:
       NACOS_ADDR: nacos:8848
       REDIS_HOST: redis
       SPRING_PROFILES_ACTIVE: prod
-      JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
+      JWT_SECRET: ${JWT_SECRET:-aetherflow-dev-secret-key-change-me-32bytes-minimum}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
     ports:
       - "8080:8080"
@@ -308,23 +314,28 @@ services:
     environment: &java-service-env
       SPRING_PROFILES_ACTIVE: prod
       NACOS_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      MYSQL_DATABASE: aetherflow
-      MYSQL_USERNAME: root
-      MYSQL_PASSWORD: mysql
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mysql}
       REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-aetherflow}
       RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USERNAME: aetherflow
-      RABBITMQ_PASSWORD: aetherflow
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aetherflow}
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       PYTHON_AI_BASE_URL: ${PYTHON_AI_BASE_URL:-http://python-ai-service:8200}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       WORKFLOW_OCR_MOCK: ${WORKFLOW_OCR_MOCK:-true}
       WORKFLOW_OCR_MOCK_TEXT: ${WORKFLOW_OCR_MOCK_TEXT:-Demo safe OCR text for AetherFlow.}
       SEATA_ADDR: seata:8091
-      JWT_SECRET: aetherflow-dev-secret-key-change-me-32bytes-minimum
+      JWT_SECRET: ${JWT_SECRET:-aetherflow-dev-secret-key-change-me-32bytes-minimum}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
@@ -333,8 +344,8 @@ services:
       GITHUB_OAUTH_FAILURE_PATH: ${GITHUB_OAUTH_FAILURE_PATH:-/login}
       GITHUB_OAUTH_STATE_SECRET: ${GITHUB_OAUTH_STATE_SECRET:-aetherflow-github-oauth-state-secret-32bytes}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
-    ports:
-      - "8101:8101"
+    expose:
+      - "8101"
     depends_on:
       mysql:
         condition: service_healthy
@@ -355,8 +366,8 @@ services:
     container_name: aetherflow-workflow-service
     environment:
       <<: *java-service-env
-    ports:
-      - "8102:8102"
+    expose:
+      - "8102"
     depends_on:
       mysql:
         condition: service_healthy
@@ -382,8 +393,8 @@ services:
     environment:
       <<: *java-service-env
       XXL_JOB_ENABLED: "false"
-    ports:
-      - "8103:8103"
+    expose:
+      - "8103"
     depends_on:
       mysql:
         condition: service_healthy
@@ -408,8 +419,8 @@ services:
     container_name: aetherflow-ai-service
     environment:
       <<: *java-service-env
-    ports:
-      - "8104:8104"
+    expose:
+      - "8104"
     depends_on:
       mysql:
         condition: service_healthy
@@ -434,8 +445,8 @@ services:
     container_name: aetherflow-file-service
     environment:
       <<: *java-service-env
-    ports:
-      - "8105:8105"
+    expose:
+      - "8105"
     depends_on:
       mysql:
         condition: service_healthy
@@ -458,8 +469,8 @@ services:
     container_name: aetherflow-notify-service
     environment:
       <<: *java-service-env
-    ports:
-      - "8106:8106"
+    expose:
+      - "8106"
     depends_on:
       mysql:
         condition: service_healthy

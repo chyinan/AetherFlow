@@ -11,12 +11,17 @@ import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 
+import org.springframework.beans.factory.annotation.Autowired;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
 
     private final AiWorkflowNodeClient aiClient;
+
+    @Autowired(required = false)
+    private AiNodeCallTimeoutGuard aiCallTimeoutGuard;
 
     protected AbstractAiWorkflowNodeExecutor(NodeType nodeType,
                                              WorkflowNodeMetrics metrics,
@@ -35,12 +40,20 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
         request.setNodeId(context.currentNodeId());
         request.setNodeType(nodeType);
         request.setPayload(payload == null ? Map.of() : Map.copyOf(payload));
-        Result<AiWorkflowNodeResponseDTO> result = aiClient.execute(request);
+        Result<AiWorkflowNodeResponseDTO> result = callAiWithTimeout(request, nodeType);
         if (result == null || !result.isSuccess() || result.getData() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     nodeType.toLowerCase() + " node ai execution failed");
         }
         return result.getData();
+    }
+
+    private Result<AiWorkflowNodeResponseDTO> callAiWithTimeout(AiWorkflowNodeRequestDTO request, String nodeType) {
+        // 单元测试场景下不经 Spring 容器创建执行器，aiCallTimeoutGuard 为 null，此处降级为直接调用。
+        if (aiCallTimeoutGuard == null) {
+            return aiClient.execute(request);
+        }
+        return aiCallTimeoutGuard.executeWithTimeout(() -> aiClient.execute(request), nodeType);
     }
 
     protected NodeResult aiResult(AiWorkflowNodeResponseDTO response, Map<String, Object> variables) {

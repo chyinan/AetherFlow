@@ -16,6 +16,7 @@ import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.lock.RedisWorkflowRuntimeLock;
 import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -25,11 +26,19 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.ArrayList;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.List;
 
 @Configuration
 @EnableConfigurationProperties(WorkflowRuntimeProperties.class)
 public class WorkflowRuntimeConfig {
+
+    @Value("${aetherflow.workflow.runtime.task-executor.core-pool-size:10}")
+    private int runtimeCorePoolSize;
+    @Value("${aetherflow.workflow.runtime.task-executor.max-pool-size:50}")
+    private int runtimeMaxPoolSize;
+    @Value("${aetherflow.workflow.runtime.task-executor.queue-capacity:100}")
+    private int runtimeQueueCapacity;
 
     @Bean
     public NodeRegistry nodeRegistry(List<NodeExecutor> executors) {
@@ -50,9 +59,15 @@ public class WorkflowRuntimeConfig {
     public TaskExecutor workflowRuntimeTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setThreadNamePrefix("workflow-runtime-");
-        executor.setCorePoolSize(2);
-        executor.setMaxPoolSize(4);
-        executor.setQueueCapacity(20);
+        // AI 节点同步等待最长 30 分钟，原 core2/max4/queue20 会导致并发实例线程耗尽、
+        // 任务被 AbortPolicy 丢弃后实例永久卡在 RUNNING。调大池并改用 CallerRunsPolicy
+        // 让被拒任务回退到调用者线程执行，确保任务不丢失；并启用优雅关闭避免在途实例中断。
+        executor.setCorePoolSize(runtimeCorePoolSize);
+        executor.setMaxPoolSize(runtimeMaxPoolSize);
+        executor.setQueueCapacity(runtimeQueueCapacity);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
         executor.initialize();
         return executor;
     }

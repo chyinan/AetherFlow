@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: auth-service
+  # When no profile is explicitly set (e.g. local dev runs), default to `dev` so that
+  # application-dev.yml is picked up automatically. Production must override this with
+  # SPRING_PROFILES_ACTIVE=prod (as docker-compose.yml does).
+  profiles:
+    default: ${SPRING_PROFILES_DEFAULT:dev}
   config:
     import: optional:nacos:${spring.application.name}.yml?group=DEFAULT_GROUP&refreshEnabled=true
   datasource:
@@ -43,17 +48,28 @@ aetherflow:
   security:
     jwt:
       issuer: aetherflow
-      secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
+      # DELIBERATELY EMPTY by default. The dev profile (application-dev.yml) supplies a weak
+      # dev-only fallback; the prod profile (application-prod.yml) requires JWT_SECRET to be
+      # set explicitly (no default - Spring will fail to resolve the placeholder if the env var
+      # is missing). JwtSecretValidator additionally rejects known-default/blank/short secrets
+      # at startup in any non-dev profile.
+      secret: ${JWT_SECRET:}
       expire-minutes: 120
   auth:
     token:
       refresh-expire-minutes: ${JWT_REFRESH_EXPIRE_MINUTES:10080}
-      refresh-secret: ${JWT_REFRESH_SECRET:aetherflow-refresh-secret-change-me-32bytes-minimum}
+      # Same dev/prod split as the access secret above; prod requires JWT_REFRESH_SECRET.
+      refresh-secret: ${JWT_REFRESH_SECRET:}
     security:
       login-rate-limit-per-minute: ${AUTH_LOGIN_RATE_LIMIT_PER_MINUTE:20}
       login-rate-window-seconds: ${AUTH_LOGIN_RATE_WINDOW_SECONDS:60}
       password-max-failures: ${AUTH_PASSWORD_MAX_FAILURES:5}
       password-failure-window-minutes: ${AUTH_PASSWORD_FAILURE_WINDOW_MINUTES:15}
+    # Demo seed user (aether.operator / mock-password) is disabled everywhere by default.
+    # Only the dev profile (application-dev.yml) re-enables it, and DemoUserInitializer
+    # additionally verifies the active Spring profile is `dev` before seeding.
+    demo-user:
+      enabled: ${AETHER_DEMO_USER_ENABLED:false}
     oauth:
       github:
         client-id: ${GITHUB_OAUTH_CLIENT_ID:}

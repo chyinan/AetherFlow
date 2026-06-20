@@ -12,6 +12,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.net.InetAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -97,15 +101,78 @@ public class AiTaskCallbackService {
         if (callbackUrl == null || String.valueOf(callbackUrl).isBlank()) {
             return;
         }
+        String url = String.valueOf(callbackUrl).trim();
+        String rejectionReason = validateCallbackUrl(url);
+        if (rejectionReason != null) {
+            log.warn("AI task callback url rejected taskId={}, callbackUrl={}, reason={}",
+                    taskMessage.getTaskId(), url, rejectionReason);
+            return;
+        }
         try {
             callbackRestClient.post()
-                    .uri(String.valueOf(callbackUrl))
+                    .uri(url)
                     .body(payload)
                     .retrieve()
                     .toBodilessEntity();
-            log.info("AI task callback sent taskId={}, callbackUrl={}", taskMessage.getTaskId(), callbackUrl);
+            log.info("AI task callback sent taskId={}, callbackUrl={}", taskMessage.getTaskId(), url);
         } catch (RuntimeException exception) {
-            log.warn("AI task callback failed taskId={}, callbackUrl={}", taskMessage.getTaskId(), callbackUrl, exception);
+            log.warn("AI task callback failed taskId={}, callbackUrl={}", taskMessage.getTaskId(), url, exception);
         }
+    }
+
+    /**
+     * SSRF guard: caller-supplied callback URLs must target a public HTTP(S)
+     * endpoint. Returns a human-readable rejection reason when the URL is
+     * disallowed, or {@code null} when the URL is safe to invoke.
+     */
+    static String validateCallbackUrl(String callbackUrl) {
+        if (callbackUrl == null || callbackUrl.isBlank()) {
+            return "callback url is empty";
+        }
+        URI uri;
+        try {
+            uri = new URI(callbackUrl);
+        } catch (URISyntaxException ex) {
+            return "callback url is not a valid URI";
+        }
+        String scheme = uri.getScheme();
+        if (scheme == null
+                || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            return "callback url must use http or https scheme";
+        }
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            return "callback url must include a host";
+        }
+        String lowerHost = host.toLowerCase();
+        if ("localhost".equals(lowerHost) || "localhost.".equals(lowerHost)
+                || lowerHost.endsWith(".localhost")) {
+            return "callback url must not target localhost";
+        }
+        InetAddress[] resolved;
+        try {
+            resolved = InetAddress.getAllByName(host);
+        } catch (UnknownHostException ex) {
+            return "callback url host cannot be resolved: " + host;
+        }
+        for (InetAddress address : resolved) {
+            if (isDisallowedAddress(address)) {
+                return "callback url host resolves to a non-public address: " + address.getHostAddress();
+            }
+        }
+        return null;
+    }
+
+    private static boolean isDisallowedAddress(InetAddress address) {
+        // InetAddress.isSiteLocalAddress() covers RFC 1918 ranges 10.0.0.0/8,
+        // 172.16.0.0/12 and 192.168.0.0/16. Also exclude loopback, link-local
+        // (169.254.0.0/16), wildcard (0.0.0.0), multicast and reserved ranges,
+        // all of which would let a malicious caller reach internal services.
+        return address.isLoopbackAddress()
+                || address.isAnyLocalAddress()
+                || address.isLinkLocalAddress()
+                || address.isSiteLocalAddress()
+                || address.isMulticastAddress()
+                || address.isReserved();
     }
 }

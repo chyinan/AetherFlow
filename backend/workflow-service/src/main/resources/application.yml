@@ -81,6 +81,7 @@ aetherflow:
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
       default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
+      ai-call-timeout: ${WORKFLOW_AI_NODE_CALL_TIMEOUT:10m}
     embedding:
       default-provider: ${WORKFLOW_EMBEDDING_PROVIDER:ollama}
       default-model: ${WORKFLOW_EMBEDDING_MODEL:nomic-embed-text}
@@ -104,6 +105,10 @@ aetherflow:
         data-path: ${TESSDATA_PREFIX:}
         fallback-language: ${WORKFLOW_OCR_TESSERACT_LANGUAGE:eng}
     runtime:
+      task-executor:
+        core-pool-size: ${WORKFLOW_RUNTIME_CORE_POOL_SIZE:10}
+        max-pool-size: ${WORKFLOW_RUNTIME_MAX_POOL_SIZE:50}
+        queue-capacity: ${WORKFLOW_RUNTIME_QUEUE_CAPACITY:100}
       retry:
         max-attempts: ${WORKFLOW_RUNTIME_RETRY_MAX_ATTEMPTS:3}
         initial-delay: ${WORKFLOW_RUNTIME_RETRY_INITIAL_DELAY:0s}

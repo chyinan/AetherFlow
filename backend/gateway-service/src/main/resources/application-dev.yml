@@ -1,0 +1,14 @@
+# =============================================================================
+# DEVELOPMENT PROFILE ONLY - NEVER activate in production!
+# =============================================================================
+# Activated automatically by `spring.profiles.default=dev` (see application.yml)
+# whenever SPRING_PROFILES_ACTIVE is not set. Production runs with
+# SPRING_PROFILES_ACTIVE=prod, which loads application-prod.yml instead and
+# enforces real secrets via env vars.
+
+aetherflow:
+  security:
+    jwt:
+      # Dev-only weak secret. NEVER deploy this value to production. JwtSecretValidator
+      # also blocks this string in non-dev profiles as a defense-in-depth.
+      secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}

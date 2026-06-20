@@ -2,17 +2,31 @@ spring:
   data:
     redis:
       host: ${REDIS_HOST:redis}
+      password: ${REDIS_PASSWORD}
   cloud:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:nacos:8848}
+        # Use Nacos auth credentials when NACOS_AUTH_ENABLE=true on the Nacos container.
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
       config:
         server-addr: ${NACOS_ADDR:nacos:8848}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
     sentinel:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
 
 aetherflow:
+  security:
+    jwt:
+      # PRODUCTION: JWT_SECRET MUST be set as an environment variable. There is no default,
+      # so Spring's placeholder resolver will fail to load the context if the env var is missing.
+      # JwtSecretValidator additionally rejects blank/known-default/short secrets at startup.
+      secret: ${JWT_SECRET}
   gateway:
     security:
       auth-enabled: true

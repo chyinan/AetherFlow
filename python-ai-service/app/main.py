@@ -1,21 +1,50 @@
+import ipaddress
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
+import urllib.parse
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("aetherflow.python-ai")
 
-app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0")
+_whisper_model = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _whisper_model
+    _ensure_runtime_env_loaded()
+    if _enabled("ENABLE_WHISPER") and _whisper_runtime_ready():
+        try:
+            from faster_whisper import WhisperModel
+
+            model_name = os.getenv("WHISPER_MODEL", "small")
+            _whisper_model = WhisperModel(
+                model_name,
+                device=os.getenv("WHISPER_DEVICE", "cpu"),
+                compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"),
+            )
+            logger.info("Whisper model '%s' loaded at startup", model_name)
+        except Exception as exc:
+            logger.warning("Failed to load Whisper model at startup: %s", exc)
+            _whisper_model = None
+    yield
+    _whisper_model = None
+
+
+app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0", lifespan=lifespan)
 
 
 class TranscriptionRequest(BaseModel):
@@ -212,6 +241,22 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
 _RUNTIME_ENV_LOADED = False
 
 
+def _is_dev_env() -> bool:
+    return os.getenv("APP_ENV", "").lower() == "dev" or os.getenv("AI_SERVICE_DEV", "false").lower() == "true"
+
+
+def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
+    """Protect provider config endpoints. In non-dev environments a valid X-API-Key is required."""
+    if _is_dev_env():
+        return
+    expected = os.getenv("AI_SERVICE_API_KEY", "").strip()
+    if not expected:
+        # Fail closed: never expose/mutate secrets without an admin key configured in prod.
+        raise HTTPException(status_code=503, detail="admin API key is not configured")
+    if not x_api_key or x_api_key.strip() != expected:
+        raise HTTPException(status_code=401, detail="missing or invalid X-API-Key")
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled python ai runtime error path=%s", request.url.path)
@@ -253,13 +298,13 @@ def ai_status() -> dict[str, Any]:
 
 
 @app.get("/ai/provider/config")
-def provider_config_catalog() -> dict[str, Any]:
+def provider_config_catalog(_: None = Depends(_require_admin_api_key)) -> dict[str, Any]:
     _ensure_runtime_env_loaded()
     return {"providers": [_provider_config_entry(provider_id) for provider_id in PROVIDER_PRESETS]}
 
 
 @app.put("/ai/provider/config/{provider_id}")
-def update_provider_config(provider_id: str, update: ProviderConfigUpdate) -> dict[str, Any]:
+def update_provider_config(provider_id: str, update: ProviderConfigUpdate, _: None = Depends(_require_admin_api_key)) -> dict[str, Any]:
     _ensure_runtime_env_loaded()
     normalized_id = provider_id.strip().lower()
     if normalized_id not in PROVIDER_PRESETS:
@@ -279,14 +324,12 @@ def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
             durationSeconds=0.0,
         )
 
+    if _whisper_model is None:
+        raise HTTPException(status_code=503, detail="whisper model is not loaded")
     source = _materialize_source(request.fileUrl)
     audio_source = _ensure_audio_source(source)
     try:
-        from faster_whisper import WhisperModel
-
-        model_name = os.getenv("WHISPER_MODEL", "small")
-        model = WhisperModel(model_name, device=os.getenv("WHISPER_DEVICE", "cpu"), compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"))
-        segments, info = model.transcribe(
+        segments, info = _whisper_model.transcribe(
             str(audio_source),
             language=None if request.language in (None, "", "auto") else request.language,
             initial_prompt=request.prompt,
@@ -567,8 +610,36 @@ def _openai_model_names() -> list[str]:
     return [_provider_default_model(route_provider)]
 
 
+def is_internal_url(url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return True
+    hostname = parsed.hostname
+    if not hostname:
+        return True
+    if hostname in ("localhost", "localhost."):
+        return True
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            return True
+    except ValueError:
+        pass
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+        for _family, _type, _proto, _canon, addr in resolved:
+            ip = ipaddress.ip_address(addr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _materialize_source(file_url: str) -> Path:
     if file_url.startswith("http://") or file_url.startswith("https://"):
+        if is_internal_url(file_url):
+            raise HTTPException(status_code=400, detail="access to internal/private URLs is not allowed")
         suffix = Path(file_url.split("?")[0]).suffix or ".bin"
         target = Path(tempfile.gettempdir()) / f"aetherflow-input-{uuid.uuid4().hex}{suffix}"
         download_url = _rewrite_file_url(file_url)

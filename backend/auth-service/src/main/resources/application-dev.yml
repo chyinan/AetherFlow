@@ -1,0 +1,26 @@
+# =============================================================================
+# DEVELOPMENT PROFILE ONLY - NEVER activate in production!
+# =============================================================================
+# Activated automatically by `spring.profiles.default=dev` (see application.yml)
+# whenever SPRING_PROFILES_ACTIVE is not set. Developers running locally rely on
+# this file. Production runs with SPRING_PROFILES_ACTIVE=prod, which loads
+# application-prod.yml instead and enforces real secrets via env vars.
+#
+# Anything in this file is a development convenience - weak demo credentials,
+# short test secrets, demo user account auto-seeding. Enable explicitly only on
+# developer workstations.
+
+aetherflow:
+  security:
+    jwt:
+      # Dev-only weak secret. NEVER deploy this value to production. JwtSecretValidator
+      # also blocks this string in non-dev profiles as a defense-in-depth.
+      secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
+  auth:
+    token:
+      refresh-secret: ${JWT_REFRESH_SECRET:aetherflow-refresh-secret-change-me-32bytes-minimum}
+    # Demo user (aether.operator / mock-password) is seeded here in dev for first-login
+    # convenience. Disabled by default elsewhere; DemoUserInitializer additionally checks
+    # the active profile is `dev` before seeding.
+    demo-user:
+      enabled: ${AETHER_DEMO_USER_ENABLED:true}

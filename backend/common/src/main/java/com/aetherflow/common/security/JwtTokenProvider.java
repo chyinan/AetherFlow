@@ -3,6 +3,7 @@ package com.aetherflow.common.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.core.env.Environment;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -16,8 +17,18 @@ public class JwtTokenProvider {
     private final JwtProperties properties;
     private final SecretKey key;
 
+    /**
+     * Backwards-compatible constructor used by unit tests; secrecy validation is skipped
+     * because the active Spring environment is unavailable. Production code should prefer
+     * {@link #JwtTokenProvider(JwtProperties, Environment)} so the fail-fast validator runs.
+     */
     public JwtTokenProvider(JwtProperties properties) {
+        this(properties, null);
+    }
+
+    public JwtTokenProvider(JwtProperties properties, Environment environment) {
         this.properties = properties;
+        JwtSecretValidator.validate(properties.getSecret(), environment, "aetherflow.security.jwt.secret");
         this.key = Keys.hmacShaKeyFor(properties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
 

@@ -21,6 +21,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -30,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,11 +49,19 @@ class CopilotServiceImplTest {
     @Mock
     private AiProviderRouter aiProviderRouter;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     private CopilotServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new CopilotServiceImpl(conversationMapper, messageMapper, aiProviderRouter);
+        // Run the transaction callback inline so the unit tests exercise the actual
+        // DB-only logic without a real PlatformTransactionManager. Lenient because
+        // tests like rejectsBlankPrompt() return before reaching the transaction.
+        lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
+                .thenAnswer(invocation -> invocation.<TransactionCallback<?>>getArgument(0).doInTransaction(null));
+        service = new CopilotServiceImpl(conversationMapper, messageMapper, aiProviderRouter, transactionTemplate);
     }
 
     @Test

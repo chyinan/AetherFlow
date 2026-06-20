@@ -4,6 +4,11 @@ server:
 spring:
   application:
     name: gateway-service
+  # When no profile is explicitly set (e.g. local dev runs), default to `dev` so that
+  # application-dev.yml is picked up automatically. Production must override this with
+  # SPRING_PROFILES_ACTIVE=prod (as docker-compose.yml does).
+  profiles:
+    default: ${SPRING_PROFILES_DEFAULT:dev}
   cache:
     type: caffeine
   main:
@@ -121,7 +126,10 @@ aetherflow:
   security:
     jwt:
       issuer: aetherflow
-      secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
+      # EMPTY by default. Dev profile (application-dev.yml) supplies a weak dev-only fallback;
+      # prod profile (application-prod.yml) requires JWT_SECRET to be set. JwtSecretValidator
+      # additionally rejects known-default/blank/short secrets at startup in non-dev profiles.
+      secret: ${JWT_SECRET:}
       expire-minutes: 120
   gateway:
     security:

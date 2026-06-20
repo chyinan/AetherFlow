@@ -23,13 +23,19 @@ COPY . .
 RUN npm run build
 
 FROM alpine:3.20 AS frontend-dist
+RUN addgroup -S app && adduser -S app -G app
 WORKDIR /dist
 COPY --from=frontend-builder /app/dist/ ./
-RUN mkdir -p /output
+RUN mkdir -p /output && chown -R app:app /dist /output
+USER app
 CMD ["sh", "-c", "rm -rf /output/* && cp -R /dist/. /output && echo 'AetherFlow frontend dist exported to /output'"]
 
 FROM nginx:1.27-alpine AS nginx-runtime
+RUN mkdir -p /var/cache/nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp \
+    && chown -R nginx:nginx /var/cache/nginx /tmp/client_temp /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp /etc/nginx /var/log/nginx /usr/share/nginx/html
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=frontend-builder /app/dist/ /usr/share/nginx/html/
+RUN chown -R nginx:nginx /usr/share/nginx/html /etc/nginx
+USER nginx
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/health | grep -q ok || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/health | grep -q ok || exit 1

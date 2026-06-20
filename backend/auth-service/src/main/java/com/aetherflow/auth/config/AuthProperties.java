@@ -31,7 +31,9 @@ public class AuthProperties {
     @Data
     public static class DemoUser {
 
-        private boolean enabled = true;
+        // Disabled by default; only the `dev` profile (application-dev.yml) re-enables it.
+        // Auto-seeding a demo account in non-dev environments is a credential backdoor.
+        private boolean enabled = false;
         private String username = "aether.operator";
         private String email = "aether.operator@aetherflow.local";
         private String password = "mock-password";
