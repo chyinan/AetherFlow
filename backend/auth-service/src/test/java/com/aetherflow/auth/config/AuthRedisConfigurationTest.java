@@ -40,7 +40,7 @@ class AuthRedisConfigurationTest {
         assertThat(properties.getProperty("aetherflow.auth.token.refresh-expire-minutes"))
                 .isEqualTo("${JWT_REFRESH_EXPIRE_MINUTES:10080}");
         assertThat(properties.getProperty("aetherflow.auth.token.refresh-secret"))
-                .isEqualTo("${JWT_REFRESH_SECRET:aetherflow-refresh-secret-change-me-32bytes-minimum}");
+                .isEqualTo("${JWT_REFRESH_SECRET:}");
         assertThat(properties.getProperty("aetherflow.auth.security.login-rate-limit-per-minute"))
                 .isEqualTo("${AUTH_LOGIN_RATE_LIMIT_PER_MINUTE:20}");
         assertThat(properties.getProperty("aetherflow.auth.security.password-max-failures"))
