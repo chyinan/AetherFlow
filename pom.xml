@@ -36,11 +36,10 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <spring-cloud.version>2023.0.5</spring-cloud.version>
         <spring-cloud-alibaba.version>2023.0.3.3</spring-cloud-alibaba.version>
-        <mybatis-plus.version>3.5.9</mybatis-plus.version>
+        <mybatis-plus.version>3.5.12</mybatis-plus.version>
         <jjwt.version>0.12.6</jjwt.version>
         <minio.version>8.5.17</minio.version>
-        <xxl-job.version>2.4.1</xxl-job.version>
-        <activiti.version>7.1.0.M6</activiti.version>
+        <xxl-job.version>2.4.2</xxl-job.version>
         <springdoc.version>2.6.0</springdoc.version>
         <testcontainers.version>1.19.8</testcontainers.version>
     </properties>
@@ -85,11 +84,6 @@
                 <groupId>com.xuxueli</groupId>
                 <artifactId>xxl-job-core</artifactId>
                 <version>${xxl-job.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.activiti</groupId>
-                <artifactId>activiti-engine</artifactId>
-                <version>${activiti.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.jsonwebtoken</groupId>

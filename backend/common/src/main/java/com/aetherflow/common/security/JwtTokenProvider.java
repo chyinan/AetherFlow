@@ -56,7 +56,9 @@ public class JwtTokenProvider {
         Long userId = Long.valueOf(claims.getSubject());
         String username = claims.get("username", String.class);
         @SuppressWarnings("unchecked")
-        List<String> roles = claims.get("roles", List.class);
+        List<String> rawRoles = claims.get("roles", List.class);
+        // Guard against tokens minted without a roles claim (null) to prevent downstream NPE.
+        List<String> roles = rawRoles == null ? List.of() : rawRoles;
         return new JwtUserClaims(userId, username, roles);
     }
 

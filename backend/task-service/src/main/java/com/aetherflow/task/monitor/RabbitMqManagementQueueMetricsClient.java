@@ -9,7 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClientException;
 import java.net.URLEncoder;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 @Slf4j
 @Component
@@ -69,10 +70,13 @@ public class RabbitMqManagementQueueMetricsClient implements QueueMetricsClient 
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private SimpleClientHttpRequestFactory requestFactory(TaskProperties.ManagementApi managementApi) {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(managementApi.getConnectTimeout());
-        requestFactory.setReadTimeout(managementApi.getConnectTimeout());
+    private JdkClientHttpRequestFactory requestFactory(TaskProperties.ManagementApi managementApi) {
+        Duration timeout = managementApi.getConnectTimeout();
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder()
+                        .connectTimeout(timeout)
+                        .build());
+        requestFactory.setReadTimeout(timeout);
         return requestFactory;
     }
 }

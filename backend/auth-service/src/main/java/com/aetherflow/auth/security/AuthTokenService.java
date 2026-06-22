@@ -135,7 +135,10 @@ public class AuthTokenService {
         Long userId = Long.valueOf(claims.getSubject());
         String username = claims.get(CLAIM_USERNAME, String.class);
         @SuppressWarnings("unchecked")
-        List<String> roles = claims.get(CLAIM_ROLES, List.class);
+        List<String> rawRoles = claims.get(CLAIM_ROLES, List.class);
+        // Guard against tokens minted without a roles claim (null) to prevent downstream NPE
+        // in JwtUserClaims consumers (e.g. gateway filter, stream token service).
+        List<String> roles = rawRoles == null ? List.of() : rawRoles;
         return new JwtUserClaims(userId, username, roles);
     }
 

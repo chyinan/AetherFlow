@@ -173,6 +173,30 @@ public class AiTaskCallbackService {
                 || address.isLinkLocalAddress()
                 || address.isSiteLocalAddress()
                 || address.isMulticastAddress()
-                || address.isReserved();
+                || isReservedRange(address);
+    }
+
+    /**
+     * Check for IANA reserved address ranges not covered by the JDK built-in checks
+     * above: 240.0.0.0/4 (reserved for future use) and 100.64.0.0/10 (CGNAT /
+     * shared address space, RFC 6598).
+     */
+    private static boolean isReservedRange(InetAddress address) {
+        byte[] octets = address.getAddress();
+        if (octets.length != 4) {
+            // IPv6: block non-global types conservatively via the JDK checks already done.
+            return false;
+        }
+        int first = octets[0] & 0xFF;
+        // 240.0.0.0/4 — reserved for future use (Class E)
+        if (first >= 240) {
+            return true;
+        }
+        // 100.64.0.0/10 — CGNAT shared address space (RFC 6598)
+        if (first == 100) {
+            int second = octets[1] & 0xFF;
+            return second >= 64 && second <= 127;
+        }
+        return false;
     }
 }

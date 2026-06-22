@@ -101,9 +101,17 @@ public class FileUploadGuardServiceImpl implements FileUploadGuardService {
             throw new UploadException("upload file cannot be inspected");
         }
 
-        if (startsWith(header, 'M', 'Z')
-                || startsWith(header, 0x7F, 'E', 'L', 'F')
-                || startsWith(header, '#', '!')) {
+        // Block known executable / script signatures to prevent uploading
+        // malicious binaries disguised as allowed file types.
+        if (startsWith(header, 'M', 'Z')                           // Windows PE / DLL
+                || startsWith(header, 0x7F, 'E', 'L', 'F')          // Linux ELF
+                || startsWith(header, '#', '!')                     // Shell script shebang
+                || startsWith(header, 0xCA, 0xFE, 0xBA, 0xBE)       // Java class
+                || startsWith(header, 0xFE, 0xED, 0xFA, 0xCE)       // Mach-O 32
+                || startsWith(header, 0xFE, 0xED, 0xFA, 0xCF)       // Mach-O 64
+                || startsWith(header, 0xCF, 0xFA, 0xED, 0xFE)       // Mach-O 64 (reverse)
+                || startsWith(header, 0xCE, 0xFA, 0xED, 0xFE)       // Mach-O 32 (reverse)
+                ) {
             throw new FileTypeException("upload file signature is blocked");
         }
     }
