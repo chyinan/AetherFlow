@@ -123,7 +123,7 @@ public class WorkflowRuntimeEngine {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
             }
             RuntimeLogContext.run(context, context.currentNodeId(),
-                    () -> log.error("workflow runtime failed, reason={}", exception.getMessage()));
+                    () -> log.error("workflow runtime failed", exception));
             publish(context, RuntimeEventType.WORKFLOW_FAILED, context.currentNodeId(),
                     Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage()));
             saveSnapshot(request, context, tracker);
