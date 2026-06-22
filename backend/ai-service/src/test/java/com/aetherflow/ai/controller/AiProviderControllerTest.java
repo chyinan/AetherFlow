@@ -91,8 +91,8 @@ class AiProviderControllerTest {
     void exposesProviderCatalogForFrontendModelsPage() {
         ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
         AiTaskProperties properties = new AiTaskProperties();
-        properties.setDefaultProvider(AiProviderType.OLLAMA);
-        properties.setDefaultModel("llama3");
+        properties.setDefaultProvider(AiProviderType.OPENAI);
+        properties.setDefaultModel("gpt-4o-mini");
         AiProviderController controller = controller(
                 mock(ProviderMetricsService.class),
                 policyService,
@@ -111,7 +111,7 @@ class AiProviderControllerTest {
                 .contains("OpenAI API", "Ollama Local Runtime");
         assertThat(result.getData().models())
                 .anySatisfy(model -> {
-                    assertThat(model.name()).isEqualTo("llama3");
+                    assertThat(model.name()).isEqualTo("gpt-4o-mini");
                     assertThat(model.contextWindow()).isNotBlank();
                     assertThat(model.pricing().priceHint()).isNotBlank();
                     assertThat(model.capabilities()).contains("chat");

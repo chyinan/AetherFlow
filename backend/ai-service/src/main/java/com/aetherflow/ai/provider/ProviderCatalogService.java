@@ -175,17 +175,7 @@ public class ProviderCatalogService {
                     .map(name -> runtimeOllamaModel(provider, name, name.equals(defaultModel)))
                     .toList();
         }
-        return List.of(model(
-                provider,
-                defaultModel,
-                "chat",
-                "context-window-unknown",
-                null,
-                LOCAL_PRICING,
-                List.of("chat", "summary", "translate", "local fallback", "offline capable"),
-                List.of("default", "local", "private"),
-                "ready"
-        ));
+        return List.of();
     }
 
     private ProviderCatalogResponse.ProviderCatalogModel runtimeOllamaModel(AiProviderType provider,
