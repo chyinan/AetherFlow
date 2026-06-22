@@ -96,12 +96,14 @@ class NotificationServiceImplTest {
         NotificationRecordMapper notificationRecordMapper = mock(NotificationRecordMapper.class);
         NotificationWebSocketHandler webSocketHandler = mock(NotificationWebSocketHandler.class);
         SseEmitterRegistry sseEmitterRegistry = mock(SseEmitterRegistry.class);
+        TelegramNotificationSender telegramNotificationSender = mock(TelegramNotificationSender.class);
         when(notificationRecordMapper.selectCount(any())).thenReturn(0L);
         when(notificationRecordMapper.insert(any(NotificationRecord.class))).thenReturn(1);
         NotificationServiceImpl service = new NotificationServiceImpl(
                 notificationRecordMapper,
                 webSocketHandler,
                 sseEmitterRegistry,
+                telegramNotificationSender,
                 new ObjectMapper()
         );
         NotifyMessageDTO message = new NotifyMessageDTO();
@@ -143,12 +145,14 @@ class NotificationServiceImplTest {
         NotificationRecordMapper notificationRecordMapper = mock(NotificationRecordMapper.class);
         NotificationWebSocketHandler webSocketHandler = mock(NotificationWebSocketHandler.class);
         SseEmitterRegistry sseEmitterRegistry = mock(SseEmitterRegistry.class);
+        TelegramNotificationSender telegramNotificationSender = mock(TelegramNotificationSender.class);
         when(notificationRecordMapper.selectCount(any())).thenReturn(0L);
         when(notificationRecordMapper.insert(any(NotificationRecord.class))).thenReturn(1);
         NotificationServiceImpl service = new NotificationServiceImpl(
                 notificationRecordMapper,
                 webSocketHandler,
                 sseEmitterRegistry,
+                telegramNotificationSender,
                 new ObjectMapper()
         );
         NotifyMessageDTO message = new NotifyMessageDTO();
