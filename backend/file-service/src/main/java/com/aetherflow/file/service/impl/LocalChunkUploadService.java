@@ -15,11 +15,13 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
@@ -80,7 +82,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
         );
         try {
             Files.createDirectories(session.directory());
-        } catch (Exception exception) {
+        } catch (IOException exception) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload temp directory unavailable");
         }
         sessions.put(uploadId, session);
@@ -106,7 +108,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
         Path partPath = partPath(session, partNumber);
         try (InputStream inputStream = part.getInputStream()) {
             Files.copy(inputStream, partPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception exception) {
+        } catch (IOException exception) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk part write failed");
         }
         long size = safeSize(partPath);
@@ -199,7 +201,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
                 builder.append(String.format("%02x", value));
             }
             return builder.toString();
-        } catch (Exception exception) {
+        } catch (IOException | NoSuchAlgorithmException exception) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload checksum failed");
         }
     }
@@ -245,7 +247,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
     private long safeSize(Path path) {
         try {
             return Files.size(path);
-        } catch (Exception exception) {
+        } catch (IOException exception) {
             return 0L;
         }
     }
@@ -258,11 +260,11 @@ public class LocalChunkUploadService implements ChunkUploadService {
             walk.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
                     Files.deleteIfExists(path);
-                } catch (Exception exception) {
+                } catch (IOException exception) {
                     log.warn("Failed to delete chunk upload temp path path={}", path, exception);
                 }
             });
-        } catch (Exception exception) {
+        } catch (IOException exception) {
             log.warn("Failed to cleanup chunk upload temp dir dir={}", directory, exception);
         }
     }

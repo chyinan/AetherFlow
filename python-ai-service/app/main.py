@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
                 compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"),
             )
             logger.info("Whisper model '%s' loaded at startup", model_name)
-        except Exception as exc:
+        except (OSError, RuntimeError, ImportError) as exc:
             logger.warning("Failed to load Whisper model at startup: %s", exc)
             _whisper_model = None
     yield
@@ -436,7 +436,7 @@ def _ollama_model_names() -> list[str]:
             if name and name not in names:
                 names.append(name)
         return names
-    except Exception as exc:
+    except (ConnectionError, TimeoutError, OSError) as exc:
         logger.warning("Failed to list Ollama models: %s", exc)
         return []
 
@@ -654,7 +654,7 @@ def is_internal_url(url: str) -> bool:
             ip = ipaddress.ip_address(addr[0])
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
                 return True
-    except Exception:
+    except (socket.gaierror, OSError):
         pass
     return False
 
@@ -775,7 +775,7 @@ def _enabled(name: str) -> bool:
 def _whisper_runtime_ready() -> bool:
     try:
         from faster_whisper import WhisperModel  # noqa: F401
-    except Exception as exc:
+    except ImportError as exc:
         logger.warning("Whisper runtime is enabled but unavailable: %s", exc)
         return False
     return True
