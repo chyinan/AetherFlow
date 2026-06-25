@@ -19,6 +19,8 @@
 // entirely (the browser will attach the cookie automatically on refresh
 // requests). Until then, sessionStorage is the lowest-cost mitigation that
 // does not require backend changes.
+//
+// @see https://github.com/chyinan/AetherFlow/issues
 const REFRESH_STORAGE_KEY = 'af_auth_refresh'
 // Pre-fix keys kept only for one-time migration; new code never writes to
 // them.

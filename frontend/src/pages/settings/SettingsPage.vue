@@ -316,7 +316,7 @@ const dataAccessCards = computed(() => [
     titleKey: 'settings.dataAccessUrl',
     detailKey: 'settings.dataAccessUrlHint',
     endpoint: `${runtimeEnv.apiBase}/ingestion/url`,
-    status: 'disabled',
+    status: 'coming-soon',
     value: t('settings.reserved'),
     valueLabelKey: 'settings.dataAccessState',
     icon: ExternalLink,
@@ -325,7 +325,7 @@ const dataAccessCards = computed(() => [
     titleKey: 'settings.dataAccessVectorStore',
     detailKey: 'settings.dataAccessVectorStoreHint',
     endpoint: `${runtimeEnv.apiBase}/knowledge/vector-stores`,
-    status: 'disabled',
+    status: 'coming-soon',
     value: t('settings.reserved'),
     valueLabelKey: 'settings.dataAccessState',
     icon: Server,
@@ -617,6 +617,9 @@ function statusBadgeClass(status: string) {
   }
   if (status === 'available' || status === 'invited' || status === 'rotating') {
     return 'border-status-warning/30 bg-status-warning/10 text-status-warning'
+  }
+  if (status === 'coming-soon') {
+    return 'border-primary/30 bg-primary-soft text-primary'
   }
   return 'border-status-paused/30 bg-status-paused/10 text-text-muted'
 }
@@ -1136,10 +1139,20 @@ watch(
             <article
               v-for="card in dataAccessCards"
               :key="card.titleKey"
-              class="rounded-xl border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/40 hover:shadow-node"
+              class="relative rounded-xl border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/40 hover:shadow-node"
+              :class="{ 'opacity-75': card.status === 'coming-soon' }"
             >
+              <span
+                v-if="card.status === 'coming-soon'"
+                class="absolute right-3 top-3 rounded-full border border-primary/25 bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary"
+              >
+                {{ t('settings.comingSoon') }}
+              </span>
               <div class="flex items-start justify-between gap-3">
-                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+                <span
+                  class="grid h-10 w-10 shrink-0 place-items-center rounded-lg"
+                  :class="card.status === 'coming-soon' ? 'bg-primary-soft/60 text-primary/60' : 'bg-primary-soft text-primary'"
+                >
                   <component :is="card.icon" class="h-4 w-4" />
                 </span>
                 <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(card.status)">
