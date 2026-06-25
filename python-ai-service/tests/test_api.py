@@ -100,7 +100,7 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("openai", status.json()["providers"])
         self.assertIn("qwen/qwen3.5-9b", status.json()["models"]["openai"])
 
-    def test_llm_chat_returns_fallback_when_runtime_is_disabled(self):
+    def test_llm_chat_returns_503_when_runtime_is_disabled(self):
         with patch.dict("os.environ", {"ENABLE_LLM": "false"}):
             response = self.client.post(
                 "/v1/llm/chat",
@@ -112,10 +112,9 @@ class PythonAiServiceApiTest(unittest.TestCase):
                 },
             )
 
-        self.assertEqual(200, response.status_code)
+        self.assertEqual(503, response.status_code)
         body = response.json()
-        self.assertEqual("ollama", body["provider"])
-        self.assertIn("Summarize AetherFlow", body["text"])
+        self.assertIn("LLM service disabled", body["detail"])
 
     def test_subtitle_endpoint_returns_srt_text(self):
         response = self.client.post(

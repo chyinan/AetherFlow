@@ -341,11 +341,7 @@ def update_provider_config(provider_id: str, update: ProviderConfigUpdate, _: No
 def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
     logger.info("ASR request fileUrl=%s language=%s", request.fileUrl, request.language)
     if not _enabled("ENABLE_WHISPER"):
-        return TranscriptionResponse(
-            text=f"Transcription fallback for {request.fileUrl}",
-            srtObjectKey="generated/subtitles/fallback.srt",
-            durationSeconds=0.0,
-        )
+        raise HTTPException(status_code=503, detail="Whisper service disabled. Set ENABLE_WHISPER=true to enable.")
 
     if _whisper_model is None:
         raise HTTPException(status_code=503, detail="whisper model is not loaded")
@@ -370,12 +366,7 @@ def llm_chat(request: LlmRequest) -> LlmResponse:
     provider = request.provider.lower().strip()
     logger.info("LLM request provider=%s model=%s", provider, request.model)
     if not _enabled("ENABLE_LLM"):
-        return LlmResponse(
-            provider=provider,
-            model=request.model,
-            text=f"LLM fallback [{provider}/{request.model}]: {request.prompt}",
-            metadata={"fallback": True},
-        )
+        raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
     if provider == "openai":
         return _call_openai(request)
     if provider == "ollama":
@@ -769,7 +760,7 @@ def _cleanup_materialized(source: Path, audio_source: Path) -> None:
 
 
 def _enabled(name: str) -> bool:
-    return os.getenv(name, "false").lower() == "true"
+    return os.getenv(name, "true").lower() == "true"
 
 
 def _whisper_runtime_ready() -> bool:

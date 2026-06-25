@@ -1,6 +1,8 @@
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1
+ENV ENABLE_LLM=true
+ENV ENABLE_WHISPER=true
 WORKDIR /app
 
 RUN apt-get update \
