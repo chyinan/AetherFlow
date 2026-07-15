@@ -1,3 +1,5 @@
+// pattern: Mixed (needs refactoring)
+
 package com.aetherflow.auth.security;
 
 import com.aetherflow.auth.config.AuthProperties;
@@ -8,6 +10,7 @@ import com.aetherflow.common.security.JwtUserClaims;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -38,6 +41,7 @@ public class AuthTokenService {
         this(accessProperties, authProperties, null);
     }
 
+    @Autowired
     public AuthTokenService(JwtProperties accessProperties, AuthProperties authProperties, Environment environment) {
         this.accessProperties = accessProperties;
         this.authProperties = authProperties;

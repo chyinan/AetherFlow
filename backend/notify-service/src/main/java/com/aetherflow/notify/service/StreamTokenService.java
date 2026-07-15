@@ -1,3 +1,5 @@
+// pattern: Mixed (needs refactoring)
+
 package com.aetherflow.notify.service;
 
 import com.aetherflow.common.core.ResultCode;
@@ -6,6 +8,7 @@ import com.aetherflow.common.security.JwtProperties;
 import com.aetherflow.common.security.JwtTokenProvider;
 import com.aetherflow.common.security.JwtUserClaims;
 import com.aetherflow.notify.dto.StreamTokenResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -22,6 +25,7 @@ public class StreamTokenService {
 
     private final JwtTokenProvider tokenProvider;
 
+    @Autowired
     public StreamTokenService(JwtProperties jwtProperties, Environment environment) {
         this.tokenProvider = new JwtTokenProvider(streamProperties(jwtProperties), environment);
     }
