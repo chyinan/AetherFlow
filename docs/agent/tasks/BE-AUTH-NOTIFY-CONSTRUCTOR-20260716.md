@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：Codex-20260716-AetherFlow-deploy
 分支：feature/BE-AUTH-NOTIFY-CONSTRUCTOR-20260716-spring-constructor
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -54,3 +54,22 @@ Session ID：Codex-20260716-AetherFlow-deploy
 ## 当前风险
 
 Compose 的生产 profile 还要求强 JWT/refresh secret；部署时通过容器环境变量注入，不在本任务修改配置。
+
+## 验证结果
+
+- RED：auth/notify 真实容器分别以 `No default constructor found` 与 `NoSuchMethodException` 启动失败。
+- GREEN：`mvn -pl backend/auth-service,backend/notify-service -am test` 通过；common 8、auth 61、notify 12，共 81 tests，0 失败、0 错误。
+- `mvn -pl backend/auth-service,backend/notify-service -am -DskipTests package` 构建成功。
+- 修复镜像已在统一 Docker/WSL2 环境运行；Gateway 与 6 个 Java 微服务 liveness 均为 `UP`，重启计数均为 0。
+- Nginx 首页、`/health`、Gateway liveness/readiness 均返回 HTTP 200。
+- Git 白名单与 `git diff --check` 通过。
+
+## 交接
+
+- 修复提交：`8ea0877 fix(auth): 明确认证与通知服务构造器注入`
+- 分支：`feature/BE-AUTH-NOTIFY-CONSTRUCTOR-20260716-spring-constructor`
+- 已推送：是
+- 合入 main：否，等待负责人 Review/合并
+- 统一运行电脑验证：已通过
+- 遗留问题：AI Java 服务因按部署要求不启动 Python provider，会记录 provider 不可达警告；不影响本任务启动修复。
+- 文件锁：RELEASED
