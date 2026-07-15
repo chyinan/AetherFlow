@@ -570,6 +570,7 @@ AGENT-{组员名或拼音}-{工具}-{序号}
 
 | 任务ID | 任务名称 | 状态 | 负责人 | Agent ID | 分支 | 允许修改范围 | 是否允许契约变更 | 验证方式 | 更新时间 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| FE-SETTINGS-DATA-BADGE-20260716 | 设置页数据接入状态胶囊去重 | IN_PROGRESS | 陈胤安 | chyinan | feature/FE-SETTINGS-DATA-BADGE-20260716-fix-overlap | frontend/src/pages/settings/SettingsPage.vue；frontend/scripts/check-settings-data-access-badges.mjs；frontend/package.json；docs/agent/tasks/FE-SETTINGS-DATA-BADGE-20260716.md；docs/agent/logs/2026-07-16.md；AGENT.md | 否 | npm run check:settings-data-access-badges；npm run build；浏览器验证 /settings 数据接入页 | 2026-07-16 07:25 |
 | AI-PROVIDER-ORCH-20260528 | 企业级 AI Provider Orchestration System | REVIEW | 陈胤安 | chyinan | feature/AI-PROVIDER-ORCH-20260528-provider-orchestration | backend/ai-service/**；docs/agent/tasks/AI-PROVIDER-ORCH-20260528.md；docs/agent/logs/2026-05-28.md | 否 | git diff --name-only main...HEAD；mvn -pl backend/ai-service -am test | 2026-05-28 12:08 |
 | GW-AI-PROVIDER-ROUTE-20260528 | AI Provider Orchestration 管理 API Gateway 路由接入 | REVIEW | 陈胤安 | chyinan | feature/GW-AI-PROVIDER-ROUTE-20260528-gateway-route | backend/gateway-service/**；backend/gateway-service/src/test/**；backend/gateway-service/src/main/resources/application.yml；docs/agent/tasks/GW-AI-PROVIDER-ROUTE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 Gateway 路由 /ai/provider/** -> ai-service | git diff --name-only main...HEAD；mvn -pl backend/gateway-service -am test | 2026-05-28 12:30 |
 | FILE-SERVICE-GOVERNANCE-20260528 | file-service 治理能力主线集成修复 | REVIEW | 陈胤安 | chyinan | feature/FILE-SERVICE-GOVERNANCE-main-integration | backend/file-service/**；docs/agent/tasks/FILE-SERVICE-GOVERNANCE-20260528.md；docs/agent/logs/2026-05-28.md；AGENT.md | 是，仅 file-service 上传治理接口、Redis Key 和自有表字段 | git diff --name-only main...HEAD；mvn -pl backend/file-service -am test；git diff --check | 2026-05-28 16:30 |
@@ -635,6 +636,9 @@ docs/agent/README.md
 
 | 任务ID | Agent ID | 文件或目录 | 开始时间 | 过期时间 | 状态 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| FE-SETTINGS-DATA-BADGE-20260716 | chyinan | frontend/src/pages/settings/SettingsPage.vue | 2026-07-16 07:25 | 2026-07-16 15:25 | ACTIVE | 删除数据接入 coming-soon 重复状态胶囊 |
+| FE-SETTINGS-DATA-BADGE-20260716 | chyinan | frontend/scripts/check-settings-data-access-badges.mjs | 2026-07-16 07:25 | 2026-07-16 15:25 | ACTIVE | 设置页状态胶囊回归检查 |
+| FE-SETTINGS-DATA-BADGE-20260716 | chyinan | frontend/package.json | 2026-07-16 07:25 | 2026-07-16 15:25 | ACTIVE | 暴露设置页状态胶囊检查命令 |
 | FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | frontend/src/pages/auth/LoginPage.vue | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 修复全局暗色主题下登录页浅底浅字 |
 | FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/tasks/FRONTEND-UI-FIX-LOGIN-LANG.md | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 返工任务文档 |
 | FRONTEND-UI-FIX-LOGIN-LANG | AGENT-CODEX-FE-20260601 | docs/agent/logs/2026-06-02.md | 2026-06-02 00:09 | 2026-06-02 09:26 | RELEASED | 当日执行日志 |
