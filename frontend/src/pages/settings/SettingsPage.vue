@@ -1142,12 +1142,6 @@ watch(
               class="relative rounded-xl border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/40 hover:shadow-node"
               :class="{ 'opacity-75': card.status === 'coming-soon' }"
             >
-              <span
-                v-if="card.status === 'coming-soon'"
-                class="absolute right-3 top-3 rounded-full border border-primary/25 bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary"
-              >
-                {{ t('settings.comingSoon') }}
-              </span>
               <div class="flex items-start justify-between gap-3">
                 <span
                   class="grid h-10 w-10 shrink-0 place-items-center rounded-lg"
