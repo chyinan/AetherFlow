@@ -12,7 +12,8 @@ import com.aetherflow.workflow.embedding.metrics.EmbeddingMetrics;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
 import com.aetherflow.workflow.embedding.store.MockVectorRecord;
-import com.aetherflow.workflow.embedding.store.MockVectorStore;
+import com.aetherflow.workflow.embedding.store.VectorStoreRegistry;
+import com.aetherflow.workflow.embedding.store.WorkflowVectorStore;
 import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
@@ -38,7 +39,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
 
     private final EmbeddingProviderRegistry providerRegistry;
     private final TextSplitter textSplitter;
-    private final MockVectorStore vectorStore;
+    private final VectorStoreRegistry vectorStoreRegistry;
     private final EmbeddingMetrics embeddingMetrics;
     private final EmbeddingProperties properties;
     private final Executor executor;
@@ -46,14 +47,14 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
     public EmbeddingNodeExecutor(WorkflowNodeMetrics metrics,
                                  EmbeddingProviderRegistry providerRegistry,
                                  TextSplitter textSplitter,
-                                 MockVectorStore vectorStore,
+                                 VectorStoreRegistry vectorStoreRegistry,
                                  EmbeddingMetrics embeddingMetrics,
                                  EmbeddingProperties properties,
                                  @Qualifier("embeddingTaskExecutor") Executor executor) {
         super(WorkflowNodeTypes.EMBEDDING, metrics);
         this.providerRegistry = providerRegistry;
         this.textSplitter = textSplitter;
-        this.vectorStore = vectorStore;
+        this.vectorStoreRegistry = vectorStoreRegistry;
         this.embeddingMetrics = embeddingMetrics;
         this.properties = properties;
         this.executor = executor;
@@ -71,6 +72,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
             List<TextChunk> chunks = textSplitter.split(text, embeddingConfig.chunkSize(), embeddingConfig.overlap());
             EmbeddingProvider provider = providerRegistry.select(embeddingConfig);
             List<EmbeddingResult> results = embedWithTimeout(provider, embeddingConfig, chunks);
+            WorkflowVectorStore vectorStore = vectorStoreRegistry.select(embeddingConfig.vectorStoreProvider());
             List<MockVectorRecord> records = vectorStore.saveAll(
                     context.workflowId(),
                     context.currentNodeId(),
@@ -79,8 +81,8 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
                     results
             );
             embeddingMetrics.recordSuccess(elapsedMs(start), results.size(), embeddingConfig.model());
-            log.info("embedding node completed, provider={}, model={}, chunkCount={}, vectorCount={}",
-                    provider.providerName(), embeddingConfig.model(), chunks.size(), results.size());
+            log.info("embedding node completed, provider={}, model={}, vectorStore={}, chunkCount={}, vectorCount={}",
+                    provider.providerName(), embeddingConfig.model(), vectorStore.providerName(), chunks.size(), results.size());
             return buildResult(output(provider, embeddingConfig, chunks, results, records),
                     variables(provider, embeddingConfig, chunks, results, records));
         } catch (Exception exception) {

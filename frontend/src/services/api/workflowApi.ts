@@ -123,13 +123,15 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   IMAGE_GENERATION: 'image-generation',
   UPSCALE: 'upscale',
   SAVE_IMAGE: 'save-image',
+  URL_FETCH: 'url-fetch',
   UPLOAD: 'ffmpeg',
   WHISPER: 'whisper',
   SUMMARY: 'summary',
   EXPORT: 'export',
   END: 'output',
   OCR: 'document-extractor',
-  EMBEDDING: 'knowledge-retrieval',
+  EMBEDDING: 'embedding',
+  KNOWLEDGE_RETRIEVAL: 'knowledge-retrieval',
   CONDITION: 'condition',
 }
 
@@ -164,6 +166,12 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     inputs: ['images'],
     outputs: ['savedImageFiles', 'savedImageFileIds', 'savedImageUrls'],
   },
+  'url-fetch': {
+    label: 'URL Fetch',
+    description: 'Fetch a public web page and expose cleaned text for downstream nodes.',
+    inputs: ['websiteUrl'],
+    outputs: ['urlText', 'urlTitle', 'urlSourceUrl', 'urlCharCount'],
+  },
   ffmpeg: {
     label: '读取视频文件',
     description: '从文件服务读取上传视频元数据，向后续真实运行节点传递 fileUrl。',
@@ -181,6 +189,18 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     description: '调用已配置的 LLM 提供商生成会议纪要、决策和行动项。',
     inputs: ['transcription'],
     outputs: ['summary'],
+  },
+  embedding: {
+    label: 'Embedding',
+    description: 'Split text, generate embeddings, and write vector records.',
+    inputs: ['ocrText', 'urlText', 'summary'],
+    outputs: ['embeddingResults', 'embeddingVectorCount', 'embeddingVectorStore'],
+  },
+  'knowledge-retrieval': {
+    label: 'Knowledge Retrieval',
+    description: 'Retrieve top-k chunks from a knowledge dataset.',
+    inputs: ['question'],
+    outputs: ['retrievalContext', 'retrievalResults', 'retrievalCount'],
   },
   export: {
     label: '输出文档',

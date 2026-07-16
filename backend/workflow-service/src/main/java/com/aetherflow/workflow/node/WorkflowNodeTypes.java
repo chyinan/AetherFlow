@@ -8,6 +8,7 @@ public final class WorkflowNodeTypes {
     public static final NodeType END = NodeType.of("END");
     public static final NodeType UPLOAD = NodeType.of("UPLOAD");
     public static final NodeType OCR = NodeType.of("OCR");
+    public static final NodeType URL_FETCH = NodeType.of("URL_FETCH");
     public static final NodeType WHISPER = NodeType.of("WHISPER");
     public static final NodeType LLM = NodeType.of("LLM");
     public static final NodeType TRANSLATE = NodeType.of("TRANSLATE");

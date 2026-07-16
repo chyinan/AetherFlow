@@ -82,7 +82,12 @@ async function loadRouteWorkflow(workflowId: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles()])
+  await Promise.all([
+    workflowStore.loadNodeTemplates(),
+    projectStore.loadProjects(),
+    runStore.loadRuns(),
+    fileStore.loadFiles(),
+  ])
   if (!hasWorkflowContext.value) {
     workflowStore.resetMockWorkflow()
     return

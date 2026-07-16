@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 
+import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node'
 import { i18n } from '@/i18n'
 import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotActions'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
-import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeStatus } from '@/types/workflow'
+import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 
@@ -29,6 +30,59 @@ function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
 let nodeCounter = 10
 let edgeCounter = 10
 
+const NODE_KIND_BY_BACKEND_TYPE: Partial<Record<string, WorkflowNodeKind>> = {
+  START: 'start',
+  PROMPT: 'prompt',
+  IMAGE_GENERATION: 'image-generation',
+  UPSCALE: 'upscale',
+  SAVE_IMAGE: 'save-image',
+  URL_FETCH: 'url-fetch',
+  UPLOAD: 'ffmpeg',
+  WHISPER: 'whisper',
+  LLM: 'llm',
+  TRANSLATE: 'translate',
+  SUMMARY: 'summary',
+  OCR: 'document-extractor',
+  EMBEDDING: 'embedding',
+  KNOWLEDGE_RETRIEVAL: 'knowledge-retrieval',
+  EXPORT: 'export',
+  END: 'output',
+  AGENT: 'agent',
+  QUESTION_UNDERSTAND: 'question-understand',
+  QUESTION_CLASSIFIER: 'question-classifier',
+  CONDITION: 'condition',
+  HUMAN: 'human',
+  ITERATION: 'iteration',
+  LOOP: 'loop',
+  CODE: 'code',
+  TEMPLATE_TRANSFORM: 'template-transform',
+  VARIABLE_AGGREGATE: 'variable-aggregate',
+  VARIABLE_ASSIGNER: 'variable-assigner',
+  PARAMETER_EXTRACTOR: 'parameter-extractor',
+}
+
+const CATEGORY_BY_BACKEND_CATEGORY: Record<string, NodeTemplate['category']> = {
+  Control: 'Logic',
+  File: 'Input',
+  AI: 'AI',
+  Image: 'Image',
+  Transform: 'Transform',
+  Output: 'Output',
+  Utility: 'Tool',
+}
+
+const RECOMMENDED_BACKEND_TYPES = new Set([
+  'START',
+  'UPLOAD',
+  'URL_FETCH',
+  'OCR',
+  'EMBEDDING',
+  'KNOWLEDGE_RETRIEVAL',
+  'SUMMARY',
+  'EXPORT',
+  'END',
+])
+
 function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition): WorkflowGraphNode {
   return {
     id: `node-${template.kind}-${nodeCounter++}`,
@@ -40,6 +94,57 @@ function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition
       runtime: { lastResult: i18n.global.t('workflow.mockResults.newNode') },
     },
   }
+}
+
+function backendTypeOf(item: WorkflowNodeCatalogItem) {
+  return String(item.type ?? item.nodeType ?? '').trim().toUpperCase()
+}
+
+function variableNames(variables: WorkflowNodeCatalogItem['inputVariables'] | WorkflowNodeCatalogItem['outputVariables']) {
+  return (variables ?? [])
+    .map((variable) => variable.name)
+    .filter((name) => typeof name === 'string' && name.trim())
+}
+
+function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemplate | null {
+  const backendType = backendTypeOf(item)
+  const kind = NODE_KIND_BY_BACKEND_TYPE[backendType]
+  if (!kind) {
+    return null
+  }
+
+  const fallback = nodeTemplates.find((template) => template.kind === kind)
+  const category = CATEGORY_BY_BACKEND_CATEGORY[String(item.category ?? '')] ?? fallback?.category ?? 'Tool'
+  const group = RECOMMENDED_BACKEND_TYPES.has(backendType)
+    ? 'recommended'
+    : category === 'Logic'
+      ? 'logic'
+      : category === 'Transform'
+        ? 'transform'
+        : fallback?.group ?? 'custom'
+
+  return {
+    kind,
+    label: item.displayName?.trim() || fallback?.label || kind,
+    description: item.description?.trim() || fallback?.description || '',
+    category,
+    catalog: fallback?.catalog ?? 'node',
+    group,
+    provider: fallback?.provider,
+    config: {
+      ...(fallback?.config ?? {}),
+      ...(item.exampleConfig ?? {}),
+    },
+    inputs: variableNames(item.inputVariables).length > 0 ? variableNames(item.inputVariables) : fallback?.inputs ?? [],
+    outputs: variableNames(item.outputVariables).length > 0 ? variableNames(item.outputVariables) : fallback?.outputs ?? [],
+  }
+}
+
+function mergeTemplates(fallbackTemplates: NodeTemplate[], catalogTemplates: NodeTemplate[]) {
+  const templatesByKind = new Map<WorkflowNodeKind, NodeTemplate>()
+  fallbackTemplates.forEach((template) => templatesByKind.set(template.kind, template))
+  catalogTemplates.forEach((template) => templatesByKind.set(template.kind, template))
+  return Array.from(templatesByKind.values())
 }
 
 export const useWorkflowStore = defineStore('workflow', {
@@ -58,6 +163,19 @@ export const useWorkflowStore = defineStore('workflow', {
   actions: {
     setRunError(message: string | null) {
       this.runError = message
+    },
+    async loadNodeTemplates() {
+      try {
+        const catalog = await getNodeCatalog()
+        const catalogTemplates = catalog
+          .map(templateFromCatalogItem)
+          .filter((template): template is NodeTemplate => template !== null)
+        if (catalogTemplates.length > 0) {
+          this.templates = mergeTemplates(nodeTemplates, catalogTemplates)
+        }
+      } catch {
+        this.templates = nodeTemplates
+      }
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)

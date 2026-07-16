@@ -36,6 +36,7 @@ public class WorkflowNodeCatalogService {
                 end(),
                 upload(),
                 ocr(),
+                urlFetch(),
                 whisper(),
                 llm(),
                 translate(),
@@ -145,6 +146,29 @@ public class WorkflowNodeCatalogService {
         );
     }
 
+    private WorkflowNodeCatalogItem urlFetch() {
+        return item(
+                "URL_FETCH",
+                "URL Fetch",
+                "File",
+                "Fetches a public HTTP(S) web page, extracts readable text, and exposes URL content variables for embedding, summary, or LLM nodes.",
+                List.of(
+                        field("url", "STRING", false, "Fixed public URL. Prefer urlVariable when binding from workflow input.", "https://example.com/docs"),
+                        field("urlVariable", "STRING", false, "Workflow variable name that contains the URL.", "websiteUrl"),
+                        field("maxChars", "NUMBER", false, "Maximum extracted text characters.", 20000),
+                        field("outputVariable", "STRING", false, "Variable name used for extracted text.", "urlText")
+                ),
+                List.of(variable("websiteUrl", "STRING", "Public URL from workflow input or upstream node.", "https://example.com/docs")),
+                List.of(
+                        variable("urlText", "STRING", "Extracted page text.", "Page content"),
+                        variable("urlTitle", "STRING", "HTML title when available.", "Example Domain"),
+                        variable("urlSourceUrl", "STRING", "Fetched source URL.", "https://example.com/docs"),
+                        variable("urlCharCount", "NUMBER", "Extracted character count.", 1200)
+                ),
+                mapOf("urlVariable", "websiteUrl", "maxChars", 20000, "outputVariable", "urlText")
+        );
+    }
+
     private WorkflowNodeCatalogItem whisper() {
         return item(
                 "WHISPER",
@@ -243,7 +267,7 @@ public class WorkflowNodeCatalogService {
                 "EMBEDDING",
                 "Embedding",
                 "AI",
-                "Splits text into overlapping chunks, embeds each chunk through a provider, and writes mock vector store records for RAG preprocessing.",
+                "Splits text into overlapping chunks, embeds each chunk through a provider, and writes vector records to memory or an external Qdrant store for RAG preprocessing.",
                 List.of(
                         field("provider", "STRING", false, "Embedding provider name.", "ollama",
                                 List.of("ollama", "openai", "huggingface")),
@@ -253,7 +277,8 @@ public class WorkflowNodeCatalogService {
                         field("textVariable", "STRING", false, "Workflow variable used as embedding input.", "ocrText"),
                         field("chunkSize", "NUMBER", false, "Maximum characters per chunk.", 512),
                         field("overlap", "NUMBER", false, "Overlapping characters between adjacent chunks.", 128),
-                        field("vectorCollection", "STRING", false, "Mock vector collection name.", "workflow-embeddings")
+                        field("vectorStoreProvider", "STRING", false, "Vector store provider.", "memory", List.of("memory", "qdrant")),
+                        field("vectorCollection", "STRING", false, "Vector collection name.", "workflow-embeddings")
                 ),
                 List.of(variable("ocrText", "STRING", "Text produced by OCR, Split, Summary or another upstream node.", "Knowledge base document text")),
                 List.of(
@@ -276,6 +301,7 @@ public class WorkflowNodeCatalogService {
                         "textVariable", "ocrText",
                         "chunkSize", 512,
                         "overlap", 128,
+                        "vectorStoreProvider", "memory",
                         "vectorCollection", "workflow-embeddings"
                 )
         );

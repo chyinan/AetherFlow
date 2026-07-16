@@ -9,6 +9,7 @@ type BackendNodeType =
   | 'SAVE_IMAGE'
   | 'UPLOAD'
   | 'OCR'
+  | 'URL_FETCH'
   | 'WHISPER'
   | 'LLM'
   | 'TRANSLATE'
@@ -36,6 +37,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'image-generation': 'IMAGE_GENERATION',
   upscale: 'UPSCALE',
   'save-image': 'SAVE_IMAGE',
+  'url-fetch': 'URL_FETCH',
   whisper: 'WHISPER',
   llm: 'LLM',
   translate: 'TRANSLATE',
@@ -53,6 +55,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'template-transform': 'TEMPLATE_TRANSFORM',
   'variable-aggregate': 'VARIABLE_AGGREGATE',
   'document-extractor': 'OCR',
+  embedding: 'EMBEDDING',
   'variable-assigner': 'VARIABLE_ASSIGNER',
   'parameter-extractor': 'PARAMETER_EXTRACTOR',
   'knowledge-retrieval': 'KNOWLEDGE_RETRIEVAL',
@@ -211,6 +214,15 @@ function normalizeWhisperConfig(config: Record<string, unknown>, nextNodes: stri
   }, nextNodes)
 }
 
+function normalizeUrlFetchConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    ...(optionalString(config.url) ? { url: optionalString(config.url) } : {}),
+    urlVariable: stringValue(config.urlVariable, 'websiteUrl'),
+    maxChars: Math.max(1000, Math.floor(numberValue(config.maxChars, 20000))),
+    outputVariable: stringValue(config.outputVariable, 'urlText'),
+  }, nextNodes)
+}
+
 function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const model = optionalModel(config.model)
   return withNextNodes({
@@ -265,6 +277,7 @@ function normalizeEmbeddingConfig(config: Record<string, unknown>, nextNodes: st
     textVariable: stringValue(config.textVariable, 'ocrText'),
     chunkSize,
     overlap,
+    vectorStoreProvider: stringValue(config.vectorStoreProvider, 'memory'),
     vectorCollection: stringValue(config.vectorCollection ?? config.dataset, 'workflow-embeddings'),
   }, nextNodes)
 }
@@ -536,6 +549,8 @@ function normalizeNodeConfig(
       return normalizeUploadConfig(config, nextNodes)
     case 'OCR':
       return normalizeOcrConfig(config, nextNodes)
+    case 'URL_FETCH':
+      return normalizeUrlFetchConfig(config, nextNodes)
     case 'WHISPER':
       return normalizeWhisperConfig(config, nextNodes)
     case 'LLM':

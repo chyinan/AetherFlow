@@ -10,6 +10,7 @@ import com.aetherflow.workflow.embedding.metrics.EmbeddingMetrics;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
 import com.aetherflow.workflow.embedding.store.MockVectorStore;
+import com.aetherflow.workflow.embedding.store.VectorStoreRegistry;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
@@ -128,7 +129,7 @@ class EmbeddingNodeExecutorTest {
                 new WorkflowNodeMetrics(),
                 new EmbeddingProviderRegistry(List.of(provider)),
                 new SimpleTextSplitter(),
-                vectorStore,
+                new VectorStoreRegistry(List.of(vectorStore)),
                 embeddingMetrics,
                 properties,
                 taskExecutor
@@ -148,6 +149,7 @@ class EmbeddingNodeExecutorTest {
         properties.setDefaultChunkSize(512);
         properties.setDefaultOverlap(128);
         properties.setDefaultTextVariable("ocrText");
+        properties.setDefaultVectorStoreProvider("memory");
         properties.setDefaultVectorCollection("workflow-embeddings");
         properties.setTimeout(Duration.ofSeconds(5));
         return properties;

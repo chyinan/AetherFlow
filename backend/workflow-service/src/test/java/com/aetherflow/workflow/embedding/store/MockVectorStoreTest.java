@@ -15,7 +15,7 @@ class MockVectorStoreTest {
     void storesChunkVectorsWithWorkflowAndNodeMetadata() {
         MockVectorStore store = new MockVectorStore();
         EmbeddingNodeConfig config = new EmbeddingNodeConfig(
-                "ollama", "nomic-embed-text", 512, 128, "ocrText", "", "kb-docs");
+                "ollama", "nomic-embed-text", 512, 128, "ocrText", "", "kb-docs", "memory");
         List<TextChunk> chunks = List.of(new TextChunk("hello", 0, 0, 5));
         List<EmbeddingResult> results = List.of(new EmbeddingResult(List.of(0.1d, 0.2d), 2, "nomic-embed-text", 0));
 
