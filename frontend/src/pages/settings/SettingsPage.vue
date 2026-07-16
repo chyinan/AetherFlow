@@ -28,6 +28,7 @@ import { useRoute, useRouter } from 'vue-router'
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
+import { settingsApi, type UrlFetchResponse, type VectorStoreConfig } from '@/services/api/settingsApi'
 import { useFileStore } from '@/stores/fileStore'
 import { useModelStore } from '@/stores/modelStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -76,6 +77,25 @@ const telegramForm = ref({
   enabled: false,
   botToken: '',
   chatId: '',
+})
+const urlFetchTesting = ref(false)
+const urlFetchMessage = ref('')
+const urlFetchResult = ref<UrlFetchResponse | null>(null)
+const urlFetchForm = ref({
+  url: 'https://example.com',
+  maxChars: 20000,
+})
+const vectorStoreLoading = ref(false)
+const vectorStoreSaving = ref(false)
+const vectorStoreTesting = ref(false)
+const vectorStoreMessage = ref('')
+const vectorStoreConfig = ref<VectorStoreConfig | null>(null)
+const vectorStoreForm = ref({
+  enabled: false,
+  provider: 'qdrant',
+  baseUrl: 'http://localhost:6333',
+  collection: 'workflow-embeddings',
+  apiKey: '',
 })
 
 const workspaceNav = [
@@ -315,9 +335,9 @@ const dataAccessCards = computed(() => [
   {
     titleKey: 'settings.dataAccessUrl',
     detailKey: 'settings.dataAccessUrlHint',
-    endpoint: `${runtimeEnv.apiBase}/ingestion/url`,
-    status: 'coming-soon',
-    value: t('settings.reserved'),
+    endpoint: `${runtimeEnv.apiBase}/ingestion/url/fetch`,
+    status: 'configured',
+    value: t('settings.statusLabels.configured'),
     valueLabelKey: 'settings.dataAccessState',
     icon: ExternalLink,
   },
@@ -325,8 +345,8 @@ const dataAccessCards = computed(() => [
     titleKey: 'settings.dataAccessVectorStore',
     detailKey: 'settings.dataAccessVectorStoreHint',
     endpoint: `${runtimeEnv.apiBase}/knowledge/vector-stores`,
-    status: 'coming-soon',
-    value: t('settings.reserved'),
+    status: vectorStoreForm.value.enabled ? 'configured' : 'disabled',
+    value: vectorStoreForm.value.enabled ? 'Qdrant' : t('settings.statusLabels.disabled'),
     valueLabelKey: 'settings.dataAccessState',
     icon: Server,
   },
@@ -611,6 +631,91 @@ async function testTelegramIntegration() {
   }
 }
 
+async function loadVectorStoreConfig() {
+  vectorStoreLoading.value = true
+  vectorStoreMessage.value = ''
+  try {
+    const config = await settingsApi.getVectorStoreConfig()
+    vectorStoreConfig.value = config
+    vectorStoreForm.value = {
+      enabled: Boolean(config.enabled),
+      provider: config.provider || 'qdrant',
+      baseUrl: config.baseUrl || 'http://localhost:6333',
+      collection: config.collection || 'workflow-embeddings',
+      apiKey: '',
+    }
+  } catch (error) {
+    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreLoadFailed')
+  } finally {
+    vectorStoreLoading.value = false
+  }
+}
+
+async function testUrlFetch() {
+  if (urlFetchTesting.value) return
+  const url = urlFetchForm.value.url.trim()
+  if (!url) {
+    urlFetchMessage.value = t('settings.urlFetchUrlRequired')
+    return
+  }
+  urlFetchTesting.value = true
+  urlFetchMessage.value = ''
+  urlFetchResult.value = null
+  try {
+    urlFetchResult.value = await settingsApi.fetchUrl({
+      url,
+      maxChars: Math.max(1000, Math.floor(urlFetchForm.value.maxChars || 20000)),
+    })
+    urlFetchMessage.value = t('settings.urlFetchSuccess')
+    markSaved()
+  } catch (error) {
+    urlFetchMessage.value = error instanceof Error ? error.message : t('settings.urlFetchFailed')
+  } finally {
+    urlFetchTesting.value = false
+  }
+}
+
+function vectorStorePayload() {
+  return {
+    enabled: vectorStoreForm.value.enabled,
+    provider: vectorStoreForm.value.provider.trim() || 'qdrant',
+    baseUrl: vectorStoreForm.value.baseUrl.trim(),
+    collection: vectorStoreForm.value.collection.trim(),
+    apiKey: vectorStoreForm.value.apiKey.trim() || null,
+  }
+}
+
+async function testVectorStore() {
+  if (vectorStoreTesting.value) return
+  vectorStoreTesting.value = true
+  vectorStoreMessage.value = ''
+  try {
+    const response = await settingsApi.testVectorStoreConfig(vectorStorePayload())
+    vectorStoreMessage.value = response.message || t('settings.vectorStoreTestSuccess')
+  } catch (error) {
+    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreTestFailed')
+  } finally {
+    vectorStoreTesting.value = false
+  }
+}
+
+async function saveVectorStore() {
+  if (vectorStoreSaving.value) return
+  vectorStoreSaving.value = true
+  vectorStoreMessage.value = ''
+  try {
+    const config = await settingsApi.saveVectorStoreConfig(vectorStorePayload())
+    vectorStoreConfig.value = config
+    vectorStoreForm.value.apiKey = ''
+    vectorStoreMessage.value = t('settings.vectorStoreSaved')
+    markSaved()
+  } catch (error) {
+    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreSaveFailed')
+  } finally {
+    vectorStoreSaving.value = false
+  }
+}
+
 function statusBadgeClass(status: string) {
   if (status === 'installed' || status === 'connected' || status === 'configured' || status === 'active') {
     return 'border-status-success/30 bg-status-success/10 text-status-success'
@@ -641,6 +746,7 @@ onMounted(() => {
     runStore.loadRuns({ selectDefault: false }),
     fileStore.loadFiles(),
     modelStore.loadModels(),
+    loadVectorStoreConfig(),
   ])
 })
 
@@ -1162,6 +1268,136 @@ watch(
                 <span class="text-xs text-text-muted">{{ t(card.valueLabelKey) }}</span>
                 <span class="text-lg font-semibold text-text-primary">{{ card.value }}</span>
               </div>
+            </article>
+          </section>
+
+          <section class="grid gap-4 xl:grid-cols-2">
+            <article class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-text-primary">{{ t('settings.urlFetchTitle') }}</p>
+                  <p class="mt-1 text-xs leading-5 text-text-muted">{{ t('settings.urlFetchHint') }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="urlFetchTesting"
+                  @click="testUrlFetch"
+                >
+                  <Search class="h-4 w-4" />
+                  {{ urlFetchTesting ? t('settings.testing') : t('settings.urlFetchAction') }}
+                </button>
+              </div>
+              <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
+                <label class="space-y-1 text-xs text-text-muted">
+                  <span>{{ t('settings.urlFetchInput') }}</span>
+                  <input
+                    v-model="urlFetchForm.url"
+                    type="url"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                    placeholder="https://example.com"
+                  />
+                </label>
+                <label class="space-y-1 text-xs text-text-muted">
+                  <span>{{ t('settings.urlFetchMaxChars') }}</span>
+                  <input
+                    v-model.number="urlFetchForm.maxChars"
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                  />
+                </label>
+              </div>
+              <p v-if="urlFetchMessage" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
+                {{ urlFetchMessage }}
+              </p>
+              <div v-if="urlFetchResult" class="mt-3 rounded-lg border border-app-border bg-app-bg2 p-3">
+                <p class="text-xs font-semibold text-text-primary">
+                  {{ urlFetchResult.title || urlFetchResult.url }}
+                </p>
+                <p class="mt-1 text-xs text-text-muted">
+                  {{ t('settings.urlFetchResultMeta', { chars: urlFetchResult.chars ?? 0, status: urlFetchResult.statusCode ?? '-' }) }}
+                </p>
+                <p class="mt-2 line-clamp-4 text-xs leading-5 text-text-secondary">
+                  {{ urlFetchResult.text }}
+                </p>
+              </div>
+            </article>
+
+            <article class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p class="text-sm font-semibold text-text-primary">{{ t('settings.vectorStoreTitle') }}</p>
+                  <p class="mt-1 text-xs leading-5 text-text-muted">{{ t('settings.vectorStoreHint') }}</p>
+                </div>
+                <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(vectorStoreForm.enabled ? 'configured' : 'disabled')">
+                  {{ vectorStoreForm.enabled ? t('settings.statusLabels.configured') : t('settings.statusLabels.disabled') }}
+                </span>
+              </div>
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <label class="flex items-center gap-2 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-secondary">
+                  <input v-model="vectorStoreForm.enabled" type="checkbox" class="h-4 w-4 rounded border-app-border text-primary focus:ring-primary" />
+                  {{ t('settings.vectorStoreEnabled') }}
+                </label>
+                <label class="space-y-1 text-xs text-text-muted">
+                  <span>{{ t('settings.vectorStoreProvider') }}</span>
+                  <select
+                    v-model="vectorStoreForm.provider"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                  >
+                    <option value="qdrant">Qdrant</option>
+                  </select>
+                </label>
+                <label class="space-y-1 text-xs text-text-muted md:col-span-2">
+                  <span>{{ t('settings.vectorStoreBaseUrl') }}</span>
+                  <input
+                    v-model="vectorStoreForm.baseUrl"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                    placeholder="http://localhost:6333"
+                  />
+                </label>
+                <label class="space-y-1 text-xs text-text-muted">
+                  <span>{{ t('settings.vectorStoreCollection') }}</span>
+                  <input
+                    v-model="vectorStoreForm.collection"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                    placeholder="workflow-embeddings"
+                  />
+                </label>
+                <label class="space-y-1 text-xs text-text-muted">
+                  <span>{{ t('settings.vectorStoreApiKey') }}</span>
+                  <input
+                    v-model="vectorStoreForm.apiKey"
+                    type="password"
+                    class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
+                    :placeholder="vectorStoreConfig?.apiKeyConfigured ? t('settings.keepExistingApiKey') : t('settings.optional')"
+                  />
+                </label>
+              </div>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center gap-2 rounded-md border border-app-border bg-white px-3 text-sm font-medium text-text-secondary transition hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="vectorStoreTesting || vectorStoreLoading"
+                  @click="testVectorStore"
+                >
+                  <Send class="h-4 w-4" />
+                  {{ vectorStoreTesting ? t('settings.testing') : t('settings.vectorStoreTest') }}
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="vectorStoreSaving || vectorStoreLoading"
+                  @click="saveVectorStore"
+                >
+                  <Save class="h-4 w-4" />
+                  {{ vectorStoreSaving ? t('settings.saving') : t('settings.vectorStoreSave') }}
+                </button>
+              </div>
+              <p v-if="vectorStoreMessage" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
+                {{ vectorStoreMessage }}
+              </p>
             </article>
           </section>
 

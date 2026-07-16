@@ -15,10 +15,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 @Component
-public class MockVectorStore {
+public class MockVectorStore implements WorkflowVectorStore {
 
     private final ConcurrentMap<String, MockVectorRecord> records = new ConcurrentHashMap<>();
 
+    @Override
+    public String providerName() {
+        return "memory";
+    }
+
+    @Override
     public List<MockVectorRecord> saveAll(String workflowId,
                                           String nodeId,
                                           EmbeddingNodeConfig config,

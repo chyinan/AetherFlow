@@ -40,6 +40,6 @@ class EmbeddingProviderRegistryTest {
     }
 
     private static EmbeddingNodeConfig config(String provider) {
-        return new EmbeddingNodeConfig(provider, "nomic-embed-text", 512, 128, "ocrText", "", "workflow-embeddings");
+        return new EmbeddingNodeConfig(provider, "nomic-embed-text", 512, 128, "ocrText", "", "workflow-embeddings", "memory");
     }
 }

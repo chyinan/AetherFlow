@@ -27,6 +27,7 @@ class WorkflowNodeCatalogControllerTest {
                         "END",
                         "UPLOAD",
                         "OCR",
+                        "URL_FETCH",
                         "WHISPER",
                         "LLM",
                         "TRANSLATE",
@@ -72,14 +73,24 @@ class WorkflowNodeCatalogControllerTest {
                 .contains("ocrText", "ocrLanguage", "ocrConfidence", "ocrPageCount");
         assertThat(ocr.exampleConfig()).containsEntry("language", "auto");
 
+        WorkflowNodeCatalogItem urlFetch = item(result.getData(), "URL_FETCH");
+        assertThat(urlFetch.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .contains("url", "urlVariable", "maxChars", "outputVariable");
+        assertThat(urlFetch.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("urlText", "urlTitle", "urlSourceUrl", "urlCharCount");
+        assertThat(urlFetch.exampleConfig()).containsEntry("urlVariable", "websiteUrl");
+
         WorkflowNodeCatalogItem embedding = item(result.getData(), "EMBEDDING");
         assertThat(embedding.configSchema())
                 .extracting(WorkflowNodeConfigSchema::name)
-                .contains("provider", "model", "chunkSize", "overlap", "textVariable", "vectorCollection");
+                .contains("provider", "model", "chunkSize", "overlap", "textVariable", "vectorStoreProvider", "vectorCollection");
         assertThat(embedding.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("embeddingResults", "embeddingVectors", "embeddingVectorCount", "embeddingModel");
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
+        assertThat(embedding.exampleConfig()).containsEntry("vectorStoreProvider", "memory");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
 
         WorkflowNodeCatalogItem imageGeneration = item(result.getData(), "IMAGE_GENERATION");

@@ -89,6 +89,45 @@ export interface TelegramIntegrationTestResponse {
   message?: string
 }
 
+export type UrlFetchResponse = {
+  url?: string
+  title?: string
+  text?: string
+  chars?: number
+  contentType?: string
+  statusCode?: number
+}
+
+export type UrlFetchRequest = {
+  url: string
+  maxChars?: number
+}
+
+export type VectorStoreConfig = {
+  provider: string
+  enabled: boolean
+  status?: string
+  baseUrl: string
+  collection: string
+  apiKeyConfigured?: boolean
+}
+
+export type VectorStoreConfigUpdate = {
+  provider: string
+  enabled: boolean
+  baseUrl: string
+  collection: string
+  apiKey?: string | null
+}
+
+export type VectorStoreTestResponse = {
+  success?: boolean
+  message?: string
+  provider?: string
+  baseUrl?: string
+  collection?: string
+}
+
 interface ModelProviderConfigUpdate {
   enabled: boolean
   apiKey?: string | null
@@ -345,5 +384,17 @@ export const settingsApi = {
       undefined,
       { source: 'auth' },
     )
+  },
+  async fetchUrl(payload: UrlFetchRequest) {
+    return apiClient.post<UrlFetchResponse>('/ingestion/url/fetch', payload, { source: 'workflow' })
+  },
+  async getVectorStoreConfig() {
+    return apiClient.get<VectorStoreConfig>('/knowledge/vector-stores', { source: 'workflow' })
+  },
+  async saveVectorStoreConfig(payload: VectorStoreConfigUpdate) {
+    return apiClient.put<VectorStoreConfig>('/knowledge/vector-stores/default', payload, { source: 'workflow' })
+  },
+  async testVectorStoreConfig(payload: VectorStoreConfigUpdate) {
+    return apiClient.post<VectorStoreTestResponse>('/knowledge/vector-stores/test', payload, { source: 'workflow' })
   },
 }

@@ -15,7 +15,10 @@ public class EmbeddingProperties {
     private int defaultOverlap = 128;
     private String defaultTextVariable = "ocrText";
     private String defaultVectorCollection = "workflow-embeddings";
+    private String defaultVectorStoreProvider = "memory";
     private String ollamaBaseUrl = "http://localhost:11434";
+    private String qdrantBaseUrl = "http://localhost:6333";
+    private String qdrantApiKey = "";
     private Duration timeout = Duration.ofSeconds(30);
     private int threadPoolSize = 2;
     private int queueCapacity = 20;

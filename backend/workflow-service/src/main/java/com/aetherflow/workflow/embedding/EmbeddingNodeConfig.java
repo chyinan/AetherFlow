@@ -13,7 +13,8 @@ public record EmbeddingNodeConfig(
         int overlap,
         String textVariable,
         String text,
-        String vectorCollection
+        String vectorCollection,
+        String vectorStoreProvider
 ) {
 
     public static EmbeddingNodeConfig from(Map<String, Object> config, EmbeddingProperties properties) {
@@ -28,7 +29,8 @@ public record EmbeddingNodeConfig(
                 overlap,
                 stringValue(safeConfig.get("textVariable"), properties.getDefaultTextVariable()),
                 stringValue(safeConfig.get("text"), ""),
-                stringValue(safeConfig.get("vectorCollection"), properties.getDefaultVectorCollection())
+                stringValue(safeConfig.get("vectorCollection"), properties.getDefaultVectorCollection()),
+                stringValue(safeConfig.get("vectorStoreProvider"), properties.getDefaultVectorStoreProvider())
         );
     }
 
