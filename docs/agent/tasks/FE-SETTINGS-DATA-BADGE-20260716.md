@@ -6,7 +6,7 @@
 Agent ID：chyinan
 Session ID：SESSION-20260716-CODEX-FE-SETTINGS-BADGE
 分支：feature/FE-SETTINGS-DATA-BADGE-20260716-fix-overlap
-状态：IN_PROGRESS
+状态：DONE
 
 ## 任务目标
 
@@ -112,3 +112,24 @@ Session ID：SESSION-20260716-CODEX-FE-SETTINGS-BADGE
 
 1. 当前网络偶发重置，claim push 必须成功后才能开始业务代码修改。
 2. 设置页文件较大，本任务只删除重复模板节点，不做无关重构或格式化。
+
+## 实施结果
+
+1. 删除 `SettingsPage.vue` 数据接入卡片中 `coming-soon` 专用绝对定位胶囊，保留统一的 `statusBadgeClass(card.status)` / `statusLabel(card.status)` 状态胶囊。
+2. 新增 `frontend/scripts/check-settings-data-access-badges.mjs` 回归检查，防止数据接入卡片重新出现重复“即将上线”胶囊。
+3. 在 `frontend/package.json` 暴露 `check:settings-data-access-badges` 检查命令。
+
+## 验证结果
+
+1. `npm run check:settings-data-access-badges`：通过。
+2. `npm run build`：通过；仅保留 Vite chunk 大小提示。
+3. `git diff --check`：通过；仅出现 Windows LF/CRLF 提示。
+4. 浏览器验证 `/settings?tab=data-source`：通过；URL 抓取与外部向量库卡片各仅渲染 1 个“即将上线”状态胶囊。
+
+## 提交与交接
+
+- 业务提交：`5614f67 fix(frontend): 去除设置页重复状态胶囊`
+- 分支：`feature/FE-SETTINGS-DATA-BADGE-20260716-fix-overlap`
+- 合并 main：否，分支已推送后可按需合并。
+- 统一运行电脑验证：未在统一运行电脑验证；本机已完成前端构建与浏览器页面验证。
+- 文件锁：已释放。
