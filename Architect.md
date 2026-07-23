@@ -1,405 +1,387 @@
-# AetherFlow 架构说明
+# AetherFlow 项目架构
 
-本文档给参与 AetherFlow 多人协作开发的同学使用。重点说明项目结构、模块职责、代码分布、统一环境 IP 和开发边界。
+> 架构快照日期：2026-07-23
+
+本文档描述 AetherFlow 当前代码库的系统结构、模块边界和主要运行链路。内容以仓库中的 Maven 聚合配置、Docker Compose、服务代码和前端实现为准。
 
 ## 1. 项目定位
 
-AetherFlow 是一个企业级 AI 媒体工作流自动化平台。目标是让用户通过拖拽工作流的方式编排 AI 音视频处理流水线：
+AetherFlow 是一个面向 AI 媒体处理和知识工作流的可视化编排平台。用户可以在 Vue 工作流编辑器中组合输入、AI、逻辑、转换和输出节点，保存 DAG 定义并发起运行。
+
+当前能力覆盖：
+
+- 用户认证、JWT、OAuth2 和基础权限控制。
+- 文件上传、分片上传、MinIO 对象存储和文件元数据治理。
+- 工作流定义、节点目录、DAG 校验、运行实例和状态恢复。
+- Whisper 转录、LLM、图片生成、OCR、Embedding 和知识检索。
+- AI Provider 配置、健康检查、路由、熔断、指标和运行日志。
+- RabbitMQ 异步任务、Redis 状态缓存和补偿调度。
+- WebSocket、SSE 和通知历史。
+- 项目空间、知识库、运行监控、模型设置和 AI Copilot 前端入口。
+
+## 2. 系统总览
 
 ```text
-上传视频
--> 提取音频
--> Whisper 转录
--> AI 字幕润色
--> 生成 SRT
--> FFmpeg 压制字幕
--> 实时通知用户
+浏览器
+  │
+  ▼
+Nginx（静态资源、/api、/ws、/sse 反向代理）
+  │
+  ▼
+gateway-service :8080
+  ├── auth-service :8101
+  ├── workflow-service :8102
+  ├── task-service :8103
+  ├── ai-service :8104 ──HTTP──> python-ai-service :8200
+  ├── file-service :8105
+  └── notify-service :8106
+
+共享基础设施
+  ├── MySQL：业务数据和运行时持久化
+  ├── Redis：缓存、锁、状态和 Provider 运行数据
+  ├── RabbitMQ：任务、运行事件和通知事件
+  ├── MinIO：上传文件与生成产物
+  ├── Nacos：服务注册与发现
+  ├── Seata：分布式事务支持
+  ├── Sentinel：限流和熔断
+  └── Elasticsearch + Kibana：检索与日志基础设施
 ```
 
-整体采用 Spring Cloud Alibaba 微服务架构，后端 Monorepo 管理。
+系统采用前后端分离的 Monorepo。Java 后端基于 Java 17、Spring Boot 3.2 和 Spring Cloud Alibaba；前端基于 Vue 3、TypeScript、Pinia、Vue Router 和 Vue Flow；AI 服务使用 FastAPI 承接本地与外部模型调用。
 
-## 2. 统一环境 IP
-
-所有人开发、联调、写配置时，统一使用下面这台虚拟机作为基础环境入口：
-
-```text
-统一环境 IP：192.168.101.68
-```
-
-除非任务明确要求，不要随意写成自己的本机 IP、`localhost` 或其他临时地址。配置中已经大量使用环境变量兜底，例如：
-
-```yaml
-NACOS_ADDR: 192.168.101.68:8848
-MYSQL_HOST: 192.168.101.68
-REDIS_HOST: 192.168.101.68
-RABBITMQ_HOST: 192.168.101.68
-MINIO_ENDPOINT: http://192.168.101.68:9000
-PYTHON_AI_BASE_URL: http://192.168.101.68:8200
-SEATA_ADDR: 192.168.101.68:8091
-```
-
-Docker Compose 内部服务之间使用容器服务名，例如 `mysql`、`redis`、`rabbitmq`、`nacos`、`minio`。人在宿主机或其他电脑访问统一环境时，使用 `192.168.101.68`。
-
-## 3. Monorepo 目录结构
+## 3. 仓库结构
 
 ```text
 AetherFlow/
-  pom.xml
-  README.md
-  Architect.md
-  docker-compose.yml
-  docker/
-    java-service.Dockerfile
-    mysql/init/01-aetherflow.sql
-  docs/
-    COMMON_CONTRACTS.md
-    PROJECT_STRUCTURE.md
-    nacos/README.md
-  backend/
-    common/
-    gateway-service/
-    auth-service/
-    workflow-service/
-    task-service/
-    ai-service/
-    file-service/
-    notify-service/
-  python-ai-service/
-  frontend/
+├── backend/
+│   ├── common/
+│   ├── workflow-runtime-api/
+│   ├── gateway-service/
+│   ├── auth-service/
+│   ├── workflow-service/
+│   ├── task-service/
+│   ├── ai-service/
+│   ├── file-service/
+│   └── notify-service/
+├── frontend/
+│   ├── src/api/
+│   ├── src/components/
+│   ├── src/pages/
+│   ├── src/services/
+│   ├── src/stores/
+│   └── src/types/
+├── python-ai-service/
+├── ai-runtime/
+├── docker/
+├── docs/
+├── performance-test/
+├── scripts/
+├── pom.xml
+└── docker-compose.yml
 ```
 
-### 根目录
-
-| 文件/目录 | 说明 |
+| 路径 | 当前用途 |
 | --- | --- |
-| `pom.xml` | Maven 父工程，统一依赖版本和后端模块聚合 |
-| `docker-compose.yml` | 一键启动基础环境和微服务 |
-| `docker/` | Java 服务镜像构建文件、MySQL 初始化脚本 |
-| `docs/` | 架构、公共契约、Nacos 等协作文档 |
-| `backend/` | Java 微服务代码 |
-| `python-ai-service/` | Python FastAPI AI 推理适配服务 |
-| `frontend/` | 前端工程预留目录 |
+| `backend/` | Maven 聚合的 Java 公共模块和微服务 |
+| `frontend/` | 可运行的 Vue 3 管理端、工作流编辑器和 Nginx 镜像 |
+| `python-ai-service/` | 被 `ai-service` 调用的 FastAPI 推理适配服务 |
+| `ai-runtime/` | Windows 本地演示、模型预热、性能测试和单次会议视频流水线，不属于生产微服务 |
+| `docker/` | Java 镜像、MySQL 初始化、RabbitMQ 和 Seata 配置 |
+| `docs/` | 架构评审、接口契约、部署检查和功能设计记录 |
+| `performance-test/` | JMeter 核心 API 性能测试计划 |
+| `scripts/` | 部署、演示、环境导出、冒烟和可观测性脚本 |
 
-## 4. 后端模块分布
+## 4. Java 模块
 
-### `backend/common`
+根 `pom.xml` 聚合 9 个 Java 模块。`common` 和 `workflow-runtime-api` 是共享库，其余 7 个模块是可运行服务。
 
-公共契约模块，所有微服务都可以依赖。这里是多人协作的基础边界。
+### 4.1 `backend/common`
 
-已经包含：
+跨服务基础契约和通用实现：
 
-- `Result<T>`：统一 API 返回结构
-- `ErrorCode` / `ResultCode`：统一错误码接口和默认错误码
-- `BaseEntity`：统一实体基类
-- `JwtProperties` / `JwtUserClaims` / `JwtTokenProvider`：JWT 工具
-- `MqEvent<T>` / `RabbitMqNames`：MQ 事件信封和队列命名
-- 公共 DTO：跨服务请求/响应对象
-- `BusinessException` / `GlobalExceptionHandler`：统一业务异常和全局异常处理
-- `HealthController`：公共 `/health`
-- `OpenApiConfig`：统一 Swagger/OpenAPI 配置
+- `Result<T>`、错误码、业务异常和全局异常处理。
+- JWT 配置、Claims 和令牌工具。
+- RabbitMQ 事件信封与队列命名。
+- 跨服务 DTO、基础实体、健康检查和 OpenAPI 配置。
 
-协作要求：
+业务服务通过该模块共享稳定契约，服务内部模型仍保留在各自模块中。
 
-```text
-不要在各微服务里重复造 Result、ErrorCode、JWT 工具、MQ Event、跨服务 DTO。
-跨服务契约优先放 common。
-只在单服务内部使用的 Controller Request 可以放在该服务自己的 controller 包下。
-```
+### 4.2 `backend/workflow-runtime-api`
 
-详细规则见：
+工作流运行时的轻量共享 SPI：
 
-```text
-docs/COMMON_CONTRACTS.md
-```
+- 节点执行上下文和执行结果。
+- 节点执行器接口与注册表契约。
+- 重试策略、运行事件和节点类型。
 
-### `backend/gateway-service`
+该模块隔离运行时公共接口，避免 `workflow-service` 与具体执行模块形成反向依赖。
 
-API 网关服务。
+### 4.3 `backend/gateway-service` — 端口 8080
 
-职责：
+系统统一 API 入口：
 
-- Spring Cloud Gateway 统一入口
-- JWT 校验
-- 用户信息透传到下游服务
-- Nacos 服务发现
-- Sentinel Gateway 限流基础接入
-- 路由到各微服务
+- 基于 Spring Cloud Gateway 转发认证、工作流、任务、AI、文件和通知请求。
+- 校验 JWT、黑名单状态并向下游透传用户上下文。
+- 提供 Sentinel 网关限流、统一异常响应、链路标识和访问日志。
+- 聚合各服务的 OpenAPI 文档。
 
-统一入口端口：
+### 4.4 `backend/auth-service` — 端口 8101
 
-```text
-8080
-```
+身份与访问入口：
 
-### `backend/auth-service`
+- 注册、登录、刷新和退出登录。
+- JWT 签发、令牌生命周期和 Redis 黑名单。
+- GitHub、Google OAuth2 登录。
+- 用户、角色、菜单和基础 RBAC 数据。
+- 邮箱、短信、Telegram 等认证通知能力。
 
-认证授权服务。
+### 4.5 `backend/workflow-service` — 端口 8102
 
-职责：
+项目的核心领域服务：
 
-- 用户注册
-- 用户登录
-- JWT 签发
-- 基础 RBAC 角色返回
-- 用户表 `af_user`
+- 工作流定义 CRUD、实例查询和 DAG 配置解析。
+- 节点目录、节点指标和工作流导入。
+- 节点执行器注册及结构、AI、OCR、Embedding、导出等节点执行。
+- 运行状态机、DAG 调度、分布式锁、事件流和恢复机制。
+- 运行快照、事件持久化、SSE 运行日志和可观测数据重建。
+- 项目空间、知识数据集、知识条目和租户隔离。
+- OCR Provider、Embedding Provider 和向量存储适配。
 
-服务端口：
+工作流定义中的节点配置由前端 mapper 转成后端 DTO；运行时再次校验节点类型和图结构，不把前端图对象直接作为执行模型。
 
-```text
-8101
-```
+### 4.6 `backend/task-service` — 端口 8103
 
-### `backend/workflow-service`
+异步任务调度与状态管理：
 
-工作流核心服务。
+- 创建任务记录并投递 RabbitMQ。
+- Redis 缓存任务状态和幂等信息。
+- 消费运行事件并同步任务结果。
+- 提供重试、超时、死信、背压和补偿处理。
+- 可选接入 XXL-Job；Docker Compose 默认关闭调度器。
 
-职责：
+### 4.7 `backend/ai-service` — 端口 8104
 
-- DAG 工作流定义保存
-- 工作流实例创建
-- Activiti 引擎初始化
-- 解析首个节点并通过 OpenFeign 调用 `task-service`
-- 工作流状态管理后续在该模块继续扩展
+Java 侧 AI 编排服务：
 
-服务端口：
+- 消费 AI 任务并回调任务状态。
+- 调用 `python-ai-service` 完成 ASR、LLM 等推理。
+- 提供 OpenAI、Ollama、Python Runtime 等 Provider 适配。
+- 管理 Provider 目录、配置、健康状态、路由策略、熔断与恢复。
+- 记录推理日志和指标，缓存任务状态。
+- 执行图片生成、Prompt 渲染、AI 工作流节点和 Copilot 会话。
+- 向 `file-service` 注册生成产物。
 
-```text
-8102
-```
+### 4.8 `backend/file-service` — 端口 8105
 
-### `backend/task-service`
+文件对象和元数据边界：
 
-异步任务调度服务。
+- 普通上传、分片上传、合并和下载。
+- MinIO 对象存储访问与健康检查。
+- 文件类型、Magic Byte、大小和配额校验。
+- 文件哈希、重复文件处理、缓存和治理接口。
+- 面向内部服务的文件查询与产物登记接口。
 
-职责：
+### 4.9 `backend/notify-service` — 端口 8106
 
-- 创建任务记录
-- RabbitMQ 投递任务
-- Redis 缓存任务状态
-- 死信队列声明
-- XXL-Job 定时补偿入口
-- 后续实现重试、超时、幂等和补偿细节
+通知与实时连接服务：
 
-服务端口：
+- 消费 RabbitMQ 通知事件并保存通知记录。
+- 提供通知历史查询。
+- 通过 WebSocket 和 SSE 向前端推送状态。
+- 使用短期流式令牌完成实时连接握手。
 
-```text
-8103
-```
+## 5. 前端架构
 
-### `backend/ai-service`
+`frontend/` 已是完整应用，不再是占位目录。
 
-Java AI 任务服务。
+### 5.1 技术栈
 
-职责：
+- Vue 3 Composition API 和 TypeScript。
+- Vite 8 构建。
+- Pinia 管理认证、工作流、文件、模型、项目、运行和设置状态。
+- Vue Router 组织登录、工作流、文件、知识库、模型、监控和设置页面。
+- Vue Flow 渲染 DAG 画布、节点和连线。
+- Axios 与生成的 OpenAPI 客户端访问后端。
+- WebSocket 与 SSE 接收通知和工作流运行事件。
 
-- 消费 AI 任务队列
-- 调用 `python-ai-service`
-- 保存 AI 任务执行记录
-- 调用 `file-service` 保存派生文件元数据
-- 发布通知事件到 `notify-service`
+### 5.2 代码分层
 
-服务端口：
-
-```text
-8104
-```
-
-### `backend/file-service`
-
-文件服务。
-
-职责：
-
-- MinIO 文件上传
-- 文件元数据保存
-- 派生文件元数据保存
-- 文件表 `af_file_object`
-
-服务端口：
-
-```text
-8105
-```
-
-### `backend/notify-service`
-
-通知服务。
-
-职责：
-
-- RabbitMQ 通知事件消费
-- WebSocket 推送
-- SSE 推送
-- 通知记录保存
-
-服务端口：
-
-```text
-8106
-```
-
-## 5. Python AI 服务
-
-目录：
-
-```text
-python-ai-service/
-```
-
-职责：
-
-- FastAPI 服务
-- Whisper / faster-whisper 调用入口
-- OpenAI/Ollama SDK 预留
-- FFmpeg 运行环境
-- Java `ai-service` 通过 HTTP 调用它
-
-服务端口：
-
-```text
-8200
-```
-
-默认情况下 `ENABLE_WHISPER=false`，会返回轻量 fallback 结果，方便 Java 链路先跑通。需要真实转录时再开启 Whisper 并配置模型。
-
-## 6. 基础设施端口
-
-| 组件 | 统一访问地址 |
+| 路径 | 职责 |
 | --- | --- |
-| Nacos | `192.168.101.68:8848` |
-| MySQL | `192.168.101.68:3306`，Docker Compose 本地映射为 `3307` |
-| Redis | `192.168.101.68:6379` |
-| RabbitMQ | `192.168.101.68:5672` |
-| RabbitMQ Console | `http://192.168.101.68:15672` |
-| MinIO API | `http://192.168.101.68:9000` |
-| MinIO Console | `http://192.168.101.68:9001` |
-| Seata | `192.168.101.68:8091` |
-| Python AI Service | `http://192.168.101.68:8200` |
-| Gateway | `http://192.168.101.68:8080` |
+| `src/pages/` | 路由级页面和功能组合入口 |
+| `src/components/` | 布局、工作流、文件、运行控制台和通用 UI |
+| `src/stores/` | Pinia 领域状态与页面动作 |
+| `src/api/modules/` | 后端 API 契约和请求函数 |
+| `src/api/mappers/` | 前后端模型转换，尤其是工作流图与定义 DTO |
+| `src/services/api/` | 面向页面的服务封装、错误处理和有限的 Mock 回退 |
+| `src/services/realtime/` | WebSocket、SSE 和通知实时连接 |
+| `src/services/mock/` | 演示和后端不可用时的回退数据 |
+| `src/types/` | 前端领域类型 |
 
-## 7. 关键运行命令
+工作流编辑器的关键数据流：
 
-### Java 版本
-
-项目要求 Java 17。
-
-Windows PowerShell 示例：
-
-```powershell
-$env:JAVA_HOME = 'C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+```text
+WorkflowPage
+  -> workflowStore
+  -> workflowApi
+  -> workflowMapper
+  -> gateway-service
+  -> workflow-service
 ```
 
-### 后端测试
+加载和保存采用显式错误状态；后端图结构无效时不会静默替换为空图。保存期间的新编辑通过 revision 保持为未保存状态，离开页面和刷新时会提示未保存改动。
+
+## 6. Python AI 组件
+
+### 6.1 `python-ai-service`
+
+生产服务链路中的 FastAPI 适配层，默认端口 8200：
+
+- Whisper / faster-whisper 音视频转录。
+- SRT、VTT 字幕生成。
+- Ollama 和 OpenAI 兼容接口的 LLM 调用。
+- Provider 配置、模型列表和运行状态接口。
+- FFmpeg 音频提取和临时文件管理。
+- 对外部文件 URL 进行内网地址校验，降低 SSRF 风险。
+
+### 6.2 `ai-runtime`
+
+本地 Windows 演示工具，不注册到 Nacos，也不参与微服务部署。它用于：
+
+- 检查 CUDA、FFmpeg、Ollama 和 Whisper 环境。
+- 下载和预热本地模型。
+- 对 Whisper 做基准测试。
+- 一次性执行“视频 → 音频 → 转录 → 摘要 → Markdown/SRT”流程。
+
+## 7. 核心业务链路
+
+### 7.1 工作流定义与运行
+
+```text
+前端编辑 DAG
+-> workflowMapper 生成后端定义 DTO
+-> Gateway 校验身份
+-> workflow-service 保存定义
+-> 创建运行实例
+-> 运行时校验 DAG 并调度就绪节点
+-> 本地节点由 workflow-service 执行
+-> 异步或 AI 节点交给 task-service / ai-service
+-> 事件、快照和状态持久化
+-> SSE 将运行日志返回前端
+```
+
+### 7.2 文件与 AI 处理
+
+```text
+浏览器上传文件
+-> file-service 写入 MinIO 和 MySQL
+-> workflow-service 将 fileId 注入运行上下文
+-> task-service 投递 AI 任务
+-> ai-service 调用 python-ai-service 或外部 Provider
+-> file-service 登记生成产物
+-> notify-service 推送完成或失败状态
+```
+
+### 7.3 知识检索
+
+```text
+创建知识数据集并添加条目
+-> 文本切分
+-> Embedding Provider 生成向量
+-> 向量存储写入集合
+-> 工作流知识检索节点按 query 和 topK 召回
+-> 检索上下文交给后续 LLM 或输出节点
+```
+
+## 8. 数据与基础设施
+
+| 组件 | 系统用途 | Docker 本机端口 |
+| --- | --- | --- |
+| MySQL 8 | 用户、工作流、任务、文件、通知、知识库和运行时数据 | `3307` |
+| Redis 7 | Token 黑名单、缓存、分布式锁、任务状态和 Provider 状态 | `6379` |
+| RabbitMQ 3.13 | 异步任务、死信、运行事件和通知事件 | `5672` / `15672` |
+| MinIO | 上传文件和 AI 生成产物 | `9000` / `9001` |
+| Nacos 2.4 | 服务注册与发现 | `8848` |
+| Seata 1.5 | 跨服务事务支持 | `8091` |
+| Sentinel Dashboard | 限流和熔断观测 | `8858` |
+| Elasticsearch 7.17 | 检索和日志基础设施 | `9200` |
+| Kibana 7.17 | Elasticsearch 可视化 | `5601` |
+
+Docker Compose 内部使用服务名通信，例如 `mysql:3306`、`redis:6379`、`minio:9000` 和 `python-ai-service:8200`。外部地址和密钥由 `.env` 或环境变量覆盖，不应依赖固定开发机 IP。
+
+## 9. 部署拓扑
+
+`docker-compose.yml` 提供完整的单机部署拓扑：
+
+1. 启动数据库、缓存、消息、对象存储和注册中心。
+2. 启动 Seata、Sentinel、Elasticsearch 和 Kibana。
+3. 启动 Python AI 服务与 7 个 Java 服务。
+4. Vite 构建前端静态资源。
+5. Nginx 提供页面并代理 `/api`、`/ws` 和 `/sse`。
+
+核心入口：
+
+| 入口 | 默认地址 |
+| --- | --- |
+| Web 应用 | `http://localhost` |
+| Gateway | `http://localhost:8080` |
+| MinIO Console | `http://localhost:9001` |
+| RabbitMQ Console | `http://localhost:15672` |
+| Sentinel Dashboard | `http://localhost:8858` |
+| Kibana | `http://localhost:5601` |
+
+## 10. 配置边界
+
+- Java 服务使用 `application.yml` 和 `application-prod.yml`，运行时配置由环境变量覆盖。
+- Docker Compose 中服务间地址使用容器服务名。
+- 前端通过 `VITE_API_BASE`、`VITE_WS_BASE`、`VITE_SSE_BASE` 和超时变量配置连接。
+- `VITE_MOCK_FALLBACK` 控制真实接口失败时是否允许演示回退。
+- Python AI 服务通过 `ENABLE_WHISPER`、`ENABLE_LLM`、模型地址和 Provider 密钥控制能力。
+- 密钥只通过环境变量或本地运行时配置提供，不进入源码。
+
+## 11. 构建与验证
+
+### Java 后端
 
 ```powershell
 mvn test
-```
-
-### 后端打包
-
-```powershell
 mvn package -DskipTests
 ```
 
-### Docker 一键启动
+### Vue 前端
+
+```powershell
+cd frontend
+pnpm install
+pnpm run build
+```
+
+`frontend/package.json` 还提供工作流映射、分支路由、编辑器契约、模型选项、知识入口、通知和公开首页等专项检查。
+
+### Python 服务
+
+```powershell
+python -m pytest python-ai-service/tests
+python -m pytest ai-runtime/tests
+```
+
+### 完整容器环境
 
 ```powershell
 docker compose up -d --build
+docker compose ps
 ```
 
-## 8. 健康检查
+Java 服务统一提供 `/health` 和 `/actuator/health`；Python AI 服务提供 `/health`；Nginx 也提供容器健康检查入口。
 
-所有 Java 微服务都有：
+## 12. 关键架构约束
 
-```text
-GET /health
-GET /actuator/health
-```
-
-Python AI 服务有：
-
-```text
-GET /health
-```
-
-建议协作者启动服务后先访问健康检查，再开始联调业务接口。
-
-## 9. 数据库脚本
-
-初始化脚本：
-
-```text
-docker/mysql/init/01-aetherflow.sql
-```
-
-当前包含基础表：
-
-- `af_user`
-- `af_workflow_definition`
-- `af_workflow_instance`
-- `af_task_record`
-- `af_ai_job`
-- `af_file_object`
-- `af_notification_record`
-
-数据库变更属于高风险协作内容。新增表、字段、索引前，需要先在任务说明中写清楚，避免多人同时改同一张表。
-
-## 10. 典型业务链路
-
-```text
-用户请求 Gateway
--> gateway-service 校验 JWT
--> file-service 上传视频到 MinIO
--> workflow-service 创建工作流实例
--> task-service 创建异步任务并投递 RabbitMQ
--> ai-service 消费任务并调用 python-ai-service
--> file-service 保存转录/字幕等结果元数据
--> notify-service 通过 WebSocket/SSE 通知用户
--> workflow-service 后续推进下一节点
-```
-
-## 11. 多人协作规则
-
-1. 开发某个微服务时，只改自己任务明确允许的模块。
-2. 公共契约变更优先在 `backend/common`，但必须先同步给其他人。
-3. 不要在各服务里复制一份公共 DTO、错误码接口或 JWT 工具。
-4. 不要提交 `target/`、日志、IDE 配置、临时文件。
-5. 所有服务配置默认面向统一环境 IP：`192.168.101.68`。
-6. 如果本地需要覆盖配置，用环境变量，不要硬编码进 `application.yml`。
-7. 提交前至少运行：
-
-```powershell
-mvn test
-git diff --check
-```
-
-## 12. 每个模块推荐开发边界
-
-| 模块 | 适合分配给谁 | 注意事项 |
-| --- | --- | --- |
-| `gateway-service` | 网关/安全负责人 | 改路由和 JWT 规则会影响所有人 |
-| `auth-service` | 用户/RBAC 负责人 | 不要私自改变 token payload |
-| `workflow-service` | 核心流程负责人 | DAG、状态机、Activiti 都在这里 |
-| `task-service` | 异步调度负责人 | MQ 名称必须使用 `RabbitMqNames` |
-| `ai-service` | AI 链路负责人 | Java 侧只做任务编排和 Python 调用 |
-| `file-service` | 文件存储负责人 | MinIO bucket/objectKey 规则要统一 |
-| `notify-service` | 实时通信负责人 | WebSocket/SSE 事件结构要复用 common DTO |
-| `python-ai-service` | Python/AI 负责人 | Whisper、LLM、FFmpeg 逻辑在这里演进 |
-| `frontend` | 前端负责人 | 通过 Gateway 调后端，不直连各微服务 |
-
-## 13. 最重要的统一约定
-
-```text
-统一 IP：192.168.101.68
-统一入口：gateway-service，端口 8080
-统一返回：Result<T>
-统一错误码接口：ErrorCode
-统一 JWT 工具：JwtTokenProvider
-统一 MQ 命名：RabbitMqNames
-统一跨服务 DTO：backend/common/dto
-统一 OpenAPI 配置：OpenApiConfig
-```
-
-后续任何人如果不确定某个类应该放 common 还是放业务服务，先判断一句话：这个对象是否会被两个及以上服务共同依赖。答案是“是”，优先放 common；答案是“否”，放在具体业务服务内部。
-
+- 浏览器业务请求统一经过 Gateway，不直接访问内部 Java 服务。
+- 跨服务稳定契约放在 `common` 或 `workflow-runtime-api`，服务内部实现不外泄。
+- 工作流定义、前端画布模型和运行时执行模型通过 mapper 与校验层隔离。
+- 文件内容存入 MinIO，MySQL 保存元数据和业务关系。
+- 长耗时 AI 任务通过 RabbitMQ 解耦，不占用同步请求线程。
+- 工作流运行依赖持久化事件、快照、Redis 锁和恢复流程保证可靠性。
+- 真实 Provider 不可用时必须返回明确状态；Mock 回退由配置显式控制。
+- `ai-runtime` 只服务本地演示，`python-ai-service` 才是后端调用的服务接口。
+- 所有外部输入在网关、服务边界或模型映射处校验，不能把不可信对象直接传入运行时。
