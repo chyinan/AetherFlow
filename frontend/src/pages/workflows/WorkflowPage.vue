@@ -1,8 +1,9 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { FolderKanban, LoaderCircle, Play, Plus, RotateCcw, Save, Workflow } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
 import NodeInspector from '@/components/workflow/NodeInspector.vue'
@@ -60,11 +61,16 @@ function routeQueryString(value: unknown) {
   return Array.isArray(value) ? value[0] : typeof value === 'string' ? value : undefined
 }
 
-async function loadRouteWorkflow(workflowId: string) {
+async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unknown> = Promise.resolve()) {
   const projectId = routeQueryString(route.query.projectId)
-  await workflowStore.loadWorkflow(workflowId, {
+  const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
   })
+  await projectReady
+  const loaded = await workflowLoad
+  if (!loaded) {
+    return false
+  }
   if (projectId) {
     projectStore.selectProject(projectId)
   } else {
@@ -79,28 +85,83 @@ async function loadRouteWorkflow(workflowId: string) {
   if (!selectedNodeStillExists) {
     uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
   }
+  return true
 }
 
+async function retryLoadWorkflow() {
+  const loaded = await loadRouteWorkflow(String(route.params.id || 'new'))
+  if (loaded) {
+    runStore.subscribeCurrentRun()
+  }
+}
+
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!workflowStore.dirty) {
+    return
+  }
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+function resetWorkflow() {
+  if (workflowStore.dirty && !window.confirm(t('workflow.resetConfirm'))) {
+    return
+  }
+  workflowStore.clearCurrentWorkflow()
+  uiStore.setSelectedNode(null)
+}
+
+function confirmDiscardUnsavedChanges() {
+  if (!workflowStore.dirty) {
+    return true
+  }
+  return window.confirm(t('workflow.unsavedChangesConfirm'))
+}
+
+onBeforeRouteLeave(confirmDiscardUnsavedChanges)
+
+onBeforeRouteUpdate((to, from) => {
+  if (to.fullPath === from.fullPath) {
+    return true
+  }
+  return confirmDiscardUnsavedChanges()
+})
+const initializingWorkflow = ref(hasWorkflowContext.value)
+
 onMounted(async () => {
-  await Promise.all([
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  const projectReady = projectStore.loadProjects()
+  const auxiliaryLoads = Promise.all([
     workflowStore.loadNodeTemplates(),
-    projectStore.loadProjects(),
     runStore.loadRuns(),
     fileStore.loadFiles(),
   ])
   if (!hasWorkflowContext.value) {
-    workflowStore.resetMockWorkflow()
+    await Promise.all([projectReady, auxiliaryLoads])
+    workflowStore.resetToEmptyWorkflow()
+    initializingWorkflow.value = false
     return
   }
-  await loadRouteWorkflow(String(route.params.id || 'new'))
-  runStore.subscribeCurrentRun()
+  try {
+    const routeWorkflowLoad = loadRouteWorkflow(String(route.params.id || 'new'), projectReady)
+    const [loaded] = await Promise.all([routeWorkflowLoad, auxiliaryLoads])
+    if (loaded) {
+      runStore.subscribeCurrentRun()
+    }
+  } finally {
+    initializingWorkflow.value = false
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
 })
 
 watch(
   () => [route.params.id, route.query.projectId, route.query.name],
   async ([workflowId]) => {
     if (!hasWorkflowContext.value) {
-      workflowStore.resetMockWorkflow()
+      workflowStore.resetToEmptyWorkflow()
       showCopilot.value = false
       showRunConsole.value = false
       return
@@ -242,7 +303,32 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
 </script>
 
 <template>
-  <section v-if="shouldShowEmptyWorkflowGuide" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-if="initializingWorkflow || workflowStore.loading" class="grid h-full place-items-center bg-app-bg px-6">
+    <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
+      <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
+      {{ t('workflow.loading') }}
+    </div>
+  </section>
+
+  <section v-else-if="workflowStore.loadingError" class="grid h-full place-items-center bg-app-bg px-6">
+    <div class="w-full max-w-xl rounded-2xl border border-status-error/25 bg-white p-7 shadow-panel">
+      <p class="text-lg font-semibold text-text-primary">{{ t('workflow.loadFailedTitle') }}</p>
+      <p class="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm leading-6 text-status-error">
+        {{ workflowStore.loadingError }}
+      </p>
+      <div class="mt-5 flex flex-wrap gap-3">
+        <button type="button" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark" @click="retryLoadWorkflow">
+          <RotateCcw class="h-4 w-4" />
+          {{ t('workflow.retryLoad') }}
+        </button>
+        <RouterLink to="/projects" class="inline-flex items-center rounded-lg border border-app-border bg-white px-4 py-2.5 text-sm font-semibold text-text-secondary hover:border-primary/30 hover:text-primary">
+          {{ t('workflow.returnToProjects') }}
+        </RouterLink>
+      </div>
+    </div>
+  </section>
+
+  <section v-else-if="shouldShowEmptyWorkflowGuide" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="w-full max-w-3xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel">
       <div class="border-b border-app-border bg-gradient-to-r from-primary/8 via-white to-white px-8 py-7">
         <div class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white shadow-node">
@@ -300,7 +386,7 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="workflowStore.resetMockWorkflow()">
+        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="resetWorkflow">
           <RotateCcw class="h-4 w-4" />
           {{ t('workflow.reset') }}
         </button>

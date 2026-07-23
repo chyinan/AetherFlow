@@ -1,3 +1,4 @@
+// pattern: Mixed (needs refactoring)
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import {
   createDefinition,
@@ -63,12 +64,7 @@ function stringOr(value: unknown, fallback: string) {
 }
 
 function numericIdFromWorkflowId(workflowId: string) {
-  const direct = Number(workflowId)
-  if (Number.isFinite(direct) && direct > 0) {
-    return direct
-  }
-
-  const match = workflowId.match(/(?:definition-|workflow-|wf-)?(\d+)$/)
+  const match = workflowId.match(/^(?:definition-|workflow-|wf-)?(\d+)$/)
   const parsed = match ? Number(match[1]) : NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
@@ -76,12 +72,10 @@ function numericIdFromWorkflowId(workflowId: string) {
 function definitionIdCandidates(workflowId: string) {
   const numericId = numericIdFromWorkflowId(workflowId)
   const linkedId = getBackendDefinitionId(workflowId)
-  const isDirectNumericId = String(numericId) === workflowId
 
   return [
-    ...(isDirectNumericId ? [numericId] : []),
+    numericId,
     linkedId,
-    ...(!isDirectNumericId ? [numericId] : []),
   ].filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
     .filter((id, index, ids) => ids.indexOf(id) === index)
 }
@@ -117,6 +111,11 @@ interface BackendWorkflowNode {
   config?: Record<string, unknown>
 }
 
+type BackendWorkflowConnection = {
+  target: string
+  label?: string
+}
+
 const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   START: 'start',
   PROMPT: 'prompt',
@@ -126,13 +125,26 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   URL_FETCH: 'url-fetch',
   UPLOAD: 'ffmpeg',
   WHISPER: 'whisper',
+  LLM: 'llm',
+  TRANSLATE: 'translate',
   SUMMARY: 'summary',
-  EXPORT: 'export',
-  END: 'output',
   OCR: 'document-extractor',
   EMBEDDING: 'embedding',
   KNOWLEDGE_RETRIEVAL: 'knowledge-retrieval',
+  EXPORT: 'export',
+  END: 'output',
+  AGENT: 'agent',
+  QUESTION_UNDERSTAND: 'question-understand',
+  QUESTION_CLASSIFIER: 'question-classifier',
   CONDITION: 'condition',
+  HUMAN: 'human',
+  ITERATION: 'iteration',
+  LOOP: 'loop',
+  CODE: 'code',
+  TEMPLATE_TRANSFORM: 'template-transform',
+  VARIABLE_AGGREGATE: 'variable-aggregate',
+  VARIABLE_ASSIGNER: 'variable-assigner',
+  PARAMETER_EXTRACTOR: 'parameter-extractor',
 }
 
 const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; inputs: string[]; outputs: string[] }> = {
@@ -190,6 +202,24 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     inputs: ['transcription'],
     outputs: ['summary'],
   },
+  condition: {
+    label: '条件分支',
+    description: '计算一条条件，并将匹配结果映射为稳定的真假分支键。',
+    inputs: ['variable'],
+    outputs: ['matched', 'branchKey'],
+  },
+  code: {
+    label: '代码执行',
+    description: '保存代码配置；只有接入独立隔离执行器后才能运行。',
+    inputs: ['payload'],
+    outputs: ['codeResult'],
+  },
+  'template-transform': {
+    label: '模板转换',
+    description: '使用工作流上下文变量渲染 {{ variable }} 模板。',
+    inputs: ['variables'],
+    outputs: ['renderedText'],
+  },
   embedding: {
     label: 'Embedding',
     description: 'Split text, generate embeddings, and write vector records.',
@@ -222,6 +252,30 @@ function isBackendWorkflowNode(value: unknown): value is BackendWorkflowNode {
   return isRecord(value) && typeof value.nodeId === 'string' && typeof value.nodeType === 'string'
 }
 
+function isFrontendWorkflowNode(value: unknown): value is WorkflowGraphNode {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.type !== 'workflow') {
+    return false
+  }
+  if (!isRecord(value.position) || typeof value.position.x !== 'number' || typeof value.position.y !== 'number') {
+    return false
+  }
+  if (!isRecord(value.data)) {
+    return false
+  }
+  return typeof value.data.kind === 'string'
+    && isRecord(value.data.config)
+    && Array.isArray(value.data.inputs)
+    && Array.isArray(value.data.outputs)
+    && typeof value.data.status === 'string'
+}
+
+function isFrontendWorkflowEdge(value: unknown): value is WorkflowGraphEdge {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.source === 'string'
+    && typeof value.target === 'string'
+}
+
 function toFrontendNodeConfig(config: Record<string, unknown> = {}) {
   return Object.fromEntries(
     Object.entries(config).filter(([key]) => !GRAPH_CONFIG_KEYS.has(key)),
@@ -244,22 +298,36 @@ function backendTargets(config: Record<string, unknown> = {}) {
   if (typeof config.defaultNext === 'string' && config.defaultNext.trim()) {
     targets.push(config.defaultNext.trim())
   }
-  if (isRecord(config.branches)) {
-    Object.values(config.branches).forEach((target) => {
-      if (typeof target === 'string' && target.trim()) {
-        targets.push(target.trim())
-      }
-    })
-  }
   return [...new Set(targets)]
+}
+
+function backendConnections(config: Record<string, unknown> = {}): Array<BackendWorkflowConnection> {
+  const branchConnections = isRecord(config.branches)
+    ? Object.entries(config.branches)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && Boolean(entry[1].trim()))
+        .map(([label, target]) => ({ label, target: target.trim() }))
+    : []
+  const branchTargets = new Set(branchConnections.map((connection) => connection.target))
+  const sequentialConnections = backendTargets(config)
+    .filter((target) => !branchTargets.has(target))
+    .map((target) => ({ target }))
+  return [...branchConnections, ...sequentialConnections]
 }
 
 function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
   const nodeIds = new Set(nodes.map((node) => node.nodeId).filter(Boolean))
   const graphNodes = nodes.map<WorkflowGraphNode>((node, index) => {
     const nodeType = stringOr(node.nodeType, '').toUpperCase()
-    const kind = NODE_KIND_BY_BACKEND_TYPE[nodeType] ?? 'output'
-    const copy = NODE_COPY_BY_KIND[kind] ?? NODE_COPY_BY_KIND.output
+    const kind = NODE_KIND_BY_BACKEND_TYPE[nodeType]
+    if (!kind) {
+      throw new Error(`unsupported workflow node type: ${nodeType || '(empty)'}`)
+    }
+    const copy = NODE_COPY_BY_KIND[kind] ?? {
+      label: kind,
+      description: '',
+      inputs: [],
+      outputs: [],
+    }
     return {
       id: stringOr(node.nodeId, `node-${index + 1}`),
       type: 'workflow',
@@ -280,38 +348,44 @@ function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
   })
   const graphEdges = nodes.flatMap<WorkflowGraphEdge>((node) => {
     const source = stringOr(node.nodeId, '')
-    return backendTargets(node.config)
-      .filter((target) => source && nodeIds.has(target))
-      .map((target) => ({
-        id: `edge-${source}-${target}`,
+    return backendConnections(node.config)
+      .filter((connection) => source && nodeIds.has(connection.target))
+      .map((connection, index) => ({
+        id: `edge-${source}-${index}-${connection.target}`,
         source,
-        target,
+        target: connection.target,
         animated: true,
+        ...(connection.label ? { label: connection.label } : {}),
       }))
   })
   return { nodes: graphNodes, edges: graphEdges }
 }
 
 function parseGraph(definitionJson: string | undefined) {
-  if (!definitionJson) {
-    return { nodes: [] as WorkflowGraphNode[], edges: [] as WorkflowGraphEdge[] }
+  if (!definitionJson?.trim()) {
+    throw new Error('workflow definition graph is invalid: definitionJson is empty')
   }
 
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(definitionJson) as {
-      nodes?: unknown[]
-      edges?: unknown[]
-    }
-    if (Array.isArray(parsed.nodes) && parsed.nodes.every(isBackendWorkflowNode)) {
-      return mapBackendDefinitionGraph(parsed.nodes)
-    }
-    return {
-      nodes: Array.isArray(parsed.nodes) ? parsed.nodes as WorkflowGraphNode[] : [],
-      edges: Array.isArray(parsed.edges) ? parsed.edges as WorkflowGraphEdge[] : [],
-    }
-  } catch {
-    return { nodes: [] as WorkflowGraphNode[], edges: [] as WorkflowGraphEdge[] }
+    parsed = JSON.parse(definitionJson) as unknown
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error)
+    throw new Error(`workflow definition graph is invalid: ${details}`)
   }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.nodes)) {
+    throw new Error('workflow definition graph is invalid: nodes must be an array')
+  }
+  if (parsed.nodes.every(isBackendWorkflowNode)) {
+    return mapBackendDefinitionGraph(parsed.nodes)
+  }
+
+  const edges = Array.isArray(parsed.edges) ? parsed.edges : []
+  if (!parsed.nodes.every(isFrontendWorkflowNode) || !edges.every(isFrontendWorkflowEdge)) {
+    throw new Error('workflow definition graph is invalid: node or edge structure is unsupported')
+  }
+  return { nodes: parsed.nodes, edges }
 }
 
 function emptyWorkflow(id: string, name = 'Untitled Workflow'): WorkflowDefinition {
@@ -415,15 +489,17 @@ export const workflowApi = {
     }
 
     const candidates = definitionIdCandidates(workflowId)
+    let lastError: unknown = null
     for (const definitionId of candidates) {
       try {
         return mapDefinition(await getDefinition(definitionId))
-      } catch {
+      } catch (error) {
+        lastError = error
         // Try the next candidate because browser-local definition links can be stale after database resets.
       }
     }
 
-    return emptyWorkflow(workflowId, workflowId.replace(/^wf-/, '').replaceAll('-', ' '))
+    throw lastError ?? new Error(`workflow definition id is invalid: ${workflowId}`)
   },
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     return emptyWorkflow(workflowId, workflowName)

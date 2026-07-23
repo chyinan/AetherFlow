@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -144,12 +145,6 @@ async function onCanvasDrop(event: DragEvent) {
   await nextTick()
 }
 
-function testNode(nodeId: string) {
-  selectNode(nodeId)
-  workflowStore.updateNodeStatus(nodeId, 'running')
-  window.setTimeout(() => workflowStore.updateNodeStatus(nodeId, 'success', 0), 180)
-}
-
 async function duplicateNode(nodeId: string) {
   const node = workflowStore.duplicateNode(nodeId)
   if (node) {
@@ -231,7 +226,6 @@ onMounted(() => {
             :selected="nodeProps.selected"
             @add-after="openAddMenu"
             @select="selectNode"
-            @test-node="testNode"
             @duplicate-node="duplicateNode"
             @delete-node="deleteNode"
           />

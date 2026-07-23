@@ -1,3 +1,4 @@
+// pattern: Functional Core
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 
@@ -490,14 +491,12 @@ function normalizeCodeConfig(config: Record<string, unknown>, nextNodes: string[
     language: stringValue(config.language, 'python3'),
     code: stringValue(config.code, ''),
     outputVariable: stringValue(config.outputVariable, 'codeResult'),
-    timeoutSec: Math.max(1, Math.floor(numberValue(config.timeoutSec, 30))),
   }, nextNodes)
 }
 
 function normalizeTemplateTransformConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
     template: stringValue(config.template, '{{ arg1 }}'),
-    engine: stringValue(config.engine, 'jinja2'),
     outputVariable: stringValue(config.outputVariable, 'renderedText'),
   }, nextNodes)
 }

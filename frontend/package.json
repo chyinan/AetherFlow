@@ -8,6 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "check:workflow-mapping": "node scripts/check-workflow-node-backend-mapping.mjs",
     "check:workflow-branch-routing": "node --experimental-strip-types scripts/check-workflow-branch-routing.mjs",
+    "check:workflow-editor-p0": "node --experimental-strip-types scripts/check-workflow-editor-p0.mjs",
     "check:workflow-model-options": "node scripts/check-workflow-real-model-options.mjs",
     "check:workflow-knowledge-entry": "node scripts/check-workflow-knowledge-entry.mjs",
     "check:sidebar-motion": "node scripts/check-sidebar-motion.mjs",

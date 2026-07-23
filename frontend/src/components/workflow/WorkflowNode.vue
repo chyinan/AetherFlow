@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import {
   BookOpen,
   Brain,
@@ -15,7 +16,6 @@ import {
   MessageSquare,
   Mic,
   Plus,
-  Play,
   Repeat2,
   RotateCcw,
   Sparkles,
@@ -41,7 +41,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   addAfter: [nodeId: string, event: MouseEvent]
   select: [nodeId: string]
-  testNode: [nodeId: string]
   duplicateNode: [nodeId: string]
   deleteNode: [nodeId: string]
 }>()
@@ -89,9 +88,8 @@ const nodeRows = computed(() => {
       return [t('workflow.nodeCard.class', { index: 1 }), t('workflow.nodeCard.class', { index: 2 })]
     case 'condition':
       return [
-        t('workflow.nodeCard.caseIf', { index: 1 }),
-        t('workflow.nodeCard.caseElif', { index: 2 }),
-        t('workflow.nodeCard.else'),
+        t('workflow.nodeCard.conditionMatched', { branch: String(props.data.config.trueBranch ?? 'true') }),
+        t('workflow.nodeCard.conditionUnmatched', { branch: String(props.data.config.falseBranch ?? 'false') }),
       ]
     case 'human':
       return ['ACTION_1', 'TIMEOUT']
@@ -162,14 +160,6 @@ const nodeRows = computed(() => {
         <Plus class="h-3.5 w-3.5" />
       </button>
       <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
-          :title="t('workflow.testNode')"
-          @click.stop="emit('testNode', id)"
-        >
-          <Play class="h-3.5 w-3.5" />
-        </button>
         <button
           type="button"
           class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"

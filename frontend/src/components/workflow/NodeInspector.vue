@@ -1,11 +1,11 @@
 <script setup lang="ts">
+// pattern: Mixed (needs refactoring)
 import {
   BookOpen,
   Brain,
   Braces,
   ChevronDown,
   Code2,
-  Copy,
   Database,
   FileText,
   Film,
@@ -15,7 +15,6 @@ import {
   MessageSquare,
   Mic,
   Plus,
-  Play,
   Repeat2,
   RotateCcw,
   Search,
@@ -24,7 +23,6 @@ import {
   Sparkles,
   Split,
   TerminalSquare,
-  Trash2,
   Upload,
   Variable,
   X,
@@ -128,7 +126,6 @@ const runtimeDurationMs = computed(() =>
     ?? selectedNode.value?.data.runtime?.durationMs
     ?? 0,
 )
-const canRunNode = computed(() => Boolean(selectedNode.value))
 const selectedCatalogItem = computed(() => {
   const backendType = selectedNode.value ? backendTypeByKind[selectedNode.value.data.kind] : undefined
   if (!backendType) {
@@ -151,6 +148,15 @@ const sysVariables = ['sys.user_id', 'sys.app_id', 'sys.workflow_id', 'sys.workf
 const fileTypes = ['msg', 'pdf', 'xls', 'pptx', 'eml', 'htm', 'docx', 'epub', 'xlsx', 'doc', 'markdown', 'vtt', 'mdx', 'html', 'xml', 'md', 'csv', 'txt', 'properties', 'ppt']
 const defaultPythonCode = 'def main(arg1: str, arg2: str):\n    return {\n        "result": arg1 + arg2,\n    }'
 const defaultJinjaTemplate = '{{ arg1 }}'
+const conditionOperators = [
+  { value: 'EQUALS', labelKey: 'workflow.inspector.conditionOperators.equals' },
+  { value: 'NOT_EQUALS', labelKey: 'workflow.inspector.conditionOperators.notEquals' },
+  { value: 'EXISTS', labelKey: 'workflow.inspector.conditionOperators.exists' },
+  { value: 'NOT_EXISTS', labelKey: 'workflow.inspector.conditionOperators.notExists' },
+  { value: 'CONTAINS', labelKey: 'workflow.inspector.conditionOperators.contains' },
+  { value: 'GREATER_THAN', labelKey: 'workflow.inspector.conditionOperators.greaterThan' },
+  { value: 'LESS_THAN', labelKey: 'workflow.inspector.conditionOperators.lessThan' },
+]
 const summaryLanguages = ['Chinese', 'English']
 const summaryProviders = ['ollama', 'openai']
 const exportFormats = ['MARKDOWN', 'TXT', 'JSON']
@@ -187,6 +193,10 @@ const selectedKnowledgeDataset = computed(() => {
   const datasetId = textConfig('dataset', '')
   return knowledgeDatasets.value.find((dataset) => dataset.id === datasetId)
 })
+
+const conditionNeedsValue = computed(() =>
+  !['EXISTS', 'NOT_EXISTS'].includes(textConfig('operator', 'EXISTS')),
+)
 
 const availableChatModels = computed(() =>
   modelStore.models.filter((model) => model.kind === 'chat' && model.status !== 'disabled'),
@@ -487,14 +497,6 @@ onMounted(() => {
           </div>
           <div class="flex shrink-0 items-center gap-1 text-text-muted">
             <button
-              v-if="canRunNode"
-              type="button"
-              class="grid h-8 w-8 place-items-center rounded-md hover:bg-app-bg2 hover:text-primary"
-              :title="t('workflow.testNode')"
-            >
-              <Play class="h-4 w-4" />
-            </button>
-            <button
               type="button"
               class="grid h-8 w-8 place-items-center rounded-md hover:bg-app-bg2 hover:text-primary"
               :title="t('workflow.openLogs')"
@@ -521,13 +523,6 @@ onMounted(() => {
             </button>
           </div>
         </div>
-
-        <input
-          class="mx-5 mt-5 w-[calc(100%-2.5rem)] rounded-md border border-transparent px-0 py-1 text-sm text-text-secondary outline-none placeholder:text-text-muted focus:border-app-border focus:px-2"
-          :placeholder="t('workflow.inspector.addDescription')"
-          :value="textConfig('description', '')"
-          @input="handleTextInput('description', $event)"
-        />
 
         <div class="mt-5 flex items-center gap-7 px-5">
           <button
@@ -889,27 +884,39 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'condition'" class="space-y-5 p-5">
-          <div v-for="branch in ['if', 'elif']" :key="branch" class="border-b border-app-border pb-5">
-            <div class="flex items-center justify-between gap-3">
-              <div>
-                <p class="text-sm font-semibold uppercase text-text-primary">{{ branch === 'if' ? 'IF' : 'ELIF' }}</p>
-                <p class="text-xs font-semibold uppercase text-text-muted">{{ branch === 'if' ? 'CASE1' : 'CASE2' }}</p>
-              </div>
-              <div class="flex items-center gap-2">
-                <button class="inline-flex items-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm font-medium text-text-primary">
-                  <Plus class="h-4 w-4" />
-                  {{ t('workflow.inspector.addCondition') }}
-                </button>
-                <button class="inline-flex items-center gap-1 text-sm font-medium text-text-secondary">
-                  <Trash2 class="h-4 w-4" />
-                  {{ t('workflow.inspector.remove') }}
-                </button>
-              </div>
-            </div>
+          <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.conditionHint') }}</p>
           </div>
-          <div>
-            <p class="text-sm font-semibold uppercase text-text-primary">ELSE</p>
-            <p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.elseHint') }}</p>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('variable', '')" @input="handleTextInput('variable', $event)" />
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionOperator') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('operator', 'EXISTS')" @change="handleTextInput('operator', $event)">
+              <option v-for="operator in conditionOperators" :key="operator.value" :value="operator.value">
+                {{ t(operator.labelKey) }}
+              </option>
+            </select>
+          </label>
+
+          <label v-if="conditionNeedsValue" class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionValue') }}</span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
+          </label>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionTrueBranch') }}</span>
+              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('trueBranch', 'true')" @input="handleTextInput('trueBranch', $event)" />
+            </label>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionFalseBranch') }}</span>
+              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('falseBranch', 'false')" @input="handleTextInput('falseBranch', $event)" />
+            </label>
           </div>
         </section>
 
@@ -1018,59 +1025,50 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'code'" class="space-y-5 p-5">
-          <div>
-            <div class="mb-3 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</p>
-              <Plus class="h-4 w-4 text-text-muted" />
-            </div>
-            <div class="space-y-2">
-              <div v-for="arg in ['arg1', 'arg2']" :key="arg" class="grid grid-cols-[110px_minmax(0,1fr)_24px] gap-2">
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :value="arg" readonly />
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" />
-                <Trash2 class="mt-2 h-4 w-4 text-text-muted" />
-              </div>
-            </div>
+          <div class="rounded-xl border border-status-warning/30 bg-amber-50 p-4">
+            <p class="text-sm font-semibold text-status-warning">{{ t('workflow.inspector.codeExecutionUnavailableTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.codeExecutionUnavailableHint') }}</p>
           </div>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.codeLanguage') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'python3')" @change="handleTextInput('language', $event)">
+              <option value="python3">Python 3</option>
+              <option value="javascript">JavaScript</option>
+              <option value="text">Text</option>
+            </select>
+          </label>
+
           <div class="overflow-hidden rounded-xl bg-app-bg2">
             <div class="flex items-center justify-between border-b border-app-border px-3 py-2 text-sm font-semibold text-text-primary">
-              <span>{{ t('workflow.inspector.python3') }}</span>
-              <div class="flex gap-2 text-text-muted"><Sparkles class="h-4 w-4" /><Copy class="h-4 w-4" /></div>
+              <span>{{ t('workflow.inspector.code') }}</span>
+              <span class="text-xs font-medium text-text-muted">{{ textConfig('language', 'python3') }}</span>
             </div>
-            <textarea class="h-48 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :value="textConfig('code', defaultPythonCode)" @input="handleTextInput('code', $event)" />
+            <textarea class="h-48 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultPythonCode" :value="textConfig('code', '')" @input="handleTextInput('code', $event)" />
           </div>
-          <div>
-            <div class="mb-3 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariablesRequired') }}</p>
-              <Plus class="h-4 w-4 text-text-muted" />
-            </div>
-            <div class="grid grid-cols-[minmax(0,1fr)_110px_24px] gap-2">
-              <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" value="result" />
-              <select class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm"><option>String</option><option>Number</option><option>Object</option></select>
-              <Trash2 class="mt-2 h-4 w-4 text-text-muted" />
-            </div>
-          </div>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'codeResult')" @input="handleTextInput('outputVariable', $event)" />
+          </label>
         </section>
 
         <section v-else-if="selectedKind === 'template-transform'" class="space-y-5 p-5">
-          <div>
-            <div class="mb-3 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</p>
-              <Plus class="h-4 w-4 text-text-muted" />
-            </div>
-            <div class="grid grid-cols-[110px_minmax(0,1fr)_24px] gap-2">
-              <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" value="arg1" />
-              <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" />
-              <Trash2 class="mt-2 h-4 w-4 text-text-muted" />
-            </div>
+          <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.templateVariablesTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.templateVariablesHint') }}</p>
           </div>
           <div class="overflow-hidden rounded-xl bg-app-bg2">
             <div class="flex items-center justify-between border-b border-app-border px-3 py-2 text-sm font-semibold text-text-primary">
               <span>{{ t('workflow.inspector.code') }}</span>
-              <span class="text-xs text-text-muted">{{ t('workflow.inspector.templateOnly') }}</span>
+              <span class="text-xs text-text-muted">{{ t('workflow.inspector.templateSyntax') }}</span>
             </div>
-            <textarea class="h-56 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :value="textConfig('template', defaultJinjaTemplate)" @input="handleTextInput('template', $event)" />
+            <textarea class="h-56 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultJinjaTemplate" :value="textConfig('template', '')" @input="handleTextInput('template', $event)" />
           </div>
-          <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'renderedText')" @input="handleTextInput('outputVariable', $event)" />
+          </label>
         </section>
 
         <section v-else-if="selectedKind === 'document-extractor'" class="space-y-5 p-5">
