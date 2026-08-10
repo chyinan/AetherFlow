@@ -91,6 +91,10 @@ aetherflow:
     listener-concurrent-consumers: ${AI_LISTENER_CONCURRENT_CONSUMERS:2}
     listener-max-concurrent-consumers: ${AI_LISTENER_MAX_CONCURRENT_CONSUMERS:6}
     listener-prefetch: ${AI_TASK_PREFETCH:2}
+    # Pricing snapshots are intentionally empty by default. Configure entries through Nacos or
+    # profile-specific YAML with provider, model, input/output USD per million tokens, source,
+    # and effective-at. Costs remain unknown unless both a matching snapshot and real usage exist.
+    pricing-snapshots: []
 
 feign:
   sentinel:

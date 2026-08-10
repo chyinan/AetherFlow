@@ -11,7 +11,7 @@ export interface AuthTokenResponse {
   roles: string[]
   tokenType: string
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
   expiresIn: number
   refreshExpiresIn: number
 }
@@ -40,12 +40,12 @@ export interface AuthRegisterRequest {
 }
 
 export interface AuthRefreshRequest {
-  refreshToken: string
+  refreshToken?: string
 }
 
 export interface AuthLogoutRequest {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
 }
 
 export interface AuthSessionUser extends AuthSessionUserSnapshot {
@@ -61,7 +61,7 @@ export interface AuthSessionUser extends AuthSessionUserSnapshot {
 
 export interface AuthSessionResult extends AuthSession {
   accessToken: string
-  refreshToken: string
+  refreshToken?: string
   expiresAt: number
   refreshExpiresAt: number
   tokenType: string
@@ -104,6 +104,11 @@ function readRequiredString(value: Record<string, unknown>, field: string) {
   return fieldValue
 }
 
+function readOptionalString(value: Record<string, unknown>, field: string) {
+  const fieldValue = value[field]
+  return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue : undefined
+}
+
 function readTokenType(value: Record<string, unknown>) {
   const tokenType = value.tokenType
   return typeof tokenType === 'string' && tokenType.trim() ? tokenType : 'Bearer'
@@ -134,7 +139,7 @@ function validateAuthTokenResponse(response: unknown): AuthTokenResponse {
 
   return {
     accessToken: readRequiredString(response, 'accessToken'),
-    refreshToken: readRequiredString(response, 'refreshToken'),
+    refreshToken: readOptionalString(response, 'refreshToken'),
     tokenType: readTokenType(response),
     expiresIn: readRequiredPositiveNumber(response, 'expiresIn'),
     refreshExpiresIn: readRequiredPositiveNumber(response, 'refreshExpiresIn'),
@@ -193,7 +198,7 @@ export async function register(payload: AuthRegisterRequest): Promise<AuthSessio
   return mapTokenResponse(response)
 }
 
-export async function refresh(payload: AuthRefreshRequest): Promise<AuthSessionResult> {
+export async function refresh(payload: AuthRefreshRequest = {}): Promise<AuthSessionResult> {
   const response = await apiClient.post<unknown>('/auth/refresh', payload, {
     source: 'auth',
   })

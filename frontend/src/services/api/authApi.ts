@@ -196,12 +196,8 @@ export const authApi = {
     return toLoginResult(await authRegister(payload))
   },
   async refresh(refreshToken = tokenManager.getRefreshToken()) {
-    if (!refreshToken) {
-      throw new Error('Refresh token is missing')
-    }
-
     try {
-      return toLoginResult(await authRefresh({ refreshToken }))
+      return toLoginResult(await authRefresh(refreshToken ? { refreshToken } : {}))
     } catch (error) {
       const currentSession = tokenManager.readSession()
       if (shouldUseMockFallback(error) && isMockSession(currentSession)) {
@@ -222,7 +218,7 @@ export const authApi = {
     }
   },
   async logout(session = tokenManager.readSession()) {
-    if (!session?.accessToken || !session.refreshToken) {
+    if (!session?.accessToken) {
       return delay(true, 80)
     }
 

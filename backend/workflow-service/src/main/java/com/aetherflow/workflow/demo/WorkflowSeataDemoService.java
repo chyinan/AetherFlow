@@ -9,12 +9,15 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import io.seata.spring.annotation.GlobalTransactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
+@Profile("dev")
 @RequiredArgsConstructor
 public class WorkflowSeataDemoService {
 
@@ -54,11 +57,12 @@ public class WorkflowSeataDemoService {
     private Long dispatchDemoTask(Long workflowInstanceId) {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setWorkflowInstanceId(workflowInstanceId);
+        message.setTraceId(UUID.randomUUID().toString().replace("-", ""));
         message.setNodeId("demo-seata-task");
         message.setNodeType("SEATA_DEMO");
         message.setPayload(Map.of("source", "workflow-service", "demo", "seata"));
         message.setEnqueue(false);
-        Result<Long> result = taskClient.dispatch(taskClientProperties.getInternalToken(), message);
+        Result<Long> result = taskClient.dispatch(taskClientProperties.issueInternalToken(), message);
         if (result == null || !result.isSuccess()) {
             String messageText = result == null ? "task-service returned null" : result.getMessage();
             throw new IllegalStateException("task-service dispatch failed: " + messageText);

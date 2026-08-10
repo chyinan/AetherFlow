@@ -6,10 +6,13 @@ import com.aetherflow.auth.dto.AuthRefreshRequest;
 import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.service.UserService;
 import com.aetherflow.auth.web.AuthRequestContext;
+import com.aetherflow.auth.web.RefreshTokenCookieService;
 import com.aetherflow.common.core.Result;
+import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.exception.BusinessException;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -17,6 +20,7 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -28,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.util.StringUtils;
 
 @Validated
 @RestController
@@ -37,6 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserController {
 
     private final UserService userService;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
     @PostMapping("/register")
     @Operation(summary = "Register user", description = "Creates an ENABLED user account, signs access and refresh tokens, and stores the Redis session.")
@@ -47,8 +53,10 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = UserRegisterRequest.class),
                             examples = @ExampleObject(value = "{\"username\":\"alice\",\"email\":\"alice@aetherflow.local\",\"password\":\"Password123\"}")))
             @Valid @RequestBody UserRegisterRequest request,
-                                              HttpServletRequest servletRequest) {
-        return Result.success(userService.register(request, AuthRequestContext.from(servletRequest)));
+                                              HttpServletRequest servletRequest,
+                                              HttpServletResponse servletResponse) {
+        return browserTokenResponse(userService.register(request, AuthRequestContext.from(servletRequest)),
+                servletRequest, servletResponse);
     }
 
     @PostMapping("/login")
@@ -60,8 +68,10 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = AuthLoginRequest.class),
                             examples = @ExampleObject(value = "{\"username\":\"alice\",\"password\":\"Password123\"}")))
             @Valid @RequestBody AuthLoginRequest request,
-                                           HttpServletRequest servletRequest) {
-        return Result.success(userService.login(request, AuthRequestContext.from(servletRequest)));
+                                           HttpServletRequest servletRequest,
+                                           HttpServletResponse servletResponse) {
+        return browserTokenResponse(userService.login(request, AuthRequestContext.from(servletRequest)),
+                servletRequest, servletResponse);
     }
 
     @PostMapping("/refresh")
@@ -69,12 +79,21 @@ public class UserController {
     public Result<AuthTokenResponse> refresh(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     description = "Refresh token payload.",
-                    required = true,
+                    required = false,
                     content = @Content(schema = @Schema(implementation = AuthRefreshRequest.class),
                             examples = @ExampleObject(value = "{\"refreshToken\":\"eyJhbGciOiJIUzI1NiJ9.refresh\"}")))
-            @Valid @RequestBody AuthRefreshRequest request,
-                                             HttpServletRequest servletRequest) {
-        return Result.success(userService.refresh(request, AuthRequestContext.from(servletRequest)));
+            @Valid @RequestBody(required = false) AuthRefreshRequest request,
+                                             HttpServletRequest servletRequest,
+                                             HttpServletResponse servletResponse) {
+        AuthRefreshRequest resolvedRequest = request == null ? new AuthRefreshRequest() : request;
+        if (!StringUtils.hasText(resolvedRequest.getRefreshToken())) {
+            resolvedRequest.setRefreshToken(refreshTokenCookieService.read(servletRequest));
+        }
+        if (!StringUtils.hasText(resolvedRequest.getRefreshToken())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "refresh token is required");
+        }
+        return browserTokenResponse(userService.refresh(resolvedRequest, AuthRequestContext.from(servletRequest)),
+                servletRequest, servletResponse);
     }
 
     @PostMapping("/logout")
@@ -86,9 +105,20 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = AuthLogoutRequest.class),
                             examples = @ExampleObject(value = "{\"accessToken\":\"eyJhbGciOiJIUzI1NiJ9.access\",\"refreshToken\":\"eyJhbGciOiJIUzI1NiJ9.refresh\"}")))
             @Valid @RequestBody AuthLogoutRequest request,
-                               HttpServletRequest servletRequest) {
-        userService.logout(request, AuthRequestContext.from(servletRequest));
-        return Result.success();
+                               HttpServletRequest servletRequest,
+                               HttpServletResponse servletResponse) {
+        if (!StringUtils.hasText(request.getRefreshToken())) {
+            request.setRefreshToken(refreshTokenCookieService.read(servletRequest));
+        }
+        if (!StringUtils.hasText(request.getRefreshToken())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "refresh token is required");
+        }
+        try {
+            userService.logout(request, AuthRequestContext.from(servletRequest));
+            return Result.success();
+        } finally {
+            refreshTokenCookieService.clear(servletRequest, servletResponse);
+        }
     }
 
     @GetMapping("/status")
@@ -113,5 +143,13 @@ public class UserController {
             @Parameter(description = "Comma-separated roles forwarded by gateway.", example = "USER,ADMIN")
             @NotBlank @RequestHeader(value = "X-Roles", required = false) String roles) {
         return Result.success(userService.currentUser(userId, username, roles));
+    }
+
+    private Result<AuthTokenResponse> browserTokenResponse(AuthTokenResponse token,
+                                                            HttpServletRequest request,
+                                                            HttpServletResponse response) {
+        refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
+        token.setRefreshToken(null);
+        return Result.success(token);
     }
 }

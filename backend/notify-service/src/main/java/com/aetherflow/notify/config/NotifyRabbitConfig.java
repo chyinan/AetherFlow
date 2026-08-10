@@ -42,6 +42,7 @@ public class NotifyRabbitConfig {
                                          Jackson2JsonMessageConverter messageConverter) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
+        rabbitTemplate.setObservationEnabled(true);
         return rabbitTemplate;
     }
 }

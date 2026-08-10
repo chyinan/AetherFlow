@@ -57,7 +57,7 @@ export interface ConversationLog {
   channel: 'web' | 'api' | 'console'
   intent: string
   status: 'success' | 'failed' | 'running'
-  tokens: number
+  tokens: number | null
   cost: string
   feedback: 'like' | 'dislike' | 'none'
   reviewRequired: boolean

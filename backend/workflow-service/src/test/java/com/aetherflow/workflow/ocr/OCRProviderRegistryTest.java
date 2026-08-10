@@ -23,11 +23,26 @@ class OCRProviderRegistryTest {
         OCRProvider mock = provider("mock");
         OCRProperties properties = new OCRProperties();
         properties.setDefaultProvider("tesseract");
+        properties.setMock(true);
         OCRProviderRegistry registry = new OCRProviderRegistry(List.of(tesseract, mock), properties);
 
         OCRProvider selected = registry.select(OCRNodeConfig.from(Map.of("mock", true), properties));
 
         assertThat(selected).isSameAs(mock);
+    }
+
+    @Test
+    void rejectsMockProviderWhenMockModeIsDisabled() {
+        OCRProvider tesseract = provider("tesseract");
+        OCRProvider mock = provider("mock");
+        OCRProperties properties = new OCRProperties();
+        properties.setDefaultProvider("tesseract");
+        properties.setMock(false);
+        OCRProviderRegistry registry = new OCRProviderRegistry(List.of(tesseract, mock), properties);
+
+        assertThatThrownBy(() -> registry.select(OCRNodeConfig.from(Map.of("provider", "mock"), properties)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST));
     }
 
     @Test

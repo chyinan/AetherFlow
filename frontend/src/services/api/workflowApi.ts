@@ -11,6 +11,7 @@ import {
 } from '@/api/modules/workflow'
 import { useAuthStore } from '@/stores/authStore'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowSummary } from '@/types/workflow'
+import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
 
 const DEFINITION_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendDefinitionLinks'
 const RUN_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendRunLinks'
@@ -101,7 +102,7 @@ function formatDateTime(value?: string) {
     return value
   }
 
-  return date.toLocaleString('zh-CN', { hour12: false })
+  return formatLocaleDateTime(date)
 }
 
 interface BackendWorkflowNode {

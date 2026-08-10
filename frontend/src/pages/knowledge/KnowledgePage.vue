@@ -15,13 +15,15 @@ import {
   Workflow,
   Zap,
 } from 'lucide-vue-next'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { useDifyStore } from '@/stores/difyStore'
+import { knowledgeContentFromFile, useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import type { SurfaceStatus } from '@/types/dify'
+import { splitTextForPreview } from '@/utils/textChunkPreview'
+import { isSupportedKnowledgeFile } from '@/utils/knowledgeFileSupport'
 
 type ViewMode = 'datasets' | 'create' | 'documents'
 type CreateStep = 1 | 2 | 3
@@ -55,7 +57,11 @@ const documentSearchText = ref('')
 const retrievalQuery = ref('workflow retrieval configuration')
 const wizardDatasetName = ref('')
 const previewLoaded = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+const previewChunks = ref<Array<{ title: string; text: string }>>([])
 const processingProgress = ref(0)
+const processingError = ref('')
 const createdDatasetId = ref('')
 const chunkDelimiter = ref('\\n\\n')
 const maxChunkLength = ref(1024)
@@ -66,11 +72,11 @@ const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const deletingDatasetId = ref('')
 
-let progressTimer: number | undefined
-
 const selectedDataset = computed(() => difyStore.selectedDataset)
 const selectedDatasetDocuments = computed(() => difyStore.selectedDatasetDocuments)
-const importableFiles = computed(() => fileStore.files.filter((file) => file.status !== 'failed'))
+const importableFiles = computed(() => fileStore.files.filter((file) =>
+  file.status !== 'failed' && isSupportedKnowledgeFile(file),
+))
 const selectedFile = computed(() => importableFiles.value.find((file) => file.id === selectedFileId.value))
 const selectedFileName = computed(() => {
   return selectedFile.value?.name ?? t('knowledge.flow.sampleFileName')
@@ -146,21 +152,6 @@ const datasetDocuments = computed<DatasetDocumentRow[]>(() => {
     }))
 })
 
-const previewChunks = computed(() => [
-  {
-    title: t('knowledge.flow.previewChunkTitle', { index: 1 }),
-    text: selectedFile.value?.result || t('knowledge.flow.mockChunkOne'),
-  },
-  {
-    title: t('knowledge.flow.previewChunkTitle', { index: 2 }),
-    text: t('knowledge.flow.mockChunkTwo'),
-  },
-  {
-    title: t('knowledge.flow.previewChunkTitle', { index: 3 }),
-    text: t('knowledge.flow.mockChunkThree'),
-  },
-])
-
 function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
   if (status === 'running') return 'running'
   if (status === 'warning' || status === 'disabled') return 'warning'
@@ -172,6 +163,8 @@ function openCreateFlow(preferredSource: SourceType = 'file') {
   createStep.value = 1
   sourceType.value = preferredSource
   previewLoaded.value = false
+  previewChunks.value = []
+  previewError.value = ''
   processingProgress.value = 0
   createdDatasetId.value = ''
   selectedFileId.value = selectedFileId.value || importableFiles.value[0]?.id || ''
@@ -190,6 +183,9 @@ async function openDataset(datasetId: string) {
 }
 
 function continueFromSource() {
+  if (!selectedFile.value) {
+    return
+  }
   wizardDatasetName.value = finalDatasetName.value
   createStep.value = 2
 }
@@ -206,40 +202,57 @@ function resetSegmentation() {
   previewLoaded.value = false
 }
 
-function previewSegments() {
-  previewLoaded.value = true
+async function previewSegments() {
+  if (!selectedFile.value) {
+    previewError.value = t('knowledge.fileContentUnavailable')
+    return
+  }
+  previewLoading.value = true
+  previewError.value = ''
+  try {
+    const content = await knowledgeContentFromFile(selectedFile.value)
+    previewChunks.value = splitTextForPreview(content, maxChunkLength.value, overlapLength.value)
+      .slice(0, 20)
+      .map((text, index) => ({
+        title: t('knowledge.flow.previewChunkTitle', { index: index + 1 }),
+        text,
+      }))
+    previewLoaded.value = true
+  } catch (error) {
+    previewLoaded.value = false
+    previewChunks.value = []
+    previewError.value = error instanceof Error ? error.message : t('common.error')
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 async function saveAndProcess() {
-  if (progressTimer) {
-    window.clearInterval(progressTimer)
+  if (!selectedFile.value) {
+    processingError.value = t('knowledge.fileContentUnavailable')
+    return
   }
   createStep.value = 3
-  processingProgress.value = 15
-
-  progressTimer = window.setInterval(() => {
-    processingProgress.value = Math.min(90, processingProgress.value + 15)
-  }, 280)
-
-  const dataset = await difyStore.createDatasetFromWizard({
-    name: finalDatasetName.value,
-    sourceName: selectedFileName.value,
-    file: selectedFile.value,
-    preview: selectedFile.value?.result,
-    segmentMode: segmentMode.value === 'general' ? t('knowledge.flow.generalMode') : t('knowledge.flow.parentChildMode'),
-    indexingMode: indexMode.value === 'economy' ? t('knowledge.flow.economy') : t('knowledge.flow.highQuality'),
-    retrievalMode: t('knowledge.flow.invertedIndex'),
-    embeddingModel: indexMode.value === 'quality' ? 'text-embedding-3-small' : 'keyword sparse index',
-    chunkSize: maxChunkLength.value,
-    overlap: overlapLength.value,
-  })
-  createdDatasetId.value = dataset.id
-
-  if (progressTimer) {
-    window.clearInterval(progressTimer)
-    progressTimer = undefined
+  processingProgress.value = 0
+  processingError.value = ''
+  try {
+    const dataset = await difyStore.createDatasetFromWizard({
+      name: finalDatasetName.value,
+      sourceName: selectedFileName.value,
+      file: selectedFile.value,
+      preview: selectedFile.value?.result,
+      segmentMode: segmentMode.value === 'general' ? t('knowledge.flow.generalMode') : t('knowledge.flow.parentChildMode'),
+      indexingMode: indexMode.value === 'economy' ? t('knowledge.flow.economy') : t('knowledge.flow.highQuality'),
+      retrievalMode: t('knowledge.flow.invertedIndex'),
+      embeddingModel: indexMode.value === 'quality' ? 'text-embedding-3-small' : 'keyword sparse index',
+      chunkSize: maxChunkLength.value,
+      overlap: overlapLength.value,
+    })
+    createdDatasetId.value = dataset.id
+    processingProgress.value = 100
+  } catch (error) {
+    processingError.value = error instanceof Error ? error.message : t('common.error')
   }
-  processingProgress.value = 100
 }
 
 async function goToCreatedDocuments() {
@@ -269,6 +282,9 @@ async function handleSourceUpload(event: Event) {
 }
 
 async function importSelectedFileToDataset() {
+  if (!selectedFile.value) {
+    return
+  }
   await difyStore.importFileToSelectedDataset(selectedFile.value, {
     chunkSize: maxChunkLength.value,
     overlap: overlapLength.value,
@@ -302,11 +318,6 @@ onMounted(async () => {
   await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
 })
 
-onUnmounted(() => {
-  if (progressTimer) {
-    window.clearInterval(progressTimer)
-  }
-})
 </script>
 
 <template>
@@ -362,7 +373,7 @@ onUnmounted(() => {
               </span>
               <div class="flex min-w-[220px] items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2">
                 <Search class="h-4 w-4 text-text-muted" />
-                <input v-model="searchText" class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted" :placeholder="t('knowledge.flow.searchKnowledge')" />
+                <input v-model="searchText" class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted" :placeholder="t('knowledge.flow.searchKnowledge')" :aria-label="t('knowledge.flow.searchKnowledge')" />
               </div>
             </div>
           </div>
@@ -470,8 +481,15 @@ onUnmounted(() => {
                 {{ t('knowledge.flow.chooseFile') }}
               </button>
               <div v-if="fileStore.uploading" class="mx-auto mt-4 max-w-sm">
-                <div class="h-2 overflow-hidden rounded-full bg-white">
-                  <div class="h-full rounded-full bg-primary transition-all" :style="{ width: `${fileStore.uploadProgress}%` }" />
+                <div
+                  class="h-2 overflow-hidden rounded-full bg-white"
+                  role="progressbar"
+                  :aria-label="t('knowledge.flow.uploadTextFile')"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-valuenow="fileStore.uploadProgress"
+                >
+                  <div class="h-full rounded-full bg-primary transition-[width]" :style="{ width: `${fileStore.uploadProgress}%` }" />
                 </div>
                 <p class="mt-1 text-xs text-text-muted">{{ fileStore.uploadProgress }}%</p>
               </div>
@@ -487,7 +505,12 @@ onUnmounted(() => {
                   </option>
                 </select>
               </label>
-              <button type="button" class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node" @click="continueFromSource">
+              <button
+                type="button"
+                class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="!selectedFile"
+                @click="continueFromSource"
+              >
                 {{ t('knowledge.flow.nextStep') }}
               </button>
             </div>
@@ -559,9 +582,9 @@ onUnmounted(() => {
                       {{ t('knowledge.flow.cleanUrls') }}
                     </label>
                     <div class="flex flex-wrap gap-2 pt-1">
-                      <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-primary" @click="previewSegments">
+                      <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-primary disabled:opacity-60" :disabled="previewLoading" @click="previewSegments">
                         <Search class="h-4 w-4" />
-                        {{ t('knowledge.flow.previewChunks') }}
+                        {{ previewLoading ? t('common.loading') : t('knowledge.flow.previewChunks') }}
                       </button>
                       <button type="button" class="rounded-md px-3 py-2 text-sm text-text-secondary hover:bg-app-bg2" @click="resetSegmentation">
                         {{ t('common.reset') }}
@@ -569,6 +592,8 @@ onUnmounted(() => {
                     </div>
                   </div>
                 </div>
+
+                <p v-if="previewError" role="alert" class="mt-3 text-sm text-status-error">{{ previewError }}</p>
 
                 <div class="mt-6">
                   <p class="text-sm font-semibold text-text-primary">{{ t('knowledge.flow.indexMethod') }}</p>
@@ -611,7 +636,12 @@ onUnmounted(() => {
                   <button type="button" class="rounded-md border border-app-border bg-white px-4 py-2 text-sm text-text-secondary" @click="createStep = 1">
                     {{ t('knowledge.flow.previousStep') }}
                   </button>
-                  <button type="button" class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node" @click="saveAndProcess">
+                  <button
+                    type="button"
+                    class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled="!selectedFile"
+                    @click="saveAndProcess"
+                  >
                     {{ t('knowledge.flow.saveAndProcess') }}
                   </button>
                 </div>
@@ -672,9 +702,10 @@ onUnmounted(() => {
                     <span class="rounded-md bg-white px-2 py-1 text-xs text-primary">{{ t('knowledge.flow.standard') }}</span>
                   </div>
                   <div class="overflow-hidden rounded-full bg-app-bg2">
-                    <div class="h-3 rounded-full bg-primary transition-all" :style="{ width: `${processingProgress}%` }" />
+                    <div class="h-3 rounded-full bg-primary transition-[width]" :style="{ width: `${processingProgress}%` }" />
                   </div>
                   <div class="mt-2 text-right text-xs font-medium text-text-secondary">{{ processingProgress }}%</div>
+                  <p v-if="processingError" role="alert" class="mt-3 text-sm text-status-error">{{ processingError }}</p>
                 </div>
 
                 <dl class="mt-6 grid gap-3 text-sm md:grid-cols-2">
@@ -716,7 +747,6 @@ onUnmounted(() => {
               <BookOpen class="h-8 w-8 text-primary" />
               <p class="mt-5 text-lg font-semibold text-text-primary">{{ t('knowledge.flow.nextThings') }}</p>
               <p class="mt-3 text-sm leading-6 text-text-secondary">{{ t('knowledge.flow.nextThingsHint') }}</p>
-              <button class="mt-5 text-sm font-medium text-primary">{{ t('knowledge.flow.learnMore') }}</button>
             </aside>
           </div>
         </div>
@@ -777,10 +807,7 @@ onUnmounted(() => {
           <div class="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div class="min-w-0">
               <p class="text-xl font-semibold text-text-primary">{{ t('knowledge.flow.documentsTitle') }}</p>
-              <p class="mt-1 text-sm leading-6 text-text-secondary">
-                {{ t('knowledge.flow.documentsHint') }}
-                <button class="ml-1 font-medium text-primary">{{ t('knowledge.flow.learnMore') }}</button>
-              </p>
+              <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('knowledge.flow.documentsHint') }}</p>
             </div>
             <div class="flex shrink-0 items-center gap-2">
               <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateFlow()">
@@ -791,13 +818,12 @@ onUnmounted(() => {
           </div>
 
           <div class="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center">
-            <button class="inline-flex items-center justify-between rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary xl:w-44">
+            <span class="inline-flex items-center rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary xl:w-44">
               {{ t('common.all') }}
-              <ChevronDown class="h-4 w-4" />
-            </button>
+            </span>
             <div class="flex min-w-[240px] items-center gap-2 rounded-md border border-app-border bg-app-bg2 px-3 py-2">
               <Search class="h-4 w-4 text-text-muted" />
-              <input v-model="documentSearchText" class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted" :placeholder="t('common.search')" />
+              <input v-model="documentSearchText" class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted" :placeholder="t('common.search')" :aria-label="t('common.search')" />
             </div>
             <span class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary">
               {{ t('knowledge.flow.sortUploadTime') }}
@@ -806,8 +832,7 @@ onUnmounted(() => {
           </div>
 
           <div class="mt-5 overflow-x-auto rounded-lg border border-app-border bg-white">
-            <div class="grid min-w-[860px] grid-cols-[48px_56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] bg-app-bg2 px-4 py-3 text-xs font-semibold text-text-muted">
-              <span><input type="checkbox" class="h-4 w-4 rounded border-app-border" /></span>
+            <div class="grid min-w-[812px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] bg-app-bg2 px-4 py-3 text-xs font-semibold text-text-muted">
               <span>#</span>
               <span>{{ t('settings.name') }}</span>
               <span>{{ t('knowledge.flow.segmentModeLabel') }}</span>
@@ -819,9 +844,8 @@ onUnmounted(() => {
             <div
               v-for="(document, index) in datasetDocuments"
               :key="document.id"
-              class="grid min-w-[860px] grid-cols-[48px_56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] items-center border-t border-app-border px-4 py-3 text-sm"
+              class="grid min-w-[812px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] items-center border-t border-app-border px-4 py-3 text-sm"
             >
-              <span><input type="checkbox" class="h-4 w-4 rounded border-app-border" /></span>
               <span class="text-text-muted">{{ index + 1 }}</span>
               <span class="flex min-w-0 items-center gap-2">
                 <FileText class="h-4 w-4 shrink-0 text-primary" />
@@ -874,7 +898,11 @@ onUnmounted(() => {
                   <p class="text-xs text-text-muted">{{ t('knowledge.retrievalMode') }}</p>
                   <p class="mt-1 text-text-primary">{{ selectedDataset?.retrievalMode }}</p>
                 </div>
-                <button class="rounded-md border border-app-border px-3 py-2 text-sm font-medium text-text-secondary" @click="importSelectedFileToDataset">
+                <button
+                  class="rounded-md border border-app-border px-3 py-2 text-sm font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="!selectedFile"
+                  @click="importSelectedFileToDataset"
+                >
                   {{ t('knowledge.importSelected') }}
                 </button>
               </div>

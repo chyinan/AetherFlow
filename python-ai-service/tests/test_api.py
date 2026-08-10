@@ -1,6 +1,7 @@
 import unittest
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -13,6 +14,9 @@ from app.main import app
 class PythonAiServiceApiTest(unittest.TestCase):
 
     def setUp(self):
+        self.environment = patch.dict("os.environ", {"APP_ENV": "dev"}, clear=False)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         self.client = TestClient(app)
 
     def test_status_reports_provider_and_runtime_capabilities(self):
@@ -131,6 +135,19 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertEqual("srt", body["format"])
         self.assertIn("00:00:00,000 --> 00:00:02,000", body["content"])
         self.assertIn("hello world", body["content"])
+
+    def test_provider_usage_metadata_preserves_real_token_counts(self):
+        from app.main import _ollama_usage_metadata, _openai_usage_metadata
+
+        openai_metadata = _openai_usage_metadata(SimpleNamespace(usage=SimpleNamespace(
+            prompt_tokens=12,
+            completion_tokens=7,
+            total_tokens=19,
+        )))
+        ollama_metadata = _ollama_usage_metadata({"prompt_eval_count": 9, "eval_count": 4})
+
+        self.assertEqual({"promptTokens": 12, "completionTokens": 7, "totalTokens": 19}, openai_metadata)
+        self.assertEqual({"promptTokens": 9, "completionTokens": 4, "totalTokens": 13}, ollama_metadata)
 
 
 if __name__ == "__main__":

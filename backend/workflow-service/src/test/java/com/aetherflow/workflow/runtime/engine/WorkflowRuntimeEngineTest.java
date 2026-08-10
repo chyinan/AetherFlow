@@ -13,6 +13,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
+import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -32,6 +33,80 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkflowRuntimeEngineTest {
+
+    @Test
+    void releasesRuntimeThreadWhileNodeWaitsAndContinuesAfterExternalCompletion() {
+        AtomicInteger asyncDispatches = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("ASYNC_AI", context -> {
+                    asyncDispatches.incrementAndGet();
+                    return NodeResult.waiting(Map.of("externalTaskId", 91L));
+                }),
+                executor("EXPORT", context -> {
+                    assertThat(context.variables()).containsEntry("summary", "done");
+                    return NodeResult.success(Map.of("exported", true));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async", "trace-async", "task-async",
+                definition(
+                        node("node-ai", "ASYNC_AI", Map.of()),
+                        node("node-export", "EXPORT", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+
+        assertThat(waiting.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        assertThat(waiting.currentNodeIds()).containsExactly("node-ai");
+        assertThat(waiting.completedNodeIds()).doesNotContain("node-ai");
+
+        WorkflowExecutionSnapshot completed = engine.completeWaitingNode(
+                request,
+                waiting,
+                "node-ai",
+                NodeResult.success(Map.of("summary", "done"), Map.of("summary", "done")));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).containsExactly("node-ai", "node-export");
+        assertThat(asyncDispatches).hasValue(1);
+    }
+
+    @Test
+    void reloadsLatestWaitingSnapshotWhenParallelExternalResultsUseSameInitialSnapshot() {
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("LEFT", context -> NodeResult.waiting(Map.of("externalTaskId", 1L))),
+                executor("RIGHT", context -> NodeResult.waiting(Map.of("externalTaskId", 2L)))
+        ));
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry,
+                new RuntimeStateMachine(),
+                event -> {},
+                RuntimeSleeper.threadSleep(),
+                snapshots);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-parallel-wait", "trace-parallel-wait", "task-parallel-wait",
+                definition(
+                        node("start", "START", Map.of("nextNodes", List.of("left", "right"))),
+                        node("left", "LEFT", Map.of()),
+                        node("right", "RIGHT", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot initialWaiting = engine.execute(request);
+        WorkflowExecutionSnapshot afterLeft = engine.completeWaitingNode(
+                request, initialWaiting, "left", NodeResult.success(Map.of("left", true)));
+        WorkflowExecutionSnapshot completed = engine.completeWaitingNode(
+                request, initialWaiting, "right", NodeResult.success(Map.of("right", true)));
+
+        assertThat(afterLeft.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        assertThat(afterLeft.currentNodeIds()).containsExactly("right");
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).contains("start", "left", "right");
+    }
 
     @Test
     void executesSequentialDagUsingRegisteredNodeExecutors() {

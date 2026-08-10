@@ -2,6 +2,7 @@ package com.aetherflow.auth.oauth;
 
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
+import com.aetherflow.auth.web.RefreshTokenCookieService;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import jakarta.servlet.ServletException;
@@ -28,6 +29,7 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
     private final GoogleOAuthLoginService googleOAuthLoginService;
     private final AuthProperties authProperties;
     private final GoogleOAuthRedirectStateService redirectStateService;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
@@ -35,6 +37,8 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
         try {
             GoogleOAuthUser googleUser = toGoogleUser(authentication);
             GoogleOAuthLoginResult result = googleOAuthLoginService.loginOrRegister(googleUser);
+            AuthTokenResponse token = result.tokenResponse();
+            refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
             response.sendRedirect(successRedirectUrl(result.tokenResponse(),
                     redirectStateService.consumeRedirectPath(request.getParameter("state"))));
         } catch (RuntimeException exception) {
@@ -63,7 +67,6 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
     private String successRedirectUrl(AuthTokenResponse token, String redirectPath) {
         StringJoiner fragment = new StringJoiner("&");
         fragment.add("accessToken=" + encode(token.getAccessToken()));
-        fragment.add("refreshToken=" + encode(token.getRefreshToken()));
         fragment.add("tokenType=" + encode(token.getTokenType()));
         fragment.add("expiresIn=" + token.getExpiresIn());
         fragment.add("refreshExpiresIn=" + token.getRefreshExpiresIn());

@@ -2,16 +2,20 @@ spring:
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:mysql}
+    password: ${MYSQL_PASSWORD}
   data:
     redis:
       host: ${REDIS_HOST:redis}
+      password: ${REDIS_PASSWORD}
   rabbitmq:
     host: ${RABBITMQ_HOST:rabbitmq}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:aetherflow}
-    password: ${RABBITMQ_PASSWORD:aetherflow}
+    password: ${RABBITMQ_PASSWORD}
     virtual-host: ${RABBITMQ_VHOST:/}
+    listener:
+      simple:
+        default-requeue-rejected: true
   ai:
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
@@ -19,8 +23,14 @@ spring:
     nacos:
       discovery:
         server-addr: ${NACOS_ADDR:nacos:8848}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
       config:
         server-addr: ${NACOS_ADDR:nacos:8848}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+        namespace: ${NACOS_NAMESPACE:}
     sentinel:
       transport:
         dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
@@ -39,13 +49,20 @@ seata:
 aetherflow:
   minio:
     endpoint: ${MINIO_ENDPOINT:http://minio:9000}
-    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
+  file:
+    internal-token: ${FILE_INTERNAL_TOKEN}
+  task:
+    internal-token: ${TASK_INTERNAL_TOKEN}
   workflow:
+    node:
+      file-internal-token: ${FILE_INTERNAL_TOKEN}
+      async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
     embedding:
       ollama-base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
     ocr:
-      mock: ${WORKFLOW_OCR_MOCK:true}
-      default-provider: ${WORKFLOW_OCR_PROVIDER:mock}
+      mock: ${WORKFLOW_OCR_MOCK:false}
+      default-provider: ${WORKFLOW_OCR_PROVIDER:tesseract}
 
 springdoc:
   api-docs:

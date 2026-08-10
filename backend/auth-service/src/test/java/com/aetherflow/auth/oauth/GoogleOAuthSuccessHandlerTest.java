@@ -2,6 +2,7 @@ package com.aetherflow.auth.oauth;
 
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
+import com.aetherflow.auth.web.RefreshTokenCookieService;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,8 @@ class GoogleOAuthSuccessHandlerTest {
         authProperties = new AuthProperties();
         authProperties.getOauth().getGoogle().setFrontendBaseUrl("http://localhost:5173");
         authProperties.getOauth().getGoogle().setSuccessPath("/auth/oauth/callback");
-        successHandler = new GoogleOAuthSuccessHandler(loginService, authProperties, redirectStateService);
+        successHandler = new GoogleOAuthSuccessHandler(loginService, authProperties, redirectStateService,
+                new RefreshTokenCookieService());
     }
 
     @Test
@@ -62,7 +64,7 @@ class GoogleOAuthSuccessHandlerTest {
         assertThat(response.getRedirectedUrl())
                 .startsWith("http://localhost:5173/auth/oauth/callback#")
                 .contains("accessToken=access-token")
-                .contains("refreshToken=refresh-token")
+                .doesNotContain("refreshToken=")
                 .contains("tokenType=Bearer")
                 .contains("expiresIn=7200")
                 .contains("refreshExpiresIn=604800")
@@ -70,6 +72,10 @@ class GoogleOAuthSuccessHandlerTest {
                 .contains("username=alice")
                 .contains("roles=USER")
                 .contains("redirect=%2Fprojects");
+        assertThat(response.getHeader("Set-Cookie"))
+                .contains("aetherflow_refresh=refresh-token")
+                .contains("HttpOnly")
+                .contains("SameSite=Strict");
 
         ArgumentCaptor<GoogleOAuthUser> userCaptor = ArgumentCaptor.forClass(GoogleOAuthUser.class);
         verify(loginService).loginOrRegister(userCaptor.capture());

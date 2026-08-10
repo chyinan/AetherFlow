@@ -1,19 +1,18 @@
 package com.aetherflow.ai.provider;
 
 import com.aetherflow.ai.config.AiTaskProperties;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.time.Instant;
 
 @Service
-@RequiredArgsConstructor
 public class ProviderCatalogService {
 
     private static final String SOURCE = "backend-static-metadata";
@@ -23,19 +22,35 @@ public class ProviderCatalogService {
                     null,
                     null,
                     "external pricing not configured",
-                    SOURCE
+                    SOURCE,
+                    null
             );
     private static final ProviderCatalogResponse.ProviderCatalogPricing LOCAL_PRICING =
             new ProviderCatalogResponse.ProviderCatalogPricing(
                     "tokens",
-                    BigDecimal.ZERO,
-                    BigDecimal.ZERO,
-                    "local runtime",
-                    SOURCE
+                    null,
+                    null,
+                    "local runtime cost is not metered",
+                    SOURCE,
+                    null
             );
 
     private final AiTaskProperties properties;
     private final ProviderRuntimeCatalogClient runtimeCatalogClient;
+    private final ProviderPricingSnapshotService pricingSnapshotService;
+
+    public ProviderCatalogService(AiTaskProperties properties, ProviderRuntimeCatalogClient runtimeCatalogClient) {
+        this(properties, runtimeCatalogClient, new ProviderPricingSnapshotService(properties));
+    }
+
+    @Autowired
+    public ProviderCatalogService(AiTaskProperties properties,
+                                  ProviderRuntimeCatalogClient runtimeCatalogClient,
+                                  ProviderPricingSnapshotService pricingSnapshotService) {
+        this.properties = properties;
+        this.runtimeCatalogClient = runtimeCatalogClient;
+        this.pricingSnapshotService = pricingSnapshotService;
+    }
 
     public ProviderCatalogResponse catalog(ProviderRoutingPolicy routingPolicy) {
         ProviderRoutingPolicy policy = routingPolicy == null ? new ProviderRoutingPolicy() : routingPolicy.normalized();
@@ -92,7 +107,7 @@ public class ProviderCatalogService {
                     "provider-managed://ollama",
                     catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "summary", "translate", "local fallback", "offline capable"),
-                    Map.of("pricingConfigured", true, "managedBy", "python-ai-service")
+                    Map.of("pricingConfigured", false, "localCostMetered", false, "managedBy", "python-ai-service")
             );
             case LOCAL_MODEL -> new ProviderCatalogResponse.ProviderCatalogProvider(
                     providerId(provider),
@@ -103,7 +118,7 @@ public class ProviderCatalogService {
                     "provider-managed://local-model",
                     catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "private runtime", "contract pending"),
-                    Map.of("pricingConfigured", true, "managedBy", "python-ai-service")
+                    Map.of("pricingConfigured", false, "localCostMetered", false, "managedBy", "python-ai-service")
             );
         };
     }
@@ -240,6 +255,16 @@ public class ProviderCatalogService {
                                                                List<String> capabilities,
                                                                List<String> tags,
                                                                String status) {
+        ProviderCatalogResponse.ProviderCatalogPricing effectivePricing = pricingSnapshotService
+                .find(provider, name, Instant.now())
+                .map(snapshot -> new ProviderCatalogResponse.ProviderCatalogPricing(
+                        "tokens",
+                        snapshot.inputUsdPerMillionTokens(),
+                        snapshot.outputUsdPerMillionTokens(),
+                        "configured pricing snapshot",
+                        snapshot.source(),
+                        snapshot.effectiveAt()))
+                .orElse(pricing);
         return new ProviderCatalogResponse.ProviderCatalogModel(
                 modelId(provider, name),
                 providerId(provider),
@@ -248,7 +273,7 @@ public class ProviderCatalogService {
                 kind,
                 contextWindow,
                 contextWindowTokens,
-                pricing,
+                effectivePricing,
                 List.copyOf(capabilities),
                 List.copyOf(tags),
                 status

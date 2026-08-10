@@ -1,3 +1,5 @@
+# pattern: Mixed (needs refactoring)
+# Reason: the existing FastAPI entrypoint still combines HTTP orchestration with runtime adapters.
 import ipaddress
 import logging
 import os
@@ -45,6 +47,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0", lifespan=lifespan)
+
+
+def _configure_telemetry() -> None:
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "").strip()
+    if not endpoint:
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.instrumentation.requests import RequestsInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    except ImportError:
+        logging.getLogger(__name__).warning("OpenTelemetry endpoint configured but instrumentation packages are unavailable")
+        return
+
+    provider = TracerProvider(resource=Resource.create({
+        "service.name": os.getenv("OTEL_SERVICE_NAME", "python-ai-service"),
+    }))
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+    HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+    RequestsInstrumentor().instrument(tracer_provider=provider)
+
+
+_configure_telemetry()
 
 
 class TranscriptionRequest(BaseModel):
@@ -401,7 +433,9 @@ def _call_openai(request: LlmRequest) -> LlmResponse:
         temperature=float(request.options.get("temperature", 0.2)),
     )
     text = completion.choices[0].message.content or ""
-    return LlmResponse(provider="openai", model=request.model, text=text, metadata={"finishReason": completion.choices[0].finish_reason})
+    metadata = {"finishReason": completion.choices[0].finish_reason}
+    metadata.update(_openai_usage_metadata(completion))
+    return LlmResponse(provider="openai", model=request.model, text=text, metadata=metadata)
 
 
 def _call_ollama(request: LlmRequest) -> LlmResponse:
@@ -413,7 +447,34 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
         prompt=request.prompt,
         options=request.options,
     )
-    return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata={"done": response.get("done", False)})
+    metadata = {"done": response.get("done", False)}
+    metadata.update(_ollama_usage_metadata(response))
+    return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata=metadata)
+
+
+def _openai_usage_metadata(completion: Any) -> dict[str, int]:
+    usage = getattr(completion, "usage", None)
+    if usage is None:
+        return {}
+    values = {
+        "promptTokens": getattr(usage, "prompt_tokens", None),
+        "completionTokens": getattr(usage, "completion_tokens", None),
+        "totalTokens": getattr(usage, "total_tokens", None),
+    }
+    return {key: int(value) for key, value in values.items() if isinstance(value, int) and value >= 0}
+
+
+def _ollama_usage_metadata(response: dict[str, Any]) -> dict[str, int]:
+    prompt_tokens = response.get("prompt_eval_count")
+    completion_tokens = response.get("eval_count")
+    metadata: dict[str, int] = {}
+    if isinstance(prompt_tokens, int) and prompt_tokens >= 0:
+        metadata["promptTokens"] = prompt_tokens
+    if isinstance(completion_tokens, int) and completion_tokens >= 0:
+        metadata["completionTokens"] = completion_tokens
+    if "promptTokens" in metadata and "completionTokens" in metadata:
+        metadata["totalTokens"] = metadata["promptTokens"] + metadata["completionTokens"]
+    return metadata
 
 
 def _ollama_model_names() -> list[str]:
@@ -427,7 +488,7 @@ def _ollama_model_names() -> list[str]:
             if name and name not in names:
                 names.append(name)
         return names
-    except (ConnectionError, TimeoutError, OSError) as exc:
+    except (httpx.HTTPError, ConnectionError, TimeoutError, OSError) as exc:
         logger.warning("Failed to list Ollama models: %s", exc)
         return []
 

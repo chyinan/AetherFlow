@@ -9,7 +9,7 @@ import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.embedding.metrics.EmbeddingMetrics;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
-import com.aetherflow.workflow.embedding.store.MockVectorStore;
+import com.aetherflow.workflow.embedding.store.InMemoryVectorStore;
 import com.aetherflow.workflow.embedding.store.VectorStoreRegistry;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
@@ -38,7 +38,7 @@ class EmbeddingNodeExecutorTest {
     void splitsTextEmbedsChunksStoresVectorsAndWritesWorkflowVariables() throws Exception {
         EmbeddingProvider provider = provider("ollama");
         EmbeddingMetrics embeddingMetrics = new EmbeddingMetrics();
-        MockVectorStore vectorStore = new MockVectorStore();
+        InMemoryVectorStore vectorStore = new InMemoryVectorStore();
         EmbeddingNodeExecutor executor = executor(provider, embeddingProperties(), embeddingMetrics, vectorStore, Runnable::run);
         when(provider.embed(argThat(request -> request != null
                 && request.chunkIndex() == 0
@@ -82,7 +82,7 @@ class EmbeddingNodeExecutorTest {
     @Test
     void usesInlineTextFromConfigBeforeTextVariable() throws Exception {
         EmbeddingProvider provider = provider("ollama");
-        EmbeddingNodeExecutor executor = executor(provider, embeddingProperties(), new EmbeddingMetrics(), new MockVectorStore(), Runnable::run);
+        EmbeddingNodeExecutor executor = executor(provider, embeddingProperties(), new EmbeddingMetrics(), new InMemoryVectorStore(), Runnable::run);
         when(provider.embed(argThat(request -> request != null && "config text".equals(request.text()))))
                 .thenReturn(new EmbeddingResult(List.of(0.1d), 1, "nomic-embed-text", 0));
 
@@ -99,7 +99,7 @@ class EmbeddingNodeExecutorTest {
         properties.setTimeout(Duration.ofMillis(10));
         EmbeddingMetrics embeddingMetrics = new EmbeddingMetrics();
         ExecutorService executorService = Executors.newSingleThreadExecutor();
-        EmbeddingNodeExecutor executor = executor(provider, properties, embeddingMetrics, new MockVectorStore(), executorService);
+        EmbeddingNodeExecutor executor = executor(provider, properties, embeddingMetrics, new InMemoryVectorStore(), executorService);
         when(provider.embed(argThat(request -> request != null && "abcdef".equals(request.text()))))
                 .thenAnswer(invocation -> {
                     Thread.sleep(200);
@@ -123,7 +123,7 @@ class EmbeddingNodeExecutorTest {
     private static EmbeddingNodeExecutor executor(EmbeddingProvider provider,
                                                   EmbeddingProperties properties,
                                                   EmbeddingMetrics embeddingMetrics,
-                                                  MockVectorStore vectorStore,
+                                                  InMemoryVectorStore vectorStore,
                                                   Executor taskExecutor) {
         return new EmbeddingNodeExecutor(
                 new WorkflowNodeMetrics(),

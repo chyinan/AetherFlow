@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,7 +20,7 @@ import static org.mockito.Mockito.when;
 class TimeoutCheckerTest {
 
     @Test
-    void doesNotRetryTasksThatHaveAlreadyBeenDispatchedToWorkers() {
+    void retriesTasksThatWereDispatchedButNeverCompleted() {
         TaskMapper taskMapper = mock(TaskMapper.class);
         TaskStateService taskStateService = mock(TaskStateService.class);
         RetryManager retryManager = mock(RetryManager.class);
@@ -33,8 +34,8 @@ class TimeoutCheckerTest {
 
         int handled = timeoutChecker.checkTimeouts();
 
-        assertThat(handled).isZero();
-        verify(taskStateService, never()).mark(any(Task.class), any(TaskStatus.class), any());
-        verify(retryManager, never()).handleTimeout(any(Task.class));
+        assertThat(handled).isEqualTo(1);
+        verify(taskStateService).mark(eq(dispatched), eq(TaskStatus.TIMEOUT), any());
+        verify(retryManager).handleTimeout(dispatched);
     }
 }

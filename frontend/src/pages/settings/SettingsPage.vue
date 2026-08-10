@@ -21,7 +21,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -34,7 +34,8 @@ import { useModelStore } from '@/stores/modelStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { SettingsModelProvider, WorkspaceMember } from '@/types/settings'
+import type { SettingsModelProvider, WorkspaceMember, WorkspaceSettings } from '@/types/settings'
+import { formatTime } from '@/utils/localeFormat'
 
 type SettingsTab = 'provider' | 'members' | 'billing' | 'data-source' | 'api' | 'custom' | 'language'
 
@@ -51,6 +52,16 @@ const validTabs: SettingsTab[] = ['provider', 'members', 'billing', 'data-source
 const providerSearch = ref('')
 const timezone = ref('shanghai')
 const savedAt = ref('')
+const workspaceSaving = ref(false)
+const workspaceSaveError = ref('')
+const workspaceDraft = reactive<WorkspaceSettings>({
+  name: '',
+  slug: '',
+  region: '',
+  environment: 'dev',
+  defaultTimeoutMin: 45,
+  retentionDays: 30,
+})
 const showDefaultModelSettings = ref(false)
 const showProviderConfigDialog = ref(false)
 const selectedProvider = ref<SettingsModelProvider | null>(null)
@@ -175,11 +186,6 @@ function formatStorage(mb: number) {
   return `${Math.round(mb)} MB`
 }
 
-function percent(used: number, limit: number) {
-  if (limit <= 0) return 0
-  return Math.min(100, Math.round((used / limit) * 100))
-}
-
 const usageStats = computed(() => {
   const totalRuns = runStore.runs.length
   const successRuns = runStore.runs.filter((run) => run.status === 'success').length
@@ -202,7 +208,6 @@ const usageStats = computed(() => {
     queueDepth,
     totalFiles: fileStore.files.length,
     storageMb,
-    storageLimitMb: 2048,
     onlineProviders,
     providerCount: modelStore.providers.length,
     providerFailures,
@@ -251,26 +256,22 @@ const usageOverviewCards = computed(() => [
 const quotaGuardrails = computed(() => [
   {
     labelKey: 'settings.quotaConcurrentRuns',
-    value: `${usageStats.value.activeRuns}/5`,
-    percent: percent(usageStats.value.activeRuns, 5),
+    value: String(usageStats.value.activeRuns),
     hintKey: 'settings.quotaConcurrentRunsHint',
   },
   {
     labelKey: 'settings.quotaQueueDepth',
-    value: `${usageStats.value.queueDepth}/20`,
-    percent: percent(usageStats.value.queueDepth, 20),
+    value: String(usageStats.value.queueDepth),
     hintKey: 'settings.quotaQueueDepthHint',
   },
   {
     labelKey: 'settings.quotaStorage',
-    value: `${formatStorage(usageStats.value.storageMb)} / 2 GB`,
-    percent: percent(usageStats.value.storageMb, usageStats.value.storageLimitMb),
+    value: formatStorage(usageStats.value.storageMb),
     hintKey: 'settings.quotaStorageHint',
   },
   {
     labelKey: 'settings.quotaProviderHealth',
     value: `${usageStats.value.onlineProviders}/${usageStats.value.providerCount}`,
-    percent: percent(usageStats.value.onlineProviders, Math.max(usageStats.value.providerCount, 1)),
     hintKey: 'settings.quotaProviderHealthHint',
   },
 ])
@@ -318,7 +319,7 @@ const dataAccessCards = computed(() => [
     titleKey: 'settings.dataAccessFileService',
     detailKey: 'settings.dataAccessFileServiceHint',
     endpoint: `${runtimeEnv.apiBase}/files`,
-    status: 'connected',
+    status: 'configured',
     value: String(fileStore.files.length),
     valueLabelKey: 'settings.dataAccessAssets',
     icon: HardDrive,
@@ -380,7 +381,7 @@ const developerAccessCards = computed(() => [
     titleKey: 'settings.developerAccessGateway',
     detailKey: 'settings.developerAccessGatewayHint',
     endpoint: runtimeEnv.apiBase,
-    status: 'connected',
+    status: 'configured',
     value: 'JWT / CORS',
     valueLabelKey: 'settings.developerAccessGuard',
     icon: Server,
@@ -456,13 +457,30 @@ function closeSettings() {
 }
 
 function markSaved() {
-  savedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  savedAt.value = formatTime(new Date())
 }
 
-function saveSettings() {
-  markSaved()
-  settingsStore.recordAudit(t('settings.auditActions.savedSettings'), settingsStore.workspace?.name ?? 'AetherFlow Lab')
+async function saveSettings() {
+  if (workspaceSaving.value) return
+  workspaceSaveError.value = ''
+  workspaceSaving.value = true
+  try {
+    await settingsStore.saveWorkspace({ ...workspaceDraft })
+    markSaved()
+  } catch (error) {
+    workspaceSaveError.value = error instanceof Error ? error.message : t('common.error')
+  } finally {
+    workspaceSaving.value = false
+  }
 }
+
+watch(
+  () => settingsStore.workspace,
+  (workspace) => {
+    if (workspace) Object.assign(workspaceDraft, workspace)
+  },
+  { immediate: true },
+)
 
 function openDefaultModelSettings() {
   showDefaultModelSettings.value = true
@@ -723,9 +741,6 @@ function statusBadgeClass(status: string) {
   if (status === 'available' || status === 'invited' || status === 'rotating') {
     return 'border-status-warning/30 bg-status-warning/10 text-status-warning'
   }
-  if (status === 'coming-soon') {
-    return 'border-primary/30 bg-primary-soft text-primary'
-  }
   return 'border-status-paused/30 bg-status-paused/10 text-text-muted'
 }
 
@@ -789,11 +804,12 @@ watch(
         </span>
         <button
           type="button"
-          class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover"
+          class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="workspaceSaving"
           @click="saveSettings"
         >
           <Save class="h-4 w-4" />
-          <span class="hidden sm:inline">{{ t('settings.saveSettings') }}</span>
+          <span class="hidden sm:inline">{{ workspaceSaving ? t('common.loading') : t('settings.saveSettings') }}</span>
         </button>
         <button
           type="button"
@@ -805,6 +821,7 @@ watch(
           <span class="hidden md:inline">{{ t('settings.close') }}</span>
         </button>
       </div>
+      <p v-if="workspaceSaveError" role="alert" class="mt-2 text-xs font-medium text-status-error">{{ workspaceSaveError }}</p>
       </header>
 
       <main class="grid min-h-0 grid-cols-[232px_minmax(0,1fr)] overflow-hidden max-lg:grid-cols-1">
@@ -817,9 +834,6 @@ watch(
             <p class="truncate text-sm font-semibold text-text-primary">{{ settingsStore.workspace?.name ?? 'AetherFlow Lab' }}</p>
             <p class="truncate text-xs text-text-muted">{{ settingsStore.workspace?.slug ?? 'aetherflow-lab' }}</p>
           </div>
-          <button type="button" class="ml-auto grid h-8 w-8 place-items-center rounded-md text-text-muted hover:bg-app-bg2 hover:text-text-primary">
-            <Edit3 class="h-4 w-4" />
-          </button>
         </div>
 
         <nav class="space-y-5">
@@ -1166,12 +1180,6 @@ watch(
                     <span class="font-medium text-text-secondary">{{ t(item.labelKey) }}</span>
                     <span class="font-semibold text-text-primary">{{ item.value }}</span>
                   </div>
-                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-app-bg2">
-                    <div
-                      class="h-full rounded-full bg-primary transition-all"
-                      :style="{ width: `${item.percent}%` }"
-                    />
-                  </div>
                   <p class="mt-1 text-xs text-text-muted">{{ t(item.hintKey) }}</p>
                 </div>
               </div>
@@ -1246,12 +1254,10 @@ watch(
               v-for="card in dataAccessCards"
               :key="card.titleKey"
               class="relative rounded-xl border border-app-border bg-white p-4 shadow-sm transition hover:border-primary/40 hover:shadow-node"
-              :class="{ 'opacity-75': card.status === 'coming-soon' }"
             >
               <div class="flex items-start justify-between gap-3">
                 <span
-                  class="grid h-10 w-10 shrink-0 place-items-center rounded-lg"
-                  :class="card.status === 'coming-soon' ? 'bg-primary-soft/60 text-primary/60' : 'bg-primary-soft text-primary'"
+                  class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary"
                 >
                   <component :is="card.icon" class="h-4 w-4" />
                 </span>
@@ -1589,19 +1595,19 @@ watch(
             <div class="grid gap-4 lg:grid-cols-2">
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.workspaceName') }}</span>
-                <input class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.name" />
+                <input v-model.trim="workspaceDraft.name" name="workspace-name" autocomplete="organization" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.slug') }}</span>
-                <input class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.slug" />
+                <input v-model.trim="workspaceDraft.slug" name="workspace-slug" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.region') }}</span>
-                <input class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.region" />
+                <input v-model.trim="workspaceDraft.region" name="workspace-region" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.environmentLabel') }}</span>
-                <select class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="settingsStore.workspace?.environment">
+                <select v-model="workspaceDraft.environment" name="workspace-environment" class="h-10 w-full rounded-md border border-app-border bg-white px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
                   <option value="dev">{{ t('settings.environmentOptions.dev') }}</option>
                   <option value="staging">{{ t('settings.environmentOptions.staging') }}</option>
                   <option value="prod">{{ t('settings.environmentOptions.prod') }}</option>
@@ -1609,11 +1615,11 @@ watch(
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.defaultTimeout') }}</span>
-                <input class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.defaultTimeoutMin ?? 45} ${t('settings.minutes')}`" />
+                <input v-model.number="workspaceDraft.defaultTimeoutMin" name="workspace-timeout" type="number" min="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.artifactRetention') }}</span>
-                <input class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary" :value="`${settingsStore.workspace?.retentionDays ?? 30} ${t('settings.days')}`" />
+                <input v-model.number="workspaceDraft.retentionDays" name="workspace-retention" type="number" min="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
             </div>
           </section>

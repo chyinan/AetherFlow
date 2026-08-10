@@ -5,7 +5,7 @@ services:
     image: mysql:8.0.26
     container_name: aetherflow-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mysql}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
       TZ: Asia/Shanghai
     command:
@@ -35,13 +35,15 @@ services:
   redis:
     image: redis:7.2
     container_name: aetherflow-redis
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-aetherflow}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -54,7 +56,7 @@ services:
     container_name: aetherflow-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-aetherflow}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-aetherflow}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
       RABBITMQ_CONFIG_FILE: /etc/rabbitmq/rabbitmq
     ports:
@@ -79,8 +81,8 @@ services:
     container_name: aetherflow-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:9000:9000"
@@ -103,10 +105,10 @@ services:
       MODE: standalone
       PREFER_HOST_MODE: hostname
       NACOS_AUTH_ENABLE: "true"
-      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-SecretKey012345678901234567890123456789012345678901234567890123456789}
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_AUTH_TOKEN_EXPIRE_SECONDS: ${NACOS_AUTH_TOKEN_EXPIRE_SECONDS:-18000}
       NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-nacos}
-      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-nacos}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       JVM_XMS: 512m
       JVM_XMX: 512m
       JVM_XMN: 256m
@@ -131,6 +133,10 @@ services:
       SEATA_IP: seata
       SEATA_PORT: 8091
       STORE_MODE: db
+      NACOS_ADDR: nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     volumes:
       - ./docker/seata/application.yml:/seata-server/resources/application.yml:ro
     ports:
@@ -140,6 +146,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - aetherflow
@@ -162,7 +170,7 @@ services:
       discovery.type: single-node
       ES_JAVA_OPTS: -Xms1g -Xmx1g
       xpack.security.enabled: "true"
-      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-aetherflow}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:9200:9200"
@@ -184,7 +192,7 @@ services:
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
       ELASTICSEARCH_USERNAME: elastic
-      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:-aetherflow}
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:5601:5601"
@@ -201,13 +209,15 @@ services:
       dockerfile: python-ai-service/Dockerfile
     container_name: aetherflow-python-ai-service
     environment:
-      ENABLE_WHISPER: ${ENABLE_WHISPER:-true}
-      ENABLE_LLM: ${ENABLE_LLM:-true}
+      ENABLE_WHISPER: ${ENABLE_WHISPER:-false}
+      ENABLE_LLM: ${ENABLE_LLM:-false}
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       FILE_URL_REWRITE_FROM: ${FILE_URL_REWRITE_FROM:-http://localhost:9000}
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
+      OTEL_SERVICE_NAME: python-ai-service
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     expose:
       - "8200"
     healthcheck:
@@ -216,6 +226,85 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
+  nacos-init:
+    image: curlimages/curl:8.10.1
+    container_name: aetherflow-nacos-init
+    environment:
+      NACOS_ADDR: http://nacos:8848
+      NACOS_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_INIT_DEFAULT_PASSWORD: ${NACOS_INIT_DEFAULT_PASSWORD:-nacos}
+    command:
+      - sh
+      - -ec
+      - |
+        extract_token() {
+          printf '%s' "$1" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p'
+        }
+        login() {
+          curl -fsS -X POST "$${NACOS_ADDR}/nacos/v1/auth/login" \
+            --data-urlencode "username=$${NACOS_USERNAME}" \
+            --data-urlencode "password=$$1"
+        }
+        current_response="$$(login "$${NACOS_PASSWORD}" 2>/dev/null || true)"
+        current_token="$$(extract_token "$${current_response}")"
+        if [ -n "$${current_token}" ]; then
+          echo 'Nacos admin password already initialized.'
+          exit 0
+        fi
+        initial_response="$$(login "$${NACOS_INIT_DEFAULT_PASSWORD}" 2>/dev/null || true)"
+        initial_token="$$(extract_token "$${initial_response}")"
+        if [ -z "$${initial_token}" ]; then
+          echo 'Unable to authenticate to Nacos with either configured or initial credentials.' >&2
+          exit 1
+        fi
+        curl -fsS -X PUT "$${NACOS_ADDR}/nacos/v1/auth/users?accessToken=$${initial_token}" \
+          --data-urlencode "username=$${NACOS_USERNAME}" \
+          --data-urlencode "newPassword=$${NACOS_PASSWORD}"
+        echo 'Nacos admin password initialized.'
+    depends_on:
+      nacos:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - aetherflow
+
+  mysql-migrate:
+    image: flyway/flyway:10.20.1
+    container_name: aetherflow-mysql-migrate
+    command:
+      - -connectRetries=60
+      - -baselineOnMigrate=true
+      - -baselineVersion=0
+      - migrate
+    environment:
+      FLYWAY_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      FLYWAY_USER: root
+      FLYWAY_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    volumes:
+      - ./docker/mysql/migrations:/flyway/sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - aetherflow
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.64.0
+    container_name: aetherflow-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+    expose:
+      - "4317"
+      - "4318"
     restart: unless-stopped
     networks:
       - aetherflow
@@ -229,7 +318,7 @@ services:
         VITE_API_BASE: ${VITE_API_BASE:-/api}
         VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
         VITE_SSE_BASE: ${VITE_SSE_BASE:-/sse}
-        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-true}
+        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-false}
         VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-frontend
@@ -248,7 +337,7 @@ services:
         VITE_API_BASE: ${VITE_API_BASE:-/api}
         VITE_WS_BASE: ${VITE_WS_BASE:-/ws}
         VITE_SSE_BASE: ${VITE_SSE_BASE:-/sse}
-        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-true}
+        VITE_MOCK_FALLBACK: ${VITE_MOCK_FALLBACK:-false}
         VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-nginx
@@ -278,14 +367,23 @@ services:
     environment:
       NACOS_ADDR: nacos:8848
       REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       SPRING_PROFILES_ACTIVE: prod
-      JWT_SECRET: ${JWT_SECRET:-aetherflow-dev-secret-key-change-me-32bytes-minimum}
+      JWT_SECRET: ${JWT_SECRET:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${OTEL_SAMPLING_PROBABILITY:-1.0}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      SPRING_RABBITMQ_TEMPLATE_OBSERVATION_ENABLED: "true"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_OBSERVATION_ENABLED: "true"
     ports:
       - "8080:8080"
     depends_on:
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       auth-service:
@@ -315,35 +413,43 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       NACOS_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
-      NACOS_PASSWORD: ${NACOS_PASSWORD:-nacos}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
       MYSQL_USERNAME: ${MYSQL_USERNAME:-root}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mysql}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       REDIS_HOST: redis
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-aetherflow}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}
       PYTHON_AI_BASE_URL: ${PYTHON_AI_BASE_URL:-http://python-ai-service:8200}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      WORKFLOW_OCR_MOCK: ${WORKFLOW_OCR_MOCK:-true}
-      WORKFLOW_OCR_MOCK_TEXT: ${WORKFLOW_OCR_MOCK_TEXT:-Demo safe OCR text for AetherFlow.}
+      WORKFLOW_OCR_MOCK: ${WORKFLOW_OCR_MOCK:-false}
+      WORKFLOW_OCR_PROVIDER: ${WORKFLOW_OCR_PROVIDER:-tesseract}
+      WORKFLOW_OCR_MOCK_TEXT: ${WORKFLOW_OCR_MOCK_TEXT:-}
       SEATA_ADDR: seata:8091
-      JWT_SECRET: ${JWT_SECRET:-aetherflow-dev-secret-key-change-me-32bytes-minimum}
+      JWT_SECRET: ${JWT_SECRET:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-}
       GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
       GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
       GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI:-}
       GITHUB_OAUTH_SUCCESS_PATH: ${GITHUB_OAUTH_SUCCESS_PATH:-/auth/oauth/callback}
       GITHUB_OAUTH_FAILURE_PATH: ${GITHUB_OAUTH_FAILURE_PATH:-/login}
-      GITHUB_OAUTH_STATE_SECRET: ${GITHUB_OAUTH_STATE_SECRET:-aetherflow-github-oauth-state-secret-32bytes}
+      GITHUB_OAUTH_STATE_SECRET: ${GITHUB_OAUTH_STATE_SECRET:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${OTEL_SAMPLING_PROBABILITY:-1.0}
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      SPRING_RABBITMQ_TEMPLATE_OBSERVATION_ENABLED: "true"
+      SPRING_RABBITMQ_LISTENER_SIMPLE_OBSERVATION_ENABLED: "true"
     expose:
       - "8101"
     depends_on:
@@ -353,6 +459,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - aetherflow
@@ -366,6 +474,7 @@ services:
     container_name: aetherflow-workflow-service
     environment:
       <<: *java-service-env
+      WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}
     expose:
       - "8102"
     depends_on:
@@ -375,6 +484,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
       seata:
         condition: service_started
       task-service:
@@ -398,12 +509,16 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      mysql-migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
       seata:
         condition: service_started
     restart: unless-stopped
@@ -428,6 +543,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
       python-ai-service:
         condition: service_healthy
       file-service:
@@ -454,6 +571,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
       seata:
         condition: service_started
     restart: unless-stopped
@@ -478,6 +597,8 @@ services:
         condition: service_healthy
       nacos:
         condition: service_healthy
+      nacos-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - aetherflow

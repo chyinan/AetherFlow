@@ -17,6 +17,7 @@ type BackendNodeType =
   | 'SUMMARY'
   | 'EMBEDDING'
   | 'KNOWLEDGE_RETRIEVAL'
+  | 'NOTIFY'
   | 'EXPORT'
   | 'END'
   | 'CONDITION'
@@ -60,6 +61,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'variable-assigner': 'VARIABLE_ASSIGNER',
   'parameter-extractor': 'PARAMETER_EXTRACTOR',
   'knowledge-retrieval': 'KNOWLEDGE_RETRIEVAL',
+  notify: 'NOTIFY',
   ffmpeg: 'UPLOAD',
 }
 
@@ -532,6 +534,16 @@ function normalizeParameterExtractorConfig(config: Record<string, unknown>, next
   }, nextNodes)
 }
 
+function normalizeNotifyConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const userId = optionalNumber(config.userId)
+  return withNextNodes({
+    ...(userId !== undefined && userId > 0 ? { userId } : {}),
+    channel: stringValue(config.channel, 'WORKFLOW'),
+    eventType: stringValue(config.eventType, 'WORKFLOW_COMPLETED'),
+    payload: toRecord(config.payload),
+  }, nextNodes)
+}
+
 function normalizeNodeConfig(
   node: WorkflowGraphNode,
   nodeType: BackendNodeType,
@@ -562,6 +574,8 @@ function normalizeNodeConfig(
       return normalizeEmbeddingConfig(config, nextNodes)
     case 'KNOWLEDGE_RETRIEVAL':
       return normalizeKnowledgeRetrievalConfig(config, nextNodes)
+    case 'NOTIFY':
+      return normalizeNotifyConfig(config, nextNodes)
     case 'PROMPT':
       return normalizePromptConfig(config, nextNodes)
     case 'IMAGE_GENERATION':

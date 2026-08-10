@@ -37,7 +37,8 @@ public class TimeoutChecker {
                 .in(Task::getStatus,
                         TaskStatus.PENDING.value(),
                         TaskStatus.QUEUED.value(),
-                        TaskStatus.DISPATCHING.value())
+                        TaskStatus.DISPATCHING.value(),
+                        TaskStatus.DISPATCHED.value())
                 .le(Task::getNextRetryAt, now)
                 .last("LIMIT " + Math.max(1, properties.getScanLimit())));
         int handled = 0;
@@ -63,7 +64,10 @@ public class TimeoutChecker {
     private boolean isTimeoutRetryCandidate(Task task) {
         try {
             TaskStatus status = TaskStatus.from(task.getStatus());
-            return status == TaskStatus.PENDING || status == TaskStatus.QUEUED || status == TaskStatus.DISPATCHING;
+            return status == TaskStatus.PENDING
+                    || status == TaskStatus.QUEUED
+                    || status == TaskStatus.DISPATCHING
+                    || status == TaskStatus.DISPATCHED;
         } catch (IllegalArgumentException exception) {
             log.warn("task timeout skipped because status is unknown, taskId={}, status={}",
                     task.getId(), task.getStatus(), exception);

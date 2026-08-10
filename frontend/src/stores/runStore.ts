@@ -7,6 +7,7 @@ import { getStartedRunLink } from '@/services/api/workflowApi'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 import type { WorkflowGraphNode } from '@/types/workflow'
+import { formatDateTime, formatTime } from '@/utils/localeFormat'
 
 import { useAuthStore } from './authStore'
 import { useFileStore } from './fileStore'
@@ -214,7 +215,7 @@ export const useRunStore = defineStore('run', {
         definitionId: payload.definitionId ?? startedRunLink?.definitionId,
         backendStatus: payload.backendStatus ?? startedRunLink?.backendStatus,
         status: 'running',
-        startedAt: createdAt.toLocaleString('zh-CN', { hour12: false }),
+        startedAt: formatDateTime(createdAt),
         durationMs: 0,
         trigger: payload.trigger ?? 'manual',
         owner: 'aether.operator',
@@ -231,7 +232,7 @@ export const useRunStore = defineStore('run', {
       this.logs = [
         {
           id: `${run.id}-created`,
-          time: createdAt.toLocaleTimeString('zh-CN', { hour12: false }),
+          time: formatTime(createdAt),
           level: 'info',
           message: i18n.global.t('runs.mockLogs.started', { workflow: run.workflowName, queue: run.queueName }),
         },
@@ -255,7 +256,7 @@ export const useRunStore = defineStore('run', {
         this.error = message
         this.appendLog({
           id: `${this.currentRun.id}-runtime-recovery-error-${Date.now()}`,
-          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          time: formatTime(new Date()),
           level: 'warn',
           message: `Runtime recovery unavailable; retained current snapshot. ${message}`,
         })

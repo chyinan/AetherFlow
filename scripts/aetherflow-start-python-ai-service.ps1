@@ -70,8 +70,8 @@ if ($StopExisting) {
 }
 
 $serviceEnv = [ordered]@{
-    ENABLE_WHISPER = Get-EnvOrDefault "ENABLE_WHISPER" "true"
-    ENABLE_LLM = Get-EnvOrDefault "ENABLE_LLM" "true"
+    ENABLE_WHISPER = Get-EnvOrDefault "ENABLE_WHISPER" "false"
+    ENABLE_LLM = Get-EnvOrDefault "ENABLE_LLM" "false"
     WHISPER_MODEL = Get-EnvOrDefault "WHISPER_MODEL" "small"
     WHISPER_DEVICE = Get-EnvOrDefault "WHISPER_DEVICE" "cpu"
     WHISPER_COMPUTE_TYPE = Get-EnvOrDefault "WHISPER_COMPUTE_TYPE" "int8"

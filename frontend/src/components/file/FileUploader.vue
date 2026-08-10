@@ -39,8 +39,16 @@ function onFileChange(event: Event) {
         {{ t('files.upload') }}
       </button>
     </div>
-    <div v-if="fileStore.uploading" class="mt-4 h-2 rounded-full bg-app-muted">
-      <div class="h-2 rounded-full bg-primary transition-all" :style="{ width: `${fileStore.uploadProgress}%` }" />
+    <div
+      v-if="fileStore.uploading"
+      class="mt-4 h-2 rounded-full bg-app-muted"
+      role="progressbar"
+      :aria-label="t('files.upload')"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-valuenow="fileStore.uploadProgress"
+    >
+      <div class="h-2 rounded-full bg-primary transition-[width]" :style="{ width: `${fileStore.uploadProgress}%` }" />
     </div>
   </section>
 </template>

@@ -158,6 +158,30 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void waitingWorkflowIsNotMarkedCompleted() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        StartWorkflowRequest request = request();
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(101L);
+            return 1;
+        }).when(instanceMapper).insert(any(WorkflowInstance.class));
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenReturn(new WorkflowExecutionSnapshot(
+                "101", "trace", "101", RuntimeState.WAITING, "node-ai",
+                Map.of(), Map.of("node-ai", NodeResult.waiting(Map.of("externalTaskId", 91L))), List.of()));
+
+        asUser(7L, () -> workflowService.startInstance(10L, request));
+
+        ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
+        verify(instanceMapper).updateById(instanceCaptor.capture());
+        assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("WAITING");
+        assertThat(instanceCaptor.getValue().getCompletedAt()).isNull();
+    }
+
+    @Test
     void listsDefinitionsFromMapper() {
         WorkflowDefinition definition = definitionEntity();
         when(definitionMapper.selectList(any())).thenReturn(List.of(definition));

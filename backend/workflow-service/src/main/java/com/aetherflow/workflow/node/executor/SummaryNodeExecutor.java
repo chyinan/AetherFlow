@@ -1,8 +1,6 @@
 package com.aetherflow.workflow.node.executor;
 
-import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
-import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
@@ -17,16 +15,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
-public class SummaryNodeExecutor extends BaseNodeExecutor {
+public class SummaryNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
-    private final AiWorkflowNodeClient aiClient;
     private final WorkflowNodeProperties properties;
 
     public SummaryNodeExecutor(WorkflowNodeMetrics metrics,
                                AiWorkflowNodeClient aiClient,
                                WorkflowNodeProperties properties) {
-        super(WorkflowNodeTypes.SUMMARY, metrics);
-        this.aiClient = aiClient;
+        super(WorkflowNodeTypes.SUMMARY, metrics, aiClient);
         this.properties = properties;
     }
 
@@ -43,28 +39,13 @@ public class SummaryNodeExecutor extends BaseNodeExecutor {
         putIfPresent(payload, "provider", config.get("provider"));
         putIfPresent(payload, "model", config.get("model"));
         putIfPresent(payload, "promptVersion", config.get("promptVersion"));
-        AiWorkflowNodeResponseDTO response = executeAi(context, payload);
+        AiWorkflowNodeResponseDTO response = executeAi(context, "SUMMARY", payload);
         Map<String, Object> output = response.getOutput() == null ? Map.of() : response.getOutput();
         Map<String, Object> variables = new LinkedHashMap<>();
         if (output.get("summary") != null) {
             variables.put("summary", output.get("summary"));
         }
         return buildResult(output, variables);
-    }
-
-    private AiWorkflowNodeResponseDTO executeAi(WorkflowContext context, Map<String, Object> payload) {
-        AiWorkflowNodeRequestDTO request = new AiWorkflowNodeRequestDTO();
-        request.setWorkflowId(context.workflowId());
-        request.setTraceId(context.traceId());
-        request.setTaskId(context.taskId());
-        request.setNodeId(context.currentNodeId());
-        request.setNodeType("SUMMARY");
-        request.setPayload(payload);
-        Result<AiWorkflowNodeResponseDTO> result = aiClient.execute(request);
-        if (result == null || !result.isSuccess() || result.getData() == null) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "summary node ai execution failed");
-        }
-        return result.getData();
     }
 
     private String firstText(Map<String, Object> config, WorkflowContext context) {

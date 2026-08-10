@@ -276,3 +276,14 @@ html[data-theme='dark'] .shadow-panel,
 html[data-theme='dark'] .shadow-node {
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28) !important;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

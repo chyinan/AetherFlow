@@ -4,6 +4,7 @@ import { i18n } from '@/i18n'
 import { fileApi } from '@/services/api/fileApi'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowRun } from '@/types/run'
+import { formatDateTime } from '@/utils/localeFormat'
 
 export const useFileStore = defineStore('file', {
   state: () => ({
@@ -55,7 +56,7 @@ export const useFileStore = defineStore('file', {
           if (uploaded && !uploaded.backendFileId && uploaded.status === 'processing') {
             uploaded.status = 'ready'
             uploaded.result = i18n.global.t('files.mockResults.readyInput')
-            uploaded.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false })
+            uploaded.updatedAt = formatDateTime(new Date())
           }
         }, 900)
         return asset
@@ -136,11 +137,11 @@ export const useFileStore = defineStore('file', {
         file.source === 'input'
           ? i18n.global.t('files.mockResults.markedInput')
           : i18n.global.t('files.mockResults.markedArtifact')
-      file.updatedAt = new Date().toLocaleString('zh-CN', { hour12: false })
+      file.updatedAt = formatDateTime(new Date())
     },
     addArtifactsFromRun(run: WorkflowRun) {
       const existingIds = new Set(this.files.map((file) => file.id))
-      const createdAt = new Date().toLocaleString('zh-CN', { hour12: false })
+      const createdAt = formatDateTime(new Date())
       const artifacts: FileAsset[] = run.artifactNames.map((name, index) => {
         const kind = name.endsWith('.srt')
           ? 'subtitle'
@@ -174,7 +175,7 @@ export const useFileStore = defineStore('file', {
       this.files = [...artifacts.filter((file) => !existingIds.has(file.id)), ...this.files]
     },
     markRunArtifactsReady(runId: string) {
-      const now = new Date().toLocaleString('zh-CN', { hour12: false })
+      const now = formatDateTime(new Date())
       this.files.forEach((file) => {
         if (file.linkedRunId === runId && file.source === 'artifact') {
           file.status = 'ready'

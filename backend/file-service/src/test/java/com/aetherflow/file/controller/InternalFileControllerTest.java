@@ -5,6 +5,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.file.config.FileInternalProperties;
 import com.aetherflow.file.service.FileDownload;
 import com.aetherflow.file.service.FileInfoService;
@@ -14,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,7 +31,7 @@ class InternalFileControllerTest {
     void rejectsMetadataCreationWhenInternalTokenDoesNotMatch() {
         FileInfoService fileInfoService = mock(FileInfoService.class);
         FileInternalProperties properties = new FileInternalProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
 
         assertThatThrownBy(() -> controller.createMetadata("wrong-token", validRequest()))
@@ -41,7 +44,7 @@ class InternalFileControllerTest {
     void createsMetadataWhenInternalTokenMatches() {
         FileInfoService fileInfoService = mock(FileInfoService.class);
         FileInternalProperties properties = new FileInternalProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
         CreateFileMetadataRequestDTO request = validRequest();
         FileMetadataDTO metadata = new FileMetadataDTO(
@@ -56,7 +59,7 @@ class InternalFileControllerTest {
         request.setUserId(1001L);
         when(fileInfoService.createMetadata(1001L, request)).thenReturn(metadata);
 
-        Result<FileMetadataDTO> result = controller.createMetadata("expected-token", request);
+        Result<FileMetadataDTO> result = controller.createMetadata(fileToken(), request);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(metadata);
@@ -67,7 +70,7 @@ class InternalFileControllerTest {
     void returnsMetadataWhenInternalTokenMatches() {
         FileInfoService fileInfoService = mock(FileInfoService.class);
         FileInternalProperties properties = new FileInternalProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
         FileMetadataDTO metadata = new FileMetadataDTO(
                 7L,
@@ -80,7 +83,7 @@ class InternalFileControllerTest {
         );
         when(fileInfoService.getMetadata(7L)).thenReturn(metadata);
 
-        Result<FileMetadataDTO> result = controller.getMetadata("expected-token", 7L);
+        Result<FileMetadataDTO> result = controller.getMetadata(fileToken(), 7L);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(metadata);
@@ -91,7 +94,7 @@ class InternalFileControllerTest {
     void rejectsInternalDownloadWhenTokenDoesNotMatch() {
         FileInfoService fileInfoService = mock(FileInfoService.class);
         FileInternalProperties properties = new FileInternalProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
 
         assertThatThrownBy(() -> controller.download("wrong-token", 9L))
@@ -104,7 +107,7 @@ class InternalFileControllerTest {
     void downloadsFileWhenInternalTokenMatches() throws Exception {
         FileInfoService fileInfoService = mock(FileInfoService.class);
         FileInternalProperties properties = new FileInternalProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
         byte[] bytes = "ocr image bytes".getBytes(StandardCharsets.UTF_8);
         when(fileInfoService.downloadInternal(9L)).thenReturn(new FileDownload(
@@ -114,7 +117,7 @@ class InternalFileControllerTest {
                 new ByteArrayInputStream(bytes)
         ));
 
-        ResponseEntity<InputStreamResource> response = controller.download("expected-token", 9L);
+        ResponseEntity<InputStreamResource> response = controller.download(fileToken(), 9L);
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getHeaders().getContentLength()).isEqualTo(bytes.length);
@@ -133,5 +136,14 @@ class InternalFileControllerTest {
         request.setContentType("text/plain");
         request.setSize(16L);
         return request;
+    }
+
+    private static String fileToken() {
+        return new InternalServiceTokenService(secret(), "aetherflow-internal", Duration.ofMinutes(1))
+                .issue("file-service", Instant.now());
+    }
+
+    private static String secret() {
+        return "0123456789abcdef0123456789abcdef";
     }
 }

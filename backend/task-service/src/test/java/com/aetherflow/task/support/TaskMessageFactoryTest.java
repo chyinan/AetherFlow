@@ -19,6 +19,7 @@ class TaskMessageFactoryTest {
         Task task = new Task();
         task.setId(11L);
         task.setWorkflowInstanceId(22L);
+        task.setTraceId("trace-22");
         task.setNodeId("node-1");
         task.setNodeType("AI_TRANSCRIPTION");
         task.setPayloadJson("{\"fileUrl\":\"https://example.test/video.mp4\",\"language\":\"zh\"}");
@@ -29,6 +30,7 @@ class TaskMessageFactoryTest {
 
         assertThat(message.getTaskId()).isEqualTo(11L);
         assertThat(message.getWorkflowInstanceId()).isEqualTo(22L);
+        assertThat(message.getTraceId()).isEqualTo("trace-22");
         assertThat(message.getNodeId()).isEqualTo("node-1");
         assertThat(message.getNodeType()).isEqualTo("AI_TRANSCRIPTION");
         assertThat(message.getRetryCount()).isEqualTo(2);

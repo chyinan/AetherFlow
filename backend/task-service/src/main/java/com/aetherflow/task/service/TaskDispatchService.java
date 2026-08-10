@@ -8,6 +8,8 @@ public interface TaskDispatchService {
 
     void markSucceeded(Long taskId);
 
+    void markFailed(Long taskId);
+
     void compensateTimeouts();
 }
 

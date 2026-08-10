@@ -12,6 +12,7 @@ export type WorkflowNodeKind =
   | 'summary'
   | 'embedding'
   | 'knowledge-retrieval'
+  | 'notify'
   | 'export'
   | 'output'
   | 'agent'

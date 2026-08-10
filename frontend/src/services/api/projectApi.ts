@@ -1,5 +1,6 @@
 import { apiClient } from '@/api/client/apiClient'
 import type { ProjectHealth, ProjectSummary } from '@/types/project'
+import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
 
 interface PageResult<T> {
   records?: T[]
@@ -62,7 +63,7 @@ function formatDateTime(value?: string) {
     return value
   }
 
-  return date.toLocaleString('zh-CN', { hour12: false })
+  return formatLocaleDateTime(date)
 }
 
 function mapProject(project: ProjectSummaryResponse): ProjectSummary {

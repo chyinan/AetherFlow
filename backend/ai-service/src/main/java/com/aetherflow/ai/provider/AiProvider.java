@@ -21,6 +21,6 @@ public interface AiProvider {
     }
 
     default AiProviderHealth health() {
-        return AiProviderHealth.unknown(type(), "health check not implemented");
+        return AiProviderHealth.unknown(type(), "provider health is unavailable");
     }
 }

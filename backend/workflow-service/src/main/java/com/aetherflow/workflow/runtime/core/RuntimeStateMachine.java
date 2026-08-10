@@ -16,11 +16,13 @@ public class RuntimeStateMachine {
         transitions.put(RuntimeState.PENDING, EnumSet.of(RuntimeState.RUNNING, RuntimeState.CANCELLED));
         transitions.put(RuntimeState.RUNNING, EnumSet.of(
                 RuntimeState.RETRYING,
+                RuntimeState.WAITING,
                 RuntimeState.SUCCESS,
                 RuntimeState.FAILED,
                 RuntimeState.CANCELLED
         ));
         transitions.put(RuntimeState.RETRYING, EnumSet.of(RuntimeState.RUNNING, RuntimeState.FAILED, RuntimeState.CANCELLED));
+        transitions.put(RuntimeState.WAITING, EnumSet.of(RuntimeState.RUNNING, RuntimeState.FAILED, RuntimeState.CANCELLED));
         transitions.put(RuntimeState.SUCCESS, EnumSet.noneOf(RuntimeState.class));
         transitions.put(RuntimeState.FAILED, EnumSet.noneOf(RuntimeState.class));
         transitions.put(RuntimeState.CANCELLED, EnumSet.noneOf(RuntimeState.class));

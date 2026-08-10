@@ -4,9 +4,13 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.task.config.TaskProperties;
 import com.aetherflow.task.service.TaskDispatchService;
 import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,7 +50,7 @@ class InternalTaskControllerTest {
         TaskMessageDTO message = taskMessage();
         when(taskDispatchService.dispatch(message)).thenReturn(91L);
 
-        Result<Long> result = controller.dispatch("expected-token", message);
+        Result<Long> result = controller.dispatch(taskToken(), message);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isEqualTo(91L);
@@ -69,7 +73,7 @@ class InternalTaskControllerTest {
         TaskDispatchService taskDispatchService = mock(TaskDispatchService.class);
         InternalTaskController controller = new InternalTaskController(taskDispatchService, properties());
 
-        Result<Void> result = controller.markSucceeded("expected-token", 91L);
+        Result<Void> result = controller.markSucceeded(taskToken(), 91L);
 
         assertThat(result.isSuccess()).isTrue();
         verify(taskDispatchService).markSucceeded(91L);
@@ -77,8 +81,30 @@ class InternalTaskControllerTest {
 
     private static TaskProperties properties() {
         TaskProperties properties = new TaskProperties();
-        properties.setInternalToken("expected-token");
+        properties.setInternalToken("0123456789abcdef0123456789abcdef");
         return properties;
+    }
+
+    @Test
+    void marksTaskFailedWhenInternalTokenMatches() {
+        TaskDispatchService taskDispatchService = mock(TaskDispatchService.class);
+        InternalTaskController controller = new InternalTaskController(taskDispatchService, properties());
+
+        Result<Void> result = controller.markFailed(taskToken(), 91L);
+
+        assertThat(result.isSuccess()).isTrue();
+        verify(taskDispatchService).markFailed(91L);
+    }
+
+    private static String taskToken() {
+        return tokenService().issue("task-service", Instant.now());
+    }
+
+    private static InternalServiceTokenService tokenService() {
+        return new InternalServiceTokenService(
+                "0123456789abcdef0123456789abcdef",
+                "aetherflow-internal",
+                Duration.ofMinutes(1));
     }
 
     private static TaskMessageDTO taskMessage() {

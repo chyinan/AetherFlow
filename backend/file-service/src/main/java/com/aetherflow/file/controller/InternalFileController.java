@@ -6,6 +6,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.file.config.FileInternalProperties;
 import com.aetherflow.file.service.FileDownload;
 import com.aetherflow.file.service.FileInfoService;
@@ -16,13 +17,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,16 +31,22 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import java.time.Duration;
+import java.time.Instant;
 
 @RestController
 @RequestMapping("/internal/files")
-@RequiredArgsConstructor
 @Tag(name = "Internal File Metadata", description = "Internal file metadata APIs for service-to-service calls.")
 public class InternalFileController {
 
     private final FileInfoService fileInfoService;
-    private final FileInternalProperties fileInternalProperties;
+    private final InternalServiceTokenService tokenService;
+
+    public InternalFileController(FileInfoService fileInfoService, FileInternalProperties properties) {
+        this.fileInfoService = fileInfoService;
+        this.tokenService = new InternalServiceTokenService(
+                properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1));
+    }
 
     @Operation(summary = "Create file metadata",
             description = "Register metadata for an object already stored in MinIO. This endpoint is reserved for internal service-to-service calls.")
@@ -108,13 +113,7 @@ public class InternalFileController {
     }
 
     private void validateInternalToken(String internalToken) {
-        String expectedToken = fileInternalProperties.getInternalToken();
-        if (!StringUtils.hasText(internalToken) || !StringUtils.hasText(expectedToken)) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal file token");
-        }
-        byte[] actual = internalToken.getBytes(StandardCharsets.UTF_8);
-        byte[] expected = expectedToken.getBytes(StandardCharsets.UTF_8);
-        if (!MessageDigest.isEqual(actual, expected)) {
+        if (!tokenService.isValid(internalToken, "file-service", Instant.now())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal file token");
         }
     }

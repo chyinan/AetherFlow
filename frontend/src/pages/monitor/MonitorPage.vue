@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useDifyStore } from '@/stores/difyStore'
 import type { ConversationLog } from '@/types/dify'
+import { formatDate, formatTime } from '@/utils/localeFormat'
 
 const difyStore = useDifyStore()
 const { t } = useI18n()
@@ -18,7 +19,7 @@ function metricValue(metricId: string, fallback = '--') {
 const summaryCards = computed(() => [
   { label: t('monitor.requests'), value: metricValue('provider-calls'), hint: t('monitor.hints.requests'), icon: BarChart3 },
   { label: t('monitor.latency'), value: metricValue('provider-latency'), hint: t('monitor.hints.latency'), icon: Timer },
-  { label: t('monitor.cost'), value: metricValue('provider-cost', '$0'), hint: t('monitor.hints.cost'), icon: TrendingUp },
+  { label: t('monitor.cost'), value: metricValue('provider-cost'), hint: t('monitor.hints.cost'), icon: TrendingUp },
   { label: t('monitor.errors'), value: metricValue('provider-error-rate', '0%'), hint: t('monitor.hints.errors'), icon: ShieldAlert },
 ])
 
@@ -64,12 +65,12 @@ function formatMonitorTime(value: string) {
   }
 
   return {
-    date: date.toLocaleDateString('zh-CN', {
+    date: formatDate(date, undefined, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
     }),
-    time: date.toLocaleTimeString('zh-CN', {
+    time: formatTime(date, undefined, {
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',

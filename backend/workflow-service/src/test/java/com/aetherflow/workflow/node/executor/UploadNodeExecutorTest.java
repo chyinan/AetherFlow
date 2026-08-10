@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,7 +26,7 @@ class UploadNodeExecutorTest {
     void readsFileMetadataAndWritesFileVariables() throws Exception {
         FileMetadataClient fileClient = mock(FileMetadataClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        properties.setFileInternalToken("token");
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         UploadNodeExecutor executor = new UploadNodeExecutor(new WorkflowNodeMetrics(), fileClient, properties);
         FileMetadataDTO metadata = new FileMetadataDTO(
                 9L,
@@ -35,7 +37,7 @@ class UploadNodeExecutorTest {
                 1024L,
                 "http://minio/aetherflow/objects/audio.mp3"
         );
-        when(fileClient.getMetadata("token", 9L)).thenReturn(Result.success(metadata));
+        when(fileClient.getMetadata(any(String.class), eq(9L))).thenReturn(Result.success(metadata));
 
         NodeResult result = executor.execute(context(Map.of("fileId", 9L), Map.of()));
 
@@ -46,14 +48,14 @@ class UploadNodeExecutorTest {
         assertThat(result.variables()).containsEntry("fileOriginalName", metadata.getOriginalName());
         assertThat(result.variables()).containsEntry("fileContentType", metadata.getContentType());
         assertThat(result.variables()).containsEntry("fileSize", metadata.getSize());
-        verify(fileClient).getMetadata("token", 9L);
+        verify(fileClient).getMetadata(any(String.class), eq(9L));
     }
 
     @Test
     void readsFileIdFromConfiguredVariableName() throws Exception {
         FileMetadataClient fileClient = mock(FileMetadataClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        properties.setFileInternalToken("token");
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         UploadNodeExecutor executor = new UploadNodeExecutor(new WorkflowNodeMetrics(), fileClient, properties);
         FileMetadataDTO metadata = new FileMetadataDTO(
                 9L,
@@ -64,13 +66,13 @@ class UploadNodeExecutorTest {
                 1024L,
                 "http://minio/aetherflow/objects/audio.mp3"
         );
-        when(fileClient.getMetadata("token", 9L)).thenReturn(Result.success(metadata));
+        when(fileClient.getMetadata(any(String.class), eq(9L))).thenReturn(Result.success(metadata));
 
         NodeResult result = executor.execute(context(Map.of("fileIdVariable", "sourceFileId"),
                 Map.of("sourceFileId", 9L)));
 
         assertThat(result.variables()).containsEntry("fileUrl", metadata.getUrl());
-        verify(fileClient).getMetadata("token", 9L);
+        verify(fileClient).getMetadata(any(String.class), eq(9L));
     }
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {

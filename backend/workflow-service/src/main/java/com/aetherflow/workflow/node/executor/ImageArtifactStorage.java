@@ -86,7 +86,7 @@ public class ImageArtifactStorage {
         if (userId != null && userId > 0) {
             request.setUserId(userId);
         }
-        Result<FileMetadataDTO> result = fileClient.createMetadata(properties.getFileInternalToken(), request);
+        Result<FileMetadataDTO> result = fileClient.createMetadata(properties.issueFileInternalToken(), request);
         if (result == null || !result.isSuccess() || result.getData() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow image metadata registration failed");
         }

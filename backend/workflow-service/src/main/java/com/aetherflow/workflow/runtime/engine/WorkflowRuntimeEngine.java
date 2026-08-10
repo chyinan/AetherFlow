@@ -4,6 +4,7 @@ import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.runtime.api.NodeExecutor;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeWaitingException;
 import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventPublisher;
@@ -111,7 +112,12 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
 
         try {
-            executeDag(request, dag, context, tracker);
+            if (executeDag(request, dag, context, tracker)) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
+                publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
+                saveSnapshot(request, context, tracker);
+                return snapshot(context, tracker);
+            }
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime completed, completedNodes={}", tracker.completedNodeIds().size()));
@@ -153,7 +159,12 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
 
         try {
-            executeDag(request, dag, context, tracker);
+            if (executeDag(request, dag, context, tracker)) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
+                publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of("recovered", true));
+                saveSnapshot(request, context, tracker);
+                return snapshot(context, tracker);
+            }
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime recovered, completedNodes={}", tracker.completedNodeIds().size()));
@@ -188,6 +199,111 @@ public class WorkflowRuntimeEngine {
             }
             releaseLock(lease);
         }
+    }
+
+    public WorkflowExecutionSnapshot completeWaitingNode(WorkflowRuntimeRequest request,
+                                                           WorkflowExecutionSnapshot waitingSnapshot,
+                                                           String nodeId,
+                                                           NodeResult result) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(waitingSnapshot, "waitingSnapshot must not be null");
+        Objects.requireNonNull(result, "result must not be null");
+        if (result.waiting()) {
+            throw new IllegalArgumentException("external completion result must not remain waiting");
+        }
+        return withWorkflowLock(request.workflowId(), () -> completeWaitingNodeLocked(
+                request, waitingSnapshot, nodeId, result));
+    }
+
+    public WorkflowExecutionSnapshot failWaitingNode(WorkflowRuntimeRequest request,
+                                                       WorkflowExecutionSnapshot waitingSnapshot,
+                                                       String nodeId,
+                                                       String error) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(waitingSnapshot, "waitingSnapshot must not be null");
+        return withWorkflowLock(request.workflowId(), () -> failWaitingNodeLocked(
+                request, waitingSnapshot, nodeId, error));
+    }
+
+    private WorkflowExecutionSnapshot completeWaitingNodeLocked(WorkflowRuntimeRequest request,
+                                                                 WorkflowExecutionSnapshot waitingSnapshot,
+                                                                 String nodeId,
+                                                                 NodeResult result) {
+        WorkflowExecutionSnapshot currentSnapshot = latestSnapshot(request, waitingSnapshot);
+        if (stateMachine.isTerminal(currentSnapshot.runtimeState())) {
+            return currentSnapshot;
+        }
+        if (currentSnapshot.runtimeState() != RuntimeState.WAITING) {
+            throw new IllegalStateException("workflow is not ready for external completion: "
+                    + currentSnapshot.workflowId() + " state=" + currentSnapshot.runtimeState());
+        }
+        if (nodeId == null || !currentSnapshot.currentNodeIds().contains(nodeId)) {
+            if (isAlreadyCompleted(currentSnapshot, nodeId)) {
+                return currentSnapshot;
+            }
+            throw new IllegalArgumentException("node is not waiting: " + nodeId);
+        }
+        WorkflowDag dag = WorkflowDag.from(request.definition());
+        DefaultWorkflowContext context = contextFromSnapshot(currentSnapshot);
+        ExecutionTracker tracker = ExecutionTracker.from(currentSnapshot);
+        context.updateRuntimeState(stateMachine.transition(RuntimeState.WAITING, RuntimeState.RUNNING));
+        context.recordNodeOutput(nodeId, result);
+        context.variables().putAll(result.variables());
+        tracker.markCompleted(nodeId);
+        publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("external", true));
+        saveSnapshot(request, context, tracker);
+        if (executeDag(request, dag, context, tracker)) {
+            context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
+            publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
+        } else {
+            context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
+            publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("resumed", true));
+        }
+        saveSnapshot(request, context, tracker);
+        return snapshot(context, tracker);
+    }
+
+    private WorkflowExecutionSnapshot failWaitingNodeLocked(WorkflowRuntimeRequest request,
+                                                               WorkflowExecutionSnapshot waitingSnapshot,
+                                                               String nodeId,
+                                                               String error) {
+        WorkflowExecutionSnapshot currentSnapshot = latestSnapshot(request, waitingSnapshot);
+        if (stateMachine.isTerminal(currentSnapshot.runtimeState())) {
+            return currentSnapshot;
+        }
+        if (currentSnapshot.runtimeState() != RuntimeState.WAITING) {
+            throw new IllegalStateException("workflow is not ready for external failure: "
+                    + currentSnapshot.workflowId() + " state=" + currentSnapshot.runtimeState());
+        }
+        if (nodeId == null || !currentSnapshot.currentNodeIds().contains(nodeId)) {
+            if (currentSnapshot.failedNodeIds().contains(nodeId)) {
+                return currentSnapshot;
+            }
+            throw new IllegalArgumentException("node is not waiting: " + nodeId);
+        }
+        DefaultWorkflowContext context = contextFromSnapshot(currentSnapshot);
+        ExecutionTracker tracker = ExecutionTracker.from(currentSnapshot);
+        String safeError = error == null || error.isBlank() ? "AI task failed" : error;
+        context.updateCurrentNodeId(nodeId);
+        context.recordNodeOutput(nodeId, new NodeResult(false, Map.of("error", safeError), Map.of(), null, null));
+        tracker.markFailed(nodeId);
+        context.updateRuntimeState(stateMachine.transition(RuntimeState.WAITING, RuntimeState.FAILED));
+        publish(context, RuntimeEventType.WORKFLOW_FAILED, nodeId,
+                Map.of("error", safeError, "external", true));
+        saveSnapshot(request, context, tracker);
+        return snapshot(context, tracker);
+    }
+
+    private WorkflowExecutionSnapshot latestSnapshot(WorkflowRuntimeRequest request,
+                                                     WorkflowExecutionSnapshot fallback) {
+        return snapshotRepository.findByWorkflowId(request.workflowId())
+                .map(WorkflowRuntimeSnapshot::toExecutionSnapshot)
+                .orElse(fallback);
+    }
+
+    private boolean isAlreadyCompleted(WorkflowExecutionSnapshot snapshot, String nodeId) {
+        return nodeId != null && (snapshot.completedNodeIds().contains(nodeId)
+                || snapshot.failedNodeIds().contains(nodeId));
     }
 
     private ScheduledExecutorService startLockRenewal(WorkflowRuntimeLockLease lease) {
@@ -243,7 +359,7 @@ public class WorkflowRuntimeEngine {
         }
     }
 
-    private void executeDag(WorkflowRuntimeRequest request,
+    private boolean executeDag(WorkflowRuntimeRequest request,
                             WorkflowDag dag,
                             DefaultWorkflowContext context,
                             ExecutionTracker tracker) {
@@ -263,7 +379,8 @@ public class WorkflowRuntimeEngine {
                 inFlight--;
                 recordCompletedNode(request, context, tracker, execution);
 
-                for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
+                if (!execution.result().waiting()) {
+                    for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
                     expectedNodeIds.add(nextNodeId);
                     int remaining = remainingPredecessors.compute(nextNodeId, (ignored, current) -> {
                         int currentCount = current == null ? 0 : current;
@@ -272,11 +389,13 @@ public class WorkflowRuntimeEngine {
                     if (remaining == 0 && !scheduled.contains(nextNodeId)) {
                         readyQueue.add(nextNodeId);
                     }
+                    }
                 }
                 inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight);
                 saveSnapshot(request, context, tracker);
             }
             assertExpectedNodesCompleted(expectedNodeIds, tracker);
+            return tracker.hasWaitingNodes();
         } finally {
             executorService.shutdownNow();
         }
@@ -285,7 +404,7 @@ public class WorkflowRuntimeEngine {
     private void assertExpectedNodesCompleted(Set<String> expectedNodeIds, ExecutionTracker tracker) {
         Set<String> completedNodeIds = Set.copyOf(tracker.completedNodeIds());
         List<String> incompleteNodeIds = expectedNodeIds.stream()
-                .filter(nodeId -> !completedNodeIds.contains(nodeId))
+                .filter(nodeId -> !completedNodeIds.contains(nodeId) && !tracker.isWaiting(nodeId))
                 .toList();
         if (!incompleteNodeIds.isEmpty()) {
             throw new IllegalStateException("workflow runtime completed with incomplete expected nodes: " + incompleteNodeIds);
@@ -355,6 +474,12 @@ public class WorkflowRuntimeEngine {
                                      ExecutionTracker tracker,
                                      NodeExecution execution) {
         context.recordNodeOutput(execution.nodeId(), execution.result());
+        if (execution.result().waiting()) {
+            tracker.markWaiting(execution.nodeId());
+            publish(context, RuntimeEventType.NODE_WAITING, execution.nodeId(), execution.result().output());
+            saveSnapshot(request, context, tracker);
+            return;
+        }
         context.variables().putAll(execution.result().variables());
         tracker.markCompleted(execution.nodeId());
         RuntimeLogContext.run(context, execution.nodeId(),
@@ -417,6 +542,8 @@ public class WorkflowRuntimeEngine {
             try {
                 NodeResult result = executor.execute(context);
                 return result == null ? NodeResult.success(Map.of()) : result;
+            } catch (NodeWaitingException waitingException) {
+                return NodeResult.waiting(waitingException.output());
             } catch (Exception exception) {
                 RuntimeException runtimeException = toRuntimeException(exception);
                 if (!request.retryPolicy().shouldRetry(attempt, runtimeException)) {
@@ -552,6 +679,7 @@ public class WorkflowRuntimeEngine {
     private static final class ExecutionTracker {
 
         private final Set<String> inFlightNodeIds = ConcurrentHashMap.newKeySet();
+        private final Set<String> waitingNodeIds = ConcurrentHashMap.newKeySet();
         private final List<String> completedNodeIds = Collections.synchronizedList(new ArrayList<>());
         private final List<String> failedNodeIds = Collections.synchronizedList(new ArrayList<>());
 
@@ -563,6 +691,11 @@ public class WorkflowRuntimeEngine {
             ExecutionTracker tracker = new ExecutionTracker();
             tracker.completedNodeIds.addAll(snapshot.completedNodeIds());
             tracker.failedNodeIds.addAll(snapshot.failedNodeIds());
+            snapshot.nodeOutputs().forEach((nodeId, result) -> {
+                if (result.waiting() && !tracker.completedNodeIds.contains(nodeId)) {
+                    tracker.waitingNodeIds.add(nodeId);
+                }
+            });
             return tracker;
         }
 
@@ -572,6 +705,7 @@ public class WorkflowRuntimeEngine {
 
         void markCompleted(String nodeId) {
             inFlightNodeIds.remove(nodeId);
+            waitingNodeIds.remove(nodeId);
             failedNodeIds.remove(nodeId);
             if (!completedNodeIds.contains(nodeId)) {
                 completedNodeIds.add(nodeId);
@@ -580,13 +714,29 @@ public class WorkflowRuntimeEngine {
 
         void markFailed(String nodeId) {
             inFlightNodeIds.remove(nodeId);
+            waitingNodeIds.remove(nodeId);
             if (!failedNodeIds.contains(nodeId)) {
                 failedNodeIds.add(nodeId);
             }
         }
 
+        void markWaiting(String nodeId) {
+            inFlightNodeIds.remove(nodeId);
+            waitingNodeIds.add(nodeId);
+        }
+
+        boolean isWaiting(String nodeId) {
+            return waitingNodeIds.contains(nodeId);
+        }
+
+        boolean hasWaitingNodes() {
+            return !waitingNodeIds.isEmpty();
+        }
+
         List<String> currentNodeIds() {
-            return List.copyOf(inFlightNodeIds);
+            List<String> current = new ArrayList<>(inFlightNodeIds);
+            current.addAll(waitingNodeIds);
+            return List.copyOf(current);
         }
 
         List<String> completedNodeIds() {

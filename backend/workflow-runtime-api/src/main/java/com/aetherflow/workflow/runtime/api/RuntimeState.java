@@ -4,6 +4,7 @@ public enum RuntimeState {
     PENDING,
     RUNNING,
     RETRYING,
+    WAITING,
     SUCCESS,
     FAILED,
     CANCELLED

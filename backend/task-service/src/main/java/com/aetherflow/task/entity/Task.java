@@ -17,6 +17,9 @@ public class Task extends BaseEntity {
     @Schema(description = "Workflow instance id.", example = "1001")
     private Long workflowInstanceId;
 
+    @Schema(description = "Trace id preserved across persistence, retries, and message queues.")
+    private String traceId;
+
     @Schema(description = "Workflow node id.", example = "node-transcribe")
     private String nodeId;
 

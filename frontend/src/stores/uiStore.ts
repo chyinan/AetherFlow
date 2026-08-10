@@ -12,6 +12,7 @@ import {
 import { realtimeClient } from '@/services/realtime/realtimeClient'
 import { mergeNotificationHistory } from '@/services/notifications/notificationHistory'
 import type { ServiceStatus } from '@/types/api'
+import { formatTime } from '@/utils/localeFormat'
 
 export interface UiNotification {
   id: string
@@ -63,13 +64,13 @@ function notificationServiceLabel(message: NotifyMessageDTO) {
 
 function notificationTime(occurredAt: string | undefined) {
   if (!occurredAt) {
-    return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    return formatTime(new Date())
   }
 
   const date = new Date(occurredAt)
   return Number.isNaN(date.getTime())
-    ? new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    : date.toLocaleTimeString('zh-CN', { hour12: false })
+    ? formatTime(new Date())
+    : formatTime(date)
 }
 
 function notificationMessageKey(message: NotifyMessageDTO) {
@@ -191,7 +192,7 @@ export const useUiStore = defineStore('ui', {
         if (state === 'online' && this.lastRealtimeNoticeState !== 'online') {
           this.notifications.unshift({
             id: `notice-${Date.now()}`,
-            time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            time: formatTime(new Date()),
             title: 'Realtime',
             messageKey: 'notifications.realtimeRestored',
             source: 'realtime',
@@ -201,7 +202,7 @@ export const useUiStore = defineStore('ui', {
         } else if (state !== 'online') {
           this.notifications.unshift({
             id: `notice-${Date.now()}`,
-            time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            time: formatTime(new Date()),
             title: 'Realtime',
             messageKey: 'notifications.connectionIssue',
             messageParams: {

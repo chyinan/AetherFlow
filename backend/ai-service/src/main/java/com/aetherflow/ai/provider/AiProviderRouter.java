@@ -27,6 +27,7 @@ public class AiProviderRouter {
     private final ProviderMetricsService metricsService;
     private final AIInferenceLogService logService;
     private final SentinelAiGuard sentinelAiGuard;
+    private final ProviderPricingSnapshotService pricingSnapshotService;
 
     public AiProviderRouter(List<AiProvider> providers,
                             ProviderRoutingPolicyService policyService,
@@ -34,7 +35,8 @@ public class AiProviderRouter {
                             ProviderStateRepository stateRepository,
                             ProviderMetricsService metricsService,
                             AIInferenceLogService logService,
-                            SentinelAiGuard sentinelAiGuard) {
+                            SentinelAiGuard sentinelAiGuard,
+                            ProviderPricingSnapshotService pricingSnapshotService) {
         this.providers = new EnumMap<>(AiProviderType.class);
         for (AiProvider provider : providers) {
             this.providers.put(provider.type(), provider);
@@ -45,6 +47,7 @@ public class AiProviderRouter {
         this.metricsService = metricsService;
         this.logService = logService;
         this.sentinelAiGuard = sentinelAiGuard;
+        this.pricingSnapshotService = pricingSnapshotService;
     }
 
     public AiProviderResponse complete(AiProviderRequest request) {
@@ -101,9 +104,13 @@ public class AiProviderRouter {
                 try {
                     metricsService.recordCall(providerType);
                     AiProviderResponse response = provider.get().generate(request.withProvider(providerType));
+                    Map<String, Object> responseMetadata = pricingSnapshotService.addCostMetadata(
+                            response.metadata(), providerType, response.model(), startedAt);
+                    AiProviderResponse enrichedResponse = new AiProviderResponse(
+                            response.provider(), response.model(), response.text(), responseMetadata);
                     Duration latency = Duration.between(startedAt, Instant.now());
                     circuitBreaker.onSuccess(providerType, permission.halfOpenProbe(), policy);
-                    stateRepository.saveHealth(AiProviderHealth.up(providerType, latency.toMillis(), "provider request succeeded", response.metadata()), policy.getHealthCheckInterval().plusSeconds(60));
+                    stateRepository.saveHealth(AiProviderHealth.up(providerType, latency.toMillis(), "provider request succeeded", responseMetadata), policy.getHealthCheckInterval().plusSeconds(60));
                     stateRepository.saveActiveProvider(providerType, policy.getHealthCheckInterval().plus(policy.getCircuitOpenDuration()).plusSeconds(60));
                     metricsService.recordSuccess(providerType, latency);
                     if (hadFailureOrSkip && providerType != initialProvider) {
@@ -112,8 +119,8 @@ public class AiProviderRouter {
                         recordEvent("FAILOVER", providerType, fromProvider, providerType, request,
                                 "provider failover " + fromProvider + " -> " + providerType, latency.toMillis(), attempt, null, Map.of());
                     }
-                    recordEvent("SUCCESS", providerType, null, null, request, "provider request succeeded", latency.toMillis(), attempt, null, Map.of());
-                    return response;
+                    recordEvent("SUCCESS", providerType, null, null, request, "provider request succeeded", latency.toMillis(), attempt, null, responseMetadata);
+                    return enrichedResponse;
                 } catch (RuntimeException exception) {
                     Duration latency = Duration.between(startedAt, Instant.now());
                     ProviderFailureType failureType = ProviderFailureClassifier.classify(exception);

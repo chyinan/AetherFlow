@@ -33,7 +33,7 @@ class ImageArtifactStorageTest {
         WorkflowNodeProperties properties = properties();
         WorkflowNodeConfig.MinioProperties minioProperties = minioProperties();
         ImageArtifactStorage storage = new ImageArtifactStorage(minioClient, fileClient, properties, minioProperties);
-        when(fileClient.createMetadata(eq("token"), any(CreateFileMetadataRequestDTO.class)))
+        when(fileClient.createMetadata(any(String.class), any(CreateFileMetadataRequestDTO.class)))
                 .thenReturn(Result.success(new FileMetadataDTO(
                         7L,
                         "aetherflow",
@@ -51,7 +51,7 @@ class ImageArtifactStorageTest {
         verify(minioClient).putObject(any(PutObjectArgs.class));
         ArgumentCaptor<CreateFileMetadataRequestDTO> captor =
                 ArgumentCaptor.forClass(CreateFileMetadataRequestDTO.class);
-        verify(fileClient).createMetadata(eq("token"), captor.capture());
+        verify(fileClient).createMetadata(any(String.class), captor.capture());
         assertThat(captor.getValue().getBucket()).isEqualTo("aetherflow");
         assertThat(captor.getValue().getObjectKey())
                 .startsWith("workflow/exports/images/wf/node/")
@@ -80,7 +80,7 @@ class ImageArtifactStorageTest {
 
     private WorkflowNodeProperties properties() {
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        properties.setFileInternalToken("token");
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         properties.setExportObjectPrefix("workflow/exports");
         return properties;
     }

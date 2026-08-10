@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
+import org.slf4j.MDC;
 
 @Slf4j
 @Component
@@ -17,10 +18,15 @@ public class AiTaskListener {
 
     @RabbitListener(queues = RabbitMqNames.AI_TASK_QUEUE, concurrency = "${aetherflow.ai.listener-concurrent-consumers:2}")
     public void handleAiTask(TaskMessageDTO taskMessage) {
-        log.info("Received AI task from RabbitMQ taskId={}, nodeType={}",
-                taskMessage == null ? null : taskMessage.getTaskId(),
-                taskMessage == null ? null : taskMessage.getNodeType());
-        aiTaskProcessingService.process(taskMessage);
+        String traceId = taskMessage == null ? null : taskMessage.getTraceId();
+        if (traceId == null || traceId.isBlank()) {
+            throw new IllegalArgumentException("AI task trace id is required");
+        }
+        try (MDC.MDCCloseable ignored = MDC.putCloseable("traceId", traceId)) {
+            log.info("Received AI task from RabbitMQ taskId={}, nodeType={}",
+                    taskMessage.getTaskId(), taskMessage.getNodeType());
+            aiTaskProcessingService.process(taskMessage);
+        }
     }
 }
 

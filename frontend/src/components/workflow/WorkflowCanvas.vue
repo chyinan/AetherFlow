@@ -20,6 +20,7 @@ const uiStore = useUiStore()
 const flow = useVueFlow()
 const { t } = useI18n()
 const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
+const suppressNextPaletteClick = ref(false)
 const implementedNodeKinds = new Set<WorkflowNodeKind>([
   'start',
   'prompt',
@@ -28,11 +29,14 @@ const implementedNodeKinds = new Set<WorkflowNodeKind>([
   'save-image',
   'ffmpeg',
   'document-extractor',
+  'url-fetch',
   'whisper',
   'llm',
   'translate',
   'summary',
+  'embedding',
   'knowledge-retrieval',
+  'notify',
   'export',
   'output',
   'agent',
@@ -109,11 +113,32 @@ async function addNodeAfter(template: NodeTemplate) {
 }
 
 function onTemplateDragStart(event: DragEvent, template: NodeTemplate) {
+  suppressNextPaletteClick.value = true
   event.dataTransfer?.setData('application/aetherflow-node', JSON.stringify(template))
   event.dataTransfer?.setData('text/plain', template.kind)
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'copy'
   }
+}
+
+function onTemplateDragEnd() {
+  window.setTimeout(() => {
+    suppressNextPaletteClick.value = false
+  }, 0)
+}
+
+async function addTemplateFromPalette(template: NodeTemplate) {
+  if (suppressNextPaletteClick.value) {
+    return
+  }
+  const offset = workflowStore.nodes.length * 28
+  const node = workflowStore.addNodeFromTemplate(template, {
+    x: 160 + (offset % 280),
+    y: 120 + (offset % 200),
+  })
+  selectNode(node.id)
+  await nextTick()
+  ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2, duration: 220 })
 }
 
 function flowDropPosition(event: DragEvent) {
@@ -186,7 +211,9 @@ onMounted(() => {
           draggable="true"
           class="flex w-full items-start gap-3 rounded-lg border p-3 text-left transition"
           :class="'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
+          @click="addTemplateFromPalette(template)"
           @dragstart="onTemplateDragStart($event, template)"
+          @dragend="onTemplateDragEnd"
         >
           <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
             +

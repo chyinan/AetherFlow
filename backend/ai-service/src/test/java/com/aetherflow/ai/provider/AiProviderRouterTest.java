@@ -108,6 +108,20 @@ class AiProviderRouterTest {
         assertThat(fixture.provider(AiProviderType.OPENAI).calls).isEqualTo(1);
     }
 
+    @Test
+    void recordsProviderResponseMetadataOnSuccessfulInference() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI), 0, 5);
+        RouterFixture fixture = fixture(policy, new FakeProvider(AiProviderType.OPENAI, "openai-result"));
+
+        fixture.router.complete(request(null));
+
+        AIInferenceLog success = fixture.logs.recent(10).stream()
+                .filter(log -> "SUCCESS".equals(log.eventType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(success.metadata()).containsEntry("finishReason", "stop");
+    }
+
     private ProviderRoutingPolicy policy(List<AiProviderType> providers, int maxRetries, int threshold) {
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         policy.setProviders(providers);
@@ -139,7 +153,8 @@ class AiProviderRouterTest {
         InMemoryLogService logs = new InMemoryLogService();
         List<AiProvider> providers = new ArrayList<>();
         providers.addAll(List.of(fakeProviders));
-        AiProviderRouter router = new AiProviderRouter(providers, policyService, circuitBreaker, stateRepository, metrics, logs, new SentinelAiGuard());
+        AiProviderRouter router = new AiProviderRouter(providers, policyService, circuitBreaker, stateRepository,
+                metrics, logs, new SentinelAiGuard(), new ProviderPricingSnapshotService(properties));
         return new RouterFixture(router, List.of(fakeProviders), stateRepository, metrics, logs);
     }
 

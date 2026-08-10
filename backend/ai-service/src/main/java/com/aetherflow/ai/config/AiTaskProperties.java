@@ -5,6 +5,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,4 +37,15 @@ public class AiTaskProperties {
     private Duration providerHealthCheckInterval = Duration.ofSeconds(30);
     private int providerRecentLogLimit = 20;
     private int providerRecentMetricsLimit = 20;
+    private List<PricingSnapshot> pricingSnapshots = new ArrayList<>();
+
+    @Data
+    public static class PricingSnapshot {
+        private AiProviderType provider;
+        private String model;
+        private BigDecimal inputUsdPerMillionTokens;
+        private BigDecimal outputUsdPerMillionTokens;
+        private String source;
+        private Instant effectiveAt;
+    }
 }

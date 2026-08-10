@@ -1,25 +1,11 @@
 {
-  "users": [
-    {
-      "name": "aetherflow",
-      "password": "aetherflow",
-      "tags": "administrator"
-    }
-  ],
+  "users": [],
   "vhosts": [
     {
       "name": "/"
     }
   ],
-  "permissions": [
-    {
-      "user": "aetherflow",
-      "vhost": "/",
-      "configure": ".*",
-      "write": ".*",
-      "read": ".*"
-    }
-  ],
+  "permissions": [],
   "exchanges": [
     {
       "name": "aetherflow.task.exchange",

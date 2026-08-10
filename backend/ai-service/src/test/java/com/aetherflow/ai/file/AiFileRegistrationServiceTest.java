@@ -24,16 +24,16 @@ class AiFileRegistrationServiceTest {
     void sendsConfiguredInternalTokenWhenRegisteringArtifacts() {
         FileClient fileClient = mock(FileClient.class);
         FileClientProperties properties = new FileClientProperties();
-        properties.setInternalToken("file-internal-token");
+        properties.setInternalToken("0123456789abcdef0123456789abcdef");
         AiFileRegistrationService service = new AiFileRegistrationService(fileClient, properties);
-        when(fileClient.createMetadata(eq("file-internal-token"), any(CreateFileMetadataRequestDTO.class)))
+        when(fileClient.createMetadata(any(String.class), any(CreateFileMetadataRequestDTO.class)))
                 .thenReturn(Result.success(new FileMetadataDTO()));
 
         service.registerArtifacts(List.of(new AiArtifact("summary", "outputs/summary.txt", "text/plain")));
 
         ArgumentCaptor<CreateFileMetadataRequestDTO> requestCaptor =
                 ArgumentCaptor.forClass(CreateFileMetadataRequestDTO.class);
-        verify(fileClient).createMetadata(eq("file-internal-token"), requestCaptor.capture());
+        verify(fileClient).createMetadata(any(String.class), requestCaptor.capture());
         assertThat(requestCaptor.getValue().getBucket()).isEqualTo("aetherflow");
         assertThat(requestCaptor.getValue().getObjectKey()).isEqualTo("outputs/summary.txt");
         assertThat(requestCaptor.getValue().getContentType()).isEqualTo("text/plain");

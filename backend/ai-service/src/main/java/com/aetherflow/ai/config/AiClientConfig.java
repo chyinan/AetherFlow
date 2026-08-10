@@ -19,27 +19,27 @@ public class AiClientConfig {
      * {@code SimpleClientHttpRequestFactory} which opened a new TCP connection per request.
      */
     @Bean
-    public RestClient pythonAiRestClient(PythonAiProperties properties) {
+    public RestClient pythonAiRestClient(RestClient.Builder restClientBuilder, PythonAiProperties properties) {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder()
                         .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMillis()))
                         .build());
         requestFactory.setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMillis()));
-        return RestClient.builder()
+        return restClientBuilder.clone()
                 .baseUrl(properties.getBaseUrl())
                 .requestFactory(requestFactory)
                 .build();
     }
 
     @Bean
-    public RestClient aiCallbackRestClient(AiTaskProperties properties) {
+    public RestClient aiCallbackRestClient(RestClient.Builder restClientBuilder, AiTaskProperties properties) {
         Duration timeout = properties.getCallbackTimeout();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder()
                         .connectTimeout(timeout)
                         .build());
         requestFactory.setReadTimeout(timeout);
-        return RestClient.builder()
+        return restClientBuilder.clone()
                 .requestFactory(requestFactory)
                 .build();
     }

@@ -1,6 +1,7 @@
 import type { RuntimeEvent, RuntimeObservation, RuntimeState } from '@/api/modules/runtime'
 import type { RunLogEntry, RunNodeState, RunStatus, WorkflowRun } from '@/types/run'
 import type { WorkflowNodeStatus } from '@/types/workflow'
+import { formatTime as formatLocaleTime } from '@/utils/localeFormat'
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -8,7 +9,7 @@ function clamp(value: number, min: number, max: number) {
 
 function formatTime(value?: string) {
   if (!value) {
-    return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    return formatLocaleTime(new Date())
   }
 
   const date = new Date(value)
@@ -16,7 +17,7 @@ function formatTime(value?: string) {
     return value
   }
 
-  return date.toLocaleTimeString('zh-CN', { hour12: false })
+  return formatLocaleTime(date)
 }
 
 export function mapRuntimeStateToRunStatus(state?: RuntimeState): RunStatus {
@@ -31,6 +32,7 @@ export function mapRuntimeStateToRunStatus(state?: RuntimeState): RunStatus {
     case 'FAILED':
       return 'failed'
     case 'CANCELLED':
+    case 'WAITING':
       return 'paused'
     default:
       return 'running'
@@ -49,6 +51,7 @@ export function mapRuntimeStateToNodeStatus(state?: RuntimeState): WorkflowNodeS
     case 'FAILED':
       return 'failed'
     case 'CANCELLED':
+    case 'WAITING':
       return 'paused'
     default:
       return 'queued'
@@ -101,6 +104,8 @@ function mapRuntimeEventToNodeStatus(event: RuntimeEvent): WorkflowNodeStatus {
       return 'success'
     case 'NODE_RETRYING':
       return 'running'
+    case 'NODE_WAITING':
+      return 'paused'
     case 'WORKFLOW_FAILED':
       return 'failed'
     case 'WORKFLOW_CANCELLED':
@@ -136,6 +141,10 @@ function eventMessage(event: RuntimeEvent) {
       return `Runtime completed ${target}.`
     case 'NODE_RETRYING':
       return `Runtime retrying ${target}.`
+    case 'NODE_WAITING':
+      return `Runtime is waiting for an external result from ${target}.`
+    case 'WORKFLOW_WAITING':
+      return `Workflow ${event.workflowId} is waiting for an external result.`
     case 'WORKFLOW_COMPLETED':
       return `Workflow ${event.workflowId} completed.`
     case 'WORKFLOW_FAILED':

@@ -169,6 +169,7 @@ CREATE TABLE IF NOT EXISTS af_project (
 CREATE TABLE IF NOT EXISTS af_task_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     workflow_instance_id BIGINT NOT NULL,
+    trace_id VARCHAR(64) NOT NULL,
     node_id VARCHAR(128) NOT NULL,
     node_type VARCHAR(64) NOT NULL,
     payload_json LONGTEXT,

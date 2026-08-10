@@ -392,7 +392,7 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-white px-3 py-2 text-sm font-medium text-primary hover:bg-primary-soft disabled:opacity-60" :disabled="workflowStore.saving" @click="saveWorkflow">
           <Save class="h-4 w-4" />
-          {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveMock') : t('workflow.saved') }}
+          {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveWorkflow') : t('workflow.saved') }}
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
           <LoaderCircle v-if="runButtonBusy" class="h-4 w-4 animate-spin" />

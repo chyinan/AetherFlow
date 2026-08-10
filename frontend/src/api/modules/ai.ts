@@ -97,6 +97,7 @@ export interface ProviderCatalogPricing {
   outputUsdPerMillionTokens?: number | string | null
   priceHint?: string | null
   source?: string | null
+  effectiveAt?: string | null
 }
 
 export interface ProviderCatalogProvider {

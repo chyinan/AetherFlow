@@ -12,6 +12,7 @@ import {
 } from '@/api/modules/notify'
 import { buildRuntimeSseUrl, type RuntimeEvent } from '@/api/modules/runtime'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
+import { formatTime } from '@/utils/localeFormat'
 import { createNotificationSocket, type NotificationSocketConnection } from './notificationSocket'
 import { createSseClient, SseHttpError, type SseConnection } from './sseClient'
 
@@ -117,7 +118,7 @@ function subscribeMockRun(runId: string, handlers: RunHandlers, reason?: string)
   if (reason) {
     handlers.onLog?.({
       id: `${streamIdPrefix}-fallback-${Date.now()}`,
-      time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      time: formatTime(new Date()),
       level: 'warn',
       message: reason,
     })
@@ -125,7 +126,7 @@ function subscribeMockRun(runId: string, handlers: RunHandlers, reason?: string)
 
   const timer = window.setInterval(() => {
     const item = script[index % script.length]
-    const time = new Date().toLocaleTimeString('zh-CN', {
+    const time = formatTime(new Date(), undefined, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
@@ -165,7 +166,17 @@ export const realtimeClient = {
     const runtimeWorkflowId = typeof target === 'string' ? undefined : target.runtimeWorkflowId
 
     if (!runtimeWorkflowId) {
-      return subscribeMockRun(runId, handlers)
+      if (runtimeEnv.mockFallback) {
+        return subscribeMockRun(runId, handlers)
+      }
+      handlers.onConnectionChange?.('offline')
+      handlers.onLog?.({
+        id: `${runId}-runtime-id-missing`,
+        time: formatTime(new Date()),
+        level: 'error',
+        message: 'Runtime stream is unavailable because the run has no runtime workflow id.',
+      })
+      return () => undefined
     }
 
     let sse: SseConnection | null = null

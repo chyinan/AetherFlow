@@ -1,6 +1,7 @@
 import { i18n } from '@/i18n'
 import type { FileAssetMetadataView, FileMetadataDTO, UploadProgressView } from '@/api/modules/file'
 import type { FileAsset, FileStatus } from '@/types/file'
+import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
 
 function formatSize(size: FileMetadataDTO['size']) {
   const numericSize = typeof size === 'number' ? size : Number(size)
@@ -71,7 +72,7 @@ export function mapFileMetadataToAsset(
     result: progress?.message || i18n.global.t('files.mockResults.readyInput'),
     downloadUrl: metadata.url,
     objectKey: metadata.objectKey,
-    updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+    updatedAt: formatLocaleDateTime(new Date()),
   }
 }
 
@@ -111,7 +112,7 @@ function normalizeFileType(type?: string, mime?: string, name?: string): FileAss
 
 function formatDateTime(value?: string) {
   if (!value) {
-    return new Date().toLocaleString('zh-CN', { hour12: false })
+    return formatLocaleDateTime(new Date())
   }
 
   const date = new Date(value)
@@ -119,7 +120,7 @@ function formatDateTime(value?: string) {
     return value
   }
 
-  return date.toLocaleString('zh-CN', { hour12: false })
+  return formatLocaleDateTime(date)
 }
 
 export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset {

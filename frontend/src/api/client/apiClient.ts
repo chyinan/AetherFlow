@@ -115,6 +115,7 @@ function createApiAxiosInstance(options: ApiAxiosOptions) {
   const instance = axios.create({
     baseURL: runtimeEnv.apiBase,
     timeout: runtimeEnv.requestTimeoutMs,
+    withCredentials: true,
     headers: {
       'Content-Type': 'application/json',
     },

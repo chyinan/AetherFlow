@@ -12,7 +12,6 @@ public class AuthLogoutRequest {
     @Schema(description = "Access token to blacklist.", example = "eyJhbGciOiJIUzI1NiJ9.access")
     private String accessToken;
 
-    @NotBlank
-    @Schema(description = "Refresh token identifying the Redis session.", example = "eyJhbGciOiJIUzI1NiJ9.refresh")
+    @Schema(description = "Refresh token for non-browser clients. Browsers use the HttpOnly refresh cookie.", example = "eyJhbGciOiJIUzI1NiJ9.refresh")
     private String refreshToken;
 }

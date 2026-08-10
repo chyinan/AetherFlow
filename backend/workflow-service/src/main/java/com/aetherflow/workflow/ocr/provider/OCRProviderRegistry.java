@@ -30,6 +30,9 @@ public class OCRProviderRegistry {
         if (providerName == null || providerName.isBlank()) {
             providerName = properties.getDefaultProvider();
         }
+        if (MOCK_PROVIDER.equals(normalize(providerName)) && !properties.isMock()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "mock OCR provider is disabled");
+        }
         OCRProvider provider = providers.get(normalize(providerName));
         if (provider == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "ocr provider is not registered");

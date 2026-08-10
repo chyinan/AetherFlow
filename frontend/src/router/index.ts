@@ -1,18 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { i18n } from '@/i18n/index'
-import AccountPage from '@/pages/account/AccountPage.vue'
-import LoginPage from '@/pages/auth/LoginPage.vue'
-import OAuthCallbackPage from '@/pages/auth/OAuthCallbackPage.vue'
-import FilesPage from '@/pages/files/FilesPage.vue'
-import KnowledgePage from '@/pages/knowledge/KnowledgePage.vue'
-import LandingPage from '@/pages/landing/LandingPage.vue'
-import ModelsPage from '@/pages/models/ModelsPage.vue'
-import MonitorPage from '@/pages/monitor/MonitorPage.vue'
-import ProjectsPage from '@/pages/projects/ProjectsPage.vue'
-import RunsPage from '@/pages/runs/RunsPage.vue'
-import SettingsPage from '@/pages/settings/SettingsPage.vue'
-import WorkflowPage from '@/pages/workflows/WorkflowPage.vue'
 import type { AuthUser } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -42,25 +30,25 @@ export const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: LoginPage,
+      component: () => import('@/pages/auth/LoginPage.vue'),
       meta: { layout: 'auth', titleKey: 'auth.signIn' },
     },
     {
       path: '/auth/oauth/callback',
       name: 'oauth-callback',
-      component: OAuthCallbackPage,
+      component: () => import('@/pages/auth/OAuthCallbackPage.vue'),
       meta: { layout: 'auth', titleKey: 'auth.signIn' },
     },
     {
       path: '/',
       name: 'landing',
-      component: LandingPage,
+      component: () => import('@/pages/landing/LandingPage.vue'),
       meta: { layout: 'auth', titleKey: 'landing.title' },
     },
     {
       path: '/projects',
       name: 'projects',
-      component: ProjectsPage,
+      component: () => import('@/pages/projects/ProjectsPage.vue'),
       meta: { requiresAuth: true, titleKey: 'projects.title', roles: ['owner', 'operator'] },
     },
     {
@@ -70,55 +58,55 @@ export const router = createRouter({
     {
       path: '/workflows/:id',
       name: 'workflow-detail',
-      component: WorkflowPage,
+      component: () => import('@/pages/workflows/WorkflowPage.vue'),
       meta: { requiresAuth: true, titleKey: 'workflow.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/runs',
       name: 'runs',
-      component: RunsPage,
+      component: () => import('@/pages/runs/RunsPage.vue'),
       meta: { requiresAuth: true, titleKey: 'runs.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/runs/:id',
       name: 'run-detail',
-      component: RunsPage,
+      component: () => import('@/pages/runs/RunsPage.vue'),
       meta: { requiresAuth: true, titleKey: 'runs.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/files',
       name: 'files',
-      component: FilesPage,
+      component: () => import('@/pages/files/FilesPage.vue'),
       meta: { requiresAuth: true, titleKey: 'files.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/knowledge',
       name: 'knowledge',
-      component: KnowledgePage,
+      component: () => import('@/pages/knowledge/KnowledgePage.vue'),
       meta: { requiresAuth: true, titleKey: 'knowledge.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/models',
       name: 'models',
-      component: ModelsPage,
+      component: () => import('@/pages/models/ModelsPage.vue'),
       meta: { requiresAuth: true, titleKey: 'models.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/monitor',
       name: 'monitor',
-      component: MonitorPage,
+      component: () => import('@/pages/monitor/MonitorPage.vue'),
       meta: { requiresAuth: true, titleKey: 'monitor.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/account',
       name: 'account',
-      component: AccountPage,
+      component: () => import('@/pages/account/AccountPage.vue'),
       meta: { requiresAuth: true, titleKey: 'account.title', roles: ['owner', 'operator'] },
     },
     {
       path: '/settings',
       name: 'settings',
-      component: SettingsPage,
+      component: () => import('@/pages/settings/SettingsPage.vue'),
       meta: { requiresAuth: true, titleKey: 'settings.title', roles: ['owner', 'operator'] },
     },
   ],

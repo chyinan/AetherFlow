@@ -1,7 +1,7 @@
 param(
-    [string]$BaseUrl = "http://192.168.101.68:8080",
-    [string]$SentinelUrl = "http://192.168.101.68:9090",
-    [string]$SeataUrl = "http://192.168.101.68:7099",
+    [string]$BaseUrl = "http://localhost:8080",
+    [string]$SentinelUrl = "http://localhost:9090",
+    [string]$SeataUrl = "http://localhost:7099",
     [string]$Username = "aether.operator",
     [string]$Password = "mock-password",
     [int]$Rounds = 5,

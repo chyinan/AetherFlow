@@ -141,6 +141,6 @@
 - CentOS 7 上 Docker Compose 插件版本过低可能不支持 `depends_on.condition`，需要升级 Compose v2。
 - 既有容器名若不是 `aetherflow-*`，需要先统一 rename 或使用 compose 重建。
 - 已有 MySQL 数据卷不会重复执行 `/docker-entrypoint-initdb.d`；老数据卷需手动导入 `docker/mysql/init/01-aetherflow.sql`。
-- Nacos 开启鉴权时，需要补充 `NACOS_USERNAME/NACOS_PASSWORD` 并同步 Java、Seata 配置。
+- Nacos 开启鉴权时，需要补充 `NACOS_USERNAME/NACOS_PASSWORD` 并同步 Java、Seata 配置；Compose 会先运行一次性 `nacos-init` 完成默认账号密码轮换，后端服务依赖该初始化成功后再启动。
 - Seata 使用 Nacos 配置中心时，`seataServer.properties` 必须存在，否则 DB store 可能不生效。
 - SSE/WebSocket 必须通过 Nginx 实测，浏览器代理、中间防火墙或超时配置都可能中断长连接。

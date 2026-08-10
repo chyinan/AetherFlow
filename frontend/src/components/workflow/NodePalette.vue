@@ -1,14 +1,18 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate } from '@/types/workflow'
 
 const workflowStore = useWorkflowStore()
+const uiStore = useUiStore()
 const { t } = useI18n()
 const search = ref('')
+const suppressNextClick = ref(false)
 
 const filteredTemplates = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -21,11 +25,30 @@ const filteredTemplates = computed(() => {
 })
 
 function onDragStart(event: DragEvent, template: NodeTemplate) {
+  suppressNextClick.value = true
   event.dataTransfer?.setData('application/aetherflow-node', JSON.stringify(template))
   event.dataTransfer?.setData('text/plain', template.label)
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
   }
+}
+
+function onDragEnd() {
+  window.setTimeout(() => {
+    suppressNextClick.value = false
+  }, 0)
+}
+
+function addTemplate(template: NodeTemplate) {
+  if (suppressNextClick.value) {
+    return
+  }
+  const offset = workflowStore.nodes.length * 24
+  const node = workflowStore.addNodeFromTemplate(template, {
+    x: 120 + (offset % 240),
+    y: 100 + (offset % 180),
+  })
+  uiStore.setSelectedNode(node.id)
 }
 </script>
 
@@ -36,7 +59,7 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
       <p class="mt-1 text-xs text-text-muted">{{ t('workflow.dragHint') }}</p>
       <label class="mt-3 flex items-center gap-2 rounded-md border border-app-border bg-app-muted px-3 py-2 text-sm">
         <Search class="h-4 w-4 text-text-muted" />
-        <input v-model="search" class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchNodes')" />
+        <input v-model="search" class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchNodes')" :aria-label="t('workflow.searchNodes')" />
       </label>
     </div>
 
@@ -47,7 +70,9 @@ function onDragStart(event: DragEvent, template: NodeTemplate) {
         type="button"
         draggable="true"
         class="w-full rounded-lg border border-app-border bg-white p-3 text-left shadow-sm transition hover:border-primary/30 hover:shadow-node"
+        @click="addTemplate(template)"
         @dragstart="onDragStart($event, template)"
+        @dragend="onDragEnd"
       >
         <div class="flex items-center justify-between">
           <span class="text-sm font-semibold text-text-primary">{{ template.label }}</span>

@@ -1,3 +1,5 @@
+// pattern: Mixed (needs refactoring)
+// Reason: Existing module contains response mappers and the settings HTTP facade; this change keeps its established boundary.
 import { apiClient } from '@/api/client/apiClient'
 import {
   getProviderConfigCatalog,
@@ -298,6 +300,9 @@ export const settingsApi = {
   async getWorkspace() {
     return mapWorkspace(await apiClient.get<WorkspaceSettingsResponse>('/settings/profile', { source: 'auth' }))
   },
+  async updateWorkspace(payload: WorkspaceSettings) {
+    return mapWorkspace(await apiClient.put<WorkspaceSettingsResponse>('/settings/profile', payload, { source: 'auth' }))
+  },
   async listMembers() {
     const members = await apiClient.get<WorkspaceMemberResponse[]>('/settings/members', { source: 'auth' })
     return members.map(mapMember)
@@ -344,19 +349,19 @@ export const settingsApi = {
     return mapModelProvider(updated, runtimeByProviderKey.get(providerKey))
   },
   async listDataSources() {
-    return [] as DataSourceProvider[]
+    return apiClient.get<DataSourceProvider[]>('/settings/data-sources', { source: 'auth' })
   },
   async listApiExtensions() {
-    return [] as ApiExtensionSetting[]
+    return apiClient.get<ApiExtensionSetting[]>('/settings/api-extensions', { source: 'auth' })
   },
   async getBillingSnapshot() {
     return mapBilling(await apiClient.get<BillingSnapshotResponse>('/settings/billing', { source: 'auth' }))
   },
   async listEnvironmentVariables() {
-    return [] as EnvironmentVariable[]
+    return apiClient.get<EnvironmentVariable[]>('/settings/env-variables', { source: 'auth' })
   },
   async listIntegrations() {
-    return [] as IntegrationSetting[]
+    return apiClient.get<IntegrationSetting[]>('/settings/integrations', { source: 'auth' })
   },
   async listAuditEvents() {
     const events = await apiClient.get<AuditEventResponse[]>('/settings/audit-events', {

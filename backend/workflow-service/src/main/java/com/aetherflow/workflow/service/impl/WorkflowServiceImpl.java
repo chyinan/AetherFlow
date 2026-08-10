@@ -156,7 +156,11 @@ public class WorkflowServiceImpl implements WorkflowService {
         try {
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
             applySnapshot(update, snapshot);
-            update.setCompletedAt(LocalDateTime.now());
+            if (snapshot.runtimeState() == RuntimeState.SUCCESS
+                    || snapshot.runtimeState() == RuntimeState.FAILED
+                    || snapshot.runtimeState() == RuntimeState.CANCELLED) {
+                update.setCompletedAt(LocalDateTime.now());
+            }
             update.setUpdatedAt(LocalDateTime.now());
             instanceMapper.updateById(update);
         } catch (RuntimeException exception) {

@@ -38,7 +38,7 @@ public class QdrantVectorStore implements WorkflowVectorStore {
     }
 
     @Override
-    public List<MockVectorRecord> saveAll(String workflowId,
+    public List<VectorRecord> saveAll(String workflowId,
                                           String nodeId,
                                           EmbeddingNodeConfig config,
                                           List<TextChunk> chunks,
@@ -121,17 +121,17 @@ public class QdrantVectorStore implements WorkflowVectorStore {
         return payload;
     }
 
-    private List<MockVectorRecord> records(String collection,
+    private List<VectorRecord> records(String collection,
                                            String workflowId,
                                            String nodeId,
                                            EmbeddingNodeConfig config,
                                            List<TextChunk> chunks,
                                            List<EmbeddingResult> results) {
-        List<MockVectorRecord> saved = new ArrayList<>();
+        List<VectorRecord> saved = new ArrayList<>();
         for (int index = 0; index < chunks.size(); index++) {
             TextChunk chunk = chunks.get(index);
             EmbeddingResult result = results.get(index);
-            saved.add(new MockVectorRecord(
+            saved.add(new VectorRecord(
                     recordId(workflowId, nodeId, chunk.chunkIndex()),
                     collection,
                     workflowId,

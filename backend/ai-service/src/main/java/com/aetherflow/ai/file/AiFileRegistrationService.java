@@ -30,7 +30,7 @@ public class AiFileRegistrationService {
             request.setObjectKey(artifact.objectKey());
             request.setOriginalName(artifact.objectKey());
             request.setContentType(artifact.contentType());
-            Result<FileMetadataDTO> result = fileClient.createMetadata(fileClientProperties.getInternalToken(), request);
+            Result<FileMetadataDTO> result = fileClient.createMetadata(fileClientProperties.issueInternalToken(), request);
             if (result == null || !result.isSuccess()) {
                 log.warn("Failed to register ai artifact objectKey={}", artifact.objectKey());
             }

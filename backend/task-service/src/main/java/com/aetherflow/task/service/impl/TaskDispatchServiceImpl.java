@@ -47,6 +47,7 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         LocalDateTime now = LocalDateTime.now();
         Task task = new Task();
         task.setWorkflowInstanceId(taskMessage.getWorkflowInstanceId());
+        task.setTraceId(taskMessage.getTraceId());
         task.setNodeId(taskMessage.getNodeId());
         task.setNodeType(taskMessage.getNodeType());
         task.setPayloadJson(taskMessageFactory.writePayload(taskMessage.getPayload()));
@@ -96,6 +97,30 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markFailed(Long taskId) {
+        if (taskId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "task id is required");
+        }
+        Task task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "task not found");
+        }
+        TaskStatus currentStatus = TaskStatus.from(task.getStatus());
+        if (currentStatus == TaskStatus.FAILED) {
+            taskStateService.cacheStatus(taskId, TaskStatus.FAILED);
+            return;
+        }
+        if (currentStatus.terminal()) {
+            log.warn("terminal task status update ignored, taskId={}, currentStatus={}, targetStatus={}",
+                    taskId, currentStatus, TaskStatus.FAILED);
+            return;
+        }
+        taskStateService.mark(task, TaskStatus.FAILED, null);
+        log.info("task marked failed, taskId={}", taskId);
+    }
+
+    @Override
     public void compensateTimeouts() {
         int timeoutCount = timeoutChecker.checkTimeouts();
         int retryCount = retryManager.retryDueTasks();
@@ -130,6 +155,9 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         }
         if (taskMessage.getWorkflowInstanceId() == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow instance id is required");
+        }
+        if (taskMessage.getTraceId() == null || taskMessage.getTraceId().isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "task trace id is required");
         }
         if (taskMessage.getNodeId() == null || taskMessage.getNodeId().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "node id is required");

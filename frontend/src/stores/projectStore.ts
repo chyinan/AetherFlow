@@ -5,6 +5,7 @@ import { projectApi } from '@/services/api/projectApi'
 import { workflowApi } from '@/services/api/workflowApi'
 import type { ProjectSummary } from '@/types/project'
 import type { WorkflowSummary } from '@/types/workflow'
+import { formatDateTime } from '@/utils/localeFormat'
 
 import { useDifyStore } from './difyStore'
 import { useFileStore } from './fileStore'
@@ -209,7 +210,7 @@ export const useProjectStore = defineStore('project', {
       }
     },
     updateWorkflowStatus(workflowId: string, status: WorkflowSummary['status']) {
-      const now = new Date().toLocaleString('zh-CN', { hour12: false })
+      const now = formatDateTime(new Date())
       this.projects.forEach((project) => {
         const workflow = project.workflows.find((item) => item.id === workflowId)
         if (workflow) {
@@ -261,9 +262,6 @@ export const useProjectStore = defineStore('project', {
       this.projects = [...this.projects, project]
       this.currentProjectId = project.id
       return project
-    },
-    createMockProject(payload: { name: string; scenario: ProjectSummary['scenario'] }) {
-      return this.createProject(payload)
     },
   },
 })

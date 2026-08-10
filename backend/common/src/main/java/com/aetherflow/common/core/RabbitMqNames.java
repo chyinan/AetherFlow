@@ -13,6 +13,7 @@ public final class RabbitMqNames {
     public static final String TASK_DEAD_LETTER_ROUTING_KEY = "task.dead";
 
     public static final String NOTIFY_QUEUE = "aetherflow.notify.queue";
+    public static final String WORKFLOW_AI_RESULT_QUEUE = "aetherflow.workflow.ai-result.queue";
     public static final String NOTIFY_ROUTING_KEY = "notify.user";
 
     private RabbitMqNames() {

@@ -11,7 +11,7 @@ import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.embedding.metrics.EmbeddingMetrics;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
-import com.aetherflow.workflow.embedding.store.MockVectorRecord;
+import com.aetherflow.workflow.embedding.store.VectorRecord;
 import com.aetherflow.workflow.embedding.store.VectorStoreRegistry;
 import com.aetherflow.workflow.embedding.store.WorkflowVectorStore;
 import com.aetherflow.workflow.node.WorkflowNodeTypes;
@@ -73,7 +73,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
             EmbeddingProvider provider = providerRegistry.select(embeddingConfig);
             List<EmbeddingResult> results = embedWithTimeout(provider, embeddingConfig, chunks);
             WorkflowVectorStore vectorStore = vectorStoreRegistry.select(embeddingConfig.vectorStoreProvider());
-            List<MockVectorRecord> records = vectorStore.saveAll(
+            List<VectorRecord> records = vectorStore.saveAll(
                     context.workflowId(),
                     context.currentNodeId(),
                     embeddingConfig,
@@ -160,7 +160,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
                                        EmbeddingNodeConfig config,
                                        List<TextChunk> chunks,
                                        List<EmbeddingResult> results,
-                                       List<MockVectorRecord> records) {
+                                       List<VectorRecord> records) {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("provider", provider.providerName());
         output.put("model", config.model());
@@ -176,7 +176,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
                                           EmbeddingNodeConfig config,
                                           List<TextChunk> chunks,
                                           List<EmbeddingResult> results,
-                                          List<MockVectorRecord> records) {
+                                          List<VectorRecord> records) {
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put("embeddingProvider", provider.providerName());
         variables.put("embeddingModel", config.model());
@@ -210,7 +210,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
         }).toList();
     }
 
-    private List<Map<String, Object>> vectorRecords(List<MockVectorRecord> records) {
+    private List<Map<String, Object>> vectorRecords(List<VectorRecord> records) {
         return records.stream().map(record -> {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", record.id());

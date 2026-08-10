@@ -46,7 +46,7 @@ const filteredLogs = computed(() => {
 
     <label class="mx-4 mt-4 flex min-w-0 items-center gap-2 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm transition focus-within:border-primary/40 focus-within:bg-white">
       <Search class="h-4 w-4 shrink-0 text-text-muted" />
-      <input v-model="query" class="min-w-0 flex-1 bg-transparent text-text-primary outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchLogs')" />
+      <input v-model="query" class="min-w-0 flex-1 bg-transparent text-text-primary outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchLogs')" :aria-label="t('workflow.searchLogs')" />
     </label>
 
     <div class="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain p-4 font-mono text-xs leading-6">

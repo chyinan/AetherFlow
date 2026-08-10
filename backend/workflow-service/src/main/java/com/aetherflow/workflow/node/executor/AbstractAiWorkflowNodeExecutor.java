@@ -8,6 +8,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeWaitingException;
 import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 
@@ -23,6 +24,9 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
     @Autowired(required = false)
     private AiNodeCallTimeoutGuard aiCallTimeoutGuard;
 
+    @Autowired(required = false)
+    private AsyncAiTaskDispatcher asyncAiTaskDispatcher;
+
     protected AbstractAiWorkflowNodeExecutor(NodeType nodeType,
                                              WorkflowNodeMetrics metrics,
                                              AiWorkflowNodeClient aiClient) {
@@ -31,8 +35,12 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
     }
 
     protected AiWorkflowNodeResponseDTO executeAi(WorkflowContext context,
-                                                  String nodeType,
-                                                  Map<String, Object> payload) {
+                                                   String nodeType,
+                                                   Map<String, Object> payload) {
+        if (asyncAiTaskDispatcher != null && asyncAiTaskDispatcher.isEnabled()) {
+            long externalTaskId = asyncAiTaskDispatcher.dispatch(context, nodeType, payload);
+            throw new NodeWaitingException(Map.of("externalTaskId", externalTaskId));
+        }
         AiWorkflowNodeRequestDTO request = new AiWorkflowNodeRequestDTO();
         request.setWorkflowId(context.workflowId());
         request.setTraceId(context.traceId());

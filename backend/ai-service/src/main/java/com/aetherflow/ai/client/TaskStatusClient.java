@@ -14,4 +14,9 @@ public interface TaskStatusClient {
     Result<Void> markSucceeded(
             @RequestHeader(InternalHeaders.TASK_SERVICE_TOKEN) String internalToken,
             @PathVariable("taskId") Long taskId);
+
+    @PostMapping("/{taskId}/failed")
+    Result<Void> markFailed(
+            @RequestHeader(InternalHeaders.TASK_SERVICE_TOKEN) String internalToken,
+            @PathVariable("taskId") Long taskId);
 }

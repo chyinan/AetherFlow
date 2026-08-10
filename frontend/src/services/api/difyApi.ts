@@ -1,3 +1,5 @@
+// pattern: Mixed (needs refactoring)
+// Reason: Existing module maps workflow responses and coordinates several monitoring HTTP calls.
 import { apiClient } from '@/api/client/apiClient'
 import { getProviderLogs, getProviderMetrics } from '@/api/modules/ai'
 import { i18n } from '@/i18n'
@@ -88,6 +90,19 @@ function stringOr(value: unknown, fallback: string) {
 
 function numberOr(value: unknown, fallback = 0) {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function optionalNumber(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
+function logMetadataNumber(log: ProviderRuntimeLog, key: string): number | null {
+  return optionalNumber(log.metadata?.[key])
+}
+
+function formatObservedUsd(value: number): string {
+  return `$${value.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
 
 function statusOr(value: unknown): KnowledgeDataset['status'] {
@@ -185,9 +200,6 @@ export const difyApi = {
     })
     return (page.records ?? []).map(mapDataset)
   },
-  async listKnowledgeSegments() {
-    return [] as KnowledgeSegment[]
-  },
   async listDatasetChunks(datasetId: string) {
     const documents = await apiClient.get<PageResult<{ id?: string }>>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
@@ -260,6 +272,12 @@ export const difyApi = {
     const failedLogCount = logs.filter(isFailedProviderLog).length
     const observedCalls = Math.max(providerTotals.calls, logs.length)
     const observedFailures = Math.max(providerTotals.failures, failedLogCount)
+    const observedCosts = logs
+      .map((log) => logMetadataNumber(log, 'estimatedCostUsd'))
+      .filter((value): value is number => value !== null)
+    const observedCost = observedCosts.length > 0
+      ? formatObservedUsd(observedCosts.reduce((total, value) => total + value, 0))
+      : '--'
 
     const errorRate = observedCalls > 0
       ? `${Math.round((observedFailures / observedCalls) * 100)}%`
@@ -268,27 +286,30 @@ export const difyApi = {
     return [
       metric('provider-calls', 'AI provider calls', observedCalls, '', 'online'),
       metric('provider-latency', 'Max provider latency', `${providerTotals.latency}ms`, '', providerTotals.latency > 3000 ? 'degraded' : 'online'),
-      metric('provider-cost', 'Estimated cost', '$0', '', 'online'),
+      metric('provider-cost', 'Observed estimated cost', observedCost, '', observedCosts.length > 0 ? 'online' : 'degraded'),
       metric('provider-error-rate', 'Provider error rate', errorRate, '', observedFailures > 0 ? 'degraded' : 'online'),
       metric('runtime-workflows', 'Runtime workflows', numberOr(runtimeMetrics.currentWorkflowCount), '', 'online'),
     ]
   },
   async listConversationLogs() {
     const response = await getProviderLogs(50)
-    return (response.logs ?? []).map((log, index): ConversationLog => ({
-      id: stringOr(log.id, `ai-log-${index + 1}`),
-      time: stringOr(log.time, stringOr(log.occurredAt, '-')),
-      app: stringOr(log.provider, 'AI Provider'),
-      user: 'backend',
-      channel: 'api',
-      intent: stringOr(log.message, stringOr(log.eventType, 'provider event')),
-      status: log.level === 'error' ? 'failed' : 'success',
-      tokens: 0,
-      cost: '$0',
-      feedback: 'none',
-      reviewRequired: log.level === 'error',
-      reviewReason: stringOr(log.errorMessage, ''),
-      latencyMs: numberOr(log.latencyMillis),
-    }))
+    return (response.logs ?? []).map((log, index): ConversationLog => {
+      const estimatedCostUsd = logMetadataNumber(log, 'estimatedCostUsd')
+      return {
+        id: stringOr(log.id, `ai-log-${index + 1}`),
+        time: stringOr(log.time, stringOr(log.occurredAt, '-')),
+        app: stringOr(log.provider, 'AI Provider'),
+        user: 'system-service',
+        channel: 'api',
+        intent: stringOr(log.message, stringOr(log.eventType, 'provider event')),
+        status: log.level === 'error' ? 'failed' : 'success',
+        tokens: logMetadataNumber(log, 'totalTokens'),
+        cost: estimatedCostUsd === null ? '--' : formatObservedUsd(estimatedCostUsd),
+        feedback: 'none',
+        reviewRequired: log.level === 'error',
+        reviewReason: stringOr(log.errorMessage, ''),
+        latencyMs: numberOr(log.latencyMillis),
+      }
+    })
   },
 }

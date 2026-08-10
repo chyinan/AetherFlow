@@ -15,6 +15,6 @@ public class WorkflowWebMvcConfiguration implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(authenticatedUserInterceptor)
                 .addPathPatterns("/**")
-                .excludePathPatterns("/health", "/actuator/**", "/v3/api-docs/**", "/swagger-ui/**", "/workflow/demo/**");
+                .excludePathPatterns("/health", "/actuator/**", "/v3/api-docs/**", "/swagger-ui/**");
     }
 }

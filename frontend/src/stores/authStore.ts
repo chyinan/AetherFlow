@@ -138,10 +138,7 @@ export const useAuthStore = defineStore('auth', {
       const refreshToken = tokenManager.getRefreshToken()
       const currentSession = tokenManager.readSession()
 
-      if (
-        !refreshToken ||
-        (currentSession?.refreshExpiresAt && currentSession.refreshExpiresAt <= Date.now())
-      ) {
+      if (currentSession?.refreshExpiresAt && currentSession.refreshExpiresAt <= Date.now()) {
         this.clearLocalSession()
         return false
       }
@@ -165,8 +162,7 @@ export const useAuthStore = defineStore('auth', {
       const session = tokenManager.readSession()
 
       if (!session) {
-        this.clearLocalSession()
-        return false
+        return this.refreshSession()
       }
 
       // The access token lives only in memory (see tokenManager). After a tab
@@ -175,10 +171,6 @@ export const useAuthStore = defineStore('auth', {
       // case silently refresh to recover an access token instead of logging
       // the user out.
       if (!session.accessToken) {
-        if (!session.refreshToken) {
-          this.clearLocalSession()
-          return false
-        }
         return this.refreshSession()
       }
 
@@ -186,11 +178,6 @@ export const useAuthStore = defineStore('auth', {
 
       if (!tokenManager.isAccessTokenExpiringSoon()) {
         return true
-      }
-
-      if (!session.refreshToken) {
-        this.clearLocalSession()
-        return false
       }
 
       return this.refreshSession()

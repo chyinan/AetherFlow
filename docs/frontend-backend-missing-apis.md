@@ -1,18 +1,33 @@
-# Frontend Backend Missing API Inventory
+# 前后端接口状态清单
 
-Scope: backend backlog input discovered while integrating the Vue3 frontend API layer on `FE-API-INTEGRATION-20260529`. This document does not request frontend changes and does not change existing backend contracts.
+> 更新日期：2026-07-23。接口完成状态以控制器、前端调用路径和自动化测试共同为准。
 
-| Priority | Area | Current frontend need | Backend status / evidence | Proposed backend contract |
-| --- | --- | --- | --- | --- |
-| P0 | Gateway workflow route | Browser calls under `/workflow/runtime/**` and `/workflow/node/**` must pass through Gateway. | Gateway inventory shows routes for `/workflows/**` and `/workflow-instances/**`, but not `/workflow/**`; current runtime/node catalog calls may fail before reaching `workflow-service`. | Add Gateway route for public workflow runtime/node APIs, e.g. `/workflow/** -> workflow-service`, with the same auth and rate-limit policy as `/workflows/**`. |
-| P0 | Workflow definitions | Workflow list/detail/save/update/delete and persisted canvas reload are needed for the builder and project dashboard. | Backend currently exposes create definition and start instance only; frontend list/get/update/delete remains mock. | `GET /workflows/definitions`, `GET /workflows/definitions/{id}`, `PUT /workflows/definitions/{id}`, `DELETE /workflows/definitions/{id}` with persisted graph metadata and ownership fields. |
-| P0 | Workflow runs | Run list/detail/log views need queryable run records independent of currently selected workflow instance. | Runtime observability/events are by workflow instance id only; run list/detail/log remain mock. | `GET /workflow-instances?workflowId=&status=&page=`, `GET /workflow-instances/{id}`, `GET /workflow-instances/{id}/logs`, returning run status, node summary, timestamps, trace id and log frames. |
-| P1 | Runtime realtime | Run page needs node/log `RuntimeEvent` frames streamed as execution progresses. | Notify SSE/WS is notification-only; runtime stream is missing. | `GET /workflow/runtime/stream/{workflowId}` or `/workflow-instances/{id}/events/stream` as `text/event-stream`, emitting typed `RuntimeEvent` frames compatible with REST event shape. |
-| P1 | Stream auth | Browser realtime needs secure auth for Notify WebSocket/SSE and future Runtime streams. | Fetch-based SSE can send `Authorization`; browser WebSocket cannot send custom auth headers. WS fallback is disabled by default until backend supports secure browser auth. | Add short-lived stream token issuance, secure HttpOnly cookie auth, or WebSocket subprotocol token validation for `/notify/ws` and runtime streams. |
-| P1 | File list/query | File library needs searchable assets, ownership, workflow linkage, and artifact metadata. | Upload/progress/download/delete exist; file list/query API is missing. | `GET /files?query=&type=&source=&artifactKind=&workflowId=&page=` returning `FileAsset`-equivalent metadata: id, originalName, contentType, size, status, source, artifactKind, workflowId, result/downloadUrl/objectKey, createdAt/updatedAt. |
-| P1 | Chunk upload | Large files need resumable chunk upload beyond single multipart upload. | Single upload and Redis progress exist; chunk init/part/complete API is missing. | `POST /files/uploads` init, `PUT /files/uploads/{uploadId}/parts/{partNumber}`, `POST /files/uploads/{uploadId}/complete`, `DELETE /files/uploads/{uploadId}` with checksum, byte range and file metadata registration. |
-| P1 | Project/workspace | Dashboard and navigation need project/workspace list, detail, statistics and membership context. | Project dashboard APIs are missing; frontend stays mock. | `GET /projects`, `POST /projects`, `GET /projects/{id}`, `PUT /projects/{id}`, `DELETE /projects/{id}`, `GET /projects/{id}/stats`, plus workspace/member links if projects are workspace-scoped. |
-| P1 | AI provider catalog/log/policy | Models area needs frontend-shaped provider cards, catalog rows, runtime logs and editable routing policy. | `/ai/status` and `/ai/provider/**` exist and are integrated, but backend does not expose exact provider endpoint, real model catalog, pricing/context window, request timeout, or frontend-shaped runtime log feed. | Add `GET /ai/provider/catalog`, `GET /ai/provider/logs?limit=`, and optionally extend policy/status with request timeout, provider endpoint label, default model per provider and model capability metadata. |
-| P2 | Knowledge datasets | Knowledge page needs dataset/document list, upload ingestion status, chunk stats and retrieval preview. | Knowledge/Dify dataset APIs are missing. | `GET/POST /knowledge/datasets`, `GET /knowledge/datasets/{id}`, `GET/POST /knowledge/datasets/{id}/documents`, `GET /knowledge/documents/{id}/chunks`, and ingestion status endpoints. |
-| P2 | Settings/admin | Settings pages need member, billing, audit and organization configuration APIs. | Settings/admin APIs are missing. | `GET/PUT /settings/profile`, `GET /settings/members`, `POST/PATCH/DELETE /settings/members/{id}`, `GET /settings/billing`, `GET /settings/audit-events`. |
-| P2 | Copilot chat | Copilot panel needs conversational chat with workflow/project context. | Copilot chat API is missing. | `POST /copilot/chat`, optional `GET /copilot/conversations`, `GET /copilot/conversations/{id}/messages`, streaming response variant for incremental assistant output. |
+## 已实现并接入
+
+| 领域 | 当前状态 |
+| --- | --- |
+| 认证 | 注册、登录、刷新、登出、当前用户、GitHub/Google OAuth；刷新令牌使用 HttpOnly Cookie。 |
+| 工作流定义 | 列表、详情、创建、更新、删除和画布持久化；后端公开的 29 类生产节点均有前端映射。 |
+| 工作流运行 | 运行列表、详情、日志、运行时观测与事件流。正式模式缺少真实运行 ID 时明确报错。 |
+| 文件 | 列表、上传、分片上传、进度、下载和删除。 |
+| 项目 | 项目 CRUD、统计和工作流关联。 |
+| AI 提供商 | 目录、状态、指标、日志及路由策略；无真实成本数据时明确降级。 |
+| 知识库 | 数据集、文档、分段和检索测试；仅接受能够在浏览器可靠读取正文的文本格式。 |
+| 设置 | 工作区、成员、计费、审计、数据源、API 扩展、环境变量和集成目录。 |
+| 实时通知 | 短期流令牌、SSE/WS 客户端链路以及可视化 Notify 工作流节点。 |
+
+## 明确未开放的能力
+
+| 优先级 | 领域 | 当前边界 |
+| --- | --- | --- |
+| P1 | 成本和 Token 遥测 | 上游未提供可靠 usage 与价格快照时显示 `--`/降级，不生成 `$0` 等伪数据。 |
+| P1 | Copilot 持久会话 | 当前操作型 Copilot 已接入工作流上下文，但没有持久化、可恢复的会话与流式回复契约。 |
+| P2 | 第三方人工干预渠道 | Slack、Teams、Discord 的凭据、回调和投递状态契约尚未实现，生产 UI 不提供可操作入口。 |
+| P2 | 第三方集成配置 | 集成目录可以返回禁用状态，但不能配置尚未实现的第三方渠道。 |
+
+## 判定规则
+
+- 只有后端控制器、前端真实调用和相关自动化测试都存在时，才把能力标为已接入。
+- 演示模式必须由显式配置开启；正式模式不能因后端失败自动返回演示成功。
+- 尚未实现的能力应隐藏或禁用，并明确说明依赖条件。
+- 本清单不把架构演进项（例如 OpenTelemetry、mTLS 或数据库拆分）伪装成已完成产品功能。

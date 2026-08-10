@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { defineStore } from 'pinia'
 
 import { settingsApi } from '@/services/api/settingsApi'
@@ -13,6 +14,7 @@ import type {
   WorkspaceMember,
   WorkspaceSettings,
 } from '@/types/settings'
+import { formatTime } from '@/utils/localeFormat'
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
@@ -83,11 +85,16 @@ export const useSettingsStore = defineStore('settings', {
         this.loading = false
       }
     },
+    async saveWorkspace(payload: WorkspaceSettings) {
+      const workspace = await settingsApi.updateWorkspace(payload)
+      this.workspace = workspace
+      return workspace
+    },
     recordAudit(action: string, target: string) {
       this.auditEvents = [
         {
           id: `audit-${Date.now()}`,
-          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          time: formatTime(new Date()),
           actor: 'aether.operator',
           action,
           target,

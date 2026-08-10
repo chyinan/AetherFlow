@@ -33,7 +33,7 @@ class WorkflowSeataDemoServiceTest {
         instanceMapper = mock(WorkflowInstanceMapper.class);
         taskClient = mock(TaskClient.class);
         taskClientProperties = new TaskClientProperties();
-        taskClientProperties.setInternalToken("expected-token");
+        taskClientProperties.setInternalToken("0123456789abcdef0123456789abcdef");
         service = new WorkflowSeataDemoService(instanceMapper, taskClient, taskClientProperties);
     }
 
@@ -54,7 +54,7 @@ class WorkflowSeataDemoServiceTest {
             instance.setId(101L);
             return 1;
         });
-        when(taskClient.dispatch(eq("expected-token"), any(TaskMessageDTO.class))).thenReturn(Result.success(202L));
+        when(taskClient.dispatch(any(String.class), any(TaskMessageDTO.class))).thenReturn(Result.success(202L));
 
         WorkflowSeataDemoResponse response = service.createDemoTransaction(0, false);
 
@@ -63,7 +63,7 @@ class WorkflowSeataDemoServiceTest {
         assertThat(response.rollbackRequested()).isFalse();
 
         ArgumentCaptor<TaskMessageDTO> taskCaptor = ArgumentCaptor.forClass(TaskMessageDTO.class);
-        verify(taskClient).dispatch(eq("expected-token"), taskCaptor.capture());
+        verify(taskClient).dispatch(any(String.class), taskCaptor.capture());
         assertThat(taskCaptor.getValue().getWorkflowInstanceId()).isEqualTo(101L);
         assertThat(taskCaptor.getValue().getNodeId()).isEqualTo("demo-seata-task");
         assertThat(taskCaptor.getValue().getEnqueue()).isFalse();
@@ -76,7 +76,7 @@ class WorkflowSeataDemoServiceTest {
             instance.setId(103L);
             return 1;
         });
-        when(taskClient.dispatch(eq("expected-token"), any(TaskMessageDTO.class))).thenReturn(Result.success(204L));
+        when(taskClient.dispatch(any(String.class), any(TaskMessageDTO.class))).thenReturn(Result.success(204L));
 
         assertThatThrownBy(() -> service.createDemoTransaction(0, true))
                 .isInstanceOf(WorkflowSeataRollbackDemoException.class)

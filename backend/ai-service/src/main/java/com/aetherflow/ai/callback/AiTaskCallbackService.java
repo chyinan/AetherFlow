@@ -54,6 +54,7 @@ public class AiTaskCallbackService {
         payload.put("status", "FAILED");
         payload.put("error", message);
         publishNotify("AI_TASK_FAILED", payload);
+        markTaskFailed(taskMessage);
         invokeCallbackUrl(taskMessage, payload);
     }
 
@@ -61,6 +62,7 @@ public class AiTaskCallbackService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskId", taskMessage.getTaskId());
         payload.put("workflowInstanceId", taskMessage.getWorkflowInstanceId());
+        payload.put("traceId", taskMessage.getTraceId());
         payload.put("nodeId", taskMessage.getNodeId());
         payload.put("nodeType", taskMessage.getNodeType());
         return payload;
@@ -69,6 +71,8 @@ public class AiTaskCallbackService {
     private void publishNotify(String eventType, Map<String, Object> payload) {
         NotifyMessageDTO notifyMessage = new NotifyMessageDTO();
         notifyMessage.setEventId(eventId(eventType, payload));
+        Object traceId = payload.get("traceId");
+        notifyMessage.setTraceId(traceId == null ? null : String.valueOf(traceId));
         notifyMessage.setEventType(eventType);
         notifyMessage.setChannel("WORKFLOW");
         notifyMessage.setPayload(payload);
@@ -90,9 +94,20 @@ public class AiTaskCallbackService {
             return;
         }
         try {
-            taskStatusClient.markSucceeded(taskClientProperties.getInternalToken(), taskMessage.getTaskId());
+            taskStatusClient.markSucceeded(taskClientProperties.issueInternalToken(), taskMessage.getTaskId());
         } catch (RuntimeException exception) {
             log.warn("task-service success status callback failed, taskId={}", taskMessage.getTaskId(), exception);
+        }
+    }
+
+    private void markTaskFailed(TaskMessageDTO taskMessage) {
+        if (taskMessage.getTaskId() == null) {
+            return;
+        }
+        try {
+            taskStatusClient.markFailed(taskClientProperties.issueInternalToken(), taskMessage.getTaskId());
+        } catch (RuntimeException exception) {
+            log.warn("task-service failure status callback failed, taskId={}", taskMessage.getTaskId(), exception);
         }
     }
 

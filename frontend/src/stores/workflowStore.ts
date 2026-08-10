@@ -47,6 +47,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Partial<Record<string, WorkflowNodeKind>> = {
   OCR: 'document-extractor',
   EMBEDDING: 'embedding',
   KNOWLEDGE_RETRIEVAL: 'knowledge-retrieval',
+  NOTIFY: 'notify',
   EXPORT: 'export',
   END: 'output',
   AGENT: 'agent',
@@ -70,6 +71,7 @@ const CATEGORY_BY_BACKEND_CATEGORY: Record<string, NodeTemplate['category']> = {
   Image: 'Image',
   Transform: 'Transform',
   Output: 'Output',
+  Notification: 'Output',
   Utility: 'Tool',
 }
 

@@ -16,6 +16,7 @@ import {
 } from '@/api/mappers/runtimeMapper'
 import { getRuntimeEvents, getRuntimeObservation, type RuntimeState } from '@/api/modules/runtime'
 import { runtimeEnv } from '@/config/runtimeEnv'
+import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime } from '@/utils/localeFormat'
 import { getStartedRunLink } from '@/services/api/workflowApi'
 import type { ApiErrorSource } from '@/types/api'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
@@ -24,7 +25,7 @@ import { mockLogs, mockRuns } from '../mock/runMock'
 import { delay } from '../mock/timing'
 
 const RUNTIME_UNAVAILABLE_STATUSES = new Set([0, 408, 502, 503, 504])
-const RUNTIME_STATES = new Set(['PENDING', 'RUNNING', 'RETRYING', 'SUCCESS', 'FAILED', 'CANCELLED'])
+const RUNTIME_STATES = new Set(['PENDING', 'RUNNING', 'RETRYING', 'WAITING', 'SUCCESS', 'FAILED', 'CANCELLED'])
 
 export interface RuntimeRecovery {
   runPatch?: Partial<WorkflowRun>
@@ -70,20 +71,20 @@ function toRuntimeState(value?: string): RuntimeState | undefined {
 
 function formatDateTime(value?: string) {
   if (!value) {
-    return new Date().toLocaleString('zh-CN', { hour12: false })
+    return formatLocaleDateTime(new Date())
   }
 
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+  return Number.isNaN(date.getTime()) ? value : formatLocaleDateTime(date)
 }
 
 function formatTime(value?: string) {
   if (!value) {
-    return new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    return formatLocaleTime(new Date())
   }
 
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour12: false })
+  return Number.isNaN(date.getTime()) ? value : formatLocaleTime(date)
 }
 
 function durationBetween(startedAt?: string, completedAt?: string) {
@@ -181,7 +182,7 @@ function createBackendRunPlaceholder(runId: string): WorkflowRun {
     definitionId: startedRunLink?.definitionId,
     backendStatus: startedRunLink?.backendStatus,
     status: mapRuntimeStateToRunStatus(toRuntimeState(startedRunLink?.backendStatus)),
-    startedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+    startedAt: formatLocaleDateTime(new Date()),
     durationMs: 0,
     trigger: 'manual',
     owner: 'aether.operator',
@@ -260,7 +261,7 @@ async function recoverRuntime(run: WorkflowRun): Promise<RuntimeRecovery> {
 
 async function getRun(runId: string) {
   const mockRun = mockRuns.find((run) => run.id === runId)
-  if (mockRun) {
+  if (runtimeEnv.mockFallback && mockRun) {
     return delay(mockRun)
   }
 
@@ -276,12 +277,12 @@ async function getRun(runId: string) {
     }
   }
 
-  return delay(mockRuns[0])
+  throw new Error(`invalid workflow run id: ${runId}`)
 }
 
 async function getLogs(runId: string) {
   const mockRun = mockRuns.find((run) => run.id === runId)
-  if (mockRun) {
+  if (runtimeEnv.mockFallback && mockRun) {
     return delay(mockLogs)
   }
 
@@ -298,7 +299,7 @@ async function getLogs(runId: string) {
     }
   }
 
-  return delay(mockLogs)
+  throw new Error(`invalid workflow run id: ${runId}`)
 }
 
 async function listRuns() {

@@ -32,7 +32,7 @@ class ExportNodeExecutorTest {
         MinioClient minioClient = mock(MinioClient.class);
         FileMetadataClient fileClient = mock(FileMetadataClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        properties.setFileInternalToken("token");
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         properties.setExportObjectPrefix("workflow/exports");
         WorkflowNodeConfig.MinioProperties minioProperties = new WorkflowNodeConfig.MinioProperties();
         minioProperties.setBucket("aetherflow");
@@ -53,7 +53,7 @@ class ExportNodeExecutorTest {
                 4L,
                 "http://minio/aetherflow/workflow/exports/workflow-1/export/export.md"
         );
-        when(fileClient.createMetadata(eq("token"), any(CreateFileMetadataRequestDTO.class)))
+        when(fileClient.createMetadata(any(String.class), any(CreateFileMetadataRequestDTO.class)))
                 .thenReturn(Result.success(metadata));
 
         NodeResult result = executor.execute(context(
@@ -68,7 +68,7 @@ class ExportNodeExecutorTest {
         verify(minioClient).putObject(any(PutObjectArgs.class));
         ArgumentCaptor<CreateFileMetadataRequestDTO> metadataCaptor =
                 ArgumentCaptor.forClass(CreateFileMetadataRequestDTO.class);
-        verify(fileClient).createMetadata(eq("token"), metadataCaptor.capture());
+        verify(fileClient).createMetadata(any(String.class), metadataCaptor.capture());
         assertThat(metadataCaptor.getValue().getBucket()).isEqualTo("aetherflow");
         assertThat(metadataCaptor.getValue().getObjectKey())
                 .startsWith("workflow/exports/workflow-1/export/");
@@ -82,7 +82,7 @@ class ExportNodeExecutorTest {
         MinioClient minioClient = mock(MinioClient.class);
         FileMetadataClient fileClient = mock(FileMetadataClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        properties.setFileInternalToken("token");
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         properties.setExportObjectPrefix("workflow/exports");
         WorkflowNodeConfig.MinioProperties minioProperties = new WorkflowNodeConfig.MinioProperties();
         minioProperties.setBucket("aetherflow");
@@ -93,7 +93,7 @@ class ExportNodeExecutorTest {
                 properties,
                 minioProperties
         );
-        when(fileClient.createMetadata(eq("token"), any(CreateFileMetadataRequestDTO.class)))
+        when(fileClient.createMetadata(any(String.class), any(CreateFileMetadataRequestDTO.class)))
                 .thenReturn(Result.success(new FileMetadataDTO(
                         19L,
                         "aetherflow",
@@ -111,7 +111,7 @@ class ExportNodeExecutorTest {
 
         ArgumentCaptor<CreateFileMetadataRequestDTO> metadataCaptor =
                 ArgumentCaptor.forClass(CreateFileMetadataRequestDTO.class);
-        verify(fileClient).createMetadata(eq("token"), metadataCaptor.capture());
+        verify(fileClient).createMetadata(any(String.class), metadataCaptor.capture());
         assertThat(metadataCaptor.getValue().getObjectKey())
                 .startsWith("workflow/exports/meeting-summary/");
     }

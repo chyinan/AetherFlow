@@ -15,6 +15,7 @@ import {
 } from '@/api/modules/file'
 import { isApiError, toApiError } from '@/api/client/apiError'
 import { runtimeEnv } from '@/config/runtimeEnv'
+import { formatDateTime } from '@/utils/localeFormat'
 
 import { mockFiles } from '../mock/fileMock'
 import { delay } from '../mock/timing'
@@ -42,7 +43,7 @@ function mockUploadedFile(file: File) {
     workflowId: 'wf-media-digest',
     workflowName: 'Media Digest Pipeline',
     result: i18n.global.t('files.mockResults.queuedInput'),
-    updatedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+    updatedAt: formatDateTime(new Date()),
   } satisfies FileAsset
 }
 

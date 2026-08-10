@@ -51,8 +51,7 @@ class WorkflowNodeCatalogControllerTest {
                         "TEMPLATE_TRANSFORM",
                         "VARIABLE_AGGREGATE",
                         "VARIABLE_ASSIGNER",
-                        "PARAMETER_EXTRACTOR",
-                        "MOCK"
+                        "PARAMETER_EXTRACTOR"
                 );
 
         WorkflowNodeCatalogItem upload = item(result.getData(), "UPLOAD");
@@ -67,7 +66,8 @@ class WorkflowNodeCatalogControllerTest {
         WorkflowNodeCatalogItem ocr = item(result.getData(), "OCR");
         assertThat(ocr.configSchema())
                 .extracting(WorkflowNodeConfigSchema::name)
-                .contains("fileId", "fileIdVariable", "language", "enableTable", "enableLayout", "mock");
+                .contains("fileId", "fileIdVariable", "language", "enableTable", "enableLayout", "provider")
+                .doesNotContain("mock");
         assertThat(ocr.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("ocrText", "ocrLanguage", "ocrConfidence", "ocrPageCount");

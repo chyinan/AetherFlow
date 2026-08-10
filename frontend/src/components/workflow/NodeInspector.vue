@@ -87,6 +87,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   summary: MessageSquare,
   embedding: Database,
   'knowledge-retrieval': BookOpen,
+  notify: Send,
   export: FileText,
   output: MessageSquare,
   agent: Brain,
@@ -500,6 +501,7 @@ onMounted(() => {
               type="button"
               class="grid h-8 w-8 place-items-center rounded-md hover:bg-app-bg2 hover:text-primary"
               :title="t('workflow.openLogs')"
+              :aria-label="t('workflow.openLogs')"
               @click="emit('openLogs')"
             >
               <BookOpen class="h-4 w-4" />
@@ -508,6 +510,7 @@ onMounted(() => {
               type="button"
               class="grid h-8 w-8 place-items-center rounded-md hover:bg-ai-soft hover:text-ai"
               :title="t('workflow.openCopilot')"
+              :aria-label="t('workflow.openCopilot')"
               @click="emit('openCopilot')"
             >
               <Sparkles class="h-4 w-4" />
@@ -866,7 +869,7 @@ onMounted(() => {
             <div class="border-b border-app-border p-3">
               <label class="flex items-center gap-2 rounded-md border border-app-border px-3 py-2">
                 <Search class="h-4 w-4 text-text-muted" />
-                <input class="min-w-0 flex-1 text-sm outline-none" :placeholder="t('workflow.inspector.searchVariable')" />
+                <input class="min-w-0 flex-1 text-sm outline-none" :placeholder="t('workflow.inspector.searchVariable')" :aria-label="t('workflow.inspector.searchVariable')" />
               </label>
             </div>
             <div class="p-3">
@@ -955,10 +958,6 @@ onMounted(() => {
                 </span>
                 <span v-if="isHumanMethodSelected('telegram')" class="rounded-md bg-primary px-2 py-1 text-xs font-semibold text-white">{{ t('status.active') }}</span>
               </button>
-              <p v-for="method in ['Slack', 'Teams', 'Discord']" :key="method" class="flex items-center justify-between p-4 text-text-muted">
-                <span class="font-semibold">{{ method }}</span>
-                <span class="rounded-md border border-app-border px-2 py-1 text-xs">{{ t('workflow.inspector.comingSoon') }}</span>
-              </p>
             </div>
           </div>
           <label class="block">
@@ -1120,11 +1119,16 @@ onMounted(() => {
             <input type="checkbox" class="accent-primary" :checked="boolConfig('vision', false)" @change="handleToggle('vision', $event)" />
           </label>
           <div>
-            <div class="mb-2 flex items-center justify-between">
-              <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.extractionParameters') }} <span class="text-status-error">*</span></p>
-              <button class="text-sm text-text-secondary">{{ t('workflow.inspector.importFromTool') }}</button>
-            </div>
-            <button class="w-full rounded-lg bg-app-bg2 px-3 py-5 text-sm font-medium text-text-muted">{{ t('workflow.inspector.extractionUnset') }}</button>
+            <p class="mb-2 text-sm font-semibold text-text-primary">{{ t('workflow.inspector.extractionParameters') }} <span class="text-status-error">*</span></p>
+            <label class="block">
+              <span class="sr-only">{{ t('workflow.inspector.extractionParameters') }}</span>
+              <textarea
+                class="min-h-28 w-full resize-y rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary"
+                :placeholder="t('workflow.inspector.extractionUnset')"
+                :value="textConfig('parameters', '')"
+                @input="handleTextInput('parameters', $event)"
+              />
+            </label>
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.instruction') }}</span>

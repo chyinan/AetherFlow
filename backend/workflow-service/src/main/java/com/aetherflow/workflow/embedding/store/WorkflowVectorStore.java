@@ -10,7 +10,7 @@ public interface WorkflowVectorStore {
 
     String providerName();
 
-    List<MockVectorRecord> saveAll(String workflowId,
+    List<VectorRecord> saveAll(String workflowId,
                                    String nodeId,
                                    EmbeddingNodeConfig config,
                                    List<TextChunk> chunks,

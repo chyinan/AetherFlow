@@ -168,6 +168,7 @@ class TaskDispatchServiceImplTest {
     private TaskMessageDTO validMessage() {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setWorkflowInstanceId(10L);
+        message.setTraceId("trace-10");
         message.setNodeId("node-1");
         message.setNodeType("AI_TRANSCRIPTION");
         message.setPayload(Map.of("fileUrl", "https://example.test/video.mp4"));

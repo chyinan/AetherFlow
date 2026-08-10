@@ -66,6 +66,7 @@ public class TaskQueueProducer {
                                            String reason) {
         message.getMessageProperties().setMessageId("task-" + taskMessage.getTaskId() + "-" + UUID.randomUUID());
         message.getMessageProperties().setHeader("taskId", taskMessage.getTaskId());
+        message.getMessageProperties().setHeader("X-Trace-Id", taskMessage.getTraceId());
         message.getMessageProperties().setHeader("taskChannel", channel);
         if (reason != null && !reason.isBlank()) {
             message.getMessageProperties().setHeader("taskFailureReason", reason);

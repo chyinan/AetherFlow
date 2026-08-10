@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { formatDateTime } from '@/utils/localeFormat'
 
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
@@ -36,7 +37,7 @@ const sessionExpiresAt = computed(() => {
   if (!expiresAt) {
     return t('account.sessionManaged')
   }
-  return new Date(expiresAt).toLocaleString('zh-CN', { hour12: false })
+  return formatDateTime(new Date(expiresAt))
 })
 const avatarText = computed(() => displayName.value.slice(0, 2).toUpperCase())
 

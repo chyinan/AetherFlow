@@ -246,6 +246,10 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 || event.runtimeState() == RuntimeState.RETRYING) {
             return "warn";
         }
+        if (event.eventType() == RuntimeEventType.NODE_WAITING
+                || event.runtimeState() == RuntimeState.WAITING) {
+            return "info";
+        }
         if (event.eventType() == RuntimeEventType.NODE_COMPLETED) {
             return "debug";
         }
@@ -258,6 +262,8 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
             case NODE_STARTED -> "Runtime started node " + event.nodeId() + ".";
             case NODE_COMPLETED -> "Runtime completed node " + event.nodeId() + ".";
             case NODE_RETRYING -> "Runtime retrying node " + event.nodeId() + ".";
+            case NODE_WAITING -> "Runtime is waiting for node " + event.nodeId() + ".";
+            case WORKFLOW_WAITING -> "Workflow " + event.workflowId() + " is waiting for an external result.";
             case WORKFLOW_COMPLETED -> "Workflow " + event.workflowId() + " completed.";
             case WORKFLOW_FAILED -> "Workflow " + event.workflowId() + " failed.";
             case WORKFLOW_CANCELLED -> "Workflow " + event.workflowId() + " cancelled.";
@@ -339,6 +345,9 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
             }
             if (event.eventType() == RuntimeEventType.NODE_RETRYING) {
                 return RuntimeState.RETRYING.name();
+            }
+            if (event.eventType() == RuntimeEventType.NODE_WAITING) {
+                return RuntimeState.WAITING.name();
             }
             return event.runtimeState().name();
         }

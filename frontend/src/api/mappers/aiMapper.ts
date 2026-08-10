@@ -14,6 +14,7 @@ import type {
   ProviderStatusResponse,
 } from '@/api/modules/ai'
 import type { ModelCatalogItem, ModelKind, ModelProvider, ModelProviderStatus, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
+import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime } from '@/utils/localeFormat'
 
 export interface AiModelMappingInput {
   serviceStatus?: AiServiceStatusResponse | null
@@ -92,7 +93,7 @@ function formatDateTime(value: unknown) {
   }
 
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+  return Number.isNaN(date.getTime()) ? value : formatLocaleDateTime(date)
 }
 
 function formatTime(value: unknown) {
@@ -101,7 +102,7 @@ function formatTime(value: unknown) {
   }
 
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleTimeString('zh-CN', { hour12: false })
+  return Number.isNaN(date.getTime()) ? value : formatLocaleTime(date)
 }
 
 function durationToMs(value: ProviderRoutingPolicy['requestTimeout']) {

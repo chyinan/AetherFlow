@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { i18n } from '@/i18n'
+import { runtimeEnv } from '@/config/runtimeEnv'
 import { difyApi } from '@/services/api/difyApi'
 import { fileApi } from '@/services/api/fileApi'
 import type { FileAsset } from '@/types/file'
@@ -11,6 +12,7 @@ import type {
   KnowledgeSegment,
   MonitorMetric,
 } from '@/types/dify'
+import { isSupportedKnowledgeFile } from '@/utils/knowledgeFileSupport'
 
 interface CreateKnowledgeDatasetInput {
   name?: string
@@ -100,16 +102,16 @@ export const useDifyStore = defineStore('difySurface', {
       this.retrievalResults = []
       await this.refreshDatasetContent(datasetId)
     },
-    async importFileToSelectedDataset(file?: FileAsset, options: { chunkSize?: number; overlap?: number; mode?: string } = {}) {
+    async importFileToSelectedDataset(file: FileAsset, options: { chunkSize?: number; overlap?: number; mode?: string } = {}) {
       const dataset = this.selectedDataset
       if (!dataset) {
         return
       }
-      const sourceName = file?.name ?? `mock-document-${Date.now()}.md`
+      const sourceName = file.name
       await difyApi.createKnowledgeDocument(dataset.id, {
         sourceName,
-        sourceType: file?.source ?? 'file',
-        fileId: file?.backendFileId ?? file?.id,
+        sourceType: file.source,
+        fileId: file.backendFileId ?? file.id,
         content: await knowledgeContentFromFile(file),
         mode: options.mode ?? 'general',
         chunkSize: options.chunkSize,
@@ -175,23 +177,27 @@ export const useDifyStore = defineStore('difySurface', {
   },
 })
 
-async function knowledgeContentFromFile(file?: FileAsset) {
-  if (!file) {
-    return i18n.global.t('knowledge.mockImportedPreview')
+export async function knowledgeContentFromFile(file: FileAsset) {
+  if (!isSupportedKnowledgeFile(file)) {
+    throw new Error(i18n.global.t('knowledge.unsupportedTextFile'))
   }
 
-  const textLike = file.mime.startsWith('text/')
-    || file.mime.includes('json')
-    || file.mime.includes('markdown')
-    || file.name.endsWith('.md')
-    || file.name.endsWith('.txt')
-
-  if (file.backendFileId && textLike) {
+  if (file.backendFileId) {
     try {
-      return await (await fileApi.downloadFile(file.backendFileId)).text()
-    } catch {
-      // Fall back to the indexed file metadata below so import remains deterministic.
+      const content = await (await fileApi.downloadFile(file.backendFileId)).text()
+      if (!content.trim()) {
+        throw new Error(i18n.global.t('knowledge.emptyTextFile'))
+      }
+      return content
+    } catch (error) {
+      if (!runtimeEnv.mockFallback) {
+        throw error
+      }
     }
+  }
+
+  if (!runtimeEnv.mockFallback) {
+    throw new Error(i18n.global.t('knowledge.fileContentUnavailable'))
   }
 
   return [

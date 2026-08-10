@@ -18,6 +18,10 @@ class RuntimeStateMachineTest {
                 .isEqualTo(RuntimeState.RETRYING);
         assertThat(stateMachine.transition(RuntimeState.RETRYING, RuntimeState.RUNNING))
                 .isEqualTo(RuntimeState.RUNNING);
+        assertThat(stateMachine.transition(RuntimeState.RUNNING, RuntimeState.WAITING))
+                .isEqualTo(RuntimeState.WAITING);
+        assertThat(stateMachine.transition(RuntimeState.WAITING, RuntimeState.RUNNING))
+                .isEqualTo(RuntimeState.RUNNING);
         assertThat(stateMachine.transition(RuntimeState.RUNNING, RuntimeState.SUCCESS))
                 .isEqualTo(RuntimeState.SUCCESS);
     }
@@ -38,6 +42,7 @@ class RuntimeStateMachineTest {
         assertThat(stateMachine.isTerminal(RuntimeState.SUCCESS)).isTrue();
         assertThat(stateMachine.isTerminal(RuntimeState.FAILED)).isTrue();
         assertThat(stateMachine.isTerminal(RuntimeState.CANCELLED)).isTrue();
+        assertThat(stateMachine.isTerminal(RuntimeState.WAITING)).isFalse();
         assertThat(stateMachine.isTerminal(RuntimeState.RUNNING)).isFalse();
     }
 }

@@ -108,7 +108,7 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
         if (fileId == null || fileId <= 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "ocr node fileId is required");
         }
-        ResponseEntity<byte[]> response = fileClient.downloadFile(nodeProperties.getFileInternalToken(), fileId);
+        ResponseEntity<byte[]> response = fileClient.downloadFile(nodeProperties.issueFileInternalToken(), fileId);
         if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file download for OCR failed");
         }

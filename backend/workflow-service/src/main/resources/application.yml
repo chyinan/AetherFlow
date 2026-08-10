@@ -82,6 +82,7 @@ aetherflow:
       default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
       ai-call-timeout: ${WORKFLOW_AI_NODE_CALL_TIMEOUT:10m}
+      async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
     embedding:
       default-provider: ${WORKFLOW_EMBEDDING_PROVIDER:ollama}
       default-model: ${WORKFLOW_EMBEDDING_MODEL:nomic-embed-text}

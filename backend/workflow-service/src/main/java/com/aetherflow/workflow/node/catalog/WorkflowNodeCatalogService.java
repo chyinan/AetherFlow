@@ -60,8 +60,7 @@ public class WorkflowNodeCatalogService {
                 templateTransform(),
                 variableAggregate(),
                 variableAssigner(),
-                parameterExtractor(),
-                mock()
+                parameterExtractor()
         );
     }
 
@@ -132,8 +131,7 @@ public class WorkflowNodeCatalogService {
                         field("language", "STRING", false, "OCR language hint. Use auto when unknown.", "auto"),
                         field("enableTable", "BOOLEAN", false, "Whether table extraction should be enabled by providers that support it.", true),
                         field("enableLayout", "BOOLEAN", false, "Whether layout analysis should be enabled by providers that support it.", false),
-                        field("mock", "BOOLEAN", false, "Use mock OCR provider for demos without native OCR binaries.", false),
-                        field("provider", "STRING", false, "Optional OCR provider override.", "tesseract", List.of("tesseract", "mock"))
+                        field("provider", "STRING", false, "OCR provider.", "tesseract", List.of("tesseract"))
                 ),
                 List.of(variable("fileId", "NUMBER", "Uploaded file id from workflow input or UPLOAD node.", 1001)),
                 List.of(
@@ -290,7 +288,7 @@ public class WorkflowNodeCatalogService {
                         variable("embeddingVectors", "ARRAY", "Raw vectors for downstream vector store nodes.", List.of(List.of(0.12, -0.03, 0.98))),
                         variable("embeddingVectorCount", "NUMBER", "Number of generated vectors.", 4),
                         variable("embeddingModel", "STRING", "Embedding model used by the node.", "nomic-embed-text"),
-                        variable("embeddingVectorStore", "ARRAY", "Mock vector store records.", List.of(Map.of(
+                        variable("embeddingVectorStore", "ARRAY", "Vector records written to the selected store.", List.of(Map.of(
                                 "collection", "workflow-embeddings",
                                 "chunkIndex", 0
                         )))
@@ -760,28 +758,6 @@ public class WorkflowNodeCatalogService {
                 List.of(variable("text", "STRING", "Input text.", "Book a meeting tomorrow")),
                 List.of(variable("paramsJson", "OBJECT", "Extracted parameters.", Map.of("intent", "book_meeting"))),
                 mapOf("inputVariable", "text", "instruction", "Extract named parameters")
-        );
-    }
-
-    private WorkflowNodeCatalogItem mock() {
-        return item(
-                "MOCK",
-                "Mock",
-                "Utility",
-                "Development and testing node that can emit fixed output or simulate delay/failure.",
-                List.of(
-                        field("output", "OBJECT", false, "Output payload returned by the mock node.", Map.of("ok", true)),
-                        field("variables", "OBJECT", false, "Variables merged into workflow context.", Map.of("mockValue", "demo")),
-                        field("delayMillis", "NUMBER", false, "Optional artificial delay.", 200),
-                        field("fail", "BOOLEAN", false, "Whether the node should fail.", false),
-                        field("message", "STRING", false, "Failure message when fail is true.", "mock node failed")
-                ),
-                List.of(variable("variables", "OBJECT", "Current workflow variables.", Map.of("mockInput", "demo"))),
-                List.of(
-                        variable("output", "OBJECT", "Configured mock output.", Map.of("ok", true)),
-                        variable("variables", "OBJECT", "Configured variables merged into context.", Map.of("mockValue", "demo"))
-                ),
-                mapOf("output", Map.of("ok", true), "variables", Map.of("mockValue", "demo"), "delayMillis", 0)
         );
     }
 

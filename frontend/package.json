@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test": "vitest run",
     "build": "vue-tsc -b && vite build",
     "check:workflow-mapping": "node scripts/check-workflow-node-backend-mapping.mjs",
     "check:workflow-branch-routing": "node --experimental-strip-types scripts/check-workflow-branch-routing.mjs",
@@ -19,6 +20,7 @@
     "check:copilot-actions": "node scripts/check-copilot-workflow-actions.mjs",
     "check:notifications": "node scripts/check-notify-stream-contract.mjs && node --experimental-strip-types scripts/check-notification-history-merge.mjs",
     "check:public-home": "node scripts/check-public-home-no-auth-redirect.mjs",
+    "check:production-safety": "node scripts/check-production-safety.mjs",
     "api:generate": "orval --config src/api/openapi/orval.config.ts",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -37,12 +39,16 @@
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@vitejs/plugin-vue": "6.0.7",
+    "@vue/test-utils": "^2.4.11",
     "autoprefixer": "^10.4.22",
+    "axe-core": "^4.12.1",
+    "jsdom": "^29.1.1",
     "orval": "^8.13.0",
     "postcss": "^8.5.6",
     "tailwindcss": "3.4.19",
     "typescript": "^5.9.3",
     "vite": "8.0.14",
+    "vitest": "^4.1.10",
     "vue-tsc": "^3.1.5"
   }
 }

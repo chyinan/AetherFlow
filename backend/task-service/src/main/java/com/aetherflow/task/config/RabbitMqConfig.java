@@ -89,6 +89,7 @@ public class RabbitMqConfig {
                                          Jackson2JsonMessageConverter messageConverter) {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
+        rabbitTemplate.setObservationEnabled(true);
         rabbitTemplate.setMandatory(true);
         rabbitTemplate.setReturnsCallback(returned -> log.error(
                 "rabbitmq returned message, exchange={}, routingKey={}, replyCode={}, replyText={}",

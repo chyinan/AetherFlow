@@ -15,9 +15,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 @Component
-public class MockVectorStore implements WorkflowVectorStore {
+public class InMemoryVectorStore implements WorkflowVectorStore {
 
-    private final ConcurrentMap<String, MockVectorRecord> records = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, VectorRecord> records = new ConcurrentHashMap<>();
 
     @Override
     public String providerName() {
@@ -25,20 +25,20 @@ public class MockVectorStore implements WorkflowVectorStore {
     }
 
     @Override
-    public List<MockVectorRecord> saveAll(String workflowId,
-                                          String nodeId,
-                                          EmbeddingNodeConfig config,
-                                          List<TextChunk> chunks,
-                                          List<EmbeddingResult> results) {
+    public List<VectorRecord> saveAll(String workflowId,
+                                      String nodeId,
+                                      EmbeddingNodeConfig config,
+                                      List<TextChunk> chunks,
+                                      List<EmbeddingResult> results) {
         if (chunks.size() != results.size()) {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "embedding chunk and vector count mismatch");
         }
-        List<MockVectorRecord> saved = new ArrayList<>();
+        List<VectorRecord> saved = new ArrayList<>();
         for (int index = 0; index < chunks.size(); index++) {
             TextChunk chunk = chunks.get(index);
             EmbeddingResult result = results.get(index);
             String id = workflowId + ":" + nodeId + ":" + chunk.chunkIndex();
-            MockVectorRecord record = new MockVectorRecord(
+            VectorRecord record = new VectorRecord(
                     id,
                     config.vectorCollection(),
                     workflowId,
@@ -62,6 +62,8 @@ public class MockVectorStore implements WorkflowVectorStore {
 
     private Map<String, Object> metadata(TextChunk chunk) {
         Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("provider", providerName());
+        metadata.put("durability", "process-memory");
         metadata.put("startOffset", chunk.startOffset());
         metadata.put("endOffset", chunk.endOffset());
         return metadata;

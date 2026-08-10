@@ -4,160 +4,158 @@
 
 [English](README.en.md) | [架构说明](Architect.md) | [Common 契约](docs/COMMON_CONTRACTS.md) | [项目结构](docs/PROJECT_STRUCTURE.md)
 
-![Java 17](https://img.shields.io/badge/Java-17-007396?style=for-the-badge&logo=openjdk&logoColor=white)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.12-6DB33F?style=for-the-badge&logo=springboot&logoColor=white)
-![Vue 3](https://img.shields.io/badge/Vue-3.5-42B883?style=for-the-badge&logo=vuedotjs&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-8-646CFF?style=for-the-badge&logo=vite&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-
-## 这是什么
-
-AetherFlow 面向企业内部的 AI 自动化场景：用户在前端拖拽 DAG 工作流，把上传文件、OCR、转录、摘要、翻译、模型调用、数据处理、任务通知等节点串成可追踪、可复用、可扩展的流水线。
-
-它不是单个聊天机器人，也不是简单的脚本集合。AetherFlow 更像一个 AI-native 的业务编排层：前端负责可视化设计和运行观察，后端微服务负责认证、文件治理、工作流定义、任务调度、AI 能力编排和实时通知，Python 服务负责更贴近模型与媒体处理的推理适配。
-
-## 项目预览
-
-![AetherFlow 工作流编辑器](screenshot.png)
-
 ## 核心能力
 
 | 能力 | 说明 |
 | --- | --- |
-| 可视化 DAG 编排 | 基于 Vue Flow 构建工作流画布，支持节点化组织文件、模型、提示词和工具调用。 |
-| 文件治理 | 文件上传、分片上传、MinIO 对象存储、元数据管理、派生文件记录和缓存治理。 |
-| AI 任务调度 | Java 微服务负责运行态编排，RabbitMQ 承接异步任务，Python AI 服务适配模型与媒体处理。 |
-| 实时反馈 | 通过 WebSocket / SSE 推送工作流运行状态、节点进度和错误信息。 |
-| 企业基础设施 | Spring Cloud Gateway、Nacos、Sentinel、Seata、Redis、MySQL、RabbitMQ、MinIO 组成服务底座。 |
-| 可部署入口 | Nginx 承载前端静态资源，并统一代理 `/api`、`/ws`、`/sse` 到网关。 |
+| 可视化 DAG 编排 | 基于 Vue Flow 设计、保存和运行工作流。 |
+| 文件治理 | 文件列表、上传、分片上传、MinIO 存储、下载、删除及派生文件记录。 |
+| AI 与媒体任务 | Java 服务负责编排和异步任务，Python 服务适配转录、本地模型与媒体处理。 |
+| 知识库 | 数据集、文档、分段、检索测试及文本导入预览。 |
+| 实时反馈 | 通过 WebSocket / SSE 推送工作流状态、日志和通知。 |
+| 身份与设置 | JWT、GitHub/Google OAuth、工作区、成员、数据源和扩展配置。 |
 
-## 典型场景
-
-- 文档处理：上传 PDF、Word、合同或报告，自动提取正文、生成摘要、翻译润色、抽取结构化字段，并导出 Markdown、表格或审阅结果。
-- OCR 识别：处理扫描件、票据、证照和图片资料，完成文字识别、版面解析、表格还原、字段校验、人工复核流转和入库归档。
-- 会议与音视频处理：上传会议录音或视频，提取音频、Whisper 转录、生成纪要与待办、润色字幕、生成 SRT，并推送进度。
-- AI 视频生成：从主题、文案或脚本出发，编排提示词生成、分镜拆分、图片/视频模型调用、素材合成、转码压制、审核和发布通知。
-- 报表自动化：导入 Excel、CSV 或业务数据，进行清洗、分类、汇总分析、图表生成、报告撰写和定时分发。
-- 知识库加工：批量导入文档资料，执行切分、摘要、标签生成、向量化、质检和检索问答数据准备。
-
-## 架构速览
+## 架构
 
 ```text
-                    +----------------------+
-                    |      Web Console     |
-                    | Vue 3 + Vue Flow     |
-                    +----------+-----------+
-                               |
-                        Nginx / Gateway
-                               |
-        +----------------------+----------------------+
-        |                      |                      |
-  auth-service          workflow-service       notify-service
-  JWT / OAuth           DAG definitions        WebSocket / SSE
-        |                      |                      |
-        +-----------+----------+-----------+----------+
-                    |                      |
-              file-service            task-service
-        MinIO / metadata / cache       RabbitMQ tasks
-                    |                      |
-                    +----------+-----------+
-                               |
-                           ai-service
-                 provider orchestration / node runtime
-                               |
-                       python-ai-service
-             Whisper / OCR / media / model adapters
+Vue 3 Web Console
+        |
+Nginx -> Spring Cloud Gateway
+        |
+        +-- auth-service
+        +-- workflow-service -> task-service -> RabbitMQ
+        +-- file-service -> MinIO
+        +-- ai-service -> python-ai-service
+        +-- notify-service -> WebSocket / SSE
 ```
 
-核心运行链路：
+工作流执行统一使用项目自研 DAG Runtime。项目不再加载 Activiti。
 
-```text
-用户上传文件、素材或提交工作流参数
--> file-service 存储 MinIO 对象与元数据
--> workflow-service 创建工作流实例并解析 DAG
--> task-service 记录任务并投递 RabbitMQ
--> ai-service 消费任务并按节点类型调用 python-ai-service、模型供应商或外部工具
--> file-service 保存派生文件与结构化结果元数据
--> notify-service 通过 WebSocket/SSE 推送状态
-```
+主要技术栈：
 
-## 技术栈
+- Java 17、Spring Boot 3.2.12、Spring Cloud、MyBatis Plus
+- MySQL、Redis、RabbitMQ、MinIO、Nacos、Sentinel、Seata
+- Vue 3、TypeScript、Vite 8、Pinia、Vue Flow、Tailwind CSS
+- FastAPI、faster-whisper、Ollama SDK、FFmpeg Python 适配层
 
-| 层级 | 技术 |
-| --- | --- |
-| 后端 | Java 17, Maven, Spring Boot 3.2.12, Spring Cloud 2023.0.5, Spring Cloud Alibaba 2023.0.3.3 |
-| 微服务治理 | Gateway, Nacos, OpenFeign, Sentinel, Seata, Springdoc OpenAPI / Swagger |
-| 数据与中间件 | MyBatis Plus, MySQL 8.0.26, Redis, RabbitMQ, MinIO, XXL-Job, Activiti BPM |
-| AI 与媒体 | Spring AI, FastAPI, OpenAI SDK, Ollama SDK, faster-whisper, ctranslate2, torch, ffmpeg-python, pydub |
-| 前端 | Vue 3, Vue Router 5, Pinia, Vite 8, TypeScript, Tailwind CSS, Vue Flow, Orval, lucide-vue-next |
-| 部署 | Docker Compose, Nginx, WebSocket, SSE |
-
-## 目录结构
+## 目录
 
 ```text
 backend/
-  common/                 # 统一响应、错误码、JWT、MQ Event、DTO 和 OpenAPI 契约
-  gateway-service/        # API 网关
-  auth-service/           # 认证与用户身份
-  workflow-service/       # 工作流定义与实例
-  task-service/           # 任务记录与消息投递
-  ai-service/             # AI 节点编排与供应商调用
-  file-service/           # 文件、对象存储与元数据治理
-  notify-service/         # WebSocket / SSE 通知
-  workflow-runtime-api/   # 工作流运行时契约
-frontend/                 # Vue 3 工作台
-python-ai-service/        # Python AI 推理与媒体处理服务
-ai-runtime/               # Windows 本机演示 runtime
-docker/                   # 基础设施配置
-performance-test/         # JMeter 性能测试脚本
-docs/                     # 契约、部署、任务和架构文档
-docker-compose.yml
+  common/
+  gateway-service/
+  auth-service/
+  workflow-service/
+  task-service/
+  ai-service/
+  file-service/
+  notify-service/
+  workflow-runtime-api/
+frontend/
+python-ai-service/
+ai-runtime/
+docker/
+docs/
+performance-test/
 ```
 
-## 快速启动
+`python-ai-service/` 是正式业务使用的 Python 服务。`ai-runtime/` 是 Windows 本地模型和媒体链路的演示、诊断工具，不替代正式服务。
 
-### 环境要求
+## 环境要求
 
+- Windows 11 或可运行 Docker Compose 的 Linux 环境
 - JDK 17
 - Maven 3.9+
 - Node.js 20+
 - Docker Desktop / Docker Engine
 
-### 本地构建
+本地 AI 或媒体功能还需要相应模型、CUDA（可选）和 FFmpeg。
+
+## 构建与测试
+
+Java：
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
 mvn test
 ```
 
-前端构建：
+前端：
 
 ```powershell
 cd frontend
 npm install
+npm test
 npm run build
 ```
 
-### Docker 一键启动
+生产安全与静态契约检查：
 
 ```powershell
+cd frontend
+$checks = (Get-Content package.json -Raw | ConvertFrom-Json).scripts.PSObject.Properties |
+  Where-Object { $_.Name -like 'check:*' } |
+  Select-Object -ExpandProperty Name
+foreach ($check in $checks) { npm run $check }
+```
+
+两个 Python 项目依赖相互独立，应分别安装和测试：
+
+```powershell
+cd python-ai-service
+python -m pip install -r requirements.txt
+python -m pytest -q
+
+cd ..\ai-runtime
+python -m pip install -r requirements.txt
+python -m pytest -q
+```
+
+轻量 Python 测试通过不等于本地模型或视频链路已经在当前机器完成实机验收。
+
+## Docker 启动
+
+首次启动先生成本地环境文件和安全随机密钥：
+
+```powershell
+.\scripts\aetherflow-init-env.ps1
 docker compose up -d --build
 ```
 
-默认统一入口：
+默认入口：`http://localhost`。
 
-```text
-http://localhost
-```
-
-如果本机 80 端口已占用，修改根目录 `.env`：
+如果 80 端口被占用，可在根目录 `.env` 设置：
 
 ```dotenv
 NGINX_HTTP_PORT=8088
 VITE_API_BASE=/api
 VITE_WS_BASE=/ws
 ```
+
+初始化脚本不会打印密钥，不会在重复执行时轮换已有密钥，也不会覆盖无关的自定义环境变量。
+
+Compose 中的 `mysql-migrate` 一次性服务会在 Task Service 启动前执行 Flyway 迁移。它同时支持新数据库和已有数据卷；升级时不要删除 `mysql-data`，迁移失败会阻止 Task Service 带着不兼容表结构启动。迁移文件位于 `docker/mysql/migrations`，后续表结构变更应继续按递增版本添加，不能只修改首次初始化 SQL。
+
+Whisper 和本地 LLM 默认关闭，避免普通开发机在启动整套服务时意外加载模型。只在具备足够散热和资源、并准备运行视频链路的机器上显式设置：
+
+```dotenv
+ENABLE_WHISPER=true
+ENABLE_LLM=true
+```
+
+正式工作流中的 AI 节点默认通过 Task Service 和 RabbitMQ 异步执行（`WORKFLOW_AI_ASYNC_ENABLED=true`）。节点派发后工作流进入 `WAITING` 并释放运行线程；AI 成功事件会回填输出并恢复后续 DAG，失败事件会收口任务和工作流状态。仅在隔离调试旧同步调用路径时才临时关闭该开关。
+
+## 正式模式与演示数据
+
+正式环境必须保持：
+
+```dotenv
+VITE_MOCK_FALLBACK=false
+WORKFLOW_OCR_MOCK=false
+```
+
+开启 `VITE_MOCK_FALLBACK` 后，部分前端接口在后端不可用时会使用明确的演示数据。开启 `WORKFLOW_OCR_MOCK` 后，OCR 会返回模拟结果。二者只适用于隔离开发或演示，不应在验收和生产环境开启。
+
+JWT、刷新令牌和 OAuth state 密钥在 Compose 中没有弱默认值；缺失时服务应拒绝启动。
 
 ## 默认端口
 
@@ -179,59 +177,45 @@ VITE_WS_BASE=/ws
 | MinIO | 9000 / 9001 |
 | Seata | 8091 |
 
-## Nginx 入口层
+Nginx 代理 `/api`、`/ws` 和 `/sse` 到 Gateway，并为 Vue Router history 路由返回 `index.html`。健康检查入口为 `GET /health`，Java 服务同时提供 `GET /actuator/health`。
 
-生产风格入口由 `frontend/nginx/nginx.conf` 提供。Nginx 只负责静态资源托管和反向代理，不替代 Spring Cloud Gateway。
+## 调用链追踪
 
-路由规则：
+Compose 会启动 Jaeger，并让 Java 服务通过 Micrometer OpenTelemetry bridge、Python 服务通过 OpenTelemetry instrumentation 将 OTLP traces 发送到 Jaeger。RabbitMQ producer/listener observation 已启用，使用 Spring 管理的 RestClient/Feign 也会传播 W3C trace context。
 
-| 路径 | 目标 |
-| --- | --- |
-| `/` 和 Vue Router history 路由 | `frontend/dist/index.html` |
-| `/api/*` | `gateway-service:8080` |
-| `/ws/*` | `gateway-service:8080` |
-| `/sse/*` | `gateway-service:8080` |
+Jaeger UI：`http://localhost:16686`。采样率默认 `1.0`，生产环境可通过 `OTEL_SAMPLING_PROBABILITY` 调低。Whisper 和本地 LLM 仍保持显式启用，追踪服务本身不会加载模型。
 
-`/api`、`/ws`、`/sse` 是部署层前缀，转发前会剥离；业务路由仍由 Spring Cloud Gateway 按 `/auth`、`/workflows`、`/notify` 等后端路径处理。
+## 高负载视频链路
 
-健康检查：
+项目预设链路为：
 
 ```text
-GET /health
+视频 -> 提取语音 -> 语音转文本 -> 本地 AI 总结 -> 输出文档/SRT
 ```
 
-## 服务健康检查
+该链路会加载 Whisper、Ollama 和 FFmpeg，可能产生较高 CPU/GPU 与散热压力。资源受限机器只应执行单元测试和代码检查；完整实机验证应在具备足够散热和显存的设备上进行。
 
-每个 Java 服务提供：
+## AI 价格快照
 
-```text
-GET /health
-GET /actuator/health
+外部模型成本只会在提供商返回真实输入/输出 token，且 `ai-service` 找到匹配的价格快照时计算。价格不在源码中硬编码，可通过 Nacos 或 profile YAML 配置：
+
+```yaml
+aetherflow:
+  ai:
+    pricing-snapshots:
+      - provider: OPENAI
+        model: gpt-4o-mini
+        input-usd-per-million-tokens: 0.15
+        output-usd-per-million-tokens: 0.60
+        source: provider-pricing-page
+        effective-at: 2026-01-01T00:00:00Z
 ```
 
-Python AI 服务提供：
+同一模型可以配置多个生效时间不同的快照。系统按推理发生时间选择最近且已经生效的一条；字段缺失、价格为负或缺少来源时服务拒绝启动。没有可靠快照或 token usage 时，界面保持 `--`，不会推测成本。本地模型的算力和电力成本没有计量时也不会伪装为零。
 
-```text
-GET /health
-```
+## 进一步文档
 
-## 本机演示 Runtime
-
-`ai-runtime/` 是演示机器 Demo 工具，不是注册到 Nacos 中的微服务。它用于在 Windows 开发机上准备模型、验证 CUDA / FFmpeg / Ollama 工作流链路，并一键跑通：
-
-```text
-视频 -> 转录 -> 总结 -> SRT
-```
-
-正式业务链路中的 Python AI 接口仍由 `python-ai-service/` 提供，`ai-runtime/` 不替代它。
-
-## 协作约定
-
-多人协作前先阅读 [docs/COMMON_CONTRACTS.md](docs/COMMON_CONTRACTS.md)。所有微服务统一使用 `common` 中的响应结构、错误码、JWT、MQ Event、DTO 和 OpenAPI 契约。
-
-推荐入口：
-
-- [Architect.md](Architect.md)：整体架构说明
-- [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)：目录结构说明
-- [docs/COMMON_CONTRACTS.md](docs/COMMON_CONTRACTS.md)：跨服务公共契约
-- [docs/deployment/final-production-like-checklist.md](docs/deployment/final-production-like-checklist.md)：生产风格部署检查
+- [当前架构审查状态](docs/architecture-review-report.md)
+- [前后端接口状态清单](docs/frontend-backend-missing-apis.md)
+- [生产式部署检查清单](docs/deployment/final-production-like-checklist.md)
+- [Common 契约](docs/COMMON_CONTRACTS.md)

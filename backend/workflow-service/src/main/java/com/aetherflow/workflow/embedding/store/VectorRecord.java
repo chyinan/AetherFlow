@@ -5,8 +5,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 import java.util.Map;
 
-@Schema(description = "Mock vector store record for workflow embedding demos.")
-public record MockVectorRecord(
+@Schema(description = "Vector record written by a workflow embedding node.")
+public record VectorRecord(
         String id,
         String collection,
         String workflowId,
@@ -19,7 +19,7 @@ public record MockVectorRecord(
         Map<String, Object> metadata
 ) {
 
-    public MockVectorRecord {
+    public VectorRecord {
         vector = vector == null ? List.of() : List.copyOf(vector);
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
     }

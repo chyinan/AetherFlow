@@ -4,11 +4,13 @@ import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
 @Component
+@Profile("!prod")
 public class MockNodeExecutor extends BaseNodeExecutor {
 
     public MockNodeExecutor(WorkflowNodeMetrics metrics) {

@@ -1,0 +1,47 @@
+package com.aetherflow.workflow.node.executor;
+
+import com.aetherflow.common.core.Result;
+import com.aetherflow.common.dto.TaskMessageDTO;
+import com.aetherflow.workflow.client.TaskClient;
+import com.aetherflow.workflow.config.TaskClientProperties;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import com.aetherflow.workflow.runtime.api.WorkflowContext;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+
+// pattern: Imperative Shell
+@Component
+@RequiredArgsConstructor
+public class AsyncAiTaskDispatcher {
+
+    private final TaskClient taskClient;
+    private final TaskClientProperties credentials;
+    private final WorkflowNodeProperties nodeProperties;
+
+    public boolean isEnabled() {
+        return nodeProperties.isAsyncAiEnabled();
+    }
+
+    public long dispatch(WorkflowContext context, String nodeType, Map<String, Object> payload) {
+        long workflowInstanceId;
+        try {
+            workflowInstanceId = Long.parseLong(context.workflowId());
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("async AI requires a numeric workflow instance id", exception);
+        }
+        TaskMessageDTO message = new TaskMessageDTO();
+        message.setWorkflowInstanceId(workflowInstanceId);
+        message.setTraceId(context.traceId());
+        message.setNodeId(context.currentNodeId());
+        message.setNodeType(nodeType);
+        message.setPayload(payload == null ? Map.of() : Map.copyOf(payload));
+        message.setEnqueue(true);
+        Result<Long> result = taskClient.dispatch(credentials.issueInternalToken(), message);
+        if (result == null || !result.isSuccess() || result.getData() == null) {
+            throw new IllegalStateException("task-service async AI dispatch failed");
+        }
+        return result.getData();
+    }
+}

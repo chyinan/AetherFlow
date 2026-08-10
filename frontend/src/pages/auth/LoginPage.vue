@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, X } from 'lucide-vue-next'
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -22,6 +22,8 @@ const errorMessage = ref('')
 const showPassword = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const showLegalModal = ref<'none' | 'terms' | 'privacy'>('none')
+const legalDialog = useTemplateRef<HTMLElement>('legalDialog')
+const previousFocusedElement = ref<HTMLElement | null>(null)
 const canSubmitCredentials = computed(
   () =>
     form.username.trim().length > 0 &&
@@ -81,6 +83,39 @@ function submitGoogleProvider() {
 function toggleAuthMode() {
   authMode.value = authMode.value === 'register' ? 'login' : 'register'
   errorMessage.value = ''
+}
+
+async function openLegalModal(type: 'terms' | 'privacy') {
+  previousFocusedElement.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  showLegalModal.value = type
+  await nextTick()
+  legalDialog.value?.querySelector<HTMLElement>('button')?.focus()
+}
+
+function closeLegalModal() {
+  showLegalModal.value = 'none'
+  void nextTick(() => previousFocusedElement.value?.focus())
+}
+
+function handleLegalDialogKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeLegalModal()
+    return
+  }
+  if (event.key !== 'Tab' || !legalDialog.value) return
+
+  const focusable = [...legalDialog.value.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  if (focusable.length === 0) return
+  const first = focusable[0]
+  const last = focusable.at(-1)!
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
 }
 </script>
 
@@ -206,7 +241,12 @@ function toggleAuthMode() {
           </button>
         </div>
 
-        <p v-if="errorMessage" class="mt-4 rounded-lg border border-status-error/20 bg-red-50 px-4 py-3 text-sm font-medium text-status-error">
+        <p
+          v-if="errorMessage"
+          class="mt-4 rounded-lg border border-status-error/20 bg-red-50 px-4 py-3 text-sm font-medium text-status-error"
+          role="alert"
+          aria-live="assertive"
+        >
           {{ errorMessage }}
         </p>
 
@@ -219,9 +259,9 @@ function toggleAuthMode() {
 
         <p class="mt-8 text-left text-sm font-medium leading-6 text-[#667085]">
           {{ t('auth.termsPrefix') }}
-          <button type="button" class="font-semibold text-[#111827] hover:text-[#2563eb]" @click="showLegalModal = 'terms'">{{ t('auth.termsOfUse') }}</button>
+          <button type="button" class="font-semibold text-[#111827] hover:text-[#2563eb]" @click="openLegalModal('terms')">{{ t('auth.termsOfUse') }}</button>
           <span class="px-1">&amp;</span>
-          <button type="button" class="font-semibold text-[#111827] hover:text-[#2563eb]" @click="showLegalModal = 'privacy'">{{ t('auth.privacyPolicy') }}</button>
+          <button type="button" class="font-semibold text-[#111827] hover:text-[#2563eb]" @click="openLegalModal('privacy')">{{ t('auth.privacyPolicy') }}</button>
         </p>
       </div>
     </section>
@@ -229,23 +269,30 @@ function toggleAuthMode() {
     <div
       v-if="showLegalModal !== 'none'"
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
-      @click.self="showLegalModal = 'none'"
+      @click.self="closeLegalModal"
     >
-      <section class="w-full max-w-md overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel">
+      <section
+        ref="legalDialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="legal-dialog-title"
+        class="max-h-[85vh] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-app-border bg-white shadow-panel"
+        @keydown="handleLegalDialogKeydown"
+      >
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
-          <p class="text-base font-semibold text-text-primary">
+          <p id="legal-dialog-title" class="text-base font-semibold text-text-primary">
             {{ showLegalModal === 'terms' ? t('auth.termsOfUse') : t('auth.privacyPolicy') }}
           </p>
           <button
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary"
             :aria-label="t('settings.close')"
-            @click="showLegalModal = 'none'"
+            @click="closeLegalModal"
           >
             <X class="h-4 w-4" />
           </button>
         </header>
-        <div class="px-5 py-8 text-center">
+        <div class="px-5 py-6 text-left">
           <p class="text-sm leading-6 text-text-secondary">
             {{ showLegalModal === 'terms' ? t('auth.termsModalPlaceholder') : t('auth.privacyModalPlaceholder') }}
           </p>
@@ -254,7 +301,7 @@ function toggleAuthMode() {
           <button
             type="button"
             class="rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition hover:text-text-primary"
-            @click="showLegalModal = 'none'"
+            @click="closeLegalModal"
           >
             {{ t('settings.close') }}
           </button>

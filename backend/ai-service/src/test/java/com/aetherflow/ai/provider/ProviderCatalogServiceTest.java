@@ -28,6 +28,8 @@ class ProviderCatalogServiceTest {
                     assertThat(model.provider()).isEqualTo(AiProviderType.OPENAI);
                     assertThat(model.contextWindowTokens()).isGreaterThan(0);
                     assertThat(model.pricing().source()).isEqualTo("backend-static-metadata");
+                    assertThat(model.pricing().inputUsdPerMillionTokens()).isNull();
+                    assertThat(model.pricing().outputUsdPerMillionTokens()).isNull();
                     assertThat(model.capabilities()).contains("chat", "summary");
                 });
         assertThat(catalog.models())

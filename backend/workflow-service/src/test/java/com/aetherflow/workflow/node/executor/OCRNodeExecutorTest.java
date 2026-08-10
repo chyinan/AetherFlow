@@ -31,6 +31,8 @@ import java.util.concurrent.ExecutorService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,7 +48,7 @@ class OCRNodeExecutorTest {
         OCRMetrics ocrMetrics = new OCRMetrics();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, ocrMetrics);
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile("token", 9L)).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
+        when(fileClient.downloadFile(any(String.class), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
         when(provider.recognize(argThat(request ->
                 request.file().content().length == bytes.length
                         && "invoice.png".equals(request.file().fileName())
@@ -72,7 +74,7 @@ class OCRNodeExecutorTest {
         assertThat(result.variables()).containsEntry("ocrPageCount", 1);
         assertThat(ocrMetrics.snapshot().ocrCount()).isEqualTo(1);
         assertThat(ocrMetrics.snapshot().failCount()).isZero();
-        verify(fileClient).downloadFile("token", 9L);
+        verify(fileClient).downloadFile(any(String.class), eq(9L));
     }
 
     @Test
@@ -82,7 +84,7 @@ class OCRNodeExecutorTest {
         OCRProperties ocrProperties = ocrProperties();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, new OCRMetrics());
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile("token", 42L)).thenReturn(fileResponse(bytes, "invoice.jpg", "image/jpeg"));
+        when(fileClient.downloadFile(any(String.class), eq(42L))).thenReturn(fileResponse(bytes, "invoice.jpg", "image/jpeg"));
         when(provider.recognize(argThat(request -> request.file().content().length == bytes.length)))
                 .thenReturn(new OCRResult("invoice", "eng", 0.8, 1));
 
@@ -90,7 +92,7 @@ class OCRNodeExecutorTest {
                 Map.of("sourceFileId", 42L)));
 
         assertThat(result.variables()).containsEntry("ocrText", "invoice");
-        verify(fileClient).downloadFile("token", 42L);
+        verify(fileClient).downloadFile(any(String.class), eq(42L));
     }
 
     @Test
@@ -99,6 +101,7 @@ class OCRNodeExecutorTest {
         OCRProvider tesseract = provider("tesseract");
         OCRProvider mockProvider = provider("mock");
         OCRProperties ocrProperties = ocrProperties();
+        ocrProperties.setMock(true);
         OCRNodeExecutor executor = executor(fileClient, List.of(tesseract, mockProvider), ocrProperties, new OCRMetrics());
         when(mockProvider.recognize(argThat(request ->
                 request.file().content().length == 0
@@ -121,7 +124,7 @@ class OCRNodeExecutorTest {
         ExecutorService executorService = Executors.newSingleThreadExecutor();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, ocrMetrics, executorService);
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile("token", 9L)).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
+        when(fileClient.downloadFile(any(String.class), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
         when(provider.recognize(argThat(request -> "invoice.png".equals(request.file().fileName()))))
                 .thenAnswer(invocation -> {
                     Thread.sleep(200);
@@ -152,7 +155,7 @@ class OCRNodeExecutorTest {
                                             OCRMetrics ocrMetrics,
                                             Executor directExecutor) {
         WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
-        nodeProperties.setFileInternalToken("token");
+        nodeProperties.setFileInternalToken("0123456789abcdef0123456789abcdef");
         return new OCRNodeExecutor(
                 new WorkflowNodeMetrics(),
                 fileClient,

@@ -31,6 +31,9 @@ const requiredMappings = {
   'template-transform': 'TEMPLATE_TRANSFORM',
   'variable-aggregate': 'VARIABLE_AGGREGATE',
   'document-extractor': 'OCR',
+  'url-fetch': 'URL_FETCH',
+  embedding: 'EMBEDDING',
+  notify: 'NOTIFY',
   'variable-assigner': 'VARIABLE_ASSIGNER',
   'parameter-extractor': 'PARAMETER_EXTRACTOR',
 }

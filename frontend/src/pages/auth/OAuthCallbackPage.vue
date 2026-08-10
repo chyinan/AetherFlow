@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { mapBackendRoles } from '@/api/modules/auth'
 import { tokenManager, type AuthSession } from '@/api/client/tokenManager'
+import { mapBackendRoles } from '@/api/modules/auth'
 import { useAuthStore } from '@/stores/authStore'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const errorMessage = ref('')
+const { t } = useI18n()
 
 function readRequired(params: URLSearchParams, field: string) {
   const value = params.get(field)
@@ -38,7 +40,6 @@ function buildSession(params: URLSearchParams): AuthSession {
 
   return {
     accessToken: readRequired(params, 'accessToken'),
-    refreshToken: readRequired(params, 'refreshToken'),
     tokenType: params.get('tokenType') || 'Bearer',
     expiresAt: expiresAt(readRequired(params, 'expiresIn')),
     refreshExpiresAt: expiresAt(readRequired(params, 'refreshExpiresIn')),
@@ -61,11 +62,12 @@ onMounted(async () => {
     const session = buildSession(params)
     const redirectPath = params.get('redirect') || '/projects'
 
+    window.history.replaceState(null, '', window.location.pathname)
     tokenManager.setSession(session)
     authStore.setActiveSession(session)
     await router.replace(redirectPath.startsWith('/') ? redirectPath : '/projects')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'OAuth login failed'
+    errorMessage.value = error instanceof Error ? error.message : t('auth.oauthLoginFailed')
     authStore.clearLocalSession()
     await router.replace({ path: '/login', query: { oauth: 'failed' } })
   }
@@ -74,9 +76,9 @@ onMounted(async () => {
 
 <template>
   <main class="grid min-h-screen place-items-center bg-white px-6 text-text-primary">
-    <div class="rounded-xl border border-app-border bg-app-bg2 px-6 py-5 text-center shadow-panel">
-      <p class="text-base font-semibold">正在完成登录</p>
-      <p class="mt-2 text-sm text-text-secondary">{{ errorMessage || '请稍候...' }}</p>
+    <div class="rounded-xl border border-app-border bg-app-bg2 px-6 py-5 text-center shadow-panel" aria-live="polite">
+      <p class="text-base font-semibold">{{ t('auth.completingLogin') }}</p>
+      <p class="mt-2 text-sm text-text-secondary">{{ errorMessage || t('auth.pleaseWait') }}</p>
     </div>
   </main>
 </template>

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { toApiError } from '@/api/client/apiError'
 import { modelApi, type ModelApiSnapshot } from '@/services/api/modelApi'
 import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
+import { formatTime } from '@/utils/localeFormat'
 
 interface ModelSnapshotState {
   providers: ModelProvider[]
@@ -68,7 +69,7 @@ export const useModelStore = defineStore('model', {
       this.selectedProviderId = providerId
     },
     appendOperationLog(message: string, level: ModelRuntimeLog['level'] = 'warn') {
-      const now = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+      const now = formatTime(new Date())
       this.logs = [
         {
           id: `model-ui-log-${Date.now()}`,

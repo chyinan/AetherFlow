@@ -5,7 +5,9 @@ import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.oauth.GithubOAuthLoginResult;
 import com.aetherflow.auth.oauth.GithubOAuthService;
 import com.aetherflow.auth.web.AuthRequestContext;
+import com.aetherflow.auth.web.RefreshTokenCookieService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -28,6 +30,7 @@ public class GithubOAuthController {
 
     private final GithubOAuthService githubOAuthService;
     private final AuthProperties authProperties;
+    private final RefreshTokenCookieService refreshTokenCookieService;
 
     @GetMapping("/authorize")
     public ResponseEntity<Void> authorize(
@@ -42,9 +45,12 @@ public class GithubOAuthController {
     public ResponseEntity<Void> callback(
             @RequestParam(value = "code", required = false) String code,
             @RequestParam(value = "state", required = false) String state,
-            HttpServletRequest request) {
+            HttpServletRequest request,
+            HttpServletResponse response) {
         try {
             GithubOAuthLoginResult result = githubOAuthService.completeLogin(code, state, AuthRequestContext.from(request));
+            AuthTokenResponse token = result.tokenResponse();
+            refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
             return redirect(successRedirectUrl(result));
         } catch (RuntimeException exception) {
             return redirect(failureRedirectUrl(exception));
@@ -55,7 +61,6 @@ public class GithubOAuthController {
         AuthTokenResponse token = result.tokenResponse();
         StringJoiner fragment = new StringJoiner("&");
         fragment.add("accessToken=" + encode(token.getAccessToken()));
-        fragment.add("refreshToken=" + encode(token.getRefreshToken()));
         fragment.add("tokenType=" + encode(token.getTokenType()));
         fragment.add("expiresIn=" + token.getExpiresIn());
         fragment.add("refreshExpiresIn=" + token.getRefreshExpiresIn());

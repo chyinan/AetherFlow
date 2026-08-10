@@ -1,8 +1,6 @@
 package com.aetherflow.workflow.node.executor;
 
-import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
-import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
@@ -17,16 +15,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
-public class WhisperNodeExecutor extends BaseNodeExecutor {
+public class WhisperNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
-    private final AiWorkflowNodeClient aiClient;
     private final WorkflowNodeProperties properties;
 
     public WhisperNodeExecutor(WorkflowNodeMetrics metrics,
                                AiWorkflowNodeClient aiClient,
                                WorkflowNodeProperties properties) {
-        super(WorkflowNodeTypes.WHISPER, metrics);
-        this.aiClient = aiClient;
+        super(WorkflowNodeTypes.WHISPER, metrics, aiClient);
         this.properties = properties;
     }
 
@@ -59,26 +55,6 @@ public class WhisperNodeExecutor extends BaseNodeExecutor {
         }
         String variableName = stringValue(config.getOrDefault("fileUrlVariable", "fileUrl"));
         return stringValue(context.variables().get(variableName));
-    }
-
-    private AiWorkflowNodeResponseDTO executeAi(WorkflowContext context, String nodeType, Map<String, Object> payload) {
-        AiWorkflowNodeRequestDTO request = request(context, nodeType, payload);
-        Result<AiWorkflowNodeResponseDTO> result = aiClient.execute(request);
-        if (result == null || !result.isSuccess() || result.getData() == null) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "ai workflow node execution failed");
-        }
-        return result.getData();
-    }
-
-    private AiWorkflowNodeRequestDTO request(WorkflowContext context, String nodeType, Map<String, Object> payload) {
-        AiWorkflowNodeRequestDTO request = new AiWorkflowNodeRequestDTO();
-        request.setWorkflowId(context.workflowId());
-        request.setTraceId(context.traceId());
-        request.setTaskId(context.taskId());
-        request.setNodeId(context.currentNodeId());
-        request.setNodeType(nodeType);
-        request.setPayload(payload);
-        return request;
     }
 
     private Map<String, Object> safeOutput(AiWorkflowNodeResponseDTO response) {

@@ -3,6 +3,7 @@ package com.aetherflow.ai.provider;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -97,8 +98,11 @@ public record ProviderCatalogResponse(
             @Schema(description = "Short frontend pricing hint.", example = "external pricing not configured")
             String priceHint,
 
-            @Schema(description = "Metadata source.", example = "backend-static-metadata")
-            String source
+            @Schema(description = "Metadata source.", example = "provider pricing page")
+            String source,
+
+            @Schema(description = "Time from which this pricing snapshot is effective.")
+            Instant effectiveAt
     ) {
     }
 }

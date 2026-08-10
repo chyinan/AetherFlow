@@ -4,6 +4,7 @@ import com.aetherflow.common.core.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Workflow Demo Observability", description = "Demo-only endpoints for Sentinel and Seata dashboards.")
 @RestController
+@Profile("dev")
 @RequestMapping("/workflow/demo")
 @RequiredArgsConstructor
 public class WorkflowSeataDemoController {
