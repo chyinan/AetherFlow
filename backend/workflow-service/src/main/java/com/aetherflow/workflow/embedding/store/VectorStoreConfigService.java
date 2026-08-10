@@ -14,6 +14,7 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -21,7 +22,10 @@ import java.util.concurrent.atomic.AtomicReference;
 @RequiredArgsConstructor
 public class VectorStoreConfigService {
 
+    private static final long DEFAULT_CONFIG_ID = 1L;
+
     private final EmbeddingProperties properties;
+    private final VectorStoreConfigMapper mapper;
     private final AtomicReference<VectorStoreRuntimeConfig> runtimeConfig = new AtomicReference<>();
 
     public VectorStoreConfigResponse current() {
@@ -30,13 +34,20 @@ public class VectorStoreConfigService {
     }
 
     public VectorStoreConfigResponse update(VectorStoreConfigRequest request) {
-        VectorStoreRuntimeConfig config = toConfig(request);
+        VectorStoreRuntimeConfig config = toConfig(request, currentConfig());
+        VectorStoreConfigEntity existing = mapper.selectById(DEFAULT_CONFIG_ID);
+        VectorStoreConfigEntity entity = toEntity(config, existing);
+        if (existing == null) {
+            mapper.insert(entity);
+        } else {
+            mapper.updateById(entity);
+        }
         runtimeConfig.set(config);
         return response(config, config.enabled() ? "configured" : "disabled");
     }
 
     public VectorStoreTestResponse test(VectorStoreConfigRequest request) {
-        VectorStoreRuntimeConfig config = toConfig(request);
+        VectorStoreRuntimeConfig config = toConfig(request, currentConfig());
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(config.baseUrl() + "/collections"))
                     .timeout(properties.getTimeout())
@@ -65,6 +76,12 @@ public class VectorStoreConfigService {
         if (configured != null) {
             return configured;
         }
+        VectorStoreConfigEntity persisted = mapper.selectById(DEFAULT_CONFIG_ID);
+        if (persisted != null) {
+            VectorStoreRuntimeConfig restored = fromEntity(persisted);
+            runtimeConfig.compareAndSet(null, restored);
+            return runtimeConfig.get();
+        }
         return new VectorStoreRuntimeConfig(
                 "qdrant",
                 false,
@@ -74,7 +91,8 @@ public class VectorStoreConfigService {
         );
     }
 
-    private VectorStoreRuntimeConfig toConfig(VectorStoreConfigRequest request) {
+    private VectorStoreRuntimeConfig toConfig(VectorStoreConfigRequest request,
+                                              VectorStoreRuntimeConfig existing) {
         if (request == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "vector store config is required");
         }
@@ -91,9 +109,38 @@ public class VectorStoreConfigService {
                 provider,
                 request.isEnabled(),
                 baseUrl,
-                request.getApiKey() == null ? "" : request.getApiKey().trim(),
+                request.getApiKey() == null ? existing.apiKey() : request.getApiKey().trim(),
                 collection
         );
+    }
+
+    private VectorStoreRuntimeConfig fromEntity(VectorStoreConfigEntity entity) {
+        String provider = text(entity.getProvider(), "qdrant").toLowerCase(Locale.ROOT);
+        if (!"qdrant".equals(provider)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "only qdrant vector store is supported");
+        }
+        return new VectorStoreRuntimeConfig(
+                provider,
+                Boolean.TRUE.equals(entity.getEnabled()),
+                normalizeBaseUrl(text(entity.getBaseUrl(), properties.getQdrantBaseUrl())),
+                text(entity.getApiKey(), ""),
+                text(entity.getCollection(), properties.getDefaultVectorCollection())
+        );
+    }
+
+    private VectorStoreConfigEntity toEntity(VectorStoreRuntimeConfig config,
+                                             VectorStoreConfigEntity existing) {
+        LocalDateTime now = LocalDateTime.now();
+        VectorStoreConfigEntity entity = new VectorStoreConfigEntity();
+        entity.setId(DEFAULT_CONFIG_ID);
+        entity.setProvider(config.provider());
+        entity.setEnabled(config.enabled());
+        entity.setBaseUrl(config.baseUrl());
+        entity.setApiKey(config.apiKey());
+        entity.setCollection(config.collection());
+        entity.setCreatedAt(existing == null || existing.getCreatedAt() == null ? now : existing.getCreatedAt());
+        entity.setUpdatedAt(now);
+        return entity;
     }
 
     private VectorStoreConfigResponse response(VectorStoreRuntimeConfig config, String status) {

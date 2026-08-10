@@ -6,6 +6,8 @@ import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
+import com.aetherflow.workflow.runtime.async.WorkflowAsyncCompletionService;
+import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.metrics.RuntimeMetricsSnapshot;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
@@ -24,11 +26,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
@@ -43,25 +48,28 @@ public class WorkflowRuntimeController {
     private final RuntimeEventStore runtimeEventStore;
     private final RuntimeEventStreamService streamService;
     private final WorkflowInstanceMapper workflowInstanceMapper;
+    private final WorkflowAsyncCompletionService completionService;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore,
                                      RuntimeEventStreamService streamService,
-                                     WorkflowInstanceMapper workflowInstanceMapper) {
+                                     WorkflowInstanceMapper workflowInstanceMapper,
+                                     WorkflowAsyncCompletionService completionService) {
         this.metrics = metrics;
         this.observationStore = observationStore;
         this.runtimeEventStore = runtimeEventStore;
         this.streamService = streamService;
         this.workflowInstanceMapper = workflowInstanceMapper;
+        this.completionService = completionService;
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore,
                                      RuntimeEventStreamService streamService) {
-        this(metrics, observationStore, runtimeEventStore, streamService, null);
+        this(metrics, observationStore, runtimeEventStore, streamService, null, null);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -73,8 +81,16 @@ public class WorkflowRuntimeController {
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
                                      InMemoryRuntimeObservationStore observationStore,
                                      RuntimeEventStore runtimeEventStore,
+                                     RuntimeEventStreamService streamService,
                                      WorkflowInstanceMapper workflowInstanceMapper) {
-        this(metrics, observationStore, runtimeEventStore, new RuntimeEventStreamService(runtimeEventStore), workflowInstanceMapper);
+        this(metrics, observationStore, runtimeEventStore, streamService, workflowInstanceMapper, null);
+    }
+
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     WorkflowInstanceMapper workflowInstanceMapper) {
+        this(metrics, observationStore, runtimeEventStore, new RuntimeEventStreamService(runtimeEventStore), workflowInstanceMapper, null);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -154,6 +170,31 @@ public class WorkflowRuntimeController {
                              @RequestParam(required = false) String cursor) {
         assertWorkflowOwner(workflowId, userId);
         return streamService.stream(workflowId, lastEventId, cursor);
+    }
+
+    @Operation(summary = "Complete a human approval node",
+            description = "Records an approval decision for an owned workflow instance and resumes the waiting runtime.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Approval recorded and runtime resumed.",
+                    content = @Content(schema = @Schema(implementation = WorkflowExecutionSnapshot.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid approval request or node state."),
+            @ApiResponse(responseCode = "401", description = "Authenticated user is required."),
+            @ApiResponse(responseCode = "403", description = "Workflow instance belongs to another user."),
+            @ApiResponse(responseCode = "404", description = "Workflow instance not found.")
+    })
+    @PostMapping("/instances/{workflowInstanceId}/nodes/{nodeId}/approval")
+    public Result<WorkflowExecutionSnapshot> approve(
+            @Parameter(description = "Workflow instance id.", example = "1001")
+            @PathVariable Long workflowInstanceId,
+            @Parameter(description = "Waiting HUMAN node id.", example = "node-human-1")
+            @PathVariable String nodeId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Valid @RequestBody HumanApprovalRequest request) {
+        assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
+        if (completionService == null) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "human approval service is unavailable");
+        }
+        return Result.success(completionService.completeApproval(workflowInstanceId, nodeId, request));
     }
 
     private void assertWorkflowOwner(String workflowId, Long userId) {

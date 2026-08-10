@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { apiClient } from '@/api/client/apiClient'
 import { runtimeEnv } from '@/config/runtimeEnv'
 
@@ -48,6 +49,21 @@ export interface RuntimeEvent {
   attributes?: Record<string, unknown>
 }
 
+export interface HumanApprovalRequest {
+  approved: boolean
+  comment?: string
+  reviewer?: string
+  method?: string
+}
+
+export interface RuntimeExecutionSnapshot {
+  workflowId?: string
+  runtimeState?: RuntimeState
+  currentNodeId?: string
+  currentNodeIds?: string[]
+  variables?: Record<string, unknown>
+}
+
 function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, '')
 }
@@ -71,6 +87,18 @@ export function getRuntimeObservation(workflowId: string) {
 export function getRuntimeEvents(workflowId: string) {
   return apiClient.get<RuntimeEvent[]>(
     `/workflow/runtime/events/${encodeURIComponent(workflowId)}`,
+    { source: 'runtime' },
+  )
+}
+
+export function approveHumanNode(
+  workflowInstanceId: number | string,
+  nodeId: string,
+  request: HumanApprovalRequest,
+) {
+  return apiClient.post<RuntimeExecutionSnapshot>(
+    `/workflow/runtime/instances/${encodeURIComponent(String(workflowInstanceId))}/nodes/${encodeURIComponent(nodeId)}/approval`,
+    request,
     { source: 'runtime' },
   )
 }

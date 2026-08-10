@@ -32,7 +32,7 @@ class CopilotControllerTest {
         CopilotChatRequest request = new CopilotChatRequest();
         request.setPrompt("Which node should I add next?");
         request.setWorkflowId("wf-1001");
-        when(service.chat(request)).thenReturn(new CopilotChatResponse(
+        when(service.chat(7L, request)).thenReturn(new CopilotChatResponse(
                 "msg-22", "conv-11", "assistant",
                 "A solid next node is Summary after Translate.",
                 "19:36"
@@ -41,41 +41,42 @@ class CopilotControllerTest {
 
         mockMvc.perform(post("/copilot/chat")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
+                        .content(objectMapper.writeValueAsString(request))
+                        .header("X-User-Id", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.id").value("msg-22"))
                 .andExpect(jsonPath("$.data.conversationId").value("conv-11"))
                 .andExpect(jsonPath("$.data.role").value("assistant"));
 
-        verify(service).chat(request);
+        verify(service).chat(7L, request);
     }
 
     @Test
     void listsConversationsAndMessages() throws Exception {
         CopilotService service = mock(CopilotService.class);
-        when(service.listConversations(20)).thenReturn(List.of(new CopilotConversationSummary(
+        when(service.listConversations(7L, 20)).thenReturn(List.of(new CopilotConversationSummary(
                 "conv-11", "Which node should I add next?", "wf-1001", "project-1",
                 2, "2026-05-29T19:36:00"
         )));
-        when(service.listMessages(11L)).thenReturn(List.of(
+        when(service.listMessages(7L, 11L)).thenReturn(List.of(
                 new CopilotMessageResponse("msg-21", "user", "Which node should I add next?", "19:36"),
                 new CopilotMessageResponse("msg-22", "assistant", "A solid next node is Summary.", "19:36")
         ));
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new CopilotController(service)).build();
 
-        mockMvc.perform(get("/copilot/conversations").param("limit", "20"))
+        mockMvc.perform(get("/copilot/conversations").param("limit", "20").header("X-User-Id", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(1)))
                 .andExpect(jsonPath("$.data[0].id").value("conv-11"))
                 .andExpect(jsonPath("$.data[0].messageCount").value(2));
 
-        mockMvc.perform(get("/copilot/conversations/11/messages"))
+        mockMvc.perform(get("/copilot/conversations/11/messages").header("X-User-Id", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data", hasSize(2)))
                 .andExpect(jsonPath("$.data[1].role").value("assistant"));
 
-        verify(service).listConversations(20);
-        verify(service).listMessages(11L);
+        verify(service).listConversations(7L, 20);
+        verify(service).listMessages(7L, 11L);
     }
 }

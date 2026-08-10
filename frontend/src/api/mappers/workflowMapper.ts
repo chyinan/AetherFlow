@@ -743,6 +743,9 @@ export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): Workfl
   return {
     name: workflow.name,
     description: workflow.description,
+    ...(typeof workflow.projectId === 'number' && Number.isInteger(workflow.projectId) && workflow.projectId > 0
+      ? { projectId: workflow.projectId }
+      : {}),
     nodes: workflow.nodes.map((node) => {
       const nodeType = toBackendNodeType(node)
       return {

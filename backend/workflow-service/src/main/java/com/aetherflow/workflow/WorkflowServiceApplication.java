@@ -11,7 +11,8 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 @MapperScan({
         "com.aetherflow.workflow.mapper",
         "com.aetherflow.workflow.knowledge.mapper",
-        "com.aetherflow.workflow.project.mapper"
+        "com.aetherflow.workflow.project.mapper",
+        "com.aetherflow.workflow.embedding.store"
 })
 @SpringBootApplication(scanBasePackages = "com.aetherflow")
 public class WorkflowServiceApplication {

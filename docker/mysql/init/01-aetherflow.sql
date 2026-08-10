@@ -202,6 +202,7 @@ CREATE TABLE IF NOT EXISTS af_ai_job (
 
 CREATE TABLE IF NOT EXISTS af_copilot_conversation (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
     title VARCHAR(128) NOT NULL,
     workflow_id VARCHAR(128),
     project_id VARCHAR(128),
@@ -211,6 +212,7 @@ CREATE TABLE IF NOT EXISTS af_copilot_conversation (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_af_copilot_conversation_updated (updated_at),
+    KEY idx_af_copilot_conversation_user (user_id),
     KEY idx_af_copilot_conversation_workflow (workflow_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -296,6 +298,17 @@ CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
     KEY idx_af_knowledge_chunk_dataset (dataset_id),
     KEY idx_af_knowledge_chunk_document (document_id),
     KEY idx_af_knowledge_chunk_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS af_vector_store_config (
+    id BIGINT PRIMARY KEY,
+    provider VARCHAR(32) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    base_url VARCHAR(1024) NOT NULL,
+    api_key VARCHAR(4096),
+    collection VARCHAR(255) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS af_notification_record (

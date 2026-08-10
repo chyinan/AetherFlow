@@ -7,6 +7,7 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.async.WorkflowAsyncCompletionService;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -160,6 +162,31 @@ class WorkflowRuntimeControllerTest {
 
         assertThat(result).isSameAs(emitter);
         verify(streamService).stream("1001", null, null);
+    }
+
+    @Test
+    void acceptsHumanApprovalForOwnedWorkflowInstance() throws Exception {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        RuntimeEventStreamService streamService = mock(RuntimeEventStreamService.class);
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowAsyncCompletionService completionService = mock(WorkflowAsyncCompletionService.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(7L);
+        when(instanceMapper.selectById(1001L)).thenReturn(instance);
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                metrics, store, eventStore, streamService, instanceMapper, completionService);
+
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mockMvc.perform(post("/workflow/runtime/instances/1001/nodes/human-1/approval")
+                        .header("X-User-Id", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"approved\":false,\"comment\":\"needs revision\",\"reviewer\":\"ops\",\"method\":\"webapp\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0));
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

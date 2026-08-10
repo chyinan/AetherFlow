@@ -4,10 +4,12 @@ import {
   login as authLogin,
   logout as authLogout,
   me as authMe,
+  oauthProviders as authOAuthProviders,
   refresh as authRefresh,
   register as authRegister,
   status as authStatus,
   type FrontendRole,
+  type OAuthProviderAvailability,
 } from '@/api/modules/auth'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import type { ServiceStatus } from '@/types/api'
@@ -244,5 +246,8 @@ export const authApi = {
       }
       throw error
     }
+  },
+  async getOAuthProviders(): Promise<OAuthProviderAvailability> {
+    return authOAuthProviders()
   },
 }

@@ -122,6 +122,33 @@ class AiProviderRouterTest {
         assertThat(success.metadata()).containsEntry("finishReason", "stop");
     }
 
+    @Test
+    void forwardsProviderStreamChunksToConsumer() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI), 0, 5);
+        RouterFixture fixture = fixture(policy, new FakeProvider(AiProviderType.OPENAI, "streamed-result"));
+        List<String> chunks = new ArrayList<>();
+
+        fixture.router.stream(request(null), response -> chunks.add(response.text()));
+
+        assertThat(chunks).containsExactly("streamed-result");
+        assertThat(fixture.provider(AiProviderType.OPENAI).calls).isEqualTo(1);
+    }
+
+    @Test
+    void doesNotFailOverAfterAStreamHasAlreadyDeliveredContent() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA), 0, 5);
+        RouterFixture fixture = fixture(policy,
+                new FakeProvider(AiProviderType.OPENAI, new PartialStreamFailure("partial", new IllegalStateException("stream interrupted"))),
+                new FakeProvider(AiProviderType.OLLAMA, "fallback"));
+        List<String> chunks = new ArrayList<>();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> fixture.router.stream(request(null), response -> chunks.add(response.text())))
+                .hasMessageContaining("stream interrupted");
+
+        assertThat(chunks).containsExactly("partial");
+        assertThat(fixture.provider(AiProviderType.OLLAMA).calls).isZero();
+    }
+
     private ProviderRoutingPolicy policy(List<AiProviderType> providers, int maxRetries, int threshold) {
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         policy.setProviders(providers);
@@ -194,6 +221,23 @@ class AiProviderRouterTest {
             }
             return new AiProviderResponse(type, request.model(), String.valueOf(outcome), Map.of("finishReason", "stop"));
         }
+
+        @Override
+        public void stream(AiProviderRequest request, java.util.function.Consumer<AiProviderResponse> consumer) {
+            calls++;
+            Object outcome = outcomes.isEmpty() ? "ok" : outcomes.remove();
+            if (outcome instanceof PartialStreamFailure failure) {
+                consumer.accept(new AiProviderResponse(type, request.model(), failure.partial(), Map.of()));
+                throw failure.exception();
+            }
+            if (outcome instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            consumer.accept(new AiProviderResponse(type, request.model(), String.valueOf(outcome), Map.of()));
+        }
+    }
+
+    private record PartialStreamFailure(String partial, RuntimeException exception) {
     }
 
     private static final class InMemoryPolicyRepository implements ProviderRoutingPolicyRepository {

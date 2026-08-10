@@ -3,6 +3,18 @@ import { describe, expect, it } from 'vitest'
 import { mapWorkflowToDefinitionDTO } from './workflowMapper'
 
 describe('workflowMapper', () => {
+  it('serializes the owning project id into the backend definition contract', () => {
+    const result = mapWorkflowToDefinitionDTO({
+      id: 'workflow-1',
+      name: 'Project workflow',
+      projectId: 7,
+      nodes: [],
+      edges: [],
+    } as Parameters<typeof mapWorkflowToDefinitionDTO>[0])
+
+    expect(result.projectId).toBe(7)
+  })
+
   it('serializes the notify node into the backend notification contract', () => {
     const result = mapWorkflowToDefinitionDTO({
       id: 'workflow-1',

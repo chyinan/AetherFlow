@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Eye, EyeOff, X } from 'lucide-vue-next'
-import { computed, nextTick, reactive, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
+import { authApi } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
 
 const authStore = useAuthStore()
@@ -19,6 +20,7 @@ const form = reactive({
   password: '',
 })
 const errorMessage = ref('')
+const oauthProviders = ref({ githubConfigured: false, googleConfigured: false })
 const showPassword = ref(false)
 const authMode = ref<'login' | 'register'>('login')
 const showLegalModal = ref<'none' | 'terms' | 'privacy'>('none')
@@ -49,6 +51,18 @@ const modePromptText = computed(() =>
 const modeActionText = computed(() =>
   authMode.value === 'register' ? t('auth.loginAction') : t('auth.registerAction'),
 )
+
+onMounted(() => {
+  void loadOAuthProviders()
+})
+
+async function loadOAuthProviders() {
+  try {
+    oauthProviders.value = await authApi.getOAuthProviders()
+  } catch {
+    oauthProviders.value = { githubConfigured: false, googleConfigured: false }
+  }
+}
 
 async function submitCredentials() {
   if (!canSubmitCredentials.value) {
@@ -202,7 +216,8 @@ function handleLegalDialogKeydown(event: KeyboardEvent) {
           <button
             class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
-            :disabled="authStore.loading"
+            :disabled="authStore.loading || !oauthProviders.githubConfigured"
+            :title="!oauthProviders.githubConfigured ? t('auth.oauthUnavailable') : undefined"
             @click="submitGithubProvider"
           >
             <svg class="h-5 w-5 text-[#181717]" viewBox="0 0 24 24" aria-hidden="true">
@@ -216,7 +231,8 @@ function handleLegalDialogKeydown(event: KeyboardEvent) {
           <button
             class="flex h-11 items-center justify-center gap-3 rounded-lg border border-[#e4e7ec] bg-[#ffffff] text-sm font-semibold text-[#111827] transition hover:border-[#cbd5e1] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
-            :disabled="authStore.loading"
+            :disabled="authStore.loading || !oauthProviders.googleConfigured"
+            :title="!oauthProviders.googleConfigured ? t('auth.oauthUnavailable') : undefined"
             @click="submitGoogleProvider"
           >
             <svg class="h-5 w-5" viewBox="0 0 533.5 544.3" aria-hidden="true">

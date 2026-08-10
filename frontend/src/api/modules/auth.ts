@@ -104,6 +104,11 @@ function readRequiredString(value: Record<string, unknown>, field: string) {
   return fieldValue
 }
 
+export interface OAuthProviderAvailability {
+  githubConfigured: boolean
+  googleConfigured: boolean
+}
+
 function readOptionalString(value: Record<string, unknown>, field: string) {
   const fieldValue = value[field]
   return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue : undefined
@@ -216,4 +221,14 @@ export async function me(): Promise<AuthSessionUser> {
 
 export function status(): Promise<AuthStatusResponse> {
   return apiClient.get<AuthStatusResponse>('/auth/status', { source: 'auth' })
+}
+
+export async function oauthProviders(): Promise<OAuthProviderAvailability> {
+  const response = await apiClient.get<Partial<OAuthProviderAvailability>>('/auth/oauth/providers', {
+    source: 'auth',
+  })
+  return {
+    githubConfigured: response.githubConfigured === true,
+    googleConfigured: response.googleConfigured === true,
+  }
 }

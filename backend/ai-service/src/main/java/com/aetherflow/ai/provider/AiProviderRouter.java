@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Component
@@ -56,6 +58,68 @@ public class AiProviderRouter {
 
     public AiProviderResponse generate(AiProviderRequest request) {
         return sentinelAiGuard.execute(ROUTER_RESOURCE, () -> doGenerate(request));
+    }
+
+    public void stream(AiProviderRequest request, Consumer<AiProviderResponse> consumer) {
+        if (consumer == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "ai provider stream consumer is required");
+        }
+        sentinelAiGuard.run(ROUTER_RESOURCE, () -> doStream(request, consumer));
+    }
+
+    private void doStream(AiProviderRequest request, Consumer<AiProviderResponse> consumer) {
+        if (request == null || request.prompt() == null || request.prompt().isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "ai provider request prompt is required");
+        }
+        ProviderRoutingPolicy policy = policyService.currentPolicy();
+        List<AiProviderType> candidates = policy.orderedCandidates(request.provider());
+        if (!policy.isEnableFailover() && !candidates.isEmpty()) {
+            candidates = List.of(candidates.get(0));
+        }
+        if (candidates.isEmpty()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "no ai provider configured");
+        }
+        RuntimeException lastException = null;
+        for (AiProviderType providerType : candidates) {
+            AiProvider provider = providers.get(providerType);
+            if (provider == null) {
+                continue;
+            }
+            ProviderCallPermission permission = circuitBreaker.beforeCall(providerType, policy);
+            if (!permission.allowed()) {
+                continue;
+            }
+            Instant startedAt = Instant.now();
+            AtomicBoolean streamStarted = new AtomicBoolean(false);
+            try {
+                metricsService.recordCall(providerType);
+                provider.stream(request.withProvider(providerType), response -> {
+                    if (response != null && response.text() != null && !response.text().isBlank()) {
+                        streamStarted.set(true);
+                    }
+                    consumer.accept(response);
+                });
+                Duration latency = Duration.between(startedAt, Instant.now());
+                circuitBreaker.onSuccess(providerType, permission.halfOpenProbe(), policy);
+                metricsService.recordSuccess(providerType, latency);
+                recordEvent("SUCCESS", providerType, null, null, request,
+                        "provider stream succeeded", latency.toMillis(), 1, null, Map.of("stream", true));
+                return;
+            } catch (RuntimeException exception) {
+                lastException = exception;
+                ProviderFailureType failureType = ProviderFailureClassifier.classify(exception);
+                circuitBreaker.onFailure(providerType, failureType, exception.getMessage(), permission.halfOpenProbe(), policy);
+                metricsService.recordFailure(providerType, failureType, Duration.between(startedAt, Instant.now()));
+                if (streamStarted.get()) {
+                    throw exception;
+                }
+            }
+        }
+        if (lastException != null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "all ai providers failed for stream: " + lastException.getMessage());
+        }
+        throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "no available ai provider for stream");
     }
 
     private AiProviderResponse doGenerate(AiProviderRequest request) {

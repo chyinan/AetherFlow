@@ -9,6 +9,7 @@ import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeWaitingException;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import org.junit.jupiter.api.Test;
 
@@ -93,12 +94,44 @@ class WorkflowUtilityNodeExecutorTest {
     }
 
     @Test
-    void humanNodeRequiresExplicitAutoApproval() {
+    void loopDoesNotStopWhenNamedBooleanFlagIsFalse() throws Exception {
+        LoopNodeExecutor executor = new LoopNodeExecutor(new WorkflowNodeMetrics());
+
+        NodeResult result = executor.execute(context("loop", Map.of(
+                "inputVariable", "state",
+                "outputVariable", "loopState",
+                "stopWhen", "done",
+                "maxIterations", 3
+        ), Map.of("state", Map.of("done", false))));
+
+        assertThat(result.output()).containsEntry("iterations", 3);
+        assertThat(result.output()).containsEntry("stopped", false);
+    }
+
+    @Test
+    void loopStopsWhenNamedBooleanFlagIsTrue() throws Exception {
+        LoopNodeExecutor executor = new LoopNodeExecutor(new WorkflowNodeMetrics());
+
+        NodeResult result = executor.execute(context("loop", Map.of(
+                "inputVariable", "state",
+                "outputVariable", "loopState",
+                "stopWhen", "done",
+                "maxIterations", 3
+        ), Map.of("state", Map.of("done", true))));
+
+        assertThat(result.output()).containsEntry("iterations", 0);
+        assertThat(result.output()).containsEntry("stopped", true);
+    }
+
+    @Test
+    void humanNodePausesForExternalApproval() {
         HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(new WorkflowNodeMetrics(), new WorkflowNodeProperties());
 
         assertThatThrownBy(() -> executor.execute(context("human", Map.of("reviewer", "ops"), Map.of())))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("human intervention requires explicit approval");
+                .isInstanceOf(NodeWaitingException.class)
+                .satisfies(exception -> assertThat(((NodeWaitingException) exception).output())
+                        .containsEntry("reviewer", "ops")
+                        .containsEntry("approved", false));
     }
 
     @Test

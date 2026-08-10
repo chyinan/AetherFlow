@@ -32,9 +32,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -51,6 +55,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private static final int DEFAULT_PAGE = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int DEFAULT_TOP_K = 3;
+    private static final Pattern RETRIEVAL_TOKEN_PATTERN = Pattern.compile("\\p{IsHan}|[\\p{L}\\p{N}]+");
 
     private final KnowledgeDatasetMapper datasetMapper;
     private final KnowledgeDocumentMapper documentMapper;
@@ -218,19 +223,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .orderByDesc(KnowledgeChunkEntity::getScore)
                 .orderByAsc(KnowledgeChunkEntity::getChunkIndex);
         List<KnowledgeChunkEntity> storedChunks = chunkMapper.selectList(wrapper);
+        boolean hasQuery = hasText(query);
+        Set<String> queryTokens = tokenize(query);
         List<KnowledgeChunkSummary> matched = storedChunks.stream()
-                .filter(chunk -> !hasText(query) || matches(chunk, query))
-                .map(chunk -> toRetrievalChunkSummary(chunk, query))
+                .filter(chunk -> !hasQuery || (!queryTokens.isEmpty() && hasQueryTokenOverlap(chunk, queryTokens)))
+                .map(chunk -> toRetrievalChunkSummary(chunk, queryTokens))
                 .sorted(Comparator.comparing(KnowledgeChunkSummary::score, Comparator.nullsLast(Comparator.reverseOrder())))
                 .limit(Math.max(1, topK))
                 .toList();
-        if (matched.isEmpty() && hasText(query)) {
-            matched = storedChunks.stream()
-                    .map(chunk -> toRetrievalChunkSummary(chunk, null))
-                    .sorted(Comparator.comparing(KnowledgeChunkSummary::score, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .limit(Math.max(1, topK))
-                    .toList();
-        }
         return new RetrievalTestResponse(String.valueOf(datasetId), query, matched);
     }
 
@@ -300,11 +300,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         );
     }
 
-    private KnowledgeChunkSummary toRetrievalChunkSummary(KnowledgeChunkEntity entity, String query) {
-        double score = defaultScore(entity.getScore());
-        if (hasText(query) && matches(entity, query)) {
-            score = Math.min(0.98D, score + 0.1D);
-        }
+    private KnowledgeChunkSummary toRetrievalChunkSummary(KnowledgeChunkEntity entity, Set<String> queryTokens) {
+        double score = queryTokens.isEmpty()
+                ? defaultScore(entity.getScore())
+                : retrievalScore(entity, queryTokens);
         return new KnowledgeChunkSummary(
                 stringId(entity.getId()),
                 stringId(entity.getDatasetId()),
@@ -317,13 +316,33 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         );
     }
 
-    private boolean matches(KnowledgeChunkEntity chunk, String query) {
-        String needle = query.toLowerCase(Locale.ROOT);
-        return containsIgnoreCase(chunk.getSource(), needle) || containsIgnoreCase(chunk.getPreview(), needle);
+    private boolean hasQueryTokenOverlap(KnowledgeChunkEntity chunk, Set<String> queryTokens) {
+        Set<String> contentTokens = tokenize(contentText(chunk));
+        return queryTokens.stream().anyMatch(contentTokens::contains);
     }
 
-    private boolean containsIgnoreCase(String value, String lowercaseNeedle) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(lowercaseNeedle);
+    private double retrievalScore(KnowledgeChunkEntity chunk, Set<String> queryTokens) {
+        Set<String> contentTokens = tokenize(contentText(chunk));
+        long overlapCount = queryTokens.stream().filter(contentTokens::contains).count();
+        double overlapRatio = (double) overlapCount / queryTokens.size();
+        double storedScore = Math.max(0.0D, Math.min(1.0D, defaultScore(chunk.getScore())));
+        return Math.min(1.0D, 0.7D * overlapRatio + 0.3D * storedScore);
+    }
+
+    private String contentText(KnowledgeChunkEntity chunk) {
+        return defaultText(chunk.getSource(), "") + " " + defaultText(chunk.getPreview(), "");
+    }
+
+    private Set<String> tokenize(String value) {
+        if (!hasText(value)) {
+            return Set.of();
+        }
+        Set<String> tokens = new HashSet<>();
+        Matcher matcher = RETRIEVAL_TOKEN_PATTERN.matcher(value.toLowerCase(Locale.ROOT));
+        while (matcher.find()) {
+            tokens.add(matcher.group());
+        }
+        return tokens;
     }
 
     private List<String> readTags(String tagsJson) {

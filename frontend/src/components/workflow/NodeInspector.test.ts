@@ -13,3 +13,20 @@ describe('人工干预渠道契约', () => {
     expect(source).not.toMatch(/<button[^>]*>\s*\{\{ t\('workflow\.inspector\.extractionUnset'\) \}\}/)
   })
 })
+
+describe('迭代与循环节点契约', () => {
+  it('不展示后端尚未支持的嵌套执行配置', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+
+    expect(source).not.toContain("t('workflow.inspector.parallelMode')")
+    expect(source).not.toContain("t('workflow.inspector.maxParallelism')")
+    expect(source).not.toContain("t('workflow.inspector.errorResponseMethod')")
+    expect(source).not.toContain("t('workflow.inspector.flattenOutput')")
+  })
+
+  it('向用户说明当前节点的真实执行边界', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+
+    expect(source).toContain("workflow.inspector.iterationSemantics")
+  })
+})

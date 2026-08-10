@@ -1,17 +1,17 @@
 package com.aetherflow.workflow.node.executor;
 
-import com.aetherflow.common.core.ResultCode;
-import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.workflow.runtime.api.NodeWaitingException;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+// pattern: Functional Core
 @Component
 public class HumanInterventionNodeExecutor extends BaseNodeExecutor {
 
@@ -26,11 +26,18 @@ public class HumanInterventionNodeExecutor extends BaseNodeExecutor {
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
         boolean autoApprove = NodeValueSupport.booleanValue(config.get("autoApprove"), properties.isHumanAutoApproveEnabled());
         if (!autoApprove) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    "human intervention requires explicit approval workflow support or autoApprove=true");
+            Map<String, Object> pendingApproval = new LinkedHashMap<>();
+            pendingApproval.put("approved", false);
+            pendingApproval.put("approvalStatus", "pending");
+            pendingApproval.put("workflowId", context.workflowId());
+            pendingApproval.put("nodeId", context.currentNodeId());
+            pendingApproval.put("reviewer", NodeValueSupport.stringValue(config.get("reviewer"), ""));
+            pendingApproval.put("method", NodeValueSupport.stringValue(config.get("methods"), "webapp"));
+            throw new NodeWaitingException(pendingApproval);
         }
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("approved", true);
+        output.put("approvalStatus", "approved");
         output.put("reviewer", NodeValueSupport.stringValue(config.get("reviewer"), "auto"));
         output.put("method", NodeValueSupport.stringValue(config.get("methods"), "auto"));
         return buildResult(output, Map.of("approved", true, "approval", output));

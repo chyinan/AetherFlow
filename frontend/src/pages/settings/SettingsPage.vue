@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import {
   Activity,
   Bot,
@@ -496,7 +497,6 @@ function openModelRuntime() {
 }
 
 function installProvider(providerId: string) {
-  settingsStore.installModelProvider(providerId)
   const provider = settingsStore.modelProviders.find((item) => item.id === providerId)
   if (provider) {
     openProviderConfig(provider)

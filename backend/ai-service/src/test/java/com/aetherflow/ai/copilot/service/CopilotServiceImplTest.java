@@ -83,7 +83,7 @@ class CopilotServiceImplTest {
             return 1;
         }).when(messageMapper).insert(any(CopilotMessageEntity.class));
 
-        CopilotChatResponse response = service.chat(request);
+        CopilotChatResponse response = service.chat(7L, request);
 
         assertThat(response.conversationId()).isEqualTo("conv-11");
         assertThat(response.role()).isEqualTo("assistant");
@@ -99,7 +99,7 @@ class CopilotServiceImplTest {
     void chatReusesExistingConversation() {
         stubAiReply("The latest error is from the Whisper runtime.");
         CopilotConversationEntity conversation = conversation(11L);
-        when(conversationMapper.selectById(11L)).thenReturn(conversation);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
         doAnswer(invocation -> {
             CopilotMessageEntity entity = invocation.getArgument(0);
             entity.setId("assistant".equals(entity.getRole()) ? 22L : 21L);
@@ -109,7 +109,7 @@ class CopilotServiceImplTest {
         request.setConversationId("conv-11");
         request.setPrompt("Explain the latest error");
 
-        CopilotChatResponse response = service.chat(request);
+        CopilotChatResponse response = service.chat(7L, request);
 
         assertThat(response.conversationId()).isEqualTo("conv-11");
         assertThat(response.content()).contains("Whisper runtime");
@@ -134,7 +134,7 @@ class CopilotServiceImplTest {
         request.setProvider("OLLAMA");
         request.setModel("qwen3.5:9b");
 
-        CopilotChatResponse response = service.chat(request);
+        CopilotChatResponse response = service.chat(7L, request);
 
         assertThat(response.content()).contains("qwen3.5");
         ArgumentCaptor<AiProviderRequest> requestCaptor = ArgumentCaptor.forClass(AiProviderRequest.class);
@@ -145,13 +145,60 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void streamPersistsTheCombinedAssistantReplyAndForwardsEachDelta() {
+        doAnswer(invocation -> {
+            java.util.function.Consumer<AiProviderResponse> consumer = invocation.getArgument(1);
+            consumer.accept(new AiProviderResponse(AiProviderType.OLLAMA, "qwen3.5:9b", "第一段", java.util.Map.of()));
+            consumer.accept(new AiProviderResponse(AiProviderType.OLLAMA, "qwen3.5:9b", "第二段", java.util.Map.of()));
+            return null;
+        }).when(aiProviderRouter).stream(any(AiProviderRequest.class), any());
+        doAnswer(invocation -> {
+            CopilotConversationEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
+        AtomicLong messageIds = new AtomicLong(20);
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId(messageIds.incrementAndGet());
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("流式解释最新错误");
+        List<String> chunks = new java.util.ArrayList<>();
+
+        CopilotChatResponse response = service.stream(7L, request, chunks::add);
+
+        assertThat(chunks).containsExactly("第一段", "第二段");
+        assertThat(response.content()).isEqualTo("第一段第二段");
+        verify(messageMapper, org.mockito.Mockito.times(2)).insert(any(CopilotMessageEntity.class));
+    }
+
+    @Test
     void rejectsBlankPrompt() {
         CopilotChatRequest request = new CopilotChatRequest();
         request.setPrompt(" ");
 
-        assertThatThrownBy(() -> service.chat(request))
+        assertThatThrownBy(() -> service.chat(7L, request))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("copilot prompt is required");
+    }
+
+    @Test
+    void rejectsConversationOwnedByAnotherUser() {
+        CopilotConversationEntity conversation = conversation(11L);
+        conversation.setUserId(99L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setPrompt("Read the previous conversation");
+
+        assertThatThrownBy(() -> service.chat(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("copilot conversation not found");
+
+        verify(conversationMapper, never()).selectById(11L);
+        verify(conversationMapper).selectOne(any(Wrapper.class));
     }
 
     @Test
@@ -161,9 +208,10 @@ class CopilotServiceImplTest {
         CopilotMessageEntity user = message(21L, 11L, "user", "Which node should I add next?");
         CopilotMessageEntity assistant = message(22L, 11L, "assistant", "A solid next node is Summary.");
         when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(user, assistant));
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
 
-        List<CopilotConversationSummary> conversations = service.listConversations(20);
-        List<CopilotMessageResponse> messages = service.listMessages(11L);
+        List<CopilotConversationSummary> conversations = service.listConversations(7L, 20);
+        List<CopilotMessageResponse> messages = service.listMessages(7L, 11L);
 
         assertThat(conversations).extracting(CopilotConversationSummary::id).containsExactly("conv-11");
         assertThat(messages).extracting(CopilotMessageResponse::role).containsExactly("user", "assistant");
@@ -175,6 +223,7 @@ class CopilotServiceImplTest {
         conversation.setTitle("Which node should I add next?");
         conversation.setWorkflowId("wf-1001");
         conversation.setProjectId("project-1");
+        conversation.setUserId(7L);
         conversation.setStatus("active");
         conversation.setMessageCount(2);
         conversation.setLastMessageAt(LocalDateTime.parse("2026-05-29T19:36:00"));

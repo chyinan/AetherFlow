@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 
+// pattern: Mixed (needs refactoring)
+
 import { toApiError } from '@/api/client/apiError'
+import { mapRuntimeStateToRunStatus } from '@/api/mappers/runtimeMapper'
+import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import { i18n } from '@/i18n'
 import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun } from '@/services/api/runApi'
 import { getStartedRunLink } from '@/services/api/workflowApi'
@@ -142,10 +146,15 @@ export const useRunStore = defineStore('run', {
         return
       }
       const state = this.currentRun.nodeStates.find((node) => node.nodeId === patch.nodeId)
+      const normalizedPatch = patch.approval || patch.status === 'paused'
+        ? patch
+        : { ...patch, approval: undefined }
       if (state) {
-        Object.assign(state, patch.label === patch.nodeId ? { ...patch, label: state.label } : patch)
+        Object.assign(state, normalizedPatch.label === patch.nodeId
+          ? { ...normalizedPatch, label: state.label }
+          : normalizedPatch)
       } else {
-        this.currentRun.nodeStates.push(patch)
+        this.currentRun.nodeStates.push(normalizedPatch)
       }
       const completed = this.currentRun.nodeStates.filter((node) => ['success', 'failed', 'skipped'].includes(node.status)).length
       this.currentRun.progress = Math.round((completed / Math.max(this.currentRun.nodeStates.length, 1)) * 100)
@@ -178,6 +187,49 @@ export const useRunStore = defineStore('run', {
         refreshArtifactsForRun(this.currentRun.id)
       }
     },
+    applyHumanApprovalSnapshot(options: {
+      nodeId: string
+      approved: boolean
+      snapshot: RuntimeExecutionSnapshot
+    }) {
+      if (!this.currentRun) {
+        return
+      }
+
+      const approvalNode = this.currentRun.nodeStates.find((node) => node.nodeId === options.nodeId)
+      if (approvalNode) {
+        this.patchNodeState({
+          ...approvalNode,
+          status: 'success',
+          approval: {
+            ...(approvalNode.approval ?? { approved: false, approvalStatus: 'pending' }),
+            approved: options.approved,
+            approvalStatus: options.approved ? 'approved' : 'rejected',
+          },
+        })
+      }
+
+      const runtimeState = options.snapshot.runtimeState
+      const currentNodeId = typeof options.snapshot.currentNodeId === 'string'
+        ? options.snapshot.currentNodeId
+        : options.snapshot.currentNodeIds?.[0]
+      const runPatch: Partial<WorkflowRun> = {
+        currentNodeId,
+      }
+
+      if (typeof options.snapshot.workflowId === 'string' && options.snapshot.workflowId.trim()) {
+        runPatch.runtimeWorkflowId = options.snapshot.workflowId
+      }
+      if (runtimeState) {
+        runPatch.backendStatus = runtimeState
+        runPatch.status = mapRuntimeStateToRunStatus(runtimeState)
+        if (['SUCCESS', 'FAILED', 'CANCELLED'].includes(runtimeState)) {
+          runPatch.progress = 100
+        }
+      }
+
+      this.patchCurrentRun(runPatch)
+    },
     createRunFromWorkflow(payload: {
       runId: string
       workflowId: string
@@ -203,7 +255,6 @@ export const useRunStore = defineStore('run', {
         nodeId: node.id,
         label: node.data.label,
         status: index === 0 ? 'running' : 'queued',
-        output: index === 0 ? i18n.global.t('runs.mockOutputs.accepted') : i18n.global.t('runs.mockOutputs.waiting'),
         retryCount: 0,
       }))
       const run: WorkflowRun = {
@@ -220,10 +271,10 @@ export const useRunStore = defineStore('run', {
         trigger: payload.trigger ?? 'manual',
         owner: 'aether.operator',
         traceId: `trace-${payload.runId}`,
-        queueName: 'af.task.ai.media',
-        progress: Math.max(8, Math.round(100 / Math.max(nodeStates.length, 1))),
-        artifactCount: 4,
-        artifactNames: ['audio.wav', 'transcript.txt', 'subtitle.srt', 'summary.md'],
+        queueName: 'workflow-runtime',
+        progress: 0,
+        artifactCount: 0,
+        artifactNames: [],
         nodeStates,
       }
       this.runs = [run, ...this.runs.filter((item) => item.id !== run.id)]
@@ -234,7 +285,7 @@ export const useRunStore = defineStore('run', {
           id: `${run.id}-created`,
           time: formatTime(createdAt),
           level: 'info',
-          message: i18n.global.t('runs.mockLogs.started', { workflow: run.workflowName, queue: run.queueName }),
+          message: i18n.global.t('runs.started', { workflow: run.workflowName }),
         },
       ]
       this.logsByRunId[run.id] = this.logs

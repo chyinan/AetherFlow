@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @TableName("af_copilot_conversation")
 public class CopilotConversationEntity extends BaseEntity {
 
+    private Long userId;
     private String title;
     private String workflowId;
     private String projectId;

@@ -2,6 +2,15 @@ import type { WorkflowNodeStatus } from './workflow'
 
 export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'paused'
 
+export interface HumanApprovalDetails {
+  approved: boolean
+  approvalStatus: 'pending' | 'approved' | 'rejected'
+  reviewer?: string
+  method?: string
+  comment?: string
+  approvedAt?: string
+}
+
 export interface RunNodeState {
   nodeId: string
   label: string
@@ -9,6 +18,7 @@ export interface RunNodeState {
   durationMs?: number
   output?: string
   retryCount?: number
+  approval?: HumanApprovalDetails
 }
 
 export interface RunLogEntry {

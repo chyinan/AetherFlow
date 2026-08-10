@@ -1,7 +1,9 @@
 package com.aetherflow.workflow.runtime.async;
 
 import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.runtime.controller.HumanApprovalRequest;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
@@ -14,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 // pattern: Imperative Shell
@@ -26,15 +30,36 @@ public class WorkflowAsyncCompletionService {
     private final WorkflowRuntimeProperties runtimeProperties;
     private final WorkflowInstanceMapper instanceMapper;
 
+    public WorkflowExecutionSnapshot completeApproval(Long workflowInstanceId,
+                                                       String nodeId,
+                                                       HumanApprovalRequest approval) {
+        if (approval == null || approval.approved() == null) {
+            throw new IllegalArgumentException("approval decision is required");
+        }
+        WorkflowRuntimeSnapshot stored = storedSnapshot(workflowInstanceId);
+        if (!isHumanNode(stored, nodeId)) {
+            throw new IllegalArgumentException("node is not a waiting human approval node: " + nodeId);
+        }
+
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("approved", approval.approved());
+        output.put("approvalStatus", approval.approved() ? "approved" : "rejected");
+        output.put("reviewer", textOr(approval.reviewer(), "unknown"));
+        output.put("method", textOr(approval.method(), "webapp"));
+        if (approval.comment() != null && !approval.comment().isBlank()) {
+            output.put("comment", approval.comment().trim());
+        }
+        output.put("approvedAt", Instant.now().toString());
+        return completeSuccess(workflowInstanceId, nodeId, output);
+    }
+
     public WorkflowExecutionSnapshot completeSuccess(Long workflowInstanceId,
                                                       String nodeId,
                                                       Map<String, Object> output) {
         if (workflowInstanceId == null || workflowInstanceId <= 0) {
             throw new IllegalArgumentException("workflow instance id must be positive");
         }
-        WorkflowRuntimeSnapshot stored = snapshotRepository.findByWorkflowId(String.valueOf(workflowInstanceId))
-                .orElseThrow(() -> new IllegalStateException(
-                        "workflow runtime snapshot not found: " + workflowInstanceId));
+        WorkflowRuntimeSnapshot stored = storedSnapshot(workflowInstanceId);
         if (stored.runtimeState() != RuntimeState.WAITING) {
             if (stored.runtimeState() == RuntimeState.SUCCESS
                     || stored.runtimeState() == RuntimeState.FAILED
@@ -70,9 +95,7 @@ public class WorkflowAsyncCompletionService {
         if (workflowInstanceId == null || workflowInstanceId <= 0) {
             throw new IllegalArgumentException("workflow instance id must be positive");
         }
-        WorkflowRuntimeSnapshot stored = snapshotRepository.findByWorkflowId(String.valueOf(workflowInstanceId))
-                .orElseThrow(() -> new IllegalStateException(
-                        "workflow runtime snapshot not found: " + workflowInstanceId));
+        WorkflowRuntimeSnapshot stored = storedSnapshot(workflowInstanceId);
         if (stored.runtimeState() != RuntimeState.WAITING) {
             if (stored.runtimeState() == RuntimeState.SUCCESS
                     || stored.runtimeState() == RuntimeState.FAILED
@@ -106,5 +129,30 @@ public class WorkflowAsyncCompletionService {
             update.setCompletedAt(LocalDateTime.now());
         }
         instanceMapper.updateById(update);
+    }
+
+    private WorkflowRuntimeSnapshot storedSnapshot(Long workflowInstanceId) {
+        if (workflowInstanceId == null || workflowInstanceId <= 0) {
+            throw new IllegalArgumentException("workflow instance id must be positive");
+        }
+        return snapshotRepository.findByWorkflowId(String.valueOf(workflowInstanceId))
+                .orElseThrow(() -> new IllegalStateException(
+                        "workflow runtime snapshot not found: " + workflowInstanceId));
+    }
+
+    private boolean isHumanNode(WorkflowRuntimeSnapshot snapshot, String nodeId) {
+        if (nodeId == null || snapshot.runtimeState() != RuntimeState.WAITING
+                || !snapshot.currentNodeIds().contains(nodeId)
+                || snapshot.definition().getNodes() == null) {
+            return false;
+        }
+        return snapshot.definition().getNodes().stream()
+                .filter(node -> nodeId.equals(node.getNodeId()))
+                .map(WorkflowNodeDTO::getNodeType)
+                .anyMatch(type -> "HUMAN".equalsIgnoreCase(type));
+    }
+
+    private String textOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

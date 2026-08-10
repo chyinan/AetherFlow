@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { Activity, AlertTriangle, ArrowRight, Boxes, Clock3, ListChecks, RadioTower, RefreshCw } from 'lucide-vue-next'
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
+import HumanApprovalDialog, { type HumanApprovalRequestView } from '@/components/run/HumanApprovalDialog.vue'
 import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -13,6 +15,32 @@ const runStore = useRunStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const dismissedApprovalKey = ref<string | null>(null)
+
+type HumanApprovalCompletion = {
+  approved: boolean
+  snapshot: RuntimeExecutionSnapshot
+}
+
+const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
+  const run = runStore.currentRun
+  const pendingNode = run?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
+  const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
+  if (!run || !pendingNode?.approval || !instanceId || !Number.isInteger(instanceId) || instanceId <= 0) {
+    return null
+  }
+
+  const key = `${run.id}:${pendingNode.nodeId}`
+  if (dismissedApprovalKey.value === key) {
+    return null
+  }
+  return {
+    instanceId,
+    nodeId: pendingNode.nodeId,
+    nodeLabel: pendingNode.label,
+    details: pendingNode.approval,
+  }
+})
 
 const summaryCards = computed(() => [
   { label: t('runs.running'), value: runStore.statusCounts.running, hint: t('runs.runningHint'), icon: RadioTower },
@@ -22,6 +50,7 @@ const summaryCards = computed(() => [
 ])
 
 async function syncRunFromRoute(runId?: string | string[]) {
+  dismissedApprovalKey.value = null
   const id = Array.isArray(runId) ? runId[0] : runId
   if (id) {
     await runStore.selectRun(id)
@@ -55,12 +84,49 @@ function selectRun(runId: string) {
 }
 
 function refreshRuns() {
+  dismissedApprovalKey.value = null
   void runStore.refreshRuns()
 }
+
+function dismissApproval() {
+  const run = runStore.currentRun
+  const pendingNode = run?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
+  if (run && pendingNode) {
+    dismissedApprovalKey.value = `${run.id}:${pendingNode.nodeId}`
+  }
+}
+
+async function completeApproval({ approved, snapshot }: HumanApprovalCompletion) {
+  const pendingNode = runStore.currentRun?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
+  if (!pendingNode) {
+    return
+  }
+
+  runStore.applyHumanApprovalSnapshot({
+    nodeId: pendingNode.nodeId,
+    approved,
+    snapshot,
+  })
+  dismissedApprovalKey.value = null
+  await runStore.recoverCurrentRunRuntime()
+}
+
+watch(
+  () => runStore.currentRun?.id,
+  () => {
+    dismissedApprovalKey.value = null
+  },
+)
 </script>
 
 <template>
   <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
+    <HumanApprovalDialog
+      v-if="approvalDialogRequest"
+      :request="approvalDialogRequest"
+      @close="dismissApproval"
+      @completed="completeApproval"
+    />
     <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
       <div class="flex items-center gap-2">
         <Activity class="h-4 w-4 text-primary" />

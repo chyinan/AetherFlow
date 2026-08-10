@@ -1,6 +1,7 @@
 package com.aetherflow.ai.provider;
 
 import java.util.stream.Stream;
+import java.util.function.Consumer;
 
 public interface AiProvider {
 
@@ -14,6 +15,10 @@ public interface AiProvider {
 
     default Stream<AiProviderResponse> stream(AiProviderRequest request) {
         return Stream.of(generate(request));
+    }
+
+    default void stream(AiProviderRequest request, Consumer<AiProviderResponse> consumer) {
+        stream(request).forEach(consumer);
     }
 
     default AiEmbeddingResponse embedding(AiEmbeddingRequest request) {

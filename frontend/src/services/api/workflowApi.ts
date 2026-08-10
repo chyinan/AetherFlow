@@ -407,6 +407,7 @@ function mapDefinitionSummary(entity: WorkflowDefinitionEntity): WorkflowSummary
     updatedAt: formatDateTime(entity.updatedAt),
     status: normalizeBackendStatus(entity.status),
     backendDefinitionId: entity.id,
+    projectId: entity.projectId,
     backendStatus: entity.status,
   }
 }
@@ -421,6 +422,7 @@ function mapDefinition(entity: WorkflowDefinitionEntity): WorkflowDefinition {
     nodes: graph.nodes,
     edges: graph.edges,
     backendDefinitionId: entity.id,
+    projectId: entity.projectId,
     backendStatus: entity.status,
     savedAt: entity.updatedAt,
   }

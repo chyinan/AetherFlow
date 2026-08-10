@@ -75,6 +75,7 @@ export interface WorkflowSummary {
   backendDefinitionId?: number
   backendStatus?: string
   savedAt?: string
+  projectId?: number
 }
 
 export interface CanvasPosition {
@@ -105,6 +106,7 @@ export interface WorkflowDefinition {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
   backendDefinitionId?: number
+  projectId?: number
   backendStatus?: string
   savedAt?: string
 }

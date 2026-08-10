@@ -1,6 +1,7 @@
 # pattern: Mixed (needs refactoring)
 # Reason: the existing FastAPI entrypoint still combines HTTP orchestration with runtime adapters.
 import ipaddress
+import json
 import logging
 import os
 import shutil
@@ -15,7 +16,7 @@ from typing import Any, Optional
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -406,6 +407,28 @@ def llm_chat(request: LlmRequest) -> LlmResponse:
     raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
 
 
+@app.post("/v1/llm/chat/stream")
+def llm_chat_stream(request: LlmRequest) -> StreamingResponse:
+    provider = request.provider.lower().strip()
+    logger.info("LLM stream request provider=%s model=%s", provider, request.model)
+    if not _enabled("ENABLE_LLM"):
+        raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
+    if provider not in {"openai", "ollama"}:
+        raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
+
+    def events():
+        chunks = _stream_openai(request) if provider == "openai" else _stream_ollama(request)
+        for chunk in chunks:
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/v1/subtitles", response_model=SubtitleResponse)
 def subtitles(request: SubtitleRequest) -> SubtitleResponse:
     fmt = request.format.lower().strip()
@@ -450,6 +473,42 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
     metadata = {"done": response.get("done", False)}
     metadata.update(_ollama_usage_metadata(response))
     return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata=metadata)
+
+
+def _stream_openai(request: LlmRequest):
+    _ensure_runtime_env_loaded()
+    route_provider = _openai_route_provider_id()
+    route_prefix = PROVIDER_PRESETS[route_provider]["envPrefix"] if route_provider else "OPENAI"
+    api_key = os.getenv(f"{route_prefix}_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI-compatible provider API key is not configured")
+    from openai import OpenAI
+
+    base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
+    completion = client.chat.completions.create(
+        model=request.model,
+        messages=[{"role": "user", "content": request.prompt}],
+        temperature=float(request.options.get("temperature", 0.2)),
+        stream=True,
+    )
+    for chunk in completion:
+        choices = getattr(chunk, "choices", None) or []
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        text = getattr(delta, "content", None) if delta is not None else None
+        if text:
+            yield {"provider": "openai", "model": request.model, "text": text, "metadata": {}}
+
+
+def _stream_ollama(request: LlmRequest):
+    _ensure_runtime_env_loaded()
+    client = _ollama_client()
+    for chunk in client.generate(model=request.model, prompt=request.prompt, options=request.options, stream=True):
+        text = chunk.get("response", "") if isinstance(chunk, dict) else ""
+        if text:
+            yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
 
 
 def _openai_usage_metadata(completion: Any) -> dict[str, int]:

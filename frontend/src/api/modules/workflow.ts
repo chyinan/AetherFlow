@@ -10,6 +10,7 @@ export interface WorkflowDefinitionNodeDTO {
 export interface WorkflowDefinitionDTO {
   name: string
   description?: string
+  projectId?: number
   nodes: WorkflowDefinitionNodeDTO[]
 }
 
@@ -17,6 +18,7 @@ export interface WorkflowDefinitionEntity {
   id: number
   name: string
   description?: string
+  projectId?: number
   definitionJson?: string
   version?: number
   status?: string

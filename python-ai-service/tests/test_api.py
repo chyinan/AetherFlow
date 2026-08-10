@@ -120,6 +120,21 @@ class PythonAiServiceApiTest(unittest.TestCase):
         body = response.json()
         self.assertIn("LLM service disabled", body["detail"])
 
+    def test_llm_chat_stream_returns_503_when_runtime_is_disabled(self):
+        with patch.dict("os.environ", {"ENABLE_LLM": "false"}):
+            response = self.client.post(
+                "/v1/llm/chat/stream",
+                json={
+                    "provider": "ollama",
+                    "model": "llama3",
+                    "prompt": "Summarize AetherFlow",
+                    "options": {"temperature": 0.1},
+                },
+            )
+
+        self.assertEqual(503, response.status_code)
+        self.assertIn("LLM service disabled", response.json()["detail"])
+
     def test_subtitle_endpoint_returns_srt_text(self):
         response = self.client.post(
             "/v1/subtitles",

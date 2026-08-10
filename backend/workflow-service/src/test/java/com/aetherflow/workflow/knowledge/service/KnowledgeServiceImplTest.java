@@ -151,6 +151,42 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void doesNotReturnUnrelatedChunksWhenQueryHasNoMatch() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                chunk("workflow-runbook.md", "Workflow apps can combine LLM nodes.", 0.82D),
+                chunk("billing.md", "Billing and quota handling guide.", 0.76D)
+        ));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("unrelated security policy");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).isEmpty();
+    }
+
+    @Test
+    void ranksChunksByQueryTokenOverlapBeforeStoredScore() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                chunk("approval.md", "Workflow approval requires a reviewer.", 0.20D),
+                chunk("workflow-runbook.md", "Workflow apps can combine LLM nodes.", 0.95D)
+        ));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("workflow approval");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source())
+                .containsExactly("approval.md", "workflow-runbook.md");
+        assertThat(response.results().get(0).score())
+                .isGreaterThan(response.results().get(1).score())
+                .isLessThanOrEqualTo(1.0D);
+    }
+
+    @Test
     void deletesOwnedDatasetWithDocumentsAndChunks() {
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
 

@@ -19,11 +19,13 @@ class CopilotSchemaTest {
         assertThat(moduleSql)
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_conversation")
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_message")
+                .contains("user_id BIGINT NOT NULL")
                 .contains("KEY idx_af_copilot_conversation_updated")
                 .contains("KEY idx_af_copilot_message_conversation");
         assertThat(dockerInitSql)
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_conversation")
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_message")
+                .contains("user_id BIGINT NOT NULL")
                 .contains("conversation_id BIGINT NOT NULL");
     }
 

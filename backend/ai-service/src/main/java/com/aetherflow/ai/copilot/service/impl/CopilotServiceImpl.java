@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 @Service
 public class CopilotServiceImpl implements CopilotService {
@@ -67,11 +68,12 @@ public class CopilotServiceImpl implements CopilotService {
      * already committed) and the exception bubbles up to the caller.
      */
     @Override
-    public CopilotChatResponse chat(CopilotChatRequest request) {
+    public CopilotChatResponse chat(Long userId, CopilotChatRequest request) {
+        requireUserId(userId);
         if (request == null || !hasText(request.getPrompt())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
         }
-        PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(request));
+        PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
         String assistantContent = assistantReply(request);
         CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
                 persistAssistantReply(prepared, assistantContent));
@@ -85,8 +87,40 @@ public class CopilotServiceImpl implements CopilotService {
         );
     }
 
-    private PreparedTurn prepareTurn(CopilotChatRequest request) {
-        CopilotConversationEntity conversation = resolveConversation(request);
+    @Override
+    public CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta) {
+        requireUserId(userId);
+        if (request == null || !hasText(request.getPrompt())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
+        }
+        if (onDelta == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot stream consumer is required");
+        }
+        PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
+        StringBuilder assistantContent = new StringBuilder();
+        aiProviderRouter.stream(providerRequest(request), response -> {
+            if (response != null && hasText(response.text())) {
+                String delta = response.text();
+                assistantContent.append(delta);
+                onDelta.accept(delta);
+            }
+        });
+        if (assistantContent.isEmpty()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
+        }
+        CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
+                persistAssistantReply(prepared, assistantContent.toString()));
+        return new CopilotChatResponse(
+                messageId(assistantMessage.getId()),
+                conversationId(prepared.conversation().getId()),
+                ROLE_ASSISTANT,
+                assistantMessage.getContent(),
+                formatMessageTime(assistantMessage.getCreatedAt())
+        );
+    }
+
+    private PreparedTurn prepareTurn(Long userId, CopilotChatRequest request) {
+        CopilotConversationEntity conversation = resolveConversation(userId, request);
         LocalDateTime now = LocalDateTime.now();
         insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
         return new PreparedTurn(conversation, now);
@@ -107,9 +141,11 @@ public class CopilotServiceImpl implements CopilotService {
     }
 
     @Override
-    public List<CopilotConversationSummary> listConversations(int limit) {
+    public List<CopilotConversationSummary> listConversations(Long userId, int limit) {
+        requireUserId(userId);
         int safeLimit = limit <= 0 ? 20 : Math.min(limit, 100);
         LambdaQueryWrapper<CopilotConversationEntity> wrapper = new LambdaQueryWrapper<CopilotConversationEntity>()
+                .eq(CopilotConversationEntity::getUserId, userId)
                 .eq(CopilotConversationEntity::getStatus, STATUS_ACTIVE)
                 .orderByDesc(CopilotConversationEntity::getLastMessageAt)
                 .orderByDesc(CopilotConversationEntity::getId)
@@ -120,7 +156,9 @@ public class CopilotServiceImpl implements CopilotService {
     }
 
     @Override
-    public List<CopilotMessageResponse> listMessages(Long conversationId) {
+    public List<CopilotMessageResponse> listMessages(Long userId, Long conversationId) {
+        requireUserId(userId);
+        requireOwnedConversation(userId, conversationId);
         LambdaQueryWrapper<CopilotMessageEntity> wrapper = new LambdaQueryWrapper<CopilotMessageEntity>()
                 .eq(CopilotMessageEntity::getConversationId, conversationId)
                 .orderByAsc(CopilotMessageEntity::getId);
@@ -129,21 +167,26 @@ public class CopilotServiceImpl implements CopilotService {
                 .toList();
     }
 
-    private CopilotConversationEntity resolveConversation(CopilotChatRequest request) {
+    private CopilotConversationEntity resolveConversation(Long userId, CopilotChatRequest request) {
         Long conversationId = parseConversationId(request.getConversationId());
         if (conversationId != null) {
-            CopilotConversationEntity existing = conversationMapper.selectById(conversationId);
+            LambdaQueryWrapper<CopilotConversationEntity> wrapper = new LambdaQueryWrapper<CopilotConversationEntity>()
+                    .eq(CopilotConversationEntity::getId, conversationId)
+                    .eq(CopilotConversationEntity::getUserId, userId)
+                    .eq(CopilotConversationEntity::getStatus, STATUS_ACTIVE);
+            CopilotConversationEntity existing = conversationMapper.selectOne(wrapper);
             if (existing == null) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "copilot conversation not found");
             }
             return existing;
         }
-        return createConversation(request);
+        return createConversation(userId, request);
     }
 
-    private CopilotConversationEntity createConversation(CopilotChatRequest request) {
+    private CopilotConversationEntity createConversation(Long userId, CopilotChatRequest request) {
         LocalDateTime now = LocalDateTime.now();
         CopilotConversationEntity conversation = new CopilotConversationEntity();
+        conversation.setUserId(userId);
         conversation.setTitle(titleFromPrompt(request.getPrompt()));
         conversation.setWorkflowId(request.getWorkflowId());
         conversation.setProjectId(request.getProjectId());
@@ -154,6 +197,25 @@ public class CopilotServiceImpl implements CopilotService {
         conversation.setUpdatedAt(now);
         conversationMapper.insert(conversation);
         return conversation;
+    }
+
+    private void requireOwnedConversation(Long userId, Long conversationId) {
+        if (conversationId == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot conversation id is required");
+        }
+        LambdaQueryWrapper<CopilotConversationEntity> wrapper = new LambdaQueryWrapper<CopilotConversationEntity>()
+                .eq(CopilotConversationEntity::getId, conversationId)
+                .eq(CopilotConversationEntity::getUserId, userId)
+                .eq(CopilotConversationEntity::getStatus, STATUS_ACTIVE);
+        if (conversationMapper.selectOne(wrapper) == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "copilot conversation not found");
+        }
+    }
+
+    private void requireUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
+        }
     }
 
     private CopilotMessageEntity insertMessage(Long conversationId, String role, String content, LocalDateTime now) {
@@ -168,7 +230,15 @@ public class CopilotServiceImpl implements CopilotService {
     }
 
     private String assistantReply(CopilotChatRequest request) {
-        AiProviderResponse response = aiProviderRouter.complete(new AiProviderRequest(
+        AiProviderResponse response = aiProviderRouter.complete(providerRequest(request));
+        if (response == null || !hasText(response.text())) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
+        }
+        return response.text().strip();
+    }
+
+    private AiProviderRequest providerRequest(CopilotChatRequest request) {
+        return new AiProviderRequest(
                 parseProvider(request.getProvider()),
                 normalizeOptionalText(request.getModel()),
                 copilotPrompt(request),
@@ -177,11 +247,7 @@ public class CopilotServiceImpl implements CopilotService {
                         "maxTokens", 900
                 ),
                 COPILOT_TIMEOUT
-        ));
-        if (response == null || !hasText(response.text())) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
-        }
-        return response.text().strip();
+        );
     }
 
     private String copilotPrompt(CopilotChatRequest request) {

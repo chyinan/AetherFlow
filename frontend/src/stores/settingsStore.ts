@@ -102,12 +102,6 @@ export const useSettingsStore = defineStore('settings', {
         ...this.auditEvents,
       ].slice(0, 12)
     },
-    installModelProvider(providerId: string) {
-      const provider = this.modelProviders.find((item) => item.id === providerId)
-      if (!provider) return
-      provider.status = 'installed'
-      this.recordAudit('installed model provider', provider.name)
-    },
     async createWorkspaceMember(payload: {
       name: string
       email: string

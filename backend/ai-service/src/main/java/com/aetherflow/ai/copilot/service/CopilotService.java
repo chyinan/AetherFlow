@@ -6,12 +6,15 @@ import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotMessageResponse;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 public interface CopilotService {
 
-    CopilotChatResponse chat(CopilotChatRequest request);
+    CopilotChatResponse chat(Long userId, CopilotChatRequest request);
 
-    List<CopilotConversationSummary> listConversations(int limit);
+    CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta);
 
-    List<CopilotMessageResponse> listMessages(Long conversationId);
+    List<CopilotConversationSummary> listConversations(Long userId, int limit);
+
+    List<CopilotMessageResponse> listMessages(Long userId, Long conversationId);
 }

@@ -1,5 +1,5 @@
 import type { RuntimeEvent, RuntimeObservation, RuntimeState } from '@/api/modules/runtime'
-import type { RunLogEntry, RunNodeState, RunStatus, WorkflowRun } from '@/types/run'
+import type { HumanApprovalDetails, RunLogEntry, RunNodeState, RunStatus, WorkflowRun } from '@/types/run'
 import type { WorkflowNodeStatus } from '@/types/workflow'
 import { formatTime as formatLocaleTime } from '@/utils/localeFormat'
 
@@ -129,6 +129,34 @@ function eventLevel(event: RuntimeEvent): RunLogEntry['level'] {
   return 'info'
 }
 
+function approvalDetails(event: RuntimeEvent): HumanApprovalDetails | undefined {
+  if (event.eventType !== 'NODE_WAITING' || !event.attributes) {
+    return undefined
+  }
+
+  const attributes = event.attributes
+  const approvalStatus = attributes.approvalStatus === 'approved' || attributes.approvalStatus === 'rejected'
+    ? attributes.approvalStatus
+    : 'pending'
+  const details: HumanApprovalDetails = {
+    approved: typeof attributes.approved === 'boolean' ? attributes.approved : false,
+    approvalStatus,
+  }
+  if (typeof attributes.reviewer === 'string' && attributes.reviewer.trim()) {
+    details.reviewer = attributes.reviewer.trim()
+  }
+  if (typeof attributes.method === 'string' && attributes.method.trim()) {
+    details.method = attributes.method.trim()
+  }
+  if (typeof attributes.comment === 'string' && attributes.comment.trim()) {
+    details.comment = attributes.comment.trim()
+  }
+  if (typeof attributes.approvedAt === 'string' && attributes.approvedAt.trim()) {
+    details.approvedAt = attributes.approvedAt.trim()
+  }
+  return details
+}
+
 function eventMessage(event: RuntimeEvent) {
   const target = event.nodeId ? `node ${event.nodeId}` : `workflow ${event.workflowId}`
 
@@ -185,11 +213,13 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     return null
   }
 
+  const approval = approvalDetails(event)
   return {
     nodeId: event.nodeId,
     label: event.nodeId,
     status: mapRuntimeEventToNodeStatus(event),
     output: event.eventType,
+    ...(approval ? { approval } : {}),
   }
 }
 

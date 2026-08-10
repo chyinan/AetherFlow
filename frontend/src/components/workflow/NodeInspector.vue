@@ -991,35 +991,27 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'iteration' || selectedKind === 'loop'" class="space-y-5 p-5">
+          <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.iterationSemanticsTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">
+              {{ t(selectedKind === 'iteration' ? 'workflow.inspector.iterationSemanticsIteration' : 'workflow.inspector.iterationSemanticsLoop') }}
+            </p>
+          </div>
           <label class="block">
-            <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.input') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">Array</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('input', '')" @input="handleTextInput('input', $event)" />
-          </label>
-          <label class="block">
-            <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.output') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">Array</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('output', '')" @input="handleTextInput('output', $event)" />
-          </label>
-          <label class="flex items-center justify-between text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.parallelMode') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('parallel', true)" @change="handleToggle('parallel', $event)" />
+            <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.input') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">{{ selectedKind === 'iteration' ? 'Array' : 'Object' }}</span></span>
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('inputVariable', textConfig('input', selectedKind === 'iteration' ? 'items' : 'state'))" @input="handleTextInput('inputVariable', $event)" />
           </label>
           <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-secondary">{{ t('workflow.inspector.maxParallelism') }}</span>
-            <div class="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-4">
-              <input type="number" min="1" max="20" class="rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="numberConfig('maxParallelism', 10)" @input="handleNumberInput('maxParallelism', $event)" />
-              <input type="range" min="1" max="20" class="accent-primary" :value="numberConfig('maxParallelism', 10)" @input="handleNumberInput('maxParallelism', $event)" />
-            </div>
+            <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.output') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">{{ selectedKind === 'iteration' ? 'Array' : 'Object' }}</span></span>
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('outputVariable', textConfig('output', selectedKind === 'iteration' ? 'iterationItems' : 'loopState'))" @input="handleTextInput('outputVariable', $event)" />
           </label>
           <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.errorResponseMethod') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="textConfig('errorMode', 'stop')" @change="handleTextInput('errorMode', $event)">
-              <option value="stop">{{ t('workflow.inspector.stopOnError') }}</option>
-              <option value="continue">{{ t('status.running') }}</option>
-            </select>
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.maxIterations') }}</span>
+            <input type="number" min="0" class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="numberConfig('maxIterations', selectedKind === 'iteration' ? 12 : 10)" @input="handleNumberInput('maxIterations', $event)" />
           </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.flattenOutput') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('flattenOutput', true)" @change="handleToggle('flattenOutput', $event)" />
+          <label v-if="selectedKind === 'loop'" class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
           </label>
         </section>
 

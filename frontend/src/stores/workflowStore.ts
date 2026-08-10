@@ -8,7 +8,7 @@ import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotA
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
-import { duplicateWorkflowNode } from '@/utils/workflowNodeClone'
+import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 
 function cloneNodes() {
@@ -92,11 +92,7 @@ function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition
     id: `node-${template.kind}-${nodeCounter++}`,
     type: 'workflow',
     position,
-    data: {
-      ...template,
-      status: 'idle',
-      runtime: { lastResult: i18n.global.t('workflow.mockResults.newNode') },
-    },
+    data: createWorkflowNodeDataFromTemplate(template, i18n.global.t('workflow.mockResults.newNode')),
   }
 }
 
@@ -170,6 +166,7 @@ export const useWorkflowStore = defineStore('workflow', {
     workflowId: 'new',
     workflowName: 'Untitled Workflow',
     backendDefinitionId: null as number | null,
+    projectId: null as number | null,
     templates: nodeTemplates,
     nodes: cloneNodes(),
     edges: cloneEdges(),
@@ -330,6 +327,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.workflowId = 'new'
       this.workflowName = 'Untitled Workflow'
       this.backendDefinitionId = null
+      this.projectId = null
       this.nodes = cloneNodes()
       this.edges = cloneEdges()
       this.editRevision += 1
@@ -370,6 +368,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.workflowId = workflow.id
         this.workflowName = nextWorkflowName
         this.backendDefinitionId = nextBackendDefinitionId
+        this.projectId = workflow.projectId ?? null
         this.nodes = nextNodes
         this.edges = nextEdges
         this.editRevision += 1
@@ -392,7 +391,7 @@ export const useWorkflowStore = defineStore('workflow', {
         }
       }
     },
-    async saveCurrentWorkflow(options: { allowMockFallback?: boolean } = {}) {
+    async saveCurrentWorkflow(options: { allowMockFallback?: boolean; projectId?: number } = {}) {
       const editRevisionAtStart = this.editRevision
       const loadRequestAtStart = workflowLoadRequestCounter
       this.saving = true
@@ -401,6 +400,7 @@ export const useWorkflowStore = defineStore('workflow', {
         const savedWorkflow = await workflowApi.saveWorkflow({
           id: this.workflowId,
           name: this.workflowName,
+          projectId: options.projectId ?? this.projectId ?? undefined,
           backendDefinitionId: this.backendDefinitionId ?? undefined,
           nodes: this.nodes,
           edges: this.edges,
@@ -411,6 +411,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.workflowId = savedWorkflow.id
         this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
+        this.projectId = savedWorkflow.projectId ?? this.projectId ?? null
         if (this.editRevision === editRevisionAtStart) {
           this.markSaved()
         }

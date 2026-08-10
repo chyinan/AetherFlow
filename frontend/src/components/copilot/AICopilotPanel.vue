@@ -99,6 +99,24 @@ async function loadModels() {
   }
 }
 
+async function loadConversationHistory() {
+  try {
+    const conversations = await copilotApi.listConversations()
+    const workflowId = props.context?.workflowId
+    const conversation = conversations.find((item) => item.workflowId === workflowId) || conversations[0]
+    if (!conversation) {
+      return
+    }
+    const history = await copilotApi.listMessages(conversation.id)
+    conversationId.value = conversation.id
+    if (history.length > 0) {
+      messages.value = history
+    }
+  } catch {
+    // The welcome message remains available when history storage is unavailable.
+  }
+}
+
 interface SendPromptOptions {
   intent?: WorkflowCopilotIntent
   requestText?: string
@@ -122,29 +140,53 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   })
   prompt.value = ''
   loading.value = true
+  const assistantMessageIndex = messages.value.length
+  messages.value.push({
+    id: `copilot-stream-${Date.now()}`,
+    role: 'assistant',
+    content: '',
+    createdAt: nowText(),
+    action: options.action,
+  })
   try {
     const model = selectedModel.value
-    const assistantMessage = await copilotApi.ask(requestText, {
+    const assistantMessage = await copilotApi.stream(requestText, {
       conversationId: conversationId.value,
+      workflowId: props.context?.workflowId,
       provider: providerTypeOf(model?.providerId),
       model: model?.name,
       context: intent && props.context
         ? buildWorkflowCopilotContext(intent, props.context)
         : undefined,
+      onDelta: (delta) => {
+        const current = messages.value[assistantMessageIndex]
+        if (current) {
+          messages.value[assistantMessageIndex] = {
+            ...current,
+            content: current.content + delta,
+          }
+        }
+      },
     })
     conversationId.value = assistantMessage.conversationId
-    messages.value.push({
-      ...assistantMessage,
-      action: options.action,
-    })
+    const current = messages.value[assistantMessageIndex]
+    if (current) {
+      messages.value[assistantMessageIndex] = {
+        ...current,
+        ...assistantMessage,
+        action: options.action,
+      }
+    }
   } catch (error) {
     const apiError = toApiError(error, 'ai')
-    messages.value.push({
-      id: `copilot-error-${Date.now()}`,
-      role: 'assistant',
-      content: t('copilot.sendFailed', { message: apiError.message }),
-      createdAt: nowText(),
-    })
+    const current = messages.value[assistantMessageIndex]
+    if (current) {
+      const failureMessage = t('copilot.sendFailed', { message: apiError.message })
+      messages.value[assistantMessageIndex] = {
+        ...current,
+        content: current.content ? `${current.content}\n\n${failureMessage}` : failureMessage,
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -190,6 +232,7 @@ function actionButtonLabel(message: CopilotMessage) {
 
 onMounted(() => {
   void loadModels()
+  void loadConversationHistory()
 })
 </script>
 

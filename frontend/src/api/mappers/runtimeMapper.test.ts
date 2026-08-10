@@ -25,4 +25,28 @@ describe('runtimeMapper waiting state', () => {
     expect(mapRuntimeEventToNodePatch(event)?.status).toBe('paused')
     expect(mapRuntimeEventToLogEntry(event).message).toContain('waiting for an external result')
   })
+
+  it('preserves human approval details from a waiting event', () => {
+    const event: RuntimeEvent = {
+      eventId: 'event-human-1',
+      eventType: 'NODE_WAITING',
+      workflowId: '101',
+      traceId: 'trace-101',
+      nodeId: 'node-human',
+      runtimeState: 'WAITING',
+      attributes: {
+        approved: false,
+        approvalStatus: 'pending',
+        reviewer: 'ops',
+        method: 'webapp',
+      },
+    }
+
+    expect(mapRuntimeEventToNodePatch(event)?.approval).toEqual({
+      approved: false,
+      approvalStatus: 'pending',
+      reviewer: 'ops',
+      method: 'webapp',
+    })
+  })
 })

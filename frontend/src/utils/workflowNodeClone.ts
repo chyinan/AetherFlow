@@ -1,4 +1,5 @@
-import type { CanvasPosition, WorkflowGraphNode, WorkflowNodeData } from '@/types/workflow'
+// pattern: Functional Core
+import type { CanvasPosition, NodeTemplate, WorkflowGraphNode, WorkflowNodeData } from '@/types/workflow'
 
 interface DuplicateWorkflowNodeOptions {
   id: string
@@ -16,22 +17,26 @@ export function duplicateWorkflowNode(source: WorkflowGraphNode, options: Duplic
   }
 }
 
-function duplicateWorkflowNodeData(source: WorkflowNodeData, lastResult: string): WorkflowNodeData {
+export function createWorkflowNodeDataFromTemplate(template: NodeTemplate, lastResult: string): WorkflowNodeData {
   return {
-    label: source.label,
-    description: source.description,
-    kind: source.kind,
-    config: duplicatePrimitiveRecord(source.config),
-    inputs: [...source.inputs],
-    outputs: [...source.outputs],
+    ...template,
+    config: structuredClone(template.config),
+    inputs: [...template.inputs],
+    outputs: [...template.outputs],
     status: 'idle',
     runtime: { lastResult },
   }
 }
 
-function duplicatePrimitiveRecord(source: WorkflowNodeData['config']): WorkflowNodeData['config'] {
-  return Object.fromEntries(
-    Object.entries(source).filter((entry): entry is [string, string | number | boolean] =>
-      ['string', 'number', 'boolean'].includes(typeof entry[1])),
-  )
+function duplicateWorkflowNodeData(source: WorkflowNodeData, lastResult: string): WorkflowNodeData {
+  return {
+    label: source.label,
+    description: source.description,
+    kind: source.kind,
+    config: structuredClone(source.config),
+    inputs: [...source.inputs],
+    outputs: [...source.outputs],
+    status: 'idle',
+    runtime: { lastResult },
+  }
 }

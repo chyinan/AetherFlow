@@ -1,11 +1,13 @@
 package com.aetherflow.workflow.runtime.async;
 
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.runtime.controller.HumanApprovalRequest;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
@@ -82,6 +84,37 @@ class WorkflowAsyncCompletionServiceTest {
     }
 
     @Test
+    void recordsRejectedHumanApprovalAsNormalNodeOutput() {
+        RuntimeSnapshotRepository repository = mock(RuntimeSnapshotRepository.class);
+        WorkflowRuntimeEngine engine = mock(WorkflowRuntimeEngine.class);
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowAsyncCompletionService service = new WorkflowAsyncCompletionService(
+                repository, engine, new WorkflowRuntimeProperties(), instanceMapper);
+        WorkflowRuntimeSnapshot waiting = humanWaitingSnapshot();
+        WorkflowExecutionSnapshot completed = new WorkflowExecutionSnapshot(
+                "101", "trace-101", "101", RuntimeState.SUCCESS, "node-end",
+                Map.of("approved", false, "comment", "needs revision"), Map.of(),
+                List.of("node-human", "node-end"));
+        when(repository.findByWorkflowId("101")).thenReturn(Optional.of(waiting));
+        when(engine.completeWaitingNode(any(WorkflowRuntimeRequest.class),
+                eq(waiting.toExecutionSnapshot()), eq("node-human"),
+                org.mockito.ArgumentMatchers.argThat(result -> result.successful()
+                        && !result.waiting()
+                        && Boolean.FALSE.equals(result.output().get("approved"))
+                        && "rejected".equals(result.output().get("approvalStatus")))))
+                .thenReturn(completed);
+
+        WorkflowExecutionSnapshot result = service.completeApproval(
+                101L, "node-human",
+                new HumanApprovalRequest(false, "needs revision", "ops", "webapp"));
+
+        assertThat(result.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        verify(engine).completeWaitingNode(any(WorkflowRuntimeRequest.class),
+                eq(waiting.toExecutionSnapshot()), eq("node-human"), any(NodeResult.class));
+        verify(repository).save(any(WorkflowRuntimeSnapshot.class));
+    }
+
+    @Test
     void doesNotSilentlyDropAiResultWhileRuntimeIsStillStarting() {
         RuntimeSnapshotRepository repository = mock(RuntimeSnapshotRepository.class);
         WorkflowRuntimeEngine engine = mock(WorkflowRuntimeEngine.class);
@@ -105,5 +138,19 @@ class WorkflowAsyncCompletionServiceTest {
                 "101", "trace-101", "101", 10L, new WorkflowDefinitionDTO(), RuntimeState.WAITING,
                 List.of("node-ai"), List.of(), List.of(), Map.of(),
                 Map.of("node-ai", NodeResult.waiting(Map.of("externalTaskId", 91L))), Instant.now());
+    }
+
+    private WorkflowRuntimeSnapshot humanWaitingSnapshot() {
+        WorkflowNodeDTO human = new WorkflowNodeDTO();
+        human.setNodeId("node-human");
+        human.setNodeType("HUMAN");
+        human.setConfig(Map.of("autoApprove", false));
+        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
+        definition.setName("approval-test");
+        definition.setNodes(List.of(human));
+        return new WorkflowRuntimeSnapshot(
+                "101", "trace-101", "101", 10L, definition, RuntimeState.WAITING,
+                List.of("node-human"), List.of(), List.of(), Map.of(),
+                Map.of("node-human", NodeResult.waiting(Map.of("approvalStatus", "pending"))), Instant.now());
     }
 }

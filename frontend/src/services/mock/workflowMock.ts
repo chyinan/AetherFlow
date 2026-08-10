@@ -252,7 +252,7 @@ export const nodeTemplates: NodeTemplate[] = [
   {
     kind: 'iteration',
     label: 'Iteration',
-    description: 'Iterate over list items.',
+    description: 'Publish a bounded list slice for downstream processing without nested execution.',
     category: 'Logic',
     catalog: 'node',
     group: 'logic',
@@ -263,7 +263,7 @@ export const nodeTemplates: NodeTemplate[] = [
   {
     kind: 'loop',
     label: 'Loop',
-    description: 'Repeat until a stop condition is met.',
+    description: 'Publish bounded loop-state metadata without cyclic scheduling.',
     category: 'Logic',
     catalog: 'node',
     group: 'logic',

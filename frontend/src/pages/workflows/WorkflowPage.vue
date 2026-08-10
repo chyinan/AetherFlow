@@ -61,6 +61,11 @@ function routeQueryString(value: unknown) {
   return Array.isArray(value) ? value[0] : typeof value === 'string' ? value : undefined
 }
 
+function numericProjectId(value: unknown) {
+  const parsed = Number(routeQueryString(value) ?? value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
 async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unknown> = Promise.resolve()) {
   const projectId = routeQueryString(route.query.projectId)
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
@@ -174,7 +179,7 @@ async function saveWorkflow() {
   try {
     const beforeWorkflowId = workflowStore.workflowId
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
-    await workflowStore.saveCurrentWorkflow()
+    await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
     if (projectId) {
       projectStore.linkWorkflowToProject(projectId, workflowStore.workflowId)
     }
@@ -224,7 +229,10 @@ async function startRun() {
 
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
     const beforeWorkflowId = workflowStore.workflowId
-    await workflowStore.saveCurrentWorkflow({ allowMockFallback: false })
+    await workflowStore.saveCurrentWorkflow({
+      allowMockFallback: false,
+      projectId: numericProjectId(projectId),
+    })
     if (projectId) {
       projectStore.linkWorkflowToProject(projectId, workflowStore.workflowId)
     }
