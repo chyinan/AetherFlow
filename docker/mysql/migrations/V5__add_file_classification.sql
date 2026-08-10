@@ -1,0 +1,12 @@
+SET @col_exists = (SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'af_file_info' AND column_name = 'source');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE af_file_info ADD COLUMN source VARCHAR(32) NULL AFTER user_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @col_exists = (SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'af_file_info' AND column_name = 'artifact_kind');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE af_file_info ADD COLUMN artifact_kind VARCHAR(64) NULL AFTER source', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @col_exists = (SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'af_file_info' AND column_name = 'workflow_id');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE af_file_info ADD COLUMN workflow_id VARCHAR(128) NULL AFTER artifact_kind', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @idx_exists = (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'af_file_info' AND index_name = 'idx_af_file_info_workflow');
+SET @sql = IF(@idx_exists = 0, 'ALTER TABLE af_file_info ADD INDEX idx_af_file_info_workflow (workflow_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

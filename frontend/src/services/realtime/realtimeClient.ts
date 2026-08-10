@@ -252,6 +252,7 @@ export const realtimeClient = {
     let closed = false
     let sseOnline = false
     let ssePermanentlyUnavailable = false
+    let sseRefreshingToken = false
     let sse: SseConnection | null = null
     let socket: NotificationSocketConnection | null = null
 
@@ -277,21 +278,21 @@ export const realtimeClient = {
 
     const startSse = async () => {
       try {
-        const streamToken = await issueNotifyStreamToken()
-        if (closed) {
-          return
-        }
-
-        const streamUserId = streamToken.userId ?? userId
         sse = createSseClient({
-          url: buildNotifySseUrl(
-            streamUserId,
-            streamToken.token,
-            streamToken.queryParam || 'streamToken',
-          ),
+          url: async () => {
+            const streamToken = await issueNotifyStreamToken()
+            const streamUserId = streamToken.userId ?? userId
+            return buildNotifySseUrl(
+              streamUserId,
+              streamToken.token,
+              streamToken.queryParam || 'streamToken',
+            )
+          },
+          refreshOnUnauthorized: true,
           idleTimeoutMs: 30_000,
           onOpen: () => {
             sseOnline = true
+            sseRefreshingToken = false
             socket?.close()
             socket = null
           },
@@ -307,14 +308,19 @@ export const realtimeClient = {
           },
           onError: (error) => {
             handlers.onError?.(error)
-            ssePermanentlyUnavailable = error instanceof SseHttpError && !error.retryable
-            if (!sseOnline && !ssePermanentlyUnavailable) {
+            const shouldRefreshToken = error instanceof SseHttpError
+              && (error.status === 401 || error.status === 403)
+            sseRefreshingToken = shouldRefreshToken
+            ssePermanentlyUnavailable = error instanceof SseHttpError
+              && !error.retryable
+              && !shouldRefreshToken
+            if (!sseOnline && !ssePermanentlyUnavailable && !shouldRefreshToken) {
               startSocket()
             }
           },
           onReconnect: (attempt, delayMs) => {
             handlers.onReconnect?.('sse', attempt, delayMs)
-            if (attempt >= 2) {
+            if (attempt >= 2 && !sseRefreshingToken) {
               startSocket()
             }
           },

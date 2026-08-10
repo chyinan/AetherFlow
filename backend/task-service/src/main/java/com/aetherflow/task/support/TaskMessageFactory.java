@@ -29,6 +29,7 @@ public class TaskMessageFactory {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setTaskId(task.getId());
         message.setWorkflowInstanceId(task.getWorkflowInstanceId());
+        message.setUserId(task.getUserId());
         message.setTraceId(task.getTraceId());
         message.setNodeId(task.getNodeId());
         message.setNodeType(task.getNodeType());

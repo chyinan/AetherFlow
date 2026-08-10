@@ -74,6 +74,9 @@ interface DocumentCreateInput {
   mode?: string
   chunkSize?: number
   overlap?: number
+  delimiter?: string
+  cleanSpaces?: boolean
+  cleanUrls?: boolean
 }
 
 interface RetrievalTestInput {

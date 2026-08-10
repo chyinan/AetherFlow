@@ -24,7 +24,8 @@ public class WorkflowRuntimeRecoveryRunner implements ApplicationRunner {
         }
         try {
             int recoveredCount = recoveryService.recoverRunnableWorkflows(recovery.getScanLimit()).size();
-            log.info("workflow runtime recovery finished, recoveredCount={}", recoveredCount);
+            int reconciledCount = recoveryService.reconcileTerminalWorkflows(recovery.getScanLimit());
+            log.info("workflow runtime recovery finished, recoveredCount={}, reconciledCount={}", recoveredCount, reconciledCount);
         } catch (RuntimeException exception) {
             log.warn("workflow runtime recovery failed during startup, reason={}", exception.getMessage());
         }

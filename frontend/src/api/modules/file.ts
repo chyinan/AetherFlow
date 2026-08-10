@@ -31,6 +31,12 @@ export interface FileAssetMetadataView {
   updatedAt?: string
 }
 
+export interface FileClassificationUpdateRequest {
+  source: 'input' | 'artifact'
+  artifactKind?: string
+  workflowId?: string | null
+}
+
 export interface FileAssetPageResponse {
   page: number
   pageSize: number
@@ -268,6 +274,14 @@ export function deleteFile(id: number | string) {
   })
 }
 
+export function updateFileClassification(id: number | string, payload: FileClassificationUpdateRequest) {
+  return apiClient.patch<FileAssetMetadataView>(
+    `/files/${encodeURIComponent(String(id))}/classification`,
+    payload,
+    { source: 'file' },
+  )
+}
+
 export const fileModuleApi = {
   listFiles,
   uploadFile,
@@ -278,4 +292,5 @@ export const fileModuleApi = {
   getUploadProgress,
   downloadFileBlob,
   deleteFile,
+  updateFileClassification,
 }

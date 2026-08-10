@@ -102,7 +102,7 @@ spring:
         - id: workflow-service
           uri: lb://workflow-service
           predicates:
-            - Path=/workflows/**,/workflow-instances/**,/workflow/**,/projects,/projects/**,/workspaces,/workspaces/**,/knowledge/**
+            - Path=/workflows/**,/workflow-instances/**,/workflow/**,/projects,/projects/**,/workspaces,/workspaces/**,/knowledge/**,/ingestion/**
         - id: task-service
           uri: lb://task-service
           predicates:

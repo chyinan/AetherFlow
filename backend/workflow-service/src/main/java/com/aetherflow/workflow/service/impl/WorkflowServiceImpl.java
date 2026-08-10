@@ -141,6 +141,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                 String.valueOf(instance.getId()),
                 newTraceId(),
                 String.valueOf(instance.getId()),
+                definitionId,
                 definitionDTO,
                 runtimeVariables(definitionDTO, input, userId),
                 runtimeProperties.getRetry().toRetryPolicy()

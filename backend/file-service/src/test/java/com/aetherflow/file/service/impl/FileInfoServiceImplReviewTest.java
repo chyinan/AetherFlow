@@ -17,6 +17,8 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.ObjectWriteResponse;
 import io.minio.PutObjectArgs;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.SetBucketPolicyArgs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
@@ -171,5 +173,25 @@ class FileInfoServiceImplReviewTest {
         verify(cacheService).cacheHash("hash-2", 101L);
         verify(cacheService).recordUpload(eq(101L), eq(1001L), eq("task-2"), eq("hash-2"), eq(ProgressState.COMPLETED));
         verify(cacheService).recordProgress(eq("task-2"), eq(ProgressState.COMPLETED), eq(100), eq(101L), eq(1001L), eq("hash-2"), eq("Upload completed"));
+    }
+
+    @Test
+    void metadataUsesShortLivedSignedUrlAndDoesNotExposePublicBucketPolicy() throws Exception {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setId(9L);
+        fileInfo.setUserId(1001L);
+        fileInfo.setBucket("aetherflow");
+        fileInfo.setObjectKey("objects/private.txt");
+        fileInfo.setOriginalName("private.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setStatus("AVAILABLE");
+        when(fileInfoMapper.selectById(9L)).thenReturn(fileInfo);
+        when(minioClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("https://signed.example/private.txt?X-Amz-Signature=test");
+
+        var metadata = service.getMetadata(9L);
+
+        assertThat(metadata.getUrl()).startsWith("https://signed.example/");
+        verify(minioClient, never()).setBucketPolicy(any(SetBucketPolicyArgs.class));
     }
 }

@@ -11,6 +11,10 @@ public interface RuntimeSnapshotRepository {
 
     List<WorkflowRuntimeSnapshot> findRecoverable(int limit);
 
+    default List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
+        return List.of();
+    }
+
     static RuntimeSnapshotRepository noop() {
         return NoopRuntimeSnapshotRepository.INSTANCE;
     }

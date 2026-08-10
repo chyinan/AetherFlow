@@ -83,6 +83,10 @@ aetherflow:
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
       ai-call-timeout: ${WORKFLOW_AI_NODE_CALL_TIMEOUT:10m}
       async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
+      code-execution-enabled: ${WORKFLOW_CODE_EXECUTION_ENABLED:true}
+      code-runtime-url: ${WORKFLOW_CODE_RUNTIME_URL:${PYTHON_AI_BASE_URL:http://python-ai-service:8200}}
+      code-timeout-ms: ${WORKFLOW_CODE_TIMEOUT_MS:2000}
+      code-max-output-bytes: ${WORKFLOW_CODE_MAX_OUTPUT_BYTES:64000}
     embedding:
       default-provider: ${WORKFLOW_EMBEDDING_PROVIDER:ollama}
       default-model: ${WORKFLOW_EMBEDDING_MODEL:nomic-embed-text}

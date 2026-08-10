@@ -69,7 +69,7 @@ class PythonAiServiceApiTest(unittest.TestCase):
                 },
                 clear=False,
             ),
-            patch("ollama.Client", FakeOllamaClient),
+            patch.dict(sys.modules, {"ollama": SimpleNamespace(Client=FakeOllamaClient)}),
         ):
             from app.main import _ollama_model_names
 
@@ -78,6 +78,14 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertEqual(["qwen3.5:9b"], names)
         self.assertEqual("http://host.docker.internal:11434", captured["host"])
         self.assertFalse(captured["trust_env"])
+
+    def test_ollama_model_catalog_degrades_when_runtime_dependency_is_missing(self):
+        with patch("app.main._ollama_client", side_effect=ModuleNotFoundError("ollama")):
+            from app.main import _ollama_model_names
+
+            names = _ollama_model_names()
+
+        self.assertEqual([], names)
 
     def test_provider_config_updates_runtime_without_exposing_secret(self):
         with (
@@ -163,6 +171,64 @@ class PythonAiServiceApiTest(unittest.TestCase):
 
         self.assertEqual({"promptTokens": 12, "completionTokens": 7, "totalTokens": 19}, openai_metadata)
         self.assertEqual({"promptTokens": 9, "completionTokens": 4, "totalTokens": 13}, ollama_metadata)
+
+    def test_code_execution_runs_main_with_json_input(self):
+        response = self.client.post(
+            "/v1/code/execute",
+            json={
+                "language": "python3",
+                "code": "def main(payload):\n    print('working')\n    return {'answer': payload['value'] + 1}",
+                "input": {"value": 4},
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"answer": 5}, response.json()["result"])
+        self.assertEqual("working", response.json()["stdout"])
+        self.assertFalse(response.json()["truncated"])
+
+    def test_code_execution_rejects_imports_before_subprocess(self):
+        response = self.client.post(
+            "/v1/code/execute",
+            json={
+                "language": "python3",
+                "code": "import os\ndef main(payload): return 1",
+                "input": {},
+            },
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("imports are not allowed", response.json()["detail"])
+
+    def test_code_execution_times_out(self):
+        response = self.client.post(
+            "/v1/code/execute",
+            json={
+                "language": "python3",
+                "code": "def main(payload):\n    while True: pass",
+                "input": {},
+                "timeoutMs": 50,
+            },
+        )
+
+        self.assertEqual(408, response.status_code)
+        self.assertIn("timed out", response.json()["detail"])
+
+    def test_code_execution_limits_stdout_without_losing_result(self):
+        response = self.client.post(
+            "/v1/code/execute",
+            json={
+                "language": "python3",
+                "code": "def main(payload):\n    print('x' * 5000)\n    return {'ok': True}",
+                "input": {},
+                "maxOutputBytes": 1024,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True}, response.json()["result"])
+        self.assertTrue(response.json()["truncated"])
+        self.assertLessEqual(len(response.json()["stdout"].encode('utf-8')), 1024)
 
 
 if __name__ == "__main__":

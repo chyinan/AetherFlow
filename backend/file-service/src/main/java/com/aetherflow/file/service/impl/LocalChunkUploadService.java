@@ -4,12 +4,23 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.file.exception.UploadException;
+import com.aetherflow.file.config.FileUploadProperties;
+import com.aetherflow.file.config.MinioProperties;
 import com.aetherflow.file.model.ChunkUploadDtos;
 import com.aetherflow.file.model.PathMultipartFile;
 import com.aetherflow.file.service.ChunkUploadService;
 import com.aetherflow.file.service.FileInfoService;
+import com.aetherflow.file.support.FileRedisKeys;
+import io.minio.GetObjectArgs;
+import io.minio.MinioClient;
+import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
+import io.minio.BucketExistsArgs;
+import io.minio.MakeBucketArgs;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,8 +33,10 @@ import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,16 +49,43 @@ public class LocalChunkUploadService implements ChunkUploadService {
 
     private final FileInfoService fileInfoService;
     private final Path rootDirectory;
+    private final StringRedisTemplate redisTemplate;
+    private final MinioClient minioClient;
+    private final MinioProperties minioProperties;
+    private final FileUploadProperties uploadProperties;
     private final Map<String, UploadSession> sessions = new ConcurrentHashMap<>();
 
     @Autowired
+    public LocalChunkUploadService(FileInfoService fileInfoService,
+                                   StringRedisTemplate redisTemplate,
+                                   MinioClient minioClient,
+                                   MinioProperties minioProperties,
+                                   FileUploadProperties uploadProperties) {
+        this(fileInfoService,
+                Path.of(System.getProperty("java.io.tmpdir"), "aetherflow-file-uploads"),
+                redisTemplate, minioClient, minioProperties, uploadProperties);
+    }
+
     public LocalChunkUploadService(FileInfoService fileInfoService) {
         this(fileInfoService, Path.of(System.getProperty("java.io.tmpdir"), "aetherflow-file-uploads"));
     }
 
     LocalChunkUploadService(FileInfoService fileInfoService, Path rootDirectory) {
+        this(fileInfoService, rootDirectory, null, null, null, null);
+    }
+
+    private LocalChunkUploadService(FileInfoService fileInfoService,
+                                    Path rootDirectory,
+                                    StringRedisTemplate redisTemplate,
+                                    MinioClient minioClient,
+                                    MinioProperties minioProperties,
+                                    FileUploadProperties uploadProperties) {
         this.fileInfoService = fileInfoService;
         this.rootDirectory = rootDirectory;
+        this.redisTemplate = redisTemplate;
+        this.minioClient = minioClient;
+        this.minioProperties = minioProperties;
+        this.uploadProperties = uploadProperties;
     }
 
     @Override
@@ -66,6 +106,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (totalParts <= 0) {
             throw new UploadException(ResultCode.BAD_REQUEST, "totalParts must be positive");
         }
+        requireStorageConfiguration();
 
         String uploadId = UUID.randomUUID().toString().replace("-", "");
         Instant createdAt = Instant.now();
@@ -85,7 +126,12 @@ public class LocalChunkUploadService implements ChunkUploadService {
         } catch (IOException exception) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload temp directory unavailable");
         }
-        sessions.put(uploadId, session);
+        try {
+            persistSession(session);
+        } catch (RuntimeException exception) {
+            deleteDirectory(session.directory());
+            throw exception;
+        }
         return new ChunkUploadDtos.InitResponse(
                 uploadId,
                 originalName,
@@ -105,14 +151,27 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (part == null || part.isEmpty()) {
             throw new UploadException(ResultCode.BAD_REQUEST, "chunk part must not be empty");
         }
-        Path partPath = partPath(session, partNumber);
-        try (InputStream inputStream = part.getInputStream()) {
-            Files.copy(inputStream, partPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException exception) {
-            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk part write failed");
+        long size = part.getSize() > 0 ? part.getSize() : safeSize(part);
+        if (sharedStorageEnabled()) {
+            putRemotePart(session, partNumber, part);
+        } else {
+            Path partPath = partPath(session, partNumber);
+            try (InputStream inputStream = part.getInputStream()) {
+                Files.copy(inputStream, partPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException exception) {
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk part write failed");
+            }
+            size = safeSize(partPath);
         }
-        long size = safeSize(partPath);
         session.parts().put(partNumber, size);
+        try {
+            persistPart(session, partNumber, size);
+        } catch (RuntimeException exception) {
+            if (sharedStorageEnabled()) {
+                deleteRemotePart(session, partNumber);
+            }
+            throw exception;
+        }
         return new ChunkUploadDtos.PartResponse(
                 session.uploadId(),
                 partNumber,
@@ -133,6 +192,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
         Path assembled = session.directory().resolve("assembled.bin");
         try {
             assemble(session, assembled);
+            ensureAssembledSize(session, assembled);
             if (StringUtils.hasText(expectedChecksum)) {
                 String actualChecksum = sha256(assembled);
                 if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
@@ -147,8 +207,9 @@ public class LocalChunkUploadService implements ChunkUploadService {
             );
             return fileInfoService.upload(userId, multipartFile, uploadId);
         } finally {
-            sessions.remove(uploadId);
+            removePersistedSession(uploadId);
             deleteDirectory(session.directory());
+            deleteRemoteParts(session);
         }
     }
 
@@ -158,20 +219,22 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (!StringUtils.hasText(uploadId)) {
             throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
         }
-        UploadSession session = sessions.get(uploadId);
+        UploadSession session = findSession(uploadId);
         if (session == null) {
             return;
         }
         if (!session.userId().equals(userId)) {
             throw new UploadException(ResultCode.FORBIDDEN, "chunk upload session does not belong to current user");
         }
-        sessions.remove(uploadId);
+        removePersistedSession(uploadId);
         deleteDirectory(session.directory());
+        deleteRemoteParts(session);
     }
 
     private void ensureAllPartsReceived(UploadSession session) {
         for (int partNumber = 1; partNumber <= session.totalParts(); partNumber++) {
-            if (!session.parts().containsKey(partNumber) || !Files.exists(partPath(session, partNumber))) {
+            if (!session.parts().containsKey(partNumber)
+                    || (!sharedStorageEnabled() && !Files.exists(partPath(session, partNumber)))) {
                 throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload has missing parts");
             }
         }
@@ -180,11 +243,21 @@ public class LocalChunkUploadService implements ChunkUploadService {
     private void assemble(UploadSession session, Path assembled) {
         try (OutputStream outputStream = Files.newOutputStream(assembled)) {
             for (int partNumber = 1; partNumber <= session.totalParts(); partNumber++) {
-                Files.copy(partPath(session, partNumber), outputStream);
+                if (sharedStorageEnabled()) {
+                    try (InputStream inputStream = minioClient.getObject(GetObjectArgs.builder()
+                            .bucket(minioProperties.getBucket())
+                            .object(remotePartKey(session, partNumber))
+                            .build())) {
+                        inputStream.transferTo(outputStream);
+                    }
+                } else {
+                    Files.copy(partPath(session, partNumber), outputStream);
+                }
             }
         } catch (UploadException exception) {
             throw exception;
         } catch (Exception exception) {
+            log.warn("Chunk upload assemble failed uploadId={}", session.uploadId(), exception);
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload assemble failed");
         }
     }
@@ -211,7 +284,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (!StringUtils.hasText(uploadId)) {
             throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
         }
-        UploadSession session = sessions.get(uploadId);
+        UploadSession session = findSession(uploadId);
         if (session == null) {
             throw new UploadException(ResultCode.NOT_FOUND, "chunk upload session not found");
         }
@@ -219,6 +292,193 @@ public class LocalChunkUploadService implements ChunkUploadService {
             throw new UploadException(ResultCode.FORBIDDEN, "chunk upload session does not belong to current user");
         }
         return session;
+    }
+
+    private UploadSession findSession(String uploadId) {
+        if (!redisEnabled()) {
+            return sessions.get(uploadId);
+        }
+        try {
+            Map<Object, Object> values = redisTemplate.opsForHash().entries(FileRedisKeys.chunkUpload(uploadId));
+            if (values.isEmpty()) {
+                return null;
+            }
+            UploadSession session = fromRedis(values, uploadId);
+            ensureSessionDirectory(session.directory());
+            sessions.put(uploadId, session);
+            return session;
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload session store unavailable");
+        }
+    }
+
+    private void persistSession(UploadSession session) {
+        if (!redisEnabled()) {
+            sessions.put(session.uploadId(), session);
+            return;
+        }
+        try {
+            Map<String, String> values = new LinkedHashMap<>();
+            values.put("userId", String.valueOf(session.userId()));
+            values.put("originalName", session.originalName());
+            values.put("contentType", session.contentType());
+            values.put("size", String.valueOf(session.size()));
+            values.put("totalParts", String.valueOf(session.totalParts()));
+            values.put("checksum", session.checksum() == null ? "" : session.checksum());
+            values.put("createdAt", session.createdAt().toString());
+            redisTemplate.opsForHash().putAll(FileRedisKeys.chunkUpload(session.uploadId()), values);
+            redisTemplate.expire(FileRedisKeys.chunkUpload(session.uploadId()), sessionTtl());
+            sessions.put(session.uploadId(), session);
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload session store unavailable");
+        }
+    }
+
+    private void persistPart(UploadSession session, int partNumber, long size) {
+        if (!redisEnabled()) {
+            return;
+        }
+        try {
+            String key = FileRedisKeys.chunkUpload(session.uploadId());
+            redisTemplate.opsForHash().put(key, "part:" + partNumber, String.valueOf(size));
+            redisTemplate.expire(key, sessionTtl());
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload session store unavailable");
+        }
+    }
+
+    private void removePersistedSession(String uploadId) {
+        sessions.remove(uploadId);
+        if (!redisEnabled()) {
+            return;
+        }
+        try {
+            redisTemplate.delete(FileRedisKeys.chunkUpload(uploadId));
+        } catch (DataAccessException exception) {
+            log.warn("Failed to remove persisted chunk upload session uploadId={}", uploadId, exception);
+        }
+    }
+
+    private UploadSession fromRedis(Map<Object, Object> values, String uploadId) {
+        try {
+            Map<Integer, Long> parts = new ConcurrentHashMap<>();
+            values.forEach((key, value) -> {
+                String field = String.valueOf(key);
+                if (field.startsWith("part:")) {
+                    parts.put(Integer.parseInt(field.substring("part:".length())), Long.parseLong(String.valueOf(value)));
+                }
+            });
+            return new UploadSession(
+                    uploadId,
+                    Long.valueOf(requiredRedisValue(values, "userId")),
+                    requiredRedisValue(values, "originalName"),
+                    requiredRedisValue(values, "contentType"),
+                    Long.parseLong(requiredRedisValue(values, "size")),
+                    Integer.parseInt(requiredRedisValue(values, "totalParts")),
+                    emptyToNull(String.valueOf(values.getOrDefault("checksum", ""))),
+                    Instant.parse(requiredRedisValue(values, "createdAt")),
+                    rootDirectory.resolve(uploadId),
+                    parts);
+        } catch (RuntimeException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload session metadata is invalid");
+        }
+    }
+
+    private String requiredRedisValue(Map<Object, Object> values, String field) {
+        Object value = values.get(field);
+        if (value == null || !StringUtils.hasText(String.valueOf(value))) {
+            throw new IllegalArgumentException("missing chunk upload session field " + field);
+        }
+        return String.valueOf(value);
+    }
+
+    private void requireStorageConfiguration() {
+        boolean anySharedDependency = redisTemplate != null || minioClient != null
+                || minioProperties != null || uploadProperties != null;
+        if (anySharedDependency && !sharedStorageEnabled()) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload requires Redis session storage and MinIO part storage");
+        }
+    }
+
+    private void ensureSessionDirectory(Path directory) {
+        if (directory == null || !directory.startsWith(rootDirectory)) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload session path is invalid");
+        }
+        try {
+            Files.createDirectories(directory);
+        } catch (IOException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload temp directory unavailable");
+        }
+    }
+
+    private boolean redisEnabled() {
+        return redisTemplate != null;
+    }
+
+    private boolean sharedStorageEnabled() {
+        return redisTemplate != null && minioClient != null && minioProperties != null;
+    }
+
+    private Duration sessionTtl() {
+        long seconds = uploadProperties == null ? 3600L : uploadProperties.getChunkSessionTtlSeconds();
+        return Duration.ofSeconds(Math.max(60L, seconds));
+    }
+
+    private void putRemotePart(UploadSession session, int partNumber, MultipartFile part) {
+        try {
+            ensureRemoteBucket();
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(remotePartKey(session, partNumber))
+                    .contentType(session.contentType())
+                    .stream(part.getInputStream(), part.getSize(), -1)
+                    .build());
+        } catch (Exception exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk part storage failed");
+        }
+    }
+
+    private void ensureRemoteBucket() throws Exception {
+        boolean exists = minioClient.bucketExists(BucketExistsArgs.builder()
+                .bucket(minioProperties.getBucket()).build());
+        if (!exists) {
+            minioClient.makeBucket(MakeBucketArgs.builder().bucket(minioProperties.getBucket()).build());
+        }
+    }
+
+    private void deleteRemoteParts(UploadSession session) {
+        if (!sharedStorageEnabled()) {
+            return;
+        }
+        for (int partNumber = 1; partNumber <= session.totalParts(); partNumber++) {
+            deleteRemotePart(session, partNumber);
+        }
+    }
+
+    private void deleteRemotePart(UploadSession session, int partNumber) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(remotePartKey(session, partNumber))
+                    .build());
+        } catch (Exception exception) {
+            log.warn("Failed to cleanup remote chunk part uploadId={} partNumber={}",
+                    session.uploadId(), partNumber, exception);
+        }
+    }
+
+    private String remotePartKey(UploadSession session, int partNumber) {
+        return "chunk-uploads/" + session.uploadId() + "/part-%05d.bin".formatted(partNumber);
+    }
+
+    private void ensureAssembledSize(UploadSession session, Path assembled) {
+        long actualSize = safeSize(assembled);
+        if (actualSize != session.size()) {
+            throw new UploadException(ResultCode.BAD_REQUEST,
+                    "chunk upload size mismatch: expected " + session.size() + " but received " + actualSize);
+        }
     }
 
     private void requireUserId(Long userId) {
@@ -250,6 +510,18 @@ public class LocalChunkUploadService implements ChunkUploadService {
         } catch (IOException exception) {
             return 0L;
         }
+    }
+
+    private long safeSize(MultipartFile part) {
+        try {
+            return part.getBytes().length;
+        } catch (IOException exception) {
+            return 0L;
+        }
+    }
+
+    private String emptyToNull(String value) {
+        return StringUtils.hasText(value) ? value : null;
     }
 
     private void deleteDirectory(Path directory) {

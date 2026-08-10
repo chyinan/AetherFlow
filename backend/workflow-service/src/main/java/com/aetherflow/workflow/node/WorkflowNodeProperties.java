@@ -18,6 +18,9 @@ public class WorkflowNodeProperties {
     private String defaultSummaryLanguage = "English";
     private String exportObjectPrefix = "workflow/exports";
     private boolean codeExecutionEnabled = false;
+    private String codeRuntimeUrl = "http://python-ai-service:8200";
+    private int codeTimeoutMs = 2_000;
+    private int codeMaxOutputBytes = 64_000;
     private boolean humanAutoApproveEnabled = false;
     private boolean asyncAiEnabled = true;
 

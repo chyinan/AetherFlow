@@ -20,6 +20,12 @@ public class FileInfo extends BaseEntity {
     @Schema(description = "Uploader user id.", example = "1001")
     private Long uploaderId;
 
+    private String source;
+
+    private String artifactKind;
+
+    private String workflowId;
+
     @Schema(description = "MinIO bucket name.", example = "aetherflow")
     private String bucket;
 

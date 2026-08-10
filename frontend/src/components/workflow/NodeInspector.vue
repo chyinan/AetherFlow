@@ -68,6 +68,7 @@ const activeTab = ref<'settings' | 'lastRun'>('settings')
 const dynamicMode = ref<'basic' | 'advanced'>('basic')
 const retrievalSettingsExpanded = ref(false)
 const nodeCatalog = ref<WorkflowNodeCatalogItem[]>([])
+const nestedBodyNodesError = ref('')
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
@@ -262,6 +263,30 @@ function textConfig(key: string, fallback = '') {
 function numberConfig(key: string, fallback = 0) {
   const value = Number(configValue(key, fallback))
   return Number.isFinite(value) ? value : fallback
+}
+
+const nestedBodyNodesJson = computed(() => {
+  const value = configValue('bodyNodes', [])
+  return JSON.stringify(Array.isArray(value) ? value : [], null, 2)
+})
+
+function handleNestedBodyNodesInput(event: Event) {
+  const value = (event.target as HTMLTextAreaElement).value.trim()
+  if (!value) {
+    nestedBodyNodesError.value = ''
+    updateConfig('bodyNodes', [])
+    return
+  }
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) {
+      throw new Error('bodyNodes must be an array')
+    }
+    nestedBodyNodesError.value = ''
+    updateConfig('bodyNodes', parsed)
+  } catch {
+    nestedBodyNodesError.value = t('workflow.inspector.nestedBodyNodesInvalid')
+  }
 }
 
 function boolConfig(key: string, fallback = false) {
@@ -1013,6 +1038,19 @@ onMounted(() => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
           </label>
+          <div class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.nestedBodyNodes') }}</span>
+              <textarea
+                class="min-h-40 w-full resize-y rounded-lg border border-app-border bg-app-bg2 p-3 font-mono text-xs leading-5 outline-none focus:border-primary"
+                :value="nestedBodyNodesJson"
+                :aria-label="t('workflow.inspector.nestedBodyNodes')"
+                @input="handleNestedBodyNodesInput"
+              />
+              <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.nestedBodyNodesHint') }}</p>
+              <p v-if="nestedBodyNodesError" role="alert" class="mt-2 text-xs text-status-error">{{ nestedBodyNodesError }}</p>
+            </label>
+          </div>
         </section>
 
         <section v-else-if="selectedKind === 'code'" class="space-y-5 p-5">

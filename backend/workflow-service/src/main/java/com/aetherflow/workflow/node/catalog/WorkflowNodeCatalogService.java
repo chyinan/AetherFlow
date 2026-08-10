@@ -647,15 +647,17 @@ public class WorkflowNodeCatalogService {
                 "ITERATION",
                 "Iteration",
                 "Control",
-                "Publishes a bounded list slice for downstream processing. Nested subgraph execution is not performed by this node.",
+                "Runs an ordered bounded body for each item and collects the body variables as results.",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow list variable.", "items"),
+                        field("itemVariable", "STRING", false, "Variable containing the current item inside the body.", "item"),
                         field("outputVariable", "STRING", false, "Variable written with selected items.", "iterationItems"),
-                        field("maxIterations", "NUMBER", false, "Maximum items to publish.", 100)
+                        field("maxIterations", "NUMBER", false, "Maximum body executions. The runtime hard-caps this value.", 100),
+                        field("bodyNodes", "ARRAY", false, "Ordered nested node definitions executed for each item.", List.of())
                 ),
                 List.of(variable("items", "ARRAY", "Items to iterate.", List.of("a", "b"))),
                 List.of(variable("iterationItems", "ARRAY", "Selected items.", List.of("a", "b"))),
-                mapOf("inputVariable", "items", "outputVariable", "iterationItems", "maxIterations", 100)
+                mapOf("inputVariable", "items", "itemVariable", "item", "outputVariable", "iterationItems", "maxIterations", 100, "bodyNodes", List.of())
         );
     }
 
@@ -664,16 +666,17 @@ public class WorkflowNodeCatalogService {
                 "LOOP",
                 "Loop",
                 "Control",
-                "Publishes bounded loop state metadata. Runtime-level cyclic scheduling is not introduced.",
+                "Runs an ordered bounded body until the configured stop condition matches the loop state.",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow state variable.", "state"),
                         field("outputVariable", "STRING", false, "Variable written with loop state.", "loopState"),
                         field("stopWhen", "STRING", false, "Stop marker matched against the state text.", "done"),
-                        field("maxIterations", "NUMBER", false, "Maximum loop count metadata.", 10)
+                        field("maxIterations", "NUMBER", false, "Maximum body executions. The runtime hard-caps this value.", 10),
+                        field("bodyNodes", "ARRAY", false, "Ordered nested node definitions executed on each loop.", List.of())
                 ),
                 List.of(variable("state", "OBJECT", "Loop state.", Map.of("done", false))),
                 List.of(variable("loopState", "OBJECT", "Published loop state.", Map.of("done", false))),
-                mapOf("inputVariable", "state", "outputVariable", "loopState", "maxIterations", 10)
+                mapOf("inputVariable", "state", "outputVariable", "loopState", "stopWhen", "done", "maxIterations", 10, "bodyNodes", List.of())
         );
     }
 
@@ -682,11 +685,11 @@ public class WorkflowNodeCatalogService {
                 "CODE",
                 "Code Execution",
                 "Transform",
-                "Code execution node with safe default: execution is disabled unless an isolated runtime is explicitly configured.",
+                "Executes Python code through the configured isolated runtime with timeout and output limits.",
                 List.of(
                         field("language", "STRING", false, "Requested language.", "python3"),
-                        field("code", "STRING", false, "Code text retained for an external isolated runtime.", "def main(): return {}"),
-                        field("outputVariable", "STRING", false, "Variable written when isolated runtime integration is enabled.", "codeResult")
+                        field("code", "STRING", false, "Code text sent to the isolated runtime.", "def main(payload): return payload"),
+                        field("outputVariable", "STRING", false, "Variable written with the isolated runtime result.", "codeResult")
                 ),
                 List.of(variable("payload", "OBJECT", "Input payload.", Map.of())),
                 List.of(variable("codeResult", "OBJECT", "Code runtime result.", Map.of())),

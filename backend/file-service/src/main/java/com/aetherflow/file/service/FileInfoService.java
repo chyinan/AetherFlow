@@ -3,6 +3,8 @@ package com.aetherflow.file.service;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetMetadataView;
+import com.aetherflow.file.model.FileClassificationUpdateRequest;
 import com.aetherflow.file.model.FileMetricsResponse;
 import com.aetherflow.file.model.FileStatusResponse;
 import com.aetherflow.file.model.UploadProgressView;
@@ -17,6 +19,8 @@ public interface FileInfoService {
     FileDownload downloadInternal(Long fileId);
 
     void delete(Long userId, Long fileId);
+
+    FileAssetMetadataView updateClassification(Long userId, Long fileId, FileClassificationUpdateRequest request);
 
     FileMetadataDTO getMetadata(Long fileId);
 

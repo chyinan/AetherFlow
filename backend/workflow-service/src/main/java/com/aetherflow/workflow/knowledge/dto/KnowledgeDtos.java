@@ -30,6 +30,9 @@ public final class KnowledgeDtos {
         private String mode;
         private Integer chunkSize;
         private Integer overlap;
+        private String delimiter;
+        private Boolean cleanSpaces;
+        private Boolean cleanUrls;
     }
 
     @Data

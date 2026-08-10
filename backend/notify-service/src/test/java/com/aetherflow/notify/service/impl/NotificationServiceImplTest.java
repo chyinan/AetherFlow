@@ -120,6 +120,7 @@ class NotificationServiceImplTest {
             // While the transaction is still in flight, no push has happened yet.
             verify(webSocketHandler, never()).send(any(), any());
             verify(sseEmitterRegistry, never()).send(any(), any());
+            verify(telegramNotificationSender, never()).sendIfRequested(any());
 
             List<TransactionSynchronization> syncs =
                     TransactionSynchronizationManager.getSynchronizations();
@@ -130,6 +131,7 @@ class NotificationServiceImplTest {
 
             verify(webSocketHandler).send(eq(11L), eq(message));
             verify(sseEmitterRegistry).send(eq(11L), eq(message));
+            verify(telegramNotificationSender).sendIfRequested(eq(message));
         } finally {
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.clearSynchronization();

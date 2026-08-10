@@ -29,8 +29,7 @@ export const useFileStore = defineStore('file', {
   actions: {
     async loadFiles() {
       const loadedFiles = await fileApi.listFiles()
-      const existingIds = new Set(this.files.map((file) => file.id))
-      this.files = [...this.files, ...loadedFiles.filter((file) => !existingIds.has(file.id))]
+      this.files = loadedFiles
     },
     async refreshArtifactsFromBackend() {
       try {
@@ -126,18 +125,37 @@ export const useFileStore = defineStore('file', {
         this.deletingIds = this.deletingIds.filter((id) => id !== fileId)
       }
     },
-    toggleSource(fileId: string) {
+    async toggleSource(fileId: string) {
       const file = this.files.find((item) => item.id === fileId)
       if (!file) {
         return
       }
-      file.source = file.source === 'input' ? 'artifact' : 'input'
-      file.artifactKind = file.source === 'input' ? 'input' : file.artifactKind === 'input' ? 'document' : file.artifactKind
-      file.result =
-        file.source === 'input'
-          ? i18n.global.t('files.mockResults.markedInput')
-          : i18n.global.t('files.mockResults.markedArtifact')
+      const previous = { ...file }
+      const source = file.source === 'input' ? 'artifact' : 'input'
+      const artifactKind = source === 'input' ? 'input' : file.artifactKind === 'input' ? 'document' : file.artifactKind
+      file.source = source
+      file.artifactKind = artifactKind
+      file.result = source === 'input'
+        ? i18n.global.t('files.mockResults.markedInput')
+        : i18n.global.t('files.mockResults.markedArtifact')
       file.updatedAt = formatDateTime(new Date())
+      if (!file.backendFileId) {
+        return
+      }
+      try {
+        const persisted = await fileApi.updateClassification(file.backendFileId, {
+          source,
+          artifactKind,
+          workflowId: file.workflowId ?? null,
+        })
+        Object.assign(file, persisted)
+      } catch (error) {
+        Object.assign(file, previous)
+        this.fileActionError = error instanceof Error && error.message
+          ? error.message
+          : i18n.global.t('files.updateFailed')
+        throw error
+      }
     },
     addArtifactsFromRun(run: WorkflowRun) {
       const existingIds = new Set(this.files.map((file) => file.id))

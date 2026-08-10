@@ -33,6 +33,16 @@ public class AsyncAiTaskDispatcher {
         }
         TaskMessageDTO message = new TaskMessageDTO();
         message.setWorkflowInstanceId(workflowInstanceId);
+        Object userId = context.variables().get("userId");
+        if (userId instanceof Number number) {
+            message.setUserId(number.longValue());
+        } else if (userId instanceof String text && !text.isBlank()) {
+            try {
+                message.setUserId(Long.parseLong(text));
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("workflow userId variable must be numeric", exception);
+            }
+        }
         message.setTraceId(context.traceId());
         message.setNodeId(context.currentNodeId());
         message.setNodeType(nodeType);

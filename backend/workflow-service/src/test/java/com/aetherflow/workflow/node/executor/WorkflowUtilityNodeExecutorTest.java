@@ -157,6 +157,37 @@ class WorkflowUtilityNodeExecutorTest {
     }
 
     @Test
+    void codeExecutionPassesInputToConfiguredIsolatedRuntime() throws Exception {
+        WorkflowNodeProperties properties = new WorkflowNodeProperties();
+        properties.setCodeExecutionEnabled(true);
+        CodeExecutionNodeExecutor executor = new CodeExecutionNodeExecutor(
+                new WorkflowNodeMetrics(),
+                properties,
+                (language, code, input, timeoutMs, maxOutputBytes) -> {
+                    assertThat(language).isEqualTo("python3");
+                    assertThat(code).contains("main");
+                    assertThat(input).isEqualTo(Map.of("value", 7));
+                    assertThat(timeoutMs).isEqualTo(500);
+                    assertThat(maxOutputBytes).isEqualTo(4096);
+                    return new com.aetherflow.workflow.node.code.CodeExecutionRuntime.CodeExecutionResult(
+                            Map.of("value", 8), "runtime output", 12L, false);
+                });
+
+        NodeResult result = executor.execute(context("code", Map.of(
+                "language", "python3",
+                "code", "def main(payload): return payload",
+                "inputVariable", "payload",
+                "outputVariable", "result",
+                "timeoutMs", 500,
+                "maxOutputBytes", 4096
+        ), Map.of("payload", Map.of("value", 7))));
+
+        assertThat(result.output()).containsEntry("executed", true);
+        assertThat(result.output()).containsEntry("stdout", "runtime output");
+        assertThat(result.variables()).containsEntry("result", Map.of("value", 8));
+    }
+
+    @Test
     void knowledgeRetrievalNodeFetchesDatasetChunksAndPublishesContext() throws Exception {
         KnowledgeService knowledgeService = mock(KnowledgeService.class);
         KnowledgeRetrievalNodeExecutor executor = new KnowledgeRetrievalNodeExecutor(new WorkflowNodeMetrics(), knowledgeService);

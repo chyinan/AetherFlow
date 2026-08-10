@@ -152,9 +152,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     public KnowledgeDocumentSummary createDocument(Long datasetId, DocumentCreateRequest request) {
         KnowledgeDatasetEntity dataset = requireDataset(datasetId);
         LocalDateTime now = LocalDateTime.now();
-        String content = request.getContent() == null ? "" : request.getContent();
+        String content = preprocessContent(request);
         List<TextChunk> chunks = textSplitter.split(content, defaultNumber(request.getChunkSize(), DEFAULT_CHUNK_SIZE),
-                defaultNumber(request.getOverlap(), DEFAULT_OVERLAP));
+                defaultNumber(request.getOverlap(), DEFAULT_OVERLAP), request.getDelimiter());
 
         KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
         document.setDatasetId(datasetId);
@@ -178,7 +178,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             chunk.setSource(document.getName());
             chunk.setPreview(textChunk.text());
             chunk.setTokens(estimateTokens(textChunk.text()));
-            chunk.setScore(0.82D);
+            chunk.setScore(chunkQualityScore(textChunk.text()));
             chunk.setStatus(STATUS_READY);
             chunk.setChunkIndex(textChunk.chunkIndex());
             chunk.setCreatedAt(now);
@@ -214,8 +214,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public RetrievalTestResponse runRetrievalTest(Long datasetId, RetrievalTestRequest request) {
-        requireDataset(datasetId);
+        KnowledgeDatasetEntity dataset = requireDataset(datasetId);
         String query = request == null ? null : request.getQuery();
         int topK = defaultNumber(request == null ? null : request.getTopK(), DEFAULT_TOP_K);
         LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
@@ -225,13 +226,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         List<KnowledgeChunkEntity> storedChunks = chunkMapper.selectList(wrapper);
         boolean hasQuery = hasText(query);
         Set<String> queryTokens = tokenize(query);
-        List<KnowledgeChunkSummary> matched = storedChunks.stream()
+        List<KnowledgeChunkEntity> matchedEntities = storedChunks.stream()
                 .filter(chunk -> !hasQuery || (!queryTokens.isEmpty() && hasQueryTokenOverlap(chunk, queryTokens)))
-                .map(chunk -> toRetrievalChunkSummary(chunk, queryTokens))
-                .sorted(Comparator.comparing(KnowledgeChunkSummary::score, Comparator.nullsLast(Comparator.reverseOrder())))
+                .sorted(Comparator.comparing((KnowledgeChunkEntity chunk) -> retrievalScore(chunk, queryTokens), Comparator.reverseOrder()))
                 .limit(Math.max(1, topK))
                 .toList();
-        return new RetrievalTestResponse(String.valueOf(datasetId), query, matched);
+        matchedEntities.forEach(chunk -> incrementRecall(chunk.getDocumentId()));
+        dataset.setHitRate(storedChunks.isEmpty() ? 0 : (int) Math.round(matchedEntities.size() * 100D / storedChunks.size()));
+        dataset.setUpdatedAt(LocalDateTime.now());
+        datasetMapper.updateById(dataset);
+        return new RetrievalTestResponse(String.valueOf(datasetId), query,
+                matchedEntities.stream().map(chunk -> toRetrievalChunkSummary(chunk, queryTokens)).toList());
     }
 
     private KnowledgeDatasetEntity requireDataset(Long datasetId) {
@@ -322,11 +327,45 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     private double retrievalScore(KnowledgeChunkEntity chunk, Set<String> queryTokens) {
+        if (queryTokens.isEmpty()) {
+            return defaultScore(chunk.getScore());
+        }
         Set<String> contentTokens = tokenize(contentText(chunk));
         long overlapCount = queryTokens.stream().filter(contentTokens::contains).count();
         double overlapRatio = (double) overlapCount / queryTokens.size();
         double storedScore = Math.max(0.0D, Math.min(1.0D, defaultScore(chunk.getScore())));
         return Math.min(1.0D, 0.7D * overlapRatio + 0.3D * storedScore);
+    }
+
+    private void incrementRecall(Long documentId) {
+        if (documentId == null) {
+            return;
+        }
+        KnowledgeDocumentEntity document = documentMapper.selectById(documentId);
+        if (document == null) {
+            return;
+        }
+        document.setRecallCount(nvl(document.getRecallCount()) + 1);
+        document.setUpdatedAt(LocalDateTime.now());
+        documentMapper.updateById(document);
+    }
+
+    private double chunkQualityScore(String text) {
+        int length = text == null ? 0 : text.strip().length();
+        return Math.min(0.95D, Math.max(0.1D, length / 1024D));
+    }
+
+    private String preprocessContent(DocumentCreateRequest request) {
+        String content = request.getContent() == null ? "" : request.getContent();
+        if (Boolean.TRUE.equals(request.getCleanSpaces())) {
+            content = content.replaceAll("[ \\t]+", " ")
+                    .replaceAll(" *\\r?\\n *", "\n")
+                    .replaceAll("\\n{3,}", "\\n\\n");
+        }
+        if (Boolean.TRUE.equals(request.getCleanUrls())) {
+            content = content.replaceAll("https?://[^\\s]+", "[URL]");
+        }
+        return content.strip();
     }
 
     private String contentText(KnowledgeChunkEntity chunk) {

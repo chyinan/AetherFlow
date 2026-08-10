@@ -6,6 +6,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.ProjectCreateRequest;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.ProjectStats;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.ProjectSummary;
+import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.ProjectWorkflowLink;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.ProjectUpdateRequest;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.WorkspaceCreateRequest;
 import com.aetherflow.workflow.project.dto.ProjectWorkspaceDtos.WorkspaceSummary;
@@ -16,19 +17,25 @@ import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.project.mapper.WorkspaceMapper;
 import com.aetherflow.workflow.project.service.ProjectWorkspaceService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
+import com.aetherflow.workflow.entity.WorkflowDefinition;
+import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
 public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
 
     private static final String STATUS_ACTIVE = "ACTIVE";
@@ -46,6 +53,23 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
 
     private final ProjectMapper projectMapper;
     private final WorkspaceMapper workspaceMapper;
+    private final WorkflowDefinitionMapper workflowDefinitionMapper;
+    private final WorkflowInstanceMapper workflowInstanceMapper;
+
+    public ProjectWorkspaceServiceImpl(ProjectMapper projectMapper, WorkspaceMapper workspaceMapper) {
+        this(projectMapper, workspaceMapper, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProjectWorkspaceServiceImpl(ProjectMapper projectMapper,
+                                       WorkspaceMapper workspaceMapper,
+                                       WorkflowDefinitionMapper workflowDefinitionMapper,
+                                       WorkflowInstanceMapper workflowInstanceMapper) {
+        this.projectMapper = projectMapper;
+        this.workspaceMapper = workspaceMapper;
+        this.workflowDefinitionMapper = workflowDefinitionMapper;
+        this.workflowInstanceMapper = workflowInstanceMapper;
+    }
 
     @Override
     public PageResult<ProjectSummary> listProjects(String query, Long workspaceId, String status, int page, int size) {
@@ -158,15 +182,16 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
     @Override
     public ProjectStats getProjectStats(Long id) {
         ProjectEntity entity = requireProject(id);
+        ProjectTelemetry telemetry = telemetry(entity);
         return new ProjectStats(
                 String.valueOf(entity.getId()),
-                safeInt(entity.getWorkflowCount()),
-                safeInt(entity.getActiveRunCount()),
+                telemetry.workflowCount(),
+                telemetry.activeRunCount(),
                 safeInt(entity.getFileCount()),
                 safeInt(entity.getKnowledgeCount()),
-                safeInt(entity.getQueueDepth()),
-                defaultString(entity.getLastRunStatus(), DEFAULT_LAST_RUN_STATUS),
-                formatTime(entity.getUpdatedAt())
+                telemetry.queueDepth(),
+                telemetry.lastRunStatus(),
+                formatTime(telemetry.updatedAt())
         );
     }
 
@@ -308,6 +333,7 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
     }
 
     private ProjectSummary toProjectSummary(ProjectEntity entity) {
+        ProjectTelemetry telemetry = telemetry(entity);
         return new ProjectSummary(
                 String.valueOf(entity.getId()),
                 entity.getWorkspaceId(),
@@ -319,15 +345,84 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
                 defaultString(entity.getHealth(), DEFAULT_HEALTH),
                 defaultString(entity.getScenario(), DEFAULT_SCENARIO),
                 defaultString(entity.getSlaTarget(), "< 8 min"),
-                safeInt(entity.getQueueDepth()),
+                telemetry.queueDepth(),
                 safeInt(entity.getKnowledgeCount()),
-                defaultString(entity.getLastRunStatus(), DEFAULT_LAST_RUN_STATUS),
-                safeInt(entity.getWorkflowCount()),
-                safeInt(entity.getActiveRunCount()),
+                telemetry.lastRunStatus(),
+                telemetry.workflowCount(),
+                telemetry.activeRunCount(),
                 safeInt(entity.getFileCount()),
-                formatTime(entity.getUpdatedAt()),
-                List.of()
+                formatTime(telemetry.updatedAt()),
+                telemetry.workflows()
         );
+    }
+
+    private ProjectTelemetry telemetry(ProjectEntity project) {
+        if (workflowDefinitionMapper == null || workflowInstanceMapper == null || project.getId() == null) {
+            return new ProjectTelemetry(
+                    safeInt(project.getWorkflowCount()),
+                    safeInt(project.getActiveRunCount()),
+                    safeInt(project.getQueueDepth()),
+                    defaultString(project.getLastRunStatus(), DEFAULT_LAST_RUN_STATUS),
+                    project.getUpdatedAt(),
+                    List.of());
+        }
+
+        List<WorkflowDefinition> definitions = workflowDefinitionMapper.selectList(
+                new LambdaQueryWrapper<WorkflowDefinition>()
+                        .eq(WorkflowDefinition::getOwnerUserId, currentUserId())
+                        .eq(WorkflowDefinition::getProjectId, project.getId())
+                        .ne(WorkflowDefinition::getStatus, STATUS_DELETED)
+                        .orderByDesc(WorkflowDefinition::getUpdatedAt)
+                        .orderByDesc(WorkflowDefinition::getId));
+        List<Long> definitionIds = definitions.stream()
+                .map(WorkflowDefinition::getId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        List<WorkflowInstance> instances = definitionIds.isEmpty()
+                ? List.of()
+                : workflowInstanceMapper.selectList(new LambdaQueryWrapper<WorkflowInstance>()
+                        .eq(WorkflowInstance::getUserId, currentUserId())
+                        .in(WorkflowInstance::getDefinitionId, definitionIds));
+        Set<String> activeStatuses = Set.of("PENDING", "RUNNING", "RETRYING", "WAITING");
+        Set<String> queuedStatuses = Set.of("PENDING", "RETRYING");
+        WorkflowInstance latest = instances.stream()
+                .filter(instance -> instance.getUpdatedAt() != null)
+                .max(Comparator.comparing(WorkflowInstance::getUpdatedAt)
+                        .thenComparing(instance -> instance.getId() == null ? 0L : instance.getId()))
+                .orElse(null);
+        LocalDateTime latestTime = latest == null || latest.getUpdatedAt() == null
+                ? project.getUpdatedAt()
+                : latest.getUpdatedAt();
+        return new ProjectTelemetry(
+                definitions.size(),
+                (int) instances.stream().filter(instance -> activeStatuses.contains(normalizeStatus(instance.getStatus()))).count(),
+                (int) instances.stream().filter(instance -> queuedStatuses.contains(normalizeStatus(instance.getStatus()))).count(),
+                latest == null ? defaultString(project.getLastRunStatus(), DEFAULT_LAST_RUN_STATUS)
+                        : defaultString(normalizeStatus(latest.getStatus()), DEFAULT_LAST_RUN_STATUS).toLowerCase(Locale.ROOT),
+                latestTime,
+                definitions.stream().map(this::toWorkflowLink).toList());
+    }
+
+    private ProjectWorkflowLink toWorkflowLink(WorkflowDefinition definition) {
+        return new ProjectWorkflowLink(
+                String.valueOf(definition.getId()),
+                defaultString(definition.getName(), "Workflow " + definition.getId()),
+                defaultString(definition.getStatus(), STATUS_ACTIVE).toLowerCase(Locale.ROOT),
+                formatTime(definition.getUpdatedAt()));
+    }
+
+    private String normalizeStatus(String status) {
+        return status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private record ProjectTelemetry(
+            Integer workflowCount,
+            Integer activeRunCount,
+            Integer queueDepth,
+            String lastRunStatus,
+            LocalDateTime updatedAt,
+            List<ProjectWorkflowLink> workflows
+    ) {
     }
 
     private WorkspaceSummary toWorkspaceSummary(WorkspaceEntity entity) {

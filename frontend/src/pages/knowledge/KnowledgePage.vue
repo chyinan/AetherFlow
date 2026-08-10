@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Database,
   FileText,
+  Layers3,
   Loader2,
   Plus,
   Search,
@@ -62,6 +63,11 @@ const previewError = ref('')
 const previewChunks = ref<Array<{ title: string; text: string }>>([])
 const processingProgress = ref(0)
 const processingError = ref('')
+const pageLoading = ref(true)
+const pageError = ref('')
+const retrying = ref(false)
+const lastRetry = ref<(() => Promise<void>) | null>(null)
+const retrievalLoading = ref(false)
 const createdDatasetId = ref('')
 const chunkDelimiter = ref('\\n\\n')
 const maxChunkLength = ref(1024)
@@ -83,6 +89,29 @@ const selectedFileName = computed(() => {
 })
 const finalDatasetName = computed(() => wizardDatasetName.value.trim() || selectedFileName.value.replace(/\.[^.]+$/, ''))
 const createdDataset = computed(() => difyStore.datasets.find((dataset) => dataset.id === createdDatasetId.value))
+
+function errorMessage(error: unknown) {
+  return error instanceof Error && error.message ? error.message : t('common.error')
+}
+
+function setPageError(error: unknown, retry: () => Promise<void>) {
+  pageError.value = errorMessage(error)
+  lastRetry.value = retry
+}
+
+async function retryLastAction() {
+  const retry = lastRetry.value
+  if (!retry) {
+    return
+  }
+
+  retrying.value = true
+  try {
+    await retry()
+  } finally {
+    retrying.value = false
+  }
+}
 
 const createSteps = computed(() => [
   { id: 1, label: t('knowledge.flow.selectDataSource') },
@@ -177,9 +206,15 @@ function backToList() {
 }
 
 async function openDataset(datasetId: string) {
-  await difyStore.selectDataset(datasetId)
-  await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
-  viewMode.value = 'documents'
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    await difyStore.selectDataset(datasetId)
+    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
+    viewMode.value = 'documents'
+  } catch (error) {
+    setPageError(error, () => openDataset(datasetId))
+  }
 }
 
 function continueFromSource() {
@@ -247,11 +282,27 @@ async function saveAndProcess() {
       embeddingModel: indexMode.value === 'quality' ? 'text-embedding-3-small' : 'keyword sparse index',
       chunkSize: maxChunkLength.value,
       overlap: overlapLength.value,
+      delimiter: chunkDelimiter.value,
+      cleanSpaces: cleanSpaces.value,
+      cleanUrls: cleanUrls.value,
     })
     createdDatasetId.value = dataset.id
     processingProgress.value = 100
   } catch (error) {
-    processingError.value = error instanceof Error ? error.message : t('common.error')
+    processingError.value = errorMessage(error)
+  }
+}
+
+async function runRetrievalTest() {
+  retrievalLoading.value = true
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
+  } catch (error) {
+    setPageError(error, runRetrievalTest)
+  } finally {
+    retrievalLoading.value = false
   }
 }
 
@@ -262,11 +313,17 @@ async function goToCreatedDocuments() {
 }
 
 async function createEmptyDataset() {
-  const dataset = await difyStore.createDatasetFromWizard({
-    name: t('knowledge.flow.emptyKnowledgeName'),
-    empty: true,
-  })
-  await openDataset(dataset.id)
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    const dataset = await difyStore.createDatasetFromWizard({
+      name: t('knowledge.flow.emptyKnowledgeName'),
+      empty: true,
+    })
+    await openDataset(dataset.id)
+  } catch (error) {
+    setPageError(error, createEmptyDataset)
+  }
 }
 
 async function handleSourceUpload(event: Event) {
@@ -275,22 +332,41 @@ async function handleSourceUpload(event: Event) {
   if (!file) {
     return
   }
-  await fileStore.upload(file)
-  selectedFileId.value = fileStore.files[0]?.id ?? selectedFileId.value
-  wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
-  input.value = ''
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    await fileStore.upload(file)
+    selectedFileId.value = fileStore.files[0]?.id ?? selectedFileId.value
+    wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
+    input.value = ''
+  } catch (error) {
+    setPageError(error, async () => {
+      await fileStore.upload(file)
+      selectedFileId.value = fileStore.files[0]?.id ?? selectedFileId.value
+      wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
+    })
+  }
 }
 
 async function importSelectedFileToDataset() {
   if (!selectedFile.value) {
     return
   }
-  await difyStore.importFileToSelectedDataset(selectedFile.value, {
-    chunkSize: maxChunkLength.value,
-    overlap: overlapLength.value,
-    mode: segmentMode.value,
-  })
-  viewMode.value = 'documents'
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    await difyStore.importFileToSelectedDataset(selectedFile.value, {
+      chunkSize: maxChunkLength.value,
+      overlap: overlapLength.value,
+      mode: segmentMode.value,
+      delimiter: chunkDelimiter.value,
+      cleanSpaces: cleanSpaces.value,
+      cleanUrls: cleanUrls.value,
+    })
+    viewMode.value = 'documents'
+  } catch (error) {
+    setPageError(error, importSelectedFileToDataset)
+  }
 }
 
 async function deleteSelectedDataset() {
@@ -307,16 +383,29 @@ async function deleteSelectedDataset() {
   try {
     await difyStore.deleteDataset(dataset.id)
     viewMode.value = 'datasets'
+  } catch (error) {
+    setPageError(error, deleteSelectedDataset)
   } finally {
     deletingDatasetId.value = ''
   }
 }
 
-onMounted(async () => {
-  await Promise.all([difyStore.loadSurface(), fileStore.loadFiles()])
-  selectedFileId.value = importableFiles.value[0]?.id ?? ''
-  await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
-})
+async function loadPage() {
+  pageLoading.value = true
+  pageError.value = ''
+  lastRetry.value = null
+  try {
+    await Promise.all([difyStore.loadSurface(), fileStore.loadFiles()])
+    selectedFileId.value = importableFiles.value[0]?.id ?? ''
+    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
+  } catch (error) {
+    setPageError(error, loadPage)
+  } finally {
+    pageLoading.value = false
+  }
+}
+
+onMounted(loadPage)
 
 </script>
 
@@ -331,7 +420,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="flex shrink-0 items-center gap-2">
-        <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateFlow()">
+        <button data-action="create-knowledge" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateFlow()">
           <Plus class="h-4 w-4" />
           {{ t('knowledge.flow.createKnowledge') }}
         </button>
@@ -339,6 +428,30 @@ onMounted(async () => {
     </header>
 
     <main class="min-h-0 overflow-hidden bg-white px-4 sm:px-5 lg:px-6">
+      <div v-if="pageLoading" class="flex h-full items-center justify-center p-8">
+        <div class="flex items-center gap-2 text-sm text-text-muted">
+          <Loader2 class="h-4 w-4 animate-spin text-primary" />
+          {{ t('common.loading') }}
+        </div>
+      </div>
+
+      <div v-else-if="pageError" class="flex h-full items-center justify-center p-8">
+        <div class="w-full max-w-lg rounded-lg border border-status-error/30 bg-red-50 p-5 text-center">
+          <p role="alert" class="text-sm font-medium text-status-error">{{ pageError }}</p>
+          <button
+            data-action="retry-knowledge"
+            type="button"
+            class="mt-4 inline-flex items-center gap-2 rounded-md border border-status-error/30 bg-white px-3 py-2 text-sm font-medium text-status-error disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="retrying"
+            @click="retryLastAction"
+          >
+            <Loader2 v-if="retrying" class="h-4 w-4 animate-spin" />
+            {{ retrying ? t('common.loading') : t('common.retry') }}
+          </button>
+        </div>
+      </div>
+
+      <template v-else>
       <section v-if="viewMode === 'datasets'" class="grid h-full min-h-0 lg:grid-cols-[312px_minmax(0,1fr)]">
         <aside class="min-h-0 overflow-y-auto border-r border-app-border bg-app-bg2 p-4">
           <div class="space-y-3">
@@ -506,6 +619,7 @@ onMounted(async () => {
                 </select>
               </label>
               <button
+                data-action="next-source"
                 type="button"
                 class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
                 :disabled="!selectedFile"
@@ -637,6 +751,7 @@ onMounted(async () => {
                     {{ t('knowledge.flow.previousStep') }}
                   </button>
                   <button
+                    data-action="save-knowledge"
                     type="button"
                     class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="!selectedFile"
@@ -705,7 +820,17 @@ onMounted(async () => {
                     <div class="h-3 rounded-full bg-primary transition-[width]" :style="{ width: `${processingProgress}%` }" />
                   </div>
                   <div class="mt-2 text-right text-xs font-medium text-text-secondary">{{ processingProgress }}%</div>
-                  <p v-if="processingError" role="alert" class="mt-3 text-sm text-status-error">{{ processingError }}</p>
+                  <div v-if="processingError" class="mt-3 flex flex-wrap items-center gap-3">
+                    <p role="alert" class="text-sm text-status-error">{{ processingError }}</p>
+                    <button
+                      data-action="retry-processing"
+                      type="button"
+                      class="rounded-md border border-status-error/30 bg-white px-3 py-1.5 text-sm font-medium text-status-error"
+                      @click="saveAndProcess"
+                    >
+                      {{ t('common.retry') }}
+                    </button>
+                  </div>
                 </div>
 
                 <dl class="mt-6 grid gap-3 text-sm md:grid-cols-2">
@@ -865,14 +990,15 @@ onMounted(async () => {
           <section class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
             <article class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <p class="text-sm font-semibold text-text-primary">{{ t('knowledge.retrievalTest') }}</p>
-              <form class="mt-4 flex gap-2" @submit.prevent="difyStore.runRetrievalTest(retrievalQuery, topK)">
+              <form class="mt-4 flex gap-2" @submit.prevent="runRetrievalTest">
                 <input
                   v-model="retrievalQuery"
                   class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-primary/50"
                   :placeholder="t('knowledge.queryPlaceholder')"
                 />
-                <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white">
-                  {{ t('common.search') }}
+                <button type="submit" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" :disabled="retrievalLoading">
+                  <Loader2 v-if="retrievalLoading" class="h-4 w-4 animate-spin" />
+                  {{ retrievalLoading ? t('common.loading') : t('common.search') }}
                 </button>
               </form>
               <div class="mt-4 space-y-2 font-mono text-xs leading-6">
@@ -910,6 +1036,7 @@ onMounted(async () => {
           </section>
         </section>
       </section>
+      </template>
     </main>
   </section>
 </template>

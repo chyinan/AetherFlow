@@ -11,7 +11,8 @@ export interface SseMessage {
 export type RealtimeConnectionState = 'online' | 'reconnecting' | 'offline'
 
 export interface SseClientOptions {
-  url: string
+  url: string | (() => string | Promise<string>)
+  refreshOnUnauthorized?: boolean
   idleTimeoutMs?: number
   reconnectBaseMs?: number
   reconnectMaxMs?: number
@@ -288,7 +289,8 @@ export function createSseClient(options: SseClientOptions): SseConnection {
         headers['Last-Event-ID'] = lastEventId
       }
 
-      const response = await fetch(options.url, {
+      const requestUrl = typeof options.url === 'function' ? await options.url() : options.url
+      const response = await fetch(requestUrl, {
         method: 'GET',
         headers,
         signal: controller.signal,
@@ -310,7 +312,10 @@ export function createSseClient(options: SseClientOptions): SseConnection {
     } catch (error) {
       if (!closed) {
         options.onError?.(error)
-        if (isRetryableSseError(error)) {
+        const shouldRefreshUnauthorized = options.refreshOnUnauthorized === true
+          && error instanceof SseHttpError
+          && (error.status === 401 || error.status === 403)
+        if (isRetryableSseError(error) || shouldRefreshUnauthorized) {
           scheduleReconnect()
         } else {
           options.onConnectionChange?.('offline')

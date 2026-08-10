@@ -10,6 +10,7 @@ public record WorkflowRuntimeRequest(
         String workflowId,
         String traceId,
         String taskId,
+        Long definitionId,
         WorkflowDefinitionDTO definition,
         Map<String, Object> variables,
         RetryPolicy retryPolicy
@@ -22,6 +23,15 @@ public record WorkflowRuntimeRequest(
         definition = Objects.requireNonNull(definition, "definition must not be null");
         variables = variables == null ? Map.of() : Map.copyOf(variables);
         retryPolicy = retryPolicy == null ? RetryPolicy.none() : retryPolicy;
+    }
+
+    public WorkflowRuntimeRequest(String workflowId,
+                                  String traceId,
+                                  String taskId,
+                                  WorkflowDefinitionDTO definition,
+                                  Map<String, Object> variables,
+                                  RetryPolicy retryPolicy) {
+        this(workflowId, traceId, taskId, null, definition, variables, retryPolicy);
     }
 
     private static String requireText(String value, String fieldName) {

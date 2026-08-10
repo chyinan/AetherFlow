@@ -31,4 +31,14 @@ public class InMemoryRuntimeSnapshotRepository implements RuntimeSnapshotReposit
                 .limit(maxResults)
                 .toList();
     }
+
+    @Override
+    public List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
+        int maxResults = Math.max(1, limit);
+        return snapshots.values().stream()
+                .filter(snapshot -> !snapshot.recoverable())
+                .sorted(Comparator.comparing(WorkflowRuntimeSnapshot::updatedAt))
+                .limit(maxResults)
+                .toList();
+    }
 }

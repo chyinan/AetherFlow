@@ -11,6 +11,7 @@ import com.aetherflow.file.exception.UploadException;
 import com.aetherflow.file.mapper.FileInfoMapper;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetMetadataView;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
+import com.aetherflow.file.model.FileClassificationUpdateRequest;
 import com.aetherflow.file.model.FileMetricsResponse;
 import com.aetherflow.file.model.FileStatusResponse;
 import com.aetherflow.file.model.FileUploadProfile;
@@ -25,14 +26,15 @@ import com.aetherflow.file.service.FileUploadGuardService;
 import com.aetherflow.file.service.MinioHealthService;
 import com.aetherflow.file.support.FileLogContext;
 import io.minio.BucketExistsArgs;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
-import io.minio.SetBucketPolicyArgs;
 import io.minio.errors.ErrorResponseException;
+import io.minio.http.Method;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +49,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 @Slf4j
@@ -66,6 +69,7 @@ public class FileInfoServiceImpl implements FileInfoService {
     private static final String WORKFLOW_EXPORT_PREFIX = "workflow/exports/";
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    private static final int SIGNED_URL_EXPIRY_MINUTES = 15;
 
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
@@ -554,15 +558,15 @@ public class FileInfoServiceImpl implements FileInfoService {
                 String.valueOf(fileInfo.getId()),
                 name,
                 fileInfo.getOriginalName(),
-                inferSource(fileInfo.getObjectKey()).equals(SOURCE_ARTIFACT) ? SOURCE_ARTIFACT : inferType(mime, name),
-                inferSource(fileInfo.getObjectKey()),
-                inferArtifactKind(fileInfo.getObjectKey(), name),
+                effectiveSource(fileInfo).equals(SOURCE_ARTIFACT) ? SOURCE_ARTIFACT : inferType(mime, name),
+                effectiveSource(fileInfo),
+                effectiveSource(fileInfo).equals(SOURCE_ARTIFACT) ? effectiveArtifactKind(fileInfo, name) : DEFAULT_ARTIFACT_KIND,
                 fileInfo.getFileSize(),
                 mime,
                 FRONTEND_STATUS_READY,
-                null,
+                effectiveWorkflowId(fileInfo),
                 "File ready",
-                fileInfo.getFileUrl(),
+                "/files/" + fileInfo.getId() + "/download",
                 fileInfo.getObjectKey(),
                 fileInfo.getCreatedAt(),
                 fileInfo.getUpdatedAt()
@@ -591,6 +595,30 @@ public class FileInfoServiceImpl implements FileInfoService {
 
     private String inferSource(String objectKey) {
         return isWorkflowExport(objectKey) ? SOURCE_ARTIFACT : DEFAULT_SOURCE;
+    }
+
+    private String effectiveSource(FileInfo fileInfo) {
+        String persisted = normalize(fileInfo.getSource());
+        return persisted == null ? inferSource(fileInfo.getObjectKey()) : persisted;
+    }
+
+    private String effectiveArtifactKind(FileInfo fileInfo, String name) {
+        String persisted = normalize(fileInfo.getArtifactKind());
+        return persisted == null ? inferArtifactKind(fileInfo.getObjectKey(), name) : persisted;
+    }
+
+    private String effectiveWorkflowId(FileInfo fileInfo) {
+        if (StringUtils.hasText(fileInfo.getWorkflowId())) {
+            return fileInfo.getWorkflowId();
+        }
+        String objectKey = fileInfo.getObjectKey();
+        String prefix = WORKFLOW_EXPORT_PREFIX + "/";
+        if (!StringUtils.hasText(objectKey) || !objectKey.startsWith(prefix)) {
+            return null;
+        }
+        String remainder = objectKey.substring(prefix.length());
+        int separator = remainder.indexOf('/');
+        return separator > 0 ? remainder.substring(0, separator) : null;
     }
 
     private String inferArtifactKind(String objectKey, String name) {
@@ -677,26 +705,30 @@ public class FileInfoServiceImpl implements FileInfoService {
         if (!exists) {
             minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
         }
-        minioClient.setBucketPolicy(SetBucketPolicyArgs.builder()
-                .bucket(bucket)
-                .config(publicReadPolicy(bucket))
-                .build());
     }
 
-    private String publicReadPolicy(String bucket) {
-        return """
-                {
-                  "Version": "2012-10-17",
-                  "Statement": [
-                    {
-                      "Effect": "Allow",
-                      "Principal": {"AWS": ["*"]},
-                      "Action": ["s3:GetObject"],
-                      "Resource": ["arn:aws:s3:::%s/*"]
-                    }
-                  ]
-                }
-                """.formatted(bucket);
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileAssetMetadataView updateClassification(Long userId, Long fileId, FileClassificationUpdateRequest request) {
+        requireUserId(userId);
+        FileInfo fileInfo = getAvailableFile(fileId);
+        checkFileOwner(userId, fileInfo);
+        String source = normalize(request == null ? null : request.getSource());
+        String artifactKind = normalize(request == null ? null : request.getArtifactKind());
+        if (!DEFAULT_SOURCE.equals(source) && !SOURCE_ARTIFACT.equals(source)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file source is invalid");
+        }
+        if (unsupportedArtifactKind(artifactKind)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file artifact kind is invalid");
+        }
+        fileInfo.setSource(source);
+        fileInfo.setArtifactKind(StringUtils.hasText(artifactKind)
+                ? artifactKind
+                : source.equals(DEFAULT_SOURCE) ? DEFAULT_ARTIFACT_KIND : inferArtifactKind(fileInfo.getObjectKey(), fileInfo.getOriginalName()));
+        fileInfo.setWorkflowId(normalize(request == null ? null : request.getWorkflowId()));
+        fileInfo.setUpdatedAt(LocalDateTime.now());
+        fileInfoMapper.updateById(fileInfo);
+        return toAsset(fileInfo);
     }
 
     private String buildObjectKey(String sha256, String extension) {
@@ -812,8 +844,21 @@ public class FileInfoServiceImpl implements FileInfoService {
                 fileInfo.getOriginalName(),
                 resolveContentType(resolveMimeType(fileInfo)),
                 fileInfo.getFileSize(),
-                fileInfo.getFileUrl()
+                signedDownloadUrl(fileInfo)
         );
+    }
+
+    private String signedDownloadUrl(FileInfo fileInfo) {
+        try {
+            return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(Method.GET)
+                    .bucket(fileInfo.getBucket())
+                    .object(fileInfo.getObjectKey())
+                    .expiry(SIGNED_URL_EXPIRY_MINUTES, TimeUnit.MINUTES)
+                    .build());
+        } catch (Exception exception) {
+            throw new StorageException("failed to issue signed file download URL");
+        }
     }
 
     private boolean isMinioNotFound(ErrorResponseException exception) {

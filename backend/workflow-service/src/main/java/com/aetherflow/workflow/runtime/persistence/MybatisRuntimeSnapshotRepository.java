@@ -70,6 +70,19 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
                 .toList();
     }
 
+    @Override
+    public List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
+        int maxResults = Math.max(1, limit);
+        return mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                        .in(WorkflowRuntimeSnapshotEntity::getRuntimeState,
+                                RuntimeState.SUCCESS.name(), RuntimeState.FAILED.name(), RuntimeState.CANCELLED.name())
+                        .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
+                        .last("LIMIT " + maxResults))
+                .stream()
+                .map(this::toSnapshot)
+                .toList();
+    }
+
     private WorkflowRuntimeSnapshotEntity toEntity(WorkflowRuntimeSnapshot snapshot,
                                                    WorkflowRuntimeSnapshotEntity existing) {
         LocalDateTime now = LocalDateTime.now();

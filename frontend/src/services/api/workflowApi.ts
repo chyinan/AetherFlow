@@ -132,6 +132,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   OCR: 'document-extractor',
   EMBEDDING: 'embedding',
   KNOWLEDGE_RETRIEVAL: 'knowledge-retrieval',
+  NOTIFY: 'notify',
   EXPORT: 'export',
   END: 'output',
   AGENT: 'agent',
@@ -315,7 +316,7 @@ function backendConnections(config: Record<string, unknown> = {}): Array<Backend
   return [...branchConnections, ...sequentialConnections]
 }
 
-function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
+export function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
   const nodeIds = new Set(nodes.map((node) => node.nodeId).filter(Boolean))
   const graphNodes = nodes.map<WorkflowGraphNode>((node, index) => {
     const nodeType = stringOr(node.nodeType, '').toUpperCase()

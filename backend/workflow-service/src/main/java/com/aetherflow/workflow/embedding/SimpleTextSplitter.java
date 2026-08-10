@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Component
 public class SimpleTextSplitter implements TextSplitter {
@@ -28,6 +29,37 @@ public class SimpleTextSplitter implements TextSplitter {
             }
             start = end - overlap;
             chunkIndex++;
+        }
+        return List.copyOf(chunks);
+    }
+
+    public List<TextChunk> split(String text, int chunkSize, int overlap, String delimiter) {
+        validate(chunkSize, overlap);
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        String normalized = text.strip();
+        if (delimiter == null || delimiter.isBlank()) {
+            return split(normalized, chunkSize, overlap);
+        }
+        String resolvedDelimiter = delimiter
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t");
+        if (resolvedDelimiter.isEmpty()) {
+            return split(normalized, chunkSize, overlap);
+        }
+        List<TextChunk> chunks = new ArrayList<>();
+        int offset = 0;
+        int chunkIndex = 0;
+        for (String section : normalized.split(Pattern.quote(resolvedDelimiter), -1)) {
+            String trimmed = section.strip();
+            if (!trimmed.isEmpty()) {
+                for (TextChunk chunk : split(trimmed, chunkSize, overlap)) {
+                    chunks.add(new TextChunk(chunk.text(), chunkIndex++, offset + chunk.startOffset(), offset + chunk.endOffset()));
+                }
+            }
+            offset += section.length() + resolvedDelimiter.length();
         }
         return List.copyOf(chunks);
     }

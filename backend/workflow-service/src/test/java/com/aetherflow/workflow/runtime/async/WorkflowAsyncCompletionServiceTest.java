@@ -84,33 +84,30 @@ class WorkflowAsyncCompletionServiceTest {
     }
 
     @Test
-    void recordsRejectedHumanApprovalAsNormalNodeOutput() {
+    void rejectsHumanApprovalByDefaultInsteadOfContinuingAsSuccess() {
         RuntimeSnapshotRepository repository = mock(RuntimeSnapshotRepository.class);
         WorkflowRuntimeEngine engine = mock(WorkflowRuntimeEngine.class);
         WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
         WorkflowAsyncCompletionService service = new WorkflowAsyncCompletionService(
                 repository, engine, new WorkflowRuntimeProperties(), instanceMapper);
         WorkflowRuntimeSnapshot waiting = humanWaitingSnapshot();
-        WorkflowExecutionSnapshot completed = new WorkflowExecutionSnapshot(
-                "101", "trace-101", "101", RuntimeState.SUCCESS, "node-end",
-                Map.of("approved", false, "comment", "needs revision"), Map.of(),
-                List.of("node-human", "node-end"));
+        WorkflowExecutionSnapshot failed = new WorkflowExecutionSnapshot(
+                "101", "trace-101", "101", RuntimeState.FAILED, "node-human",
+                List.of(), Map.of("approved", false), Map.of(),
+                List.of(), List.of("node-human"));
         when(repository.findByWorkflowId("101")).thenReturn(Optional.of(waiting));
-        when(engine.completeWaitingNode(any(WorkflowRuntimeRequest.class),
+        when(engine.failWaitingNode(any(WorkflowRuntimeRequest.class),
                 eq(waiting.toExecutionSnapshot()), eq("node-human"),
-                org.mockito.ArgumentMatchers.argThat(result -> result.successful()
-                        && !result.waiting()
-                        && Boolean.FALSE.equals(result.output().get("approved"))
-                        && "rejected".equals(result.output().get("approvalStatus")))))
-                .thenReturn(completed);
+                eq("human approval rejected: needs revision"))).thenReturn(failed);
 
         WorkflowExecutionSnapshot result = service.completeApproval(
                 101L, "node-human",
                 new HumanApprovalRequest(false, "needs revision", "ops", "webapp"));
 
-        assertThat(result.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
-        verify(engine).completeWaitingNode(any(WorkflowRuntimeRequest.class),
-                eq(waiting.toExecutionSnapshot()), eq("node-human"), any(NodeResult.class));
+        assertThat(result.runtimeState()).isEqualTo(RuntimeState.FAILED);
+        verify(engine).failWaitingNode(any(WorkflowRuntimeRequest.class),
+                eq(waiting.toExecutionSnapshot()), eq("node-human"),
+                eq("human approval rejected: needs revision"));
         verify(repository).save(any(WorkflowRuntimeSnapshot.class));
     }
 

@@ -74,6 +74,131 @@ class WorkflowRuntimeEngineTest {
     }
 
     @Test
+    void executesIterationBodyForEachItemAndCollectsResults() {
+        AtomicInteger bodyExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("TRANSFORM", context -> {
+                    bodyExecutions.incrementAndGet();
+                    String item = String.valueOf(context.variables().get("item"));
+                    return NodeResult.success(
+                            Map.of("value", item.toUpperCase()),
+                            Map.of("transformed", item.toUpperCase()));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+        WorkflowNodeDTO iteration = node("iteration", "ITERATION", Map.of(
+                "inputVariable", "items",
+                "itemVariable", "item",
+                "outputVariable", "results",
+                "maxIterations", 2,
+                "bodyNodes", List.of(Map.of(
+                        "nodeId", "transform",
+                        "nodeType", "TRANSFORM",
+                        "config", Map.of()
+                ))
+        ));
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-iteration-body", "trace-iteration-body", "task-iteration-body",
+                definition(iteration),
+                Map.of("items", List.of("a", "b", "c")), RetryPolicy.none()));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(bodyExecutions).hasValue(2);
+        assertThat(snapshot.variables().get("results")).isEqualTo(List.of(
+                Map.of("item", "a", "variables", Map.of("transformed", "A")),
+                Map.of("item", "b", "variables", Map.of("transformed", "B"))
+        ));
+    }
+
+    @Test
+    void executesLoopBodyUntilStopConditionAndKeepsLoopBounded() {
+        AtomicInteger bodyExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("INCREMENT", context -> {
+                    bodyExecutions.incrementAndGet();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> state = (Map<String, Object>) context.variables().get("state");
+                    int count = ((Number) state.get("count")).intValue() + 1;
+                    Map<String, Object> nextState = Map.of("count", count, "done", count >= 3);
+                    return NodeResult.success(Map.of("state", nextState), Map.of("state", nextState));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+        WorkflowNodeDTO loop = node("loop", "LOOP", Map.of(
+                "inputVariable", "state",
+                "outputVariable", "state",
+                "stopWhen", "done",
+                "maxIterations", 5,
+                "bodyNodes", List.of(Map.of(
+                        "nodeId", "increment",
+                        "nodeType", "INCREMENT",
+                        "config", Map.of()
+                ))
+        ));
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-loop-body", "trace-loop-body", "task-loop-body",
+                definition(loop),
+                Map.of("state", Map.of("count", 0, "done", false)), RetryPolicy.none()));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(bodyExecutions).hasValue(3);
+        assertThat(snapshot.variables().get("state")).isEqualTo(Map.of("count", 3, "done", true));
+    }
+
+    @Test
+    void executesNestedControlNodesInsideAnIterationBody() {
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("INCREMENT", context -> {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> state = (Map<String, Object>) context.variables().get("state");
+                    int count = ((Number) state.get("count")).intValue() + 1;
+                    Map<String, Object> nextState = Map.of("count", count, "done", count >= 2);
+                    return NodeResult.success(Map.of("state", nextState), Map.of("state", nextState));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+        WorkflowNodeDTO iteration = node("iteration", "ITERATION", Map.of(
+                "inputVariable", "items",
+                "itemVariable", "state",
+                "outputVariable", "results",
+                "maxIterations", 2,
+                "bodyNodes", List.of(Map.of(
+                        "nodeId", "loop",
+                        "nodeType", "LOOP",
+                        "config", Map.of(
+                                "inputVariable", "state",
+                                "outputVariable", "state",
+                                "stopWhen", "done",
+                                "maxIterations", 3,
+                                "bodyNodes", List.of(Map.of(
+                                        "nodeId", "increment",
+                                        "nodeType", "INCREMENT",
+                                        "config", Map.of()
+                                ))
+                        )
+                ))
+        ));
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-nested-control", "trace-nested-control", "task-nested-control",
+                definition(iteration),
+                Map.of("items", List.of(
+                        Map.of("count", 0, "done", false),
+                        Map.of("count", 1, "done", false)
+                )), RetryPolicy.none()));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.variables().get("results")).isEqualTo(List.of(
+                Map.of("item", Map.of("count", 0, "done", false),
+                        "variables", Map.of("state", Map.of("count", 2, "done", true))),
+                Map.of("item", Map.of("count", 1, "done", false),
+                        "variables", Map.of("state", Map.of("count", 2, "done", true)))
+        ));
+    }
+
+    @Test
     void reloadsLatestWaitingSnapshotWhenParallelExternalResultsUseSameInitialSnapshot() {
         NodeRegistry registry = new NodeRegistry(List.of(
                 executor("START", context -> NodeResult.success(Map.of())),

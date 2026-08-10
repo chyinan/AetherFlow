@@ -14,6 +14,10 @@ import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.project.mapper.WorkspaceMapper;
 import com.aetherflow.workflow.project.service.impl.ProjectWorkspaceServiceImpl;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
+import com.aetherflow.workflow.entity.WorkflowDefinition;
+import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +37,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 class ProjectWorkspaceServiceImplTest {
@@ -161,6 +166,34 @@ class ProjectWorkspaceServiceImplTest {
     }
 
     @Test
+    void aggregatesProjectWorkflowAndRunSummaryFromWorkflowTables() {
+        WorkflowDefinitionMapper definitionMapper = mock(WorkflowDefinitionMapper.class);
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        ProjectWorkspaceServiceImpl aggregateService = new ProjectWorkspaceServiceImpl(
+                projectMapper, workspaceMapper, definitionMapper, instanceMapper);
+        WorkflowDefinition first = definition(11L, "Media digest", "ENABLED", 7L,
+                LocalDateTime.parse("2026-08-10T10:00:00"));
+        WorkflowDefinition second = definition(12L, "Notify owner", "ENABLED", 7L,
+                LocalDateTime.parse("2026-08-09T10:00:00"));
+        when(projectMapper.selectById(7L)).thenReturn(project());
+        when(definitionMapper.selectList(any())).thenReturn(List.of(first, second));
+        when(instanceMapper.selectList(any())).thenReturn(List.of(
+                instance(101L, 11L, "RUNNING", "2026-08-10T11:00:00"),
+                instance(102L, 11L, "RETRYING", "2026-08-10T11:05:00"),
+                instance(103L, 12L, "SUCCESS", "2026-08-10T09:00:00")));
+
+        ProjectStats stats = asUser(7L, () -> aggregateService.getProjectStats(7L));
+        ProjectSummary summary = asUser(7L, () -> aggregateService.getProject(7L));
+
+        assertThat(stats.workflowCount()).isEqualTo(2);
+        assertThat(stats.activeRunCount()).isEqualTo(2);
+        assertThat(stats.queueDepth()).isEqualTo(1);
+        assertThat(stats.lastRunStatus()).isEqualTo("retrying");
+        assertThat(summary.workflows()).extracting(item -> item.id()).containsExactly("11", "12");
+        assertThat(summary.workflowCount()).isEqualTo(2);
+    }
+
+    @Test
     void throwsNotFoundWhenProjectIsMissing() {
         when(projectMapper.selectById(404L)).thenReturn(null);
 
@@ -219,6 +252,27 @@ class ProjectWorkspaceServiceImplTest {
         project.setStatus("ACTIVE");
         project.setUpdatedAt(LocalDateTime.parse("2026-05-29T10:00:00"));
         return project;
+    }
+
+    private static WorkflowDefinition definition(Long id, String name, String status, Long projectId, LocalDateTime updatedAt) {
+        WorkflowDefinition definition = new WorkflowDefinition();
+        definition.setId(id);
+        definition.setName(name);
+        definition.setStatus(status);
+        definition.setProjectId(projectId);
+        definition.setOwnerUserId(7L);
+        definition.setUpdatedAt(updatedAt);
+        return definition;
+    }
+
+    private static WorkflowInstance instance(Long id, Long definitionId, String status, String updatedAt) {
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(id);
+        instance.setDefinitionId(definitionId);
+        instance.setUserId(7L);
+        instance.setStatus(status);
+        instance.setUpdatedAt(LocalDateTime.parse(updatedAt));
+        return instance;
     }
 
     private static <T> T asUser(Long userId, Supplier<T> action) {

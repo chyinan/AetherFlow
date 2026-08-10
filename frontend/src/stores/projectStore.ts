@@ -6,20 +6,21 @@ import { workflowApi } from '@/services/api/workflowApi'
 import type { ProjectSummary } from '@/types/project'
 import type { WorkflowSummary } from '@/types/workflow'
 import { formatDateTime } from '@/utils/localeFormat'
+import { tokenManager } from '@/api/client/tokenManager'
 
-import { useDifyStore } from './difyStore'
 import { useFileStore } from './fileStore'
 import { useRunStore } from './runStore'
 
 const PROJECT_WORKFLOW_LINKS_STORAGE_KEY = 'aetherflow.project.workflowLinks'
 
-function normalizeMatchText(value: string | undefined) {
-  return (value ?? '').toLowerCase().replace(/[\s_-]+/g, '')
+function projectWorkflowLinksStorageKey() {
+  const user = tokenManager.readSession()?.user as ({ userId?: unknown; id?: unknown } | undefined)
+  return `${PROJECT_WORKFLOW_LINKS_STORAGE_KEY}.${String(user?.userId ?? user?.id ?? 'anonymous')}`
 }
 
 function readProjectWorkflowLinks() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(PROJECT_WORKFLOW_LINKS_STORAGE_KEY) ?? '{}') as unknown
+    const parsed = JSON.parse(localStorage.getItem(projectWorkflowLinksStorageKey()) ?? '{}') as unknown
     if (typeof parsed === 'object' && parsed !== null) {
       return parsed as Record<string, string[]>
     }
@@ -31,7 +32,7 @@ function readProjectWorkflowLinks() {
 
 function writeProjectWorkflowLinks(links: Record<string, string[]>) {
   try {
-    localStorage.setItem(PROJECT_WORKFLOW_LINKS_STORAGE_KEY, JSON.stringify(links))
+    localStorage.setItem(projectWorkflowLinksStorageKey(), JSON.stringify(links))
   } catch {
     // Project workflow links are convenience metadata; failed writes must not block backend CRUD.
   }
@@ -42,35 +43,21 @@ function linkedWorkflowIds(projectId: string) {
 }
 
 function projectWorkflowMatch(project: ProjectSummary, workflow: WorkflowSummary) {
-  const projectName = normalizeMatchText(project.name)
-  const workflowName = normalizeMatchText(workflow.name)
-  const workflowDescription = normalizeMatchText(workflow.description)
-
-  if (!projectName || !workflowName) {
-    return false
-  }
-
-  return workflowName.includes(projectName)
-    || projectName.includes(workflowName)
-    || workflowDescription.includes(projectName)
+  return workflow.projectId !== undefined && String(workflow.projectId) === String(project.id)
 }
 
 function inferredProjectWorkflows(project: ProjectSummary, workflows: WorkflowSummary[]) {
-  if (project.workflows.length > 0) {
-    return project.workflows
+  const explicitProjectWorkflows = workflows.filter((workflow) => projectWorkflowMatch(project, workflow))
+  if (explicitProjectWorkflows.length > 0) {
+    return explicitProjectWorkflows
   }
 
   const linkedIds = linkedWorkflowIds(project.id)
-  return workflows.filter((workflow) =>
-    linkedIds.has(workflow.id) || projectWorkflowMatch(project, workflow),
-  )
+  return linkedIds.size > 0 ? workflows.filter((workflow) => linkedIds.has(workflow.id)) : project.workflows
 }
 
 function fileMatchesWorkflow(file: { workflowId?: string; workflowName?: string; objectKey?: string }, workflow: WorkflowSummary) {
   if (file.workflowId && String(file.workflowId) === String(workflow.id)) {
-    return true
-  }
-  if (file.workflowName && normalizeMatchText(file.workflowName).includes(normalizeMatchText(workflow.name))) {
     return true
   }
   const objectKey = String(file.objectKey ?? '')
@@ -84,7 +71,6 @@ function exportRuntimeWorkflowId(file: { objectKey?: string }) {
 
 function fileMatchesProjectRun(
   file: { objectKey?: string },
-  project: ProjectSummary,
   runs: ReturnType<typeof useRunStore>['runs'],
 ) {
   const runtimeWorkflowId = exportRuntimeWorkflowId(file)
@@ -100,13 +86,7 @@ function fileMatchesProjectRun(
     if (!matchesRuntime) {
       return false
     }
-    return projectWorkflowMatch(project, {
-      id: run.workflowId,
-      name: run.workflowName,
-      updatedAt: run.startedAt,
-      status: run.status === 'running' ? 'running' : run.status === 'queued' ? 'draft' : 'ready',
-      backendDefinitionId: run.definitionId,
-    })
+    return true
   })
 }
 
@@ -136,22 +116,18 @@ export const useProjectStore = defineStore('project', {
       const workflowIds = new Set(workflows.map((workflow) => workflow.id))
       const runStore = useRunStore()
       const fileStore = useFileStore()
-      const difyStore = useDifyStore()
       const runs = runStore.runs.filter((run) => workflowIds.has(run.workflowId))
       const knowledgeCount = project.knowledgeCount > 0
         ? project.knowledgeCount
-        : (project.name.includes('会议') ? difyStore.datasets.length : 0)
+        : 0
       const files = fileStore.files.filter((file) => {
         if (workflows.some((workflow) => fileMatchesWorkflow(file, workflow))) {
           return true
         }
-        if (fileMatchesProjectRun(file, project, runStore.runs)) {
+        if (fileMatchesProjectRun(file, runs)) {
           return true
         }
-        return !file.workflowId
-          && !file.objectKey?.startsWith('workflow/exports/')
-          && Boolean(file.workflowName)
-          && normalizeMatchText(file.workflowName).includes(normalizeMatchText(project.name))
+        return false
       })
       const hasRuntimeRuns = runStore.runs.length > 0
       const hasRuntimeFiles = fileStore.files.length > 0

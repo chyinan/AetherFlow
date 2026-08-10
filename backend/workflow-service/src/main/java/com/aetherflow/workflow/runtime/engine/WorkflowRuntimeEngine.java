@@ -1,6 +1,7 @@
 package com.aetherflow.workflow.runtime.engine;
 
 import com.aetherflow.common.dto.WorkflowNodeDTO;
+import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.runtime.api.NodeExecutor;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeResult;
@@ -26,7 +27,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +47,9 @@ import java.util.function.Supplier;
 
 @Slf4j
 public class WorkflowRuntimeEngine {
+
+    private static final int MAX_NESTED_ITERATIONS = 1_000;
+    private static final int MAX_NESTED_BODY_NODES = 100;
 
     private final NodeRegistry nodeRegistry;
     private final RuntimeStateMachine stateMachine;
@@ -446,13 +452,248 @@ public class WorkflowRuntimeEngine {
                                       String nodeId) {
         WorkflowNodeDTO node = dag.node(nodeId);
         context.updateCurrentNodeId(nodeId);
-        NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
         RuntimeLogContext.run(context, nodeId,
                 () -> log.info("workflow node started, nodeType={}", node.getNodeType()));
         publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
         NodeResult result = RuntimeLogContext.supply(context, nodeId,
-                () -> executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType()));
+                () -> {
+                    if (hasNestedBody(node)) {
+                        return executeNestedControlNode(request, context, node);
+                    }
+                    NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(node.getNodeType()));
+                    return executeNodeWithRetry(executor, context, request, nodeId, node.getNodeType());
+                });
         return new NodeExecution(nodeId, node.getNodeType(), result);
+    }
+
+    private boolean hasNestedBody(WorkflowNodeDTO node) {
+        if (!("ITERATION".equalsIgnoreCase(node.getNodeType())
+                || "LOOP".equalsIgnoreCase(node.getNodeType()))) {
+            return false;
+        }
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        return config.containsKey("bodyNodes") && config.get("bodyNodes") != null;
+    }
+
+    private NodeResult executeNestedControlNode(WorkflowRuntimeRequest request,
+                                                DefaultWorkflowContext context,
+                                                WorkflowNodeDTO controlNode) {
+        Map<String, Object> config = controlNode.getConfig() == null ? Map.of() : controlNode.getConfig();
+        List<WorkflowNodeDTO> bodyNodes = nestedBodyNodes(config.get("bodyNodes"), controlNode.getNodeId());
+        if (bodyNodes.isEmpty()) {
+            NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(controlNode.getNodeType()));
+            return executeNodeWithRetry(executor, context, request, controlNode.getNodeId(), controlNode.getNodeType());
+        }
+        if ("ITERATION".equalsIgnoreCase(controlNode.getNodeType())) {
+            return executeNestedIteration(request, context, controlNode, config, bodyNodes);
+        }
+        return executeNestedLoop(request, context, controlNode, config, bodyNodes);
+    }
+
+    private NodeResult executeNestedIteration(WorkflowRuntimeRequest request,
+                                              DefaultWorkflowContext context,
+                                              WorkflowNodeDTO controlNode,
+                                              Map<String, Object> config,
+                                              List<WorkflowNodeDTO> bodyNodes) {
+        String inputVariable = textValue(config.get("inputVariable"), "items");
+        String itemVariable = textValue(config.get("itemVariable"), "item");
+        String outputVariable = textValue(config.get("outputVariable"), "iterationItems");
+        List<Object> items = listValue(config.containsKey("input") ? config.get("input") : context.variables().get(inputVariable));
+        int requestedLimit = integerValue(config.get("maxIterations"), items.size());
+        int limit = boundedCount(requestedLimit);
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (int index = 0; index < Math.min(items.size(), limit); index++) {
+            Object item = items.get(index);
+            Map<String, Object> variables = new LinkedHashMap<>(context.variables());
+            variables.put(itemVariable, item);
+            variables.put("iterationIndex", index);
+            Map<String, Object> bodyVariables = executeNestedBody(
+                    request, context, controlNode, bodyNodes, variables,
+                    "iteration-" + index);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("item", item);
+            result.put("variables", Map.copyOf(bodyVariables));
+            results.add(Map.copyOf(result));
+        }
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("items", items.subList(0, Math.min(items.size(), limit)));
+        output.put("results", results);
+        output.put("count", results.size());
+        output.put("truncated", results.size() < items.size());
+        return new NodeResult(true, false, output, Map.of(outputVariable, List.copyOf(results)), null, null);
+    }
+
+    private NodeResult executeNestedLoop(WorkflowRuntimeRequest request,
+                                         DefaultWorkflowContext context,
+                                         WorkflowNodeDTO controlNode,
+                                         Map<String, Object> config,
+                                         List<WorkflowNodeDTO> bodyNodes) {
+        String inputVariable = textValue(config.get("inputVariable"), "state");
+        String outputVariable = textValue(config.get("outputVariable"), "loopState");
+        String stopWhen = textValue(config.get("stopWhen"), "");
+        Object state = config.containsKey("input") ? config.get("input") : context.variables().get(inputVariable);
+        int limit = boundedCount(integerValue(config.get("maxIterations"), 1));
+        int iterations = 0;
+        boolean stopped = matchesStopCondition(state, stopWhen);
+        while (!stopped && iterations < limit) {
+            Map<String, Object> variables = new LinkedHashMap<>(context.variables());
+            variables.put(inputVariable, state);
+            variables.put("loopIteration", iterations);
+            Map<String, Object> bodyVariables = executeNestedBody(
+                    request, context, controlNode, bodyNodes, variables,
+                    "loop-" + iterations);
+            if (bodyVariables.containsKey(outputVariable)) {
+                state = bodyVariables.get(outputVariable);
+            } else if (bodyVariables.containsKey(inputVariable)) {
+                state = bodyVariables.get(inputVariable);
+            }
+            iterations++;
+            stopped = matchesStopCondition(state, stopWhen);
+        }
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("state", state == null ? "" : state);
+        output.put("iterations", iterations);
+        output.put("stopped", stopped);
+        output.put("bounded", iterations >= limit && !stopped);
+        return new NodeResult(true, false, output, Map.of(outputVariable, state == null ? "" : state), null, null);
+    }
+
+    private Map<String, Object> executeNestedBody(WorkflowRuntimeRequest request,
+                                                   DefaultWorkflowContext parentContext,
+                                                   WorkflowNodeDTO controlNode,
+                                                   List<WorkflowNodeDTO> bodyNodes,
+                                                   Map<String, Object> initialVariables,
+                                                   String scope) {
+        Map<String, Object> variables = new LinkedHashMap<>(initialVariables);
+        Map<String, Object> bodyConfigs = new LinkedHashMap<>();
+        for (WorkflowNodeDTO bodyNode : bodyNodes) {
+            bodyConfigs.put(bodyNode.getNodeId(), bodyNode.getConfig() == null ? Map.of() : bodyNode.getConfig());
+        }
+        variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, bodyConfigs);
+        Map<String, Object> bodyVariables = new LinkedHashMap<>();
+        for (WorkflowNodeDTO bodyNode : bodyNodes) {
+            String bodyNodeId = controlNode.getNodeId() + "/" + scope + "/" + bodyNode.getNodeId();
+            DefaultWorkflowContext bodyContext = new DefaultWorkflowContext(
+                    parentContext.workflowId(), parentContext.traceId(),
+                    parentContext.taskId() + ":" + scope, variables);
+            bodyContext.updateRuntimeState(RuntimeState.RUNNING);
+            bodyContext.updateCurrentNodeId(bodyNode.getNodeId());
+            publish(parentContext, RuntimeEventType.NODE_STARTED, bodyNodeId,
+                    Map.of("nodeType", bodyNode.getNodeType(), "nested", true,
+                            "parentNodeId", controlNode.getNodeId()));
+            NodeResult result = hasNestedBody(bodyNode)
+                    ? executeNestedControlNode(request, bodyContext, bodyNode)
+                    : executeNodeWithRetry(
+                    nodeRegistry.getRequired(NodeType.of(bodyNode.getNodeType())),
+                    bodyContext,
+                    request,
+                    bodyNodeId,
+                    bodyNode.getNodeType());
+            if (result.waiting()) {
+                throw new IllegalStateException("nested control body cannot wait for external completion: " + bodyNodeId);
+            }
+            if (!result.successful()) {
+                throw new IllegalStateException("nested control body failed: " + bodyNodeId);
+            }
+            bodyVariables.putAll(result.variables());
+            variables.putAll(result.variables());
+            publish(parentContext, RuntimeEventType.NODE_COMPLETED, bodyNodeId,
+                    Map.of("nodeType", bodyNode.getNodeType(), "nested", true,
+                            "parentNodeId", controlNode.getNodeId()));
+        }
+        return Map.copyOf(bodyVariables);
+    }
+
+    private List<WorkflowNodeDTO> nestedBodyNodes(Object rawBodyNodes, String controlNodeId) {
+        if (!(rawBodyNodes instanceof Collection<?> collection)) {
+            throw new IllegalArgumentException("bodyNodes must be an array for control node " + controlNodeId);
+        }
+        if (collection.size() > MAX_NESTED_BODY_NODES) {
+            throw new IllegalArgumentException("bodyNodes exceeds maximum of " + MAX_NESTED_BODY_NODES
+                    + " for control node " + controlNodeId);
+        }
+        List<WorkflowNodeDTO> nodes = new ArrayList<>();
+        Set<String> ids = new LinkedHashSet<>();
+        int index = 0;
+        for (Object rawNode : collection) {
+            if (!(rawNode instanceof Map<?, ?> rawMap)) {
+                throw new IllegalArgumentException("bodyNodes[" + index + "] must be an object");
+            }
+            WorkflowNodeDTO node = new WorkflowNodeDTO();
+            node.setNodeId(textValue(rawMap.get("nodeId"), "body-node-" + index));
+            node.setNodeType(textValue(rawMap.get("nodeType"), ""));
+            if (node.getNodeType().isBlank()) {
+                throw new IllegalArgumentException("bodyNodes[" + index + "] nodeType is required");
+            }
+            if (!ids.add(node.getNodeId())) {
+                throw new IllegalArgumentException("duplicate nested body node id: " + node.getNodeId());
+            }
+            node.setDisplayName(textValue(rawMap.get("displayName"), node.getNodeId()));
+            node.setConfig(objectMap(rawMap.get("config")));
+            nodes.add(node);
+            index++;
+        }
+        return List.copyOf(nodes);
+    }
+
+    private int boundedCount(int requestedCount) {
+        return Math.min(Math.max(requestedCount, 0), MAX_NESTED_ITERATIONS);
+    }
+
+    private int integerValue(Object value, int fallback) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
+    private List<Object> listValue(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (value instanceof Collection<?> collection) {
+            return List.copyOf(collection);
+        }
+        String text = String.valueOf(value);
+        if (text.isBlank()) {
+            return List.of();
+        }
+        return List.of(text.split(",")).stream().map(String::trim).filter(item -> !item.isBlank()).map(item -> (Object) item).toList();
+    }
+
+    private boolean matchesStopCondition(Object state, String stopWhen) {
+        if (stopWhen.isBlank() || state == null) {
+            return false;
+        }
+        if (state instanceof Map<?, ?> stateMap && stateMap.containsKey(stopWhen)) {
+            Object marker = stateMap.get(stopWhen);
+            if (marker instanceof Boolean booleanMarker) {
+                return booleanMarker;
+            }
+            if (marker instanceof Number numberMarker) {
+                return numberMarker.doubleValue() != 0;
+            }
+            return marker != null && !String.valueOf(marker).isBlank();
+        }
+        return String.valueOf(state).contains(stopWhen);
+    }
+
+    private String textValue(Object value, String fallback) {
+        String text = value == null ? "" : String.valueOf(value).trim();
+        return text.isBlank() ? fallback : text;
+    }
+
+    private Map<String, Object> objectMap(Object value) {
+        if (!(value instanceof Map<?, ?> source)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        source.forEach((key, item) -> result.put(String.valueOf(key), item));
+        return Map.copyOf(result);
     }
 
     private NodeExecution awaitCompletedNode(CompletionService<NodeExecution> completionService) {
@@ -629,7 +870,7 @@ public class WorkflowRuntimeEngine {
                 context.workflowId(),
                 context.traceId(),
                 context.taskId(),
-                null,
+                request.definitionId(),
                 request.definition(),
                 snapshot(context, tracker),
                 tracker.currentNodeIds(),

@@ -70,7 +70,7 @@ class FileInfoServiceImplListTest {
         assertThat(response.items().get(0).source()).isEqualTo("input");
         assertThat(response.items().get(0).artifactKind()).isEqualTo("input");
         assertThat(response.items().get(0).status()).isEqualTo("ready");
-        assertThat(response.items().get(0).downloadUrl()).isEqualTo("http://minio/aetherflow/demo.mp3");
+        assertThat(response.items().get(0).downloadUrl()).isEqualTo("/files/101/download");
     }
 
     @Test

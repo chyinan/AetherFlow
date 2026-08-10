@@ -10,6 +10,7 @@ public class TaskMessageDTO {
 
     private Long taskId;
     private Long workflowInstanceId;
+    private Long userId;
     private String traceId;
     private String nodeId;
     private String nodeType;

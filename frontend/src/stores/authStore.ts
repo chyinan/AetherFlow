@@ -14,6 +14,28 @@ interface AuthState {
 
 let refreshInFlight: Promise<boolean> | null = null
 
+async function resetBusinessStores() {
+  const [{ useDifyStore }, { useFileStore }, { useModelStore }, { useProjectStore }, { useRunStore }, { useSettingsStore }, { useUiStore }, { useWorkflowStore }] = await Promise.all([
+    import('./difyStore'),
+    import('./fileStore'),
+    import('./modelStore'),
+    import('./projectStore'),
+    import('./runStore'),
+    import('./settingsStore'),
+    import('./uiStore'),
+    import('./workflowStore'),
+  ])
+  useUiStore().stopNotificationStream()
+  useDifyStore().$reset()
+  useFileStore().$reset()
+  useModelStore().$reset()
+  useProjectStore().$reset()
+  useRunStore().$reset()
+  useSettingsStore().$reset()
+  useUiStore().$reset()
+  useWorkflowStore().$reset()
+}
+
 function isFrontendRole(role: string): role is AuthUser['role'] {
   return role === 'owner' || role === 'operator'
 }
@@ -88,6 +110,7 @@ export const useAuthStore = defineStore('auth', {
     clearLocalSession() {
       tokenManager.clearSession()
       this.setActiveSession(null)
+      void resetBusinessStores()
     },
     hasAnyRole(allowedRoles: AuthUser['role'][]) {
       if (allowedRoles.length === 0) {
@@ -191,6 +214,7 @@ export const useAuthStore = defineStore('auth', {
         // Remote logout failures must not block local token cleanup.
       } finally {
         this.clearLocalSession()
+        await resetBusinessStores()
       }
     },
   },

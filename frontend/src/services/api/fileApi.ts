@@ -11,6 +11,7 @@ import {
   listFiles,
   uploadChunkPart,
   uploadFile,
+  updateFileClassification,
   type UploadProgressView,
 } from '@/api/modules/file'
 import { isApiError, toApiError } from '@/api/client/apiError'
@@ -219,5 +220,8 @@ export const fileApi = {
   },
   deleteFile(id: string) {
     return deleteFile(id)
+  },
+  updateClassification(id: string, payload: Parameters<typeof updateFileClassification>[1]) {
+    return updateFileClassification(id, payload).then(mapFileAssetViewToAsset)
   },
 }

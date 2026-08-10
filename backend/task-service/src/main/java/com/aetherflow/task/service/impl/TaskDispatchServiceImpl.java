@@ -47,6 +47,7 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         LocalDateTime now = LocalDateTime.now();
         Task task = new Task();
         task.setWorkflowInstanceId(taskMessage.getWorkflowInstanceId());
+        task.setUserId(taskMessage.getUserId() == null ? 0L : taskMessage.getUserId());
         task.setTraceId(taskMessage.getTraceId());
         task.setNodeId(taskMessage.getNodeId());
         task.setNodeType(taskMessage.getNodeType());

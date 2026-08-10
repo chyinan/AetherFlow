@@ -475,6 +475,8 @@ services:
     environment:
       <<: *java-service-env
       WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}
+      WORKFLOW_CODE_EXECUTION_ENABLED: ${WORKFLOW_CODE_EXECUTION_ENABLED:-true}
+      WORKFLOW_CODE_RUNTIME_URL: ${WORKFLOW_CODE_RUNTIME_URL:-http://python-ai-service:8200}
     expose:
       - "8102"
     depends_on:

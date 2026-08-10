@@ -25,6 +25,9 @@ interface CreateKnowledgeDatasetInput {
   embeddingModel?: string
   chunkSize?: number
   overlap?: number
+  delimiter?: string
+  cleanSpaces?: boolean
+  cleanUrls?: boolean
   empty?: boolean
 }
 
@@ -38,6 +41,7 @@ export const useDifyStore = defineStore('difySurface', {
     retrievalResults: [] as KnowledgeSegment[],
     selectedDatasetId: 'kb-product-docs',
     loading: false,
+    error: null as string | null,
   }),
   getters: {
     selectedDataset: (state) =>
@@ -59,6 +63,7 @@ export const useDifyStore = defineStore('difySurface', {
         return
       }
       this.loading = true
+      this.error = null
       try {
         const [datasets, metrics, conversations] = await Promise.all([
           difyApi.listKnowledgeDatasets(),
@@ -102,7 +107,7 @@ export const useDifyStore = defineStore('difySurface', {
       this.retrievalResults = []
       await this.refreshDatasetContent(datasetId)
     },
-    async importFileToSelectedDataset(file: FileAsset, options: { chunkSize?: number; overlap?: number; mode?: string } = {}) {
+    async importFileToSelectedDataset(file: FileAsset, options: { chunkSize?: number; overlap?: number; mode?: string; delimiter?: string; cleanSpaces?: boolean; cleanUrls?: boolean } = {}) {
       const dataset = this.selectedDataset
       if (!dataset) {
         return
@@ -116,6 +121,9 @@ export const useDifyStore = defineStore('difySurface', {
         mode: options.mode ?? 'general',
         chunkSize: options.chunkSize,
         overlap: options.overlap,
+        delimiter: options.delimiter,
+        cleanSpaces: options.cleanSpaces,
+        cleanUrls: options.cleanUrls,
       })
       await this.refreshDatasets()
       await this.refreshDatasetContent(dataset.id)
@@ -137,16 +145,26 @@ export const useDifyStore = defineStore('difySurface', {
       this.datasets = [dataset, ...this.datasets]
       this.selectedDatasetId = dataset.id
 
-      if (!input.empty) {
-        await difyApi.createKnowledgeDocument(dataset.id, {
-          sourceName,
-          sourceType: 'file',
-          fileId: input.file?.backendFileId ?? input.file?.id,
-          content: input.file ? await knowledgeContentFromFile(input.file) : input.preview || sourceName,
-          mode: input.segmentMode ?? 'general',
-          chunkSize: input.chunkSize,
-          overlap: input.overlap,
-        })
+      try {
+        if (!input.empty) {
+          await difyApi.createKnowledgeDocument(dataset.id, {
+            sourceName,
+            sourceType: 'file',
+            fileId: input.file?.backendFileId ?? input.file?.id,
+            content: input.file ? await knowledgeContentFromFile(input.file) : input.preview || sourceName,
+            mode: input.segmentMode ?? 'general',
+            chunkSize: input.chunkSize,
+            overlap: input.overlap,
+            delimiter: input.delimiter,
+            cleanSpaces: input.cleanSpaces,
+            cleanUrls: input.cleanUrls,
+          })
+        }
+      } catch (error) {
+        await difyApi.deleteKnowledgeDataset(dataset.id).catch(() => undefined)
+        this.datasets = this.datasets.filter((item) => item.id !== dataset.id)
+        this.selectedDatasetId = this.datasets[0]?.id ?? ''
+        throw error
       }
       await this.refreshDatasets()
       await this.refreshDatasetContent(dataset.id)

@@ -13,6 +13,7 @@ import { realtimeClient } from '@/services/realtime/realtimeClient'
 import { mergeNotificationHistory } from '@/services/notifications/notificationHistory'
 import type { ServiceStatus } from '@/types/api'
 import { formatTime } from '@/utils/localeFormat'
+import { tokenManager } from '@/api/client/tokenManager'
 
 export interface UiNotification {
   id: string
@@ -27,7 +28,13 @@ export interface UiNotification {
 }
 
 const themeStorageKey = 'aetherflow.theme'
-const notificationStorageKey = 'aetherflow.notifications'
+const notificationStorageKeyPrefix = 'aetherflow.notifications'
+
+function notificationStorageKey(userId?: string | number | null) {
+  const sessionUser = tokenManager.readSession()?.user as ({ userId?: unknown; id?: unknown } | undefined)
+  const resolvedUserId = userId ?? sessionUser?.userId ?? sessionUser?.id ?? 'anonymous'
+  return `${notificationStorageKeyPrefix}.${String(resolvedUserId)}`
+}
 
 function readTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') {
@@ -123,13 +130,13 @@ function normalizeRecord(record: NotificationRecordDTO): UiNotification {
   }
 }
 
-function readStoredNotifications() {
+function readStoredNotifications(userId?: string | number | null) {
   if (typeof window === 'undefined') {
     return []
   }
 
   try {
-    const value = window.localStorage.getItem(notificationStorageKey)
+    const value = window.localStorage.getItem(notificationStorageKey(userId))
     const parsed = value ? JSON.parse(value) : []
     if (!Array.isArray(parsed)) {
       return []
@@ -145,11 +152,11 @@ function readStoredNotifications() {
   }
 }
 
-function writeStoredNotifications(notifications: UiNotification[]) {
+function writeStoredNotifications(notifications: UiNotification[], userId?: string | number | null) {
   if (typeof window === 'undefined') {
     return
   }
-  window.localStorage.setItem(notificationStorageKey, JSON.stringify(notifications.slice(0, 20)))
+  window.localStorage.setItem(notificationStorageKey(userId ?? activeNotificationUserId), JSON.stringify(notifications.slice(0, 20)))
 }
 
 export const useUiStore = defineStore('ui', {
@@ -286,6 +293,7 @@ export const useUiStore = defineStore('ui', {
 
       stopNotifications?.()
       activeNotificationUserId = normalizedUserId
+      this.notifications = readStoredNotifications(normalizedUserId)
       stopNotifications = realtimeClient.subscribeNotifications(normalizedUserId, {
         onMessage: (message) => this.addNotifyMessage(message),
         onConnectionChange: (state) => this.setNotifyRealtimeState(state),

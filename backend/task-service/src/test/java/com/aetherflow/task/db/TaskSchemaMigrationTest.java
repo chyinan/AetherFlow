@@ -16,6 +16,8 @@ class TaskSchemaMigrationTest {
         String compose = Files.readString(root.resolve("docker-compose.yml"));
         String migration = Files.readString(root.resolve(
                 "docker/mysql/migrations/V1__add_task_trace_id.sql"));
+        String userMigration = Files.readString(root.resolve(
+                "docker/mysql/migrations/V4__add_task_user_id.sql"));
 
         assertThat(compose)
                 .contains("mysql-migrate:")
@@ -26,6 +28,10 @@ class TaskSchemaMigrationTest {
                 .contains("ALTER TABLE af_task_record ADD COLUMN trace_id VARCHAR(64) NULL")
                 .contains("UPDATE af_task_record")
                 .contains("MODIFY COLUMN trace_id VARCHAR(64) NOT NULL");
+        assertThat(userMigration)
+                .contains("COLUMN_NAME = 'user_id'")
+                .contains("ALTER TABLE af_task_record ADD COLUMN user_id")
+                .contains("idx_af_task_record_user");
     }
 
     private Path repositoryRoot() {

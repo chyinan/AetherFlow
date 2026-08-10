@@ -74,8 +74,8 @@ public class NotificationServiceImpl implements NotificationService {
         afterCommit(() -> {
             webSocketHandler.send(userId, message);
             sseEmitterRegistry.send(userId, message);
+            telegramNotificationSender.sendIfRequested(message);
         });
-        telegramNotificationSender.sendIfRequested(message);
     }
 
     private void afterCommit(Runnable runnable) {

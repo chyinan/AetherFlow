@@ -7,6 +7,7 @@ public final class FileRedisKeys {
     private static final String FILE_UPLOAD_PREFIX = "file:upload:";
     private static final String FILE_HASH_PREFIX = "file:hash:";
     private static final String FILE_PROGRESS_PREFIX = "file:progress:";
+    private static final String FILE_CHUNK_UPLOAD_PREFIX = "file:chunk-upload:";
 
     private FileRedisKeys() {
     }
@@ -35,6 +36,13 @@ public final class FileRedisKeys {
 
     public static String progressPattern() {
         return FILE_PROGRESS_PREFIX + "*";
+    }
+
+    public static String chunkUpload(String uploadId) {
+        if (!StringUtils.hasText(uploadId)) {
+            throw new IllegalArgumentException("uploadId must not be blank");
+        }
+        return FILE_CHUNK_UPLOAD_PREFIX + uploadId;
     }
 
     private static long requirePositiveId(Long value, String name) {

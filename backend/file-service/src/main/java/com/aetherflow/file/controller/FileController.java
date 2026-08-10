@@ -4,6 +4,8 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.file.model.ChunkUploadDtos;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
+import com.aetherflow.file.model.FileAssetDtos.FileAssetMetadataView;
+import com.aetherflow.file.model.FileClassificationUpdateRequest;
 import com.aetherflow.file.model.UploadProgressView;
 import com.aetherflow.file.service.ChunkUploadService;
 import com.aetherflow.file.service.FileDownload;
@@ -25,6 +27,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -208,6 +211,15 @@ public class FileController {
             @PathVariable("id") Long id) {
         fileInfoService.delete(userId, id);
         return Result.success();
+    }
+
+    @Operation(summary = "Update file classification", description = "Persist whether a file is an input or workflow artifact.")
+    @PatchMapping("/{id}/classification")
+    public Result<FileAssetMetadataView> updateClassification(
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @PathVariable("id") Long id,
+            @jakarta.validation.Valid @RequestBody FileClassificationUpdateRequest request) {
+        return Result.success(fileInfoService.updateClassification(userId, id, request));
     }
 
     @Operation(summary = "Get upload progress", description = "Query Redis cached upload progress by task id.")

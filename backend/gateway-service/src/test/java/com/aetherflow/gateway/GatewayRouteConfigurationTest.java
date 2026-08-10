@@ -78,6 +78,15 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
+    void workflowServiceGatewayRouteForwardsUrlIngestionApi() {
+        Route route = firstMatchingRoute("/ingestion/url/fetch");
+
+        assertThat(route).isNotNull();
+        assertThat(route.getId()).isEqualTo("workflow-service");
+        assertThat(route.getUri().toString()).isEqualTo("lb://workflow-service");
+    }
+
+    @Test
     void aiProviderManagementRouteIsDefinedAheadOfGenericAiRoute() {
         RouteDefinition providerRoute = routeDefinitionLocator.getRouteDefinitions()
                 .filter(routeDefinition -> "ai-provider-management".equals(routeDefinition.getId()))

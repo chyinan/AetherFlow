@@ -34,6 +34,10 @@ async function deleteFile(fileId: string) {
   }
   await fileStore.deleteAsset(fileId).catch(() => undefined)
 }
+
+async function toggleFileSource(fileId: string) {
+  await fileStore.toggleSource(fileId).catch(() => undefined)
+}
 </script>
 
 <template>
@@ -80,7 +84,7 @@ async function deleteFile(fileId: string) {
               :deleting-ids="fileStore.deletingIds"
               :downloading-ids="fileStore.downloadingIds"
               layout="single"
-              @toggle-source="fileStore.toggleSource"
+              @toggle-source="toggleFileSource"
               @download="downloadFile"
               @delete="deleteFile"
             />
@@ -99,7 +103,7 @@ async function deleteFile(fileId: string) {
               :deleting-ids="fileStore.deletingIds"
               :downloading-ids="fileStore.downloadingIds"
               layout="single"
-              @toggle-source="fileStore.toggleSource"
+              @toggle-source="toggleFileSource"
               @download="downloadFile"
               @delete="deleteFile"
             />

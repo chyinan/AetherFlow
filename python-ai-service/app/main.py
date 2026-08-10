@@ -1,5 +1,7 @@
 # pattern: Mixed (needs refactoring)
 # Reason: the existing FastAPI entrypoint still combines HTTP orchestration with runtime adapters.
+import ast
+import base64
 import ipaddress
 import json
 import logging
@@ -116,6 +118,21 @@ class SubtitleResponse(BaseModel):
     content: str
     format: str
     objectKey: Optional[str] = None
+
+
+class CodeExecutionRequest(BaseModel):
+    language: str = Field(default="python3")
+    code: str = Field(..., min_length=1, max_length=16_000)
+    input: Any = None
+    timeoutMs: int = Field(default=2_000, ge=50, le=10_000)
+    maxOutputBytes: int = Field(default=64_000, ge=1_024, le=256_000)
+
+
+class CodeExecutionResponse(BaseModel):
+    result: Any = None
+    stdout: str = ""
+    durationMs: int
+    truncated: bool = False
 
 
 class ProviderConfigUpdate(BaseModel):
@@ -439,6 +456,106 @@ def subtitles(request: SubtitleRequest) -> SubtitleResponse:
     return SubtitleResponse(content=content, format=fmt, objectKey=object_key)
 
 
+@app.post("/v1/code/execute", response_model=CodeExecutionResponse)
+def execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
+    language = request.language.strip().lower()
+    if language not in {"python", "python3"}:
+        raise HTTPException(status_code=400, detail="only python3 code execution is supported")
+    _validate_code(request.code)
+    started = __import__("time").monotonic()
+    encoded_code = base64.b64encode(request.code.encode("utf-8")).decode("ascii")
+    encoded_input = base64.b64encode(json.dumps(request.input, ensure_ascii=False).encode("utf-8")).decode("ascii")
+    runner = _code_runner_source(encoded_code, encoded_input, request.maxOutputBytes)
+    try:
+        runner_environment = {
+            key: os.getenv(key, "")
+            for key in ("PATH", "SystemRoot", "WINDIR", "TEMP", "TMP", "PYTHONIOENCODING")
+            if os.getenv(key, "")
+        }
+        runner_environment["PYTHONNOUSERSITE"] = "1"
+        completed = subprocess.run(
+            [os.sys.executable, "-I", "-S", "-c", runner],
+            capture_output=True,
+            text=True,
+            timeout=request.timeoutMs / 1000,
+            check=False,
+            cwd=tempfile.gettempdir(),
+            env=runner_environment,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=408, detail="code execution timed out") from exc
+    duration_ms = round((__import__("time").monotonic() - started) * 1000)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "code execution failed").strip()
+        raise HTTPException(status_code=400, detail=detail[-2_000:])
+    marker = "__AETHERFLOW_RESULT__"
+    result_line = next((line for line in reversed(completed.stdout.splitlines()) if line.startswith(marker)), None)
+    if result_line is None:
+        raise HTTPException(status_code=400, detail="code must define main(payload) and return a JSON value")
+    try:
+        encoded_result = json.loads(result_line[len(marker):])
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="code result must be JSON serializable") from exc
+    if not isinstance(encoded_result, dict) or "__aetherflow_result__" not in encoded_result:
+        raise HTTPException(status_code=400, detail="code result envelope is invalid")
+    result = encoded_result["__aetherflow_result__"]
+    stdout = completed.stdout.replace(result_line, "").strip()
+    encoded_stdout = stdout.encode("utf-8")
+    truncated = bool(encoded_result.get("__aetherflow_stdout_truncated", False)) or len(encoded_stdout) > request.maxOutputBytes
+    if truncated:
+        stdout = encoded_stdout[:request.maxOutputBytes].decode("utf-8", errors="ignore")
+    return CodeExecutionResponse(result=result, stdout=stdout, durationMs=duration_ms, truncated=truncated)
+
+
+def _validate_code(code: str) -> None:
+    try:
+        tree = ast.parse(code, mode="exec")
+    except SyntaxError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid python syntax: {exc.msg}") from exc
+    forbidden_names = {"eval", "exec", "open", "compile", "__import__", "input", "globals", "locals", "vars"}
+    forbidden_modules = {"os", "sys", "subprocess", "socket", "pathlib", "shutil", "requests", "httpx"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            raise HTTPException(status_code=400, detail="imports are not allowed in code nodes")
+        if isinstance(node, ast.Name) and (node.id in forbidden_names or node.id.startswith("__")):
+            raise HTTPException(status_code=400, detail=f"name is not allowed: {node.id}")
+        if isinstance(node, ast.Attribute) and node.attr.startswith("__"):
+            raise HTTPException(status_code=400, detail="dunder attributes are not allowed")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in forbidden_modules:
+            raise HTTPException(status_code=400, detail=f"call is not allowed: {node.func.id}")
+    if not any(isinstance(node, ast.FunctionDef) and node.name == "main" for node in tree.body):
+        raise HTTPException(status_code=400, detail="code must define main(payload)")
+
+
+def _code_runner_source(encoded_code: str, encoded_input: str, max_output_bytes: int) -> str:
+    return f'''import base64, json, sys
+class LimitedWriter:
+    def __init__(self, stream, limit): self.stream, self.limit, self.used = stream, limit, 0
+    def write(self, value):
+        data = str(value).encode("utf-8")
+        remaining = max(0, self.limit - self.used)
+        if remaining: self.stream.buffer.write(data[:remaining]); self.stream.flush()
+        self.used += len(data)
+        return len(value)
+    def flush(self): self.stream.flush()
+safe_builtins = {{"abs": abs, "all": all, "any": any, "bool": bool, "dict": dict, "enumerate": enumerate,
+    "float": float, "int": int, "len": len, "list": list, "max": max, "min": min, "range": range,
+    "round": round, "set": set, "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip,
+    "True": True, "False": False, "None": None, "print": print}}
+sys.stdout = LimitedWriter(sys.stdout, {max_output_bytes})
+payload = json.loads(base64.b64decode("{encoded_input}"))
+namespace = {{"__builtins__": safe_builtins}}
+exec(compile(base64.b64decode("{encoded_code}").decode("utf-8"), "<aetherflow-code>", "exec"), namespace, namespace)
+if "main" not in namespace or not callable(namespace["main"]): raise ValueError("main(payload) is required")
+result = namespace["main"](payload)
+result_envelope = {{
+    "__aetherflow_result__": result,
+    "__aetherflow_stdout_truncated": sys.stdout.used > {max_output_bytes},
+}}
+sys.__stdout__.write("\\n__AETHERFLOW_RESULT__" + json.dumps(result_envelope, ensure_ascii=False, default=str) + "\\n")
+'''
+
+
 def _call_openai(request: LlmRequest) -> LlmResponse:
     _ensure_runtime_env_loaded()
     route_provider = _openai_route_provider_id()
@@ -547,6 +664,9 @@ def _ollama_model_names() -> list[str]:
             if name and name not in names:
                 names.append(name)
         return names
+    except ImportError as exc:
+        logger.warning("Ollama runtime dependency unavailable: %s", exc)
+        return []
     except (httpx.HTTPError, ConnectionError, TimeoutError, OSError) as exc:
         logger.warning("Failed to list Ollama models: %s", exc)
         return []

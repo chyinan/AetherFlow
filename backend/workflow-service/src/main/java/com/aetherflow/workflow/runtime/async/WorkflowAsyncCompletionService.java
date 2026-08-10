@@ -50,6 +50,13 @@ public class WorkflowAsyncCompletionService {
             output.put("comment", approval.comment().trim());
         }
         output.put("approvedAt", Instant.now().toString());
+        if (!approval.approved() && !allowsRejectedBranch(stored, nodeId)) {
+            String comment = approval.comment() == null ? "" : approval.comment().trim();
+            String reason = comment.isBlank()
+                    ? "human approval rejected"
+                    : "human approval rejected: " + comment;
+            return completeFailure(workflowInstanceId, nodeId, reason);
+        }
         return completeSuccess(workflowInstanceId, nodeId, output);
     }
 
@@ -74,6 +81,7 @@ public class WorkflowAsyncCompletionService {
                 stored.workflowId(),
                 stored.traceId(),
                 stored.taskId(),
+                stored.definitionId(),
                 stored.definition(),
                 stored.variables(),
                 runtimeProperties.getRetry().toRetryPolicy());
@@ -106,7 +114,7 @@ public class WorkflowAsyncCompletionService {
                     + workflowInstanceId + " state=" + stored.runtimeState());
         }
         WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
-                stored.workflowId(), stored.traceId(), stored.taskId(), stored.definition(),
+                stored.workflowId(), stored.traceId(), stored.taskId(), stored.definitionId(), stored.definition(),
                 stored.variables(), runtimeProperties.getRetry().toRetryPolicy());
         WorkflowExecutionSnapshot failed = runtimeEngine.failWaitingNode(
                 request, stored.toExecutionSnapshot(), nodeId, error);
@@ -150,6 +158,16 @@ public class WorkflowAsyncCompletionService {
                 .filter(node -> nodeId.equals(node.getNodeId()))
                 .map(WorkflowNodeDTO::getNodeType)
                 .anyMatch(type -> "HUMAN".equalsIgnoreCase(type));
+    }
+
+    private boolean allowsRejectedBranch(WorkflowRuntimeSnapshot snapshot, String nodeId) {
+        return snapshot.definition().getNodes().stream()
+                .filter(node -> nodeId.equals(node.getNodeId()))
+                .map(WorkflowNodeDTO::getConfig)
+                .filter(config -> config != null)
+                .map(config -> config.get("rejectBehavior"))
+                .map(String::valueOf)
+                .anyMatch("BRANCH"::equalsIgnoreCase);
     }
 
     private String textOr(String value, String fallback) {

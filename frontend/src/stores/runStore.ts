@@ -200,7 +200,7 @@ export const useRunStore = defineStore('run', {
       if (approvalNode) {
         this.patchNodeState({
           ...approvalNode,
-          status: 'success',
+          status: !options.approved && options.snapshot.runtimeState === 'FAILED' ? 'failed' : 'success',
           approval: {
             ...(approvalNode.approval ?? { approved: false, approvalStatus: 'pending' }),
             approved: options.approved,
