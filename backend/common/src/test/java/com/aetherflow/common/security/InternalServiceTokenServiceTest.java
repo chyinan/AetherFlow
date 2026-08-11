@@ -44,7 +44,12 @@ class InternalServiceTokenServiceTest {
     void rejectsTamperedToken() {
         InternalServiceTokenService service = service();
         String token = service.issue("file-service", NOW);
-        String tampered = token.substring(0, token.length() - 1) + (token.endsWith("a") ? "b" : "a");
+        int signatureStart = token.lastIndexOf('.') + 1;
+        char signatureCharacter = token.charAt(signatureStart);
+        char replacement = signatureCharacter == 'a' ? 'b' : 'a';
+        String tampered = token.substring(0, signatureStart)
+                + replacement
+                + token.substring(signatureStart + 1);
 
         assertThat(service.isValid(tampered, "file-service", NOW.plusSeconds(1))).isFalse();
     }

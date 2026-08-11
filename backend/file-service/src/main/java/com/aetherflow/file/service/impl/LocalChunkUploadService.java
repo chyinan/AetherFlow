@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 package com.aetherflow.file.service.impl;
 
 import com.aetherflow.common.core.ResultCode;
@@ -17,10 +18,12 @@ import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.util.StringUtils;
@@ -38,15 +41,32 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service
 public class LocalChunkUploadService implements ChunkUploadService {
 
     private static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
+    private static final Duration COMPLETION_LOCK_WAIT = Duration.ofSeconds(30);
+    private static final DefaultRedisScript<Long> RELEASE_COMPLETION_LOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "return redis.call('del', KEYS[1]) "
+                    + "else return 0 end",
+            Long.class);
+    private static final DefaultRedisScript<Long> RENEW_COMPLETION_LOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "return redis.call('pexpire', KEYS[1], ARGV[2]) "
+                    + "else return 0 end",
+            Long.class);
 
     private final FileInfoService fileInfoService;
     private final Path rootDirectory;
@@ -57,6 +77,12 @@ public class LocalChunkUploadService implements ChunkUploadService {
     private final Map<String, UploadSession> sessions = new ConcurrentHashMap<>();
     private final Map<String, CompletedUpload> completedUploads = new ConcurrentHashMap<>();
     private final Object[] completionLocks = createCompletionLocks();
+    private final ScheduledExecutorService completionLockRenewalExecutor =
+            Executors.newScheduledThreadPool(4, runnable -> {
+                Thread thread = new Thread(runnable, "aetherflow-chunk-upload-lock-renewal");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     @Autowired
     public LocalChunkUploadService(FileInfoService fileInfoService,
@@ -211,45 +237,359 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (!StringUtils.hasText(uploadId)) {
             throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
         }
-        CompletedUpload completed = completedUploads.get(uploadId);
+        CompletedUpload completed = findCompletedUpload(uploadId);
         if (completed != null) {
             return completed.resultFor(userId);
         }
-        synchronized (completionLock(uploadId)) {
-            completed = completedUploads.get(uploadId);
-            if (completed != null) {
-                return completed.resultFor(userId);
-            }
-            UploadSession session = requireSession(userId, uploadId);
-            ensureAllPartsReceived(session);
-            String expectedChecksum = request != null && StringUtils.hasText(request.checksum())
-                    ? normalizeChecksum(request.checksum())
-                    : session.checksum();
-            Path assembled = session.directory().resolve("assembled.bin");
+
+        if (sharedStorageEnabled()) {
+            String lockToken = acquireCompletionLock(uploadId);
+            CompletionClaim claim = null;
+            AtomicBoolean lockActive = new AtomicBoolean(true);
+            ScheduledFuture<?> lockRenewal = null;
             try {
-                assemble(session, assembled);
-                ensureAssembledSize(session, assembled);
-                if (StringUtils.hasText(expectedChecksum)) {
-                    String actualChecksum = sha256(assembled);
-                    if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
-                        throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload checksum mismatch");
-                    }
+                claim = acquireCompletionClaim(uploadId);
+                if (claim.completed() != null) {
+                    return claim.completed().resultFor(userId);
                 }
-                PathMultipartFile multipartFile = new PathMultipartFile(
-                        assembled,
-                        "file",
-                        session.originalName(),
-                        session.contentType()
-                );
-                FileMetadataDTO result = fileInfoService.upload(userId, multipartFile, uploadId);
-                completedUploads.put(uploadId, new CompletedUpload(userId, result));
-                return result;
+                lockRenewal = scheduleCompletionLockRenewal(uploadId, lockToken, lockActive);
+                return completeLocked(userId, uploadId, request, lockActive);
             } finally {
-                removePersistedSession(uploadId);
-                deleteDirectory(session.directory());
-                deleteRemoteParts(session);
+                if (lockRenewal != null) {
+                    lockRenewal.cancel(false);
+                }
+                if (claim != null) {
+                    releaseCompletionClaim(uploadId, claim.token());
+                }
+                releaseCompletionLock(uploadId, lockToken);
             }
         }
+
+        synchronized (completionLock(uploadId)) {
+            return completeLocked(userId, uploadId, request, null);
+        }
+    }
+
+    private FileMetadataDTO completeLocked(Long userId,
+                                            String uploadId,
+                                            ChunkUploadDtos.CompleteRequest request,
+                                            AtomicBoolean lockActive) {
+        CompletedUpload completed = findCompletedUpload(uploadId);
+        if (completed != null) {
+            return completed.resultFor(userId);
+        }
+        UploadSession session = requireSession(userId, uploadId);
+        ensureAllPartsReceived(session);
+        ensureCompletionLockActive(lockActive);
+        String expectedChecksum = request != null && StringUtils.hasText(request.checksum())
+                ? normalizeChecksum(request.checksum())
+                : session.checksum();
+        Path assembled = session.directory().resolve("assembled.bin");
+        boolean completionSucceeded = false;
+        boolean completionStoredInSession = false;
+        try {
+            assemble(session, assembled);
+            ensureAssembledSize(session, assembled);
+            if (StringUtils.hasText(expectedChecksum)) {
+                String actualChecksum = sha256(assembled);
+                if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
+                    throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload checksum mismatch");
+                }
+            }
+            ensureCompletionLockActive(lockActive);
+            PathMultipartFile multipartFile = new PathMultipartFile(
+                    assembled,
+                    "file",
+                    session.originalName(),
+                    session.contentType()
+            );
+            FileMetadataDTO result = fileInfoService.upload(userId, multipartFile, uploadId);
+            CompletedUpload completedUpload = new CompletedUpload(userId, result);
+            completionStoredInSession = persistCompletedUpload(uploadId, completedUpload);
+            completedUploads.put(uploadId, completedUpload);
+            completionSucceeded = true;
+            return result;
+        } finally {
+            if (completionSucceeded) {
+                if (!completionStoredInSession) {
+                    removePersistedSession(uploadId);
+                }
+                deleteDirectory(session.directory());
+                deleteRemoteParts(session);
+            } else {
+                deleteFile(assembled);
+            }
+        }
+    }
+
+    private CompletedUpload findCompletedUpload(String uploadId) {
+        CompletedUpload completed = completedUploads.get(uploadId);
+        if (completed != null) {
+            return completed;
+        }
+        if (!sharedStorageEnabled()) {
+            return null;
+        }
+        try {
+            CompletedUpload persisted = readCompletedUpload(FileRedisKeys.chunkUploadResult(uploadId));
+            if (persisted == null) {
+                persisted = readCompletedUpload(FileRedisKeys.chunkUpload(uploadId));
+            }
+            if (persisted == null) {
+                return null;
+            }
+            completedUploads.put(uploadId, persisted);
+            return persisted;
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload completion store unavailable");
+        }
+    }
+
+    private CompletedUpload readCompletedUpload(String key) {
+        Map<Object, Object> values = redisTemplate.opsForHash().entries(key);
+        if (!"true".equals(String.valueOf(values.get("completed")))) {
+            return null;
+        }
+        return fromCompletedRedis(values);
+    }
+
+    private boolean persistCompletedUpload(String uploadId, CompletedUpload completed) {
+        if (!sharedStorageEnabled()) {
+            return false;
+        }
+        String resultKey = FileRedisKeys.chunkUploadResult(uploadId);
+        try {
+            writeCompletedUpload(resultKey, completed);
+            return false;
+        } catch (UploadException exception) {
+            log.warn("Dedicated chunk upload completion store unavailable uploadId={}, keeping result in session",
+                    uploadId, exception);
+            try {
+                redisTemplate.delete(resultKey);
+            } catch (RuntimeException cleanupException) {
+                log.warn("Failed to remove incomplete chunk upload completion result uploadId={}",
+                        uploadId, cleanupException);
+            }
+            try {
+                writeCompletedUpload(FileRedisKeys.chunkUpload(uploadId), completed);
+                return true;
+            } catch (UploadException fallbackException) {
+                log.error("Chunk upload completion could not be persisted uploadId={}; using local result only",
+                        uploadId, fallbackException);
+                try {
+                    redisTemplate.delete(FileRedisKeys.chunkUpload(uploadId));
+                } catch (RuntimeException cleanupException) {
+                    log.warn("Failed to remove incomplete chunk upload session uploadId={}",
+                            uploadId, cleanupException);
+                }
+                return false;
+            }
+        }
+    }
+
+    private void writeCompletedUpload(String key, CompletedUpload completed) {
+        FileMetadataDTO metadata = completed.metadata();
+        if (metadata == null || metadata.getId() == null || metadata.getSize() == null) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload completion result is invalid");
+        }
+        try {
+            Map<String, String> values = new LinkedHashMap<>();
+            values.put("completed", "true");
+            values.put("completion.userId", String.valueOf(completed.userId()));
+            values.put("completion.id", String.valueOf(metadata.getId()));
+            values.put("completion.size", String.valueOf(metadata.getSize()));
+            putNullableRedisValue(values, "completion.bucket", metadata.getBucket());
+            putNullableRedisValue(values, "completion.objectKey", metadata.getObjectKey());
+            putNullableRedisValue(values, "completion.originalName", metadata.getOriginalName());
+            putNullableRedisValue(values, "completion.contentType", metadata.getContentType());
+            putNullableRedisValue(values, "completion.url", metadata.getUrl());
+            redisTemplate.opsForHash().putAll(key, values);
+            if (!Boolean.TRUE.equals(redisTemplate.expire(key, sessionTtl()))) {
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                        "chunk upload completion expiry unavailable");
+            }
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload completion store unavailable");
+        }
+    }
+
+    private void putNullableRedisValue(Map<String, String> values, String field, String value) {
+        if (value == null) {
+            values.put(field + ":null", "true");
+        } else {
+            values.put(field, value);
+        }
+    }
+
+    private CompletedUpload fromCompletedRedis(Map<Object, Object> values) {
+        try {
+            FileMetadataDTO metadata = new FileMetadataDTO(
+                    Long.valueOf(requiredRedisValue(values, "completion.id")),
+                    nullableRedisValue(values, "completion.bucket"),
+                    nullableRedisValue(values, "completion.objectKey"),
+                    nullableRedisValue(values, "completion.originalName"),
+                    nullableRedisValue(values, "completion.contentType"),
+                    Long.valueOf(requiredRedisValue(values, "completion.size")),
+                    nullableRedisValue(values, "completion.url"));
+            return new CompletedUpload(Long.valueOf(requiredRedisValue(values, "completion.userId")), metadata);
+        } catch (RuntimeException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload completion metadata is invalid");
+        }
+    }
+
+    private String acquireCompletionLock(String uploadId) {
+        String key = FileRedisKeys.chunkUploadLock(uploadId);
+        String token = UUID.randomUUID().toString();
+        Instant deadline = Instant.now().plus(COMPLETION_LOCK_WAIT);
+        while (true) {
+            try {
+                Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, token, sessionTtl());
+                if (Boolean.TRUE.equals(acquired)) {
+                    return token;
+                }
+            } catch (DataAccessException exception) {
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                        "chunk upload completion lock unavailable");
+            }
+            if (!Instant.now().isBefore(deadline)) {
+                throw new UploadException(ResultCode.CONFLICT,
+                        "chunk upload completion is already in progress");
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                        "chunk upload completion was interrupted");
+            }
+        }
+    }
+
+    private CompletionClaim acquireCompletionClaim(String uploadId) {
+        String key = FileRedisKeys.chunkUploadClaim(uploadId);
+        String token = UUID.randomUUID().toString();
+        Instant deadline = Instant.now().plus(COMPLETION_LOCK_WAIT);
+        while (true) {
+            try {
+                Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, token);
+                if (Boolean.TRUE.equals(acquired)) {
+                    return new CompletionClaim(token, null);
+                }
+                CompletedUpload completed = findCompletedUpload(uploadId);
+                if (completed != null) {
+                    return new CompletionClaim(null, completed);
+                }
+                if (!sessionExists(uploadId)) {
+                    redisTemplate.delete(key);
+                    continue;
+                }
+            } catch (DataAccessException exception) {
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                        "chunk upload completion claim unavailable");
+            }
+            if (!Instant.now().isBefore(deadline)) {
+                throw new UploadException(ResultCode.CONFLICT,
+                        "chunk upload completion is already in progress");
+            }
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                        "chunk upload completion was interrupted");
+            }
+        }
+    }
+
+    private ScheduledFuture<?> scheduleCompletionLockRenewal(String uploadId,
+                                                              String token,
+                                                              AtomicBoolean lockActive) {
+        long ttlMillis = sessionTtl().toMillis();
+        long intervalMillis = Math.max(1_000L, ttlMillis / 3);
+        return completionLockRenewalExecutor.scheduleAtFixedRate(
+                () -> renewCompletionLock(uploadId, token, ttlMillis, lockActive),
+                intervalMillis,
+                intervalMillis,
+                TimeUnit.MILLISECONDS);
+    }
+
+    private void renewCompletionLock(String uploadId,
+                                     String token,
+                                     long ttlMillis,
+                                     AtomicBoolean lockActive) {
+        try {
+            Long renewedLock = redisTemplate.execute(
+                    RENEW_COMPLETION_LOCK_SCRIPT,
+                    List.of(FileRedisKeys.chunkUploadLock(uploadId)),
+                    token,
+                    String.valueOf(ttlMillis));
+            if (!Long.valueOf(1L).equals(renewedLock)) {
+                lockActive.set(false);
+                log.warn("Chunk upload completion lock was lost uploadId={}", uploadId);
+            }
+        } catch (RuntimeException exception) {
+            lockActive.set(false);
+            log.warn("Failed to renew chunk upload completion lock uploadId={}", uploadId, exception);
+        }
+    }
+
+    private void ensureCompletionLockActive(AtomicBoolean lockActive) {
+        if (lockActive != null && !lockActive.get()) {
+            throw new UploadException(ResultCode.CONFLICT,
+                    "chunk upload completion lock was lost; please retry");
+        }
+    }
+
+    private void releaseCompletionLock(String uploadId, String token) {
+        releaseCompletionToken(FileRedisKeys.chunkUploadLock(uploadId), token);
+    }
+
+    private void releaseCompletionClaim(String uploadId, String token) {
+        if (token != null) {
+            releaseCompletionToken(FileRedisKeys.chunkUploadClaim(uploadId), token);
+        }
+    }
+
+    private void releaseCompletionToken(String key, String token) {
+        try {
+            redisTemplate.execute(
+                    RELEASE_COMPLETION_LOCK_SCRIPT,
+                    List.of(key),
+                    token);
+        } catch (RuntimeException exception) {
+            log.warn("Failed to release chunk upload token key={}", key, exception);
+        }
+    }
+
+    @PreDestroy
+    void shutdownCompletionLockRenewalExecutor() {
+        completionLockRenewalExecutor.shutdownNow();
+    }
+
+    private String nullableRedisValue(Map<Object, Object> values, String field) {
+        if ("true".equals(String.valueOf(values.get(field + ":null")))) {
+            return null;
+        }
+        Object value = values.get(field);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private void deleteFile(Path path) {
+        if (path == null || !path.startsWith(rootDirectory)) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException exception) {
+            log.warn("Failed to cleanup assembled chunk upload file path={}", path, exception);
+        }
+    }
+
+    private record CompletionClaim(String token, CompletedUpload completed) {
     }
 
     @Override
@@ -257,6 +597,11 @@ public class LocalChunkUploadService implements ChunkUploadService {
         requireUserId(userId);
         if (!StringUtils.hasText(uploadId)) {
             throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
+        }
+        CompletedUpload completed = findCompletedUpload(uploadId);
+        if (completed != null) {
+            completed.resultFor(userId);
+            return;
         }
         UploadSession session = findSession(uploadId);
         if (session == null) {
@@ -348,6 +693,15 @@ public class LocalChunkUploadService implements ChunkUploadService {
             return session;
         } catch (DataAccessException exception) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE, "chunk upload session store unavailable");
+        }
+    }
+
+    private boolean sessionExists(String uploadId) {
+        try {
+            return !redisTemplate.opsForHash().entries(FileRedisKeys.chunkUpload(uploadId)).isEmpty();
+        } catch (DataAccessException exception) {
+            throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
+                    "chunk upload session store unavailable");
         }
     }
 

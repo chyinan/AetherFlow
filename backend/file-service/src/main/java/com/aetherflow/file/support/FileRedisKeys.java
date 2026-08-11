@@ -1,3 +1,4 @@
+// pattern: Functional Core
 package com.aetherflow.file.support;
 
 import org.springframework.util.StringUtils;
@@ -8,6 +9,9 @@ public final class FileRedisKeys {
     private static final String FILE_HASH_PREFIX = "file:hash:";
     private static final String FILE_PROGRESS_PREFIX = "file:progress:";
     private static final String FILE_CHUNK_UPLOAD_PREFIX = "file:chunk-upload:";
+    private static final String FILE_CHUNK_UPLOAD_RESULT_PREFIX = "file:chunk-upload:result:";
+    private static final String FILE_CHUNK_UPLOAD_LOCK_PREFIX = "file:chunk-upload:lock:";
+    private static final String FILE_CHUNK_UPLOAD_CLAIM_PREFIX = "file:chunk-upload:claim:";
 
     private FileRedisKeys() {
     }
@@ -43,6 +47,27 @@ public final class FileRedisKeys {
             throw new IllegalArgumentException("uploadId must not be blank");
         }
         return FILE_CHUNK_UPLOAD_PREFIX + uploadId;
+    }
+
+    public static String chunkUploadResult(String uploadId) {
+        if (!StringUtils.hasText(uploadId)) {
+            throw new IllegalArgumentException("uploadId must not be blank");
+        }
+        return FILE_CHUNK_UPLOAD_RESULT_PREFIX + uploadId;
+    }
+
+    public static String chunkUploadLock(String uploadId) {
+        if (!StringUtils.hasText(uploadId)) {
+            throw new IllegalArgumentException("uploadId must not be blank");
+        }
+        return FILE_CHUNK_UPLOAD_LOCK_PREFIX + uploadId;
+    }
+
+    public static String chunkUploadClaim(String uploadId) {
+        if (!StringUtils.hasText(uploadId)) {
+            throw new IllegalArgumentException("uploadId must not be blank");
+        }
+        return FILE_CHUNK_UPLOAD_CLAIM_PREFIX + uploadId;
     }
 
     private static long requirePositiveId(Long value, String name) {
