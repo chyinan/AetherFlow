@@ -61,7 +61,7 @@ public class GithubOAuthService {
         if (!StringUtils.hasText(code)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "missing github oauth code");
         }
-        GithubOAuthStateService.ValidatedState validatedState = stateService.validateState(state);
+        GithubOAuthStateService.ValidatedState validatedState = stateService.consumeState(state);
         String accessToken = githubOAuthClient.exchangeCode(code, validatedState.callbackUri());
         GithubOAuthUser githubUser = githubOAuthClient.fetchUser(accessToken);
         User user = resolveOrCreateUser(githubUser);

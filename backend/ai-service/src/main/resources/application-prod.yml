@@ -31,12 +31,15 @@ spring:
         dashboard: ${SENTINEL_DASHBOARD:sentinel-dashboard:8858}
 
 aetherflow:
+  ai:
+    internal-token: ${AI_INTERNAL_TOKEN}
   file:
     internal-token: ${FILE_INTERNAL_TOKEN}
   task:
     internal-token: ${TASK_INTERNAL_TOKEN}
   python-ai:
     base-url: ${PYTHON_AI_BASE_URL:http://python-ai-service:8200}
+    api-key: ${AI_SERVICE_API_KEY}
   ai:
     default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
     default-model: ${AI_DEFAULT_MODEL:qwen3:8b}

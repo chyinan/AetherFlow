@@ -168,6 +168,16 @@ public class FileInfoServiceImpl implements FileInfoService {
         return download;
     }
 
+    @Override
+    public FileDownload downloadInternal(Long userId, Long fileId) {
+        requireUserId(userId);
+        FileLogContext.putUserId(userId);
+        FileLogContext.putFileId(fileId);
+        FileInfo fileInfo = getAvailableFile(fileId);
+        checkFileOwner(userId, fileInfo);
+        return openDownload(fileInfo, fileId);
+    }
+
     private FileDownload openDownload(FileInfo fileInfo, Long fileId) {
         try {
             GetObjectResponse response = minioClient.getObject(GetObjectArgs.builder()
@@ -228,6 +238,14 @@ public class FileInfoServiceImpl implements FileInfoService {
     @Override
     public FileMetadataDTO getMetadata(Long fileId) {
         return toDTO(getAvailableFile(fileId));
+    }
+
+    @Override
+    public FileMetadataDTO getMetadata(Long userId, Long fileId) {
+        requireUserId(userId);
+        FileInfo fileInfo = getAvailableFile(fileId);
+        checkFileOwner(userId, fileInfo);
+        return toDTO(fileInfo);
     }
 
     @Override

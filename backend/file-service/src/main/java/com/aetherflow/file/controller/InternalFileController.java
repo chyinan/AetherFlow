@@ -80,9 +80,11 @@ public class InternalFileController {
     @GetMapping("/metadata/{fileId}")
     public Result<FileMetadataDTO> getMetadata(
             @RequestHeader(value = InternalHeaders.FILE_SERVICE_TOKEN, required = false) String internalToken,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @PathVariable Long fileId) {
         validateInternalToken(internalToken);
-        return Result.success(fileInfoService.getMetadata(fileId));
+        requireUserId(userId);
+        return Result.success(fileInfoService.getMetadata(userId, fileId));
     }
 
     @Operation(summary = "Download file internally",
@@ -94,9 +96,11 @@ public class InternalFileController {
     @GetMapping("/{fileId}/download")
     public ResponseEntity<InputStreamResource> download(
             @RequestHeader(value = InternalHeaders.FILE_SERVICE_TOKEN, required = false) String internalToken,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
             @PathVariable Long fileId) {
         validateInternalToken(internalToken);
-        FileDownload fileDownload = fileInfoService.downloadInternal(fileId);
+        requireUserId(userId);
+        FileDownload fileDownload = fileInfoService.downloadInternal(userId, fileId);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentDisposition(ContentDisposition.attachment()
@@ -115,6 +119,12 @@ public class InternalFileController {
     private void validateInternalToken(String internalToken) {
         if (!tokenService.isValid(internalToken, "file-service", Instant.now())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal file token");
+        }
+    }
+
+    private void requireUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "internal file user id is required");
         }
     }
 

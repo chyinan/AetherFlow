@@ -96,6 +96,7 @@ class WorkflowServiceImplTest {
         WorkflowDefinition definition = definitionEntity();
         WorkflowDefinitionDTO definitionDTO = definitionDTO();
         StartWorkflowRequest request = request();
+        request.setInput(Map.of("file", "audio.mp3", "userId", 999L));
         doAnswer(invocation -> {
             WorkflowInstance instance = invocation.getArgument(0);
             instance.setId(99L);
@@ -124,6 +125,7 @@ class WorkflowServiceImplTest {
         assertThat(runtimeRequest.getValue().workflowId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().taskId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().variables()).containsEntry("file", "audio.mp3");
+        assertThat(runtimeRequest.getValue().variables()).containsEntry("userId", 7L);
         assertThat(runtimeRequest.getValue().variables()).containsKey(WorkflowNodeContextKeys.NODE_CONFIGS);
         ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
         verify(instanceMapper).updateById(instanceCaptor.capture());

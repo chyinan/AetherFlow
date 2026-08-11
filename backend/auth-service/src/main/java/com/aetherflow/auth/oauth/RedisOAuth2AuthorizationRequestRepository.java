@@ -58,12 +58,12 @@ public class RedisOAuth2AuthorizationRequestRepository
     @Override
     public OAuth2AuthorizationRequest removeAuthorizationRequest(HttpServletRequest request,
                                                                 HttpServletResponse response) {
-        OAuth2AuthorizationRequest authorizationRequest = loadAuthorizationRequest(request);
         String state = state(request);
-        if (StringUtils.hasText(state)) {
-            redisTemplate.delete(key(state));
+        if (!StringUtils.hasText(state)) {
+            return null;
         }
-        return authorizationRequest;
+        String payload = redisTemplate.opsForValue().getAndDelete(key(state));
+        return StringUtils.hasText(payload) ? deserialize(payload) : null;
     }
 
     private String state(HttpServletRequest request) {

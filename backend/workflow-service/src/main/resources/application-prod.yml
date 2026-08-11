@@ -54,6 +54,10 @@ aetherflow:
     internal-token: ${FILE_INTERNAL_TOKEN}
   task:
     internal-token: ${TASK_INTERNAL_TOKEN}
+  ai:
+    internal-token: ${AI_INTERNAL_TOKEN}
+  notify:
+    internal-token: ${NOTIFY_INTERNAL_TOKEN}
   workflow:
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN}

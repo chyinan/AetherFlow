@@ -19,7 +19,7 @@ class NotifyOpenApiContractTest {
 
         assertOperationDocumented("subscribe", Long.class, String.class);
         assertOperationDocumented("streamToken", Long.class, String.class);
-        assertOperationDocumented("send", NotifyMessageDTO.class);
+        assertOperationDocumented("send", String.class, NotifyMessageDTO.class);
     }
 
     private static void assertOperationDocumented(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {

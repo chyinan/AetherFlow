@@ -104,6 +104,11 @@ public class WorkflowDag {
         return incomingEdges.getOrDefault(nodeId, List.of());
     }
 
+    public List<String> declaredNextNodeIds(String nodeId) {
+        node(nodeId);
+        return outgoingEdges.getOrDefault(nodeId, List.of());
+    }
+
     public int requiredPredecessorCount(String nodeId) {
         return predecessorNodeIds(nodeId).size();
     }

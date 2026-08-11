@@ -48,7 +48,7 @@ class OCRNodeExecutorTest {
         OCRMetrics ocrMetrics = new OCRMetrics();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, ocrMetrics);
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile(any(String.class), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
+        when(fileClient.downloadFile(any(String.class), eq(7L), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
         when(provider.recognize(argThat(request ->
                 request.file().content().length == bytes.length
                         && "invoice.png".equals(request.file().fileName())
@@ -74,7 +74,7 @@ class OCRNodeExecutorTest {
         assertThat(result.variables()).containsEntry("ocrPageCount", 1);
         assertThat(ocrMetrics.snapshot().ocrCount()).isEqualTo(1);
         assertThat(ocrMetrics.snapshot().failCount()).isZero();
-        verify(fileClient).downloadFile(any(String.class), eq(9L));
+        verify(fileClient).downloadFile(any(String.class), eq(7L), eq(9L));
     }
 
     @Test
@@ -84,7 +84,7 @@ class OCRNodeExecutorTest {
         OCRProperties ocrProperties = ocrProperties();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, new OCRMetrics());
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile(any(String.class), eq(42L))).thenReturn(fileResponse(bytes, "invoice.jpg", "image/jpeg"));
+        when(fileClient.downloadFile(any(String.class), eq(7L), eq(42L))).thenReturn(fileResponse(bytes, "invoice.jpg", "image/jpeg"));
         when(provider.recognize(argThat(request -> request.file().content().length == bytes.length)))
                 .thenReturn(new OCRResult("invoice", "eng", 0.8, 1));
 
@@ -92,7 +92,7 @@ class OCRNodeExecutorTest {
                 Map.of("sourceFileId", 42L)));
 
         assertThat(result.variables()).containsEntry("ocrText", "invoice");
-        verify(fileClient).downloadFile(any(String.class), eq(42L));
+        verify(fileClient).downloadFile(any(String.class), eq(7L), eq(42L));
     }
 
     @Test
@@ -111,7 +111,7 @@ class OCRNodeExecutorTest {
         NodeResult result = executor.execute(context(Map.of("mock", true), Map.of()));
 
         assertThat(result.variables()).containsEntry("ocrText", "mock ocr text");
-        verify(fileClient, never()).downloadFile("token", 0L);
+        verify(fileClient, never()).downloadFile("token", 7L, 0L);
     }
 
     @Test
@@ -124,7 +124,7 @@ class OCRNodeExecutorTest {
         ExecutorService executorService = Executors.newSingleThreadExecutor();
         OCRNodeExecutor executor = executor(fileClient, List.of(provider), ocrProperties, ocrMetrics, executorService);
         byte[] bytes = "image-bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileClient.downloadFile(any(String.class), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
+        when(fileClient.downloadFile(any(String.class), eq(7L), eq(9L))).thenReturn(fileResponse(bytes, "invoice.png", "image/png"));
         when(provider.recognize(argThat(request -> "invoice.png".equals(request.file().fileName()))))
                 .thenAnswer(invocation -> {
                     Thread.sleep(200);
@@ -189,6 +189,7 @@ class OCRNodeExecutorTest {
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {
         Map<String, Object> initialVariables = new LinkedHashMap<>(variables);
+        initialVariables.putIfAbsent("userId", 7L);
         initialVariables.put(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("ocr", config));
         DefaultWorkflowContext context = new DefaultWorkflowContext("workflow-1", "trace-1", "task-1", initialVariables);
         context.updateCurrentNodeId("ocr");

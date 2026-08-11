@@ -14,6 +14,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
@@ -103,6 +104,40 @@ class LocalChunkUploadServiceTest {
         LocalChunkUploadService service = new LocalChunkUploadService(fileInfoService, tempDir);
 
         service.abort(1001L, "missing-upload");
+    }
+
+    @Test
+    void rejectsDeclaredSizeAndPartCountOutsideConfiguredLimits() {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        FileUploadProperties properties = new FileUploadProperties();
+        properties.setMaxSize(DataSize.ofBytes(10));
+        properties.setMaxChunkParts(2);
+        LocalChunkUploadService service = new LocalChunkUploadService(fileInfoService, tempDir, properties);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.init(1001L,
+                        new ChunkUploadDtos.InitRequest("large.txt", "text/plain", 11L, 1, null)))
+                .isInstanceOf(com.aetherflow.file.exception.UploadException.class)
+                .hasMessageContaining("maximum");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.init(1001L,
+                        new ChunkUploadDtos.InitRequest("many.txt", "text/plain", 10L, 3, null)))
+                .isInstanceOf(com.aetherflow.file.exception.UploadException.class)
+                .hasMessageContaining("parts");
+    }
+
+    @Test
+    void completeIsIdempotentAfterTheFirstSuccessfulCompletion() throws Exception {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        LocalChunkUploadService service = new LocalChunkUploadService(fileInfoService, tempDir);
+        ChunkUploadDtos.InitResponse init = service.init(1001L, new ChunkUploadDtos.InitRequest(
+                "demo.txt", "text/plain", 5L, 1, null));
+        service.uploadPart(1001L, init.uploadId(), 1, part("part-1", "hello"));
+        FileMetadataDTO metadata = new FileMetadataDTO(303L, "aetherflow", "objects/demo.txt", "demo.txt",
+                "text/plain", 5L, "http://minio/demo.txt");
+        when(fileInfoService.upload(eq(1001L), any(MultipartFile.class), eq(init.uploadId()))).thenReturn(metadata);
+
+        assertThat(service.complete(1001L, init.uploadId(), new ChunkUploadDtos.CompleteRequest(null))).isEqualTo(metadata);
+        assertThat(service.complete(1001L, init.uploadId(), new ChunkUploadDtos.CompleteRequest(null))).isEqualTo(metadata);
+        verify(fileInfoService).upload(eq(1001L), any(MultipartFile.class), eq(init.uploadId()));
     }
 
     @Test

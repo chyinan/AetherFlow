@@ -14,15 +14,13 @@ import static org.mockito.Mockito.when;
 class TaskControllerTest {
 
     @Test
-    void returnsSuccessWithNullDataWhenTaskIsMissingToPreserveQueryContract() {
+    void returnsNotFoundWhenTaskIsMissing() {
         TaskMapper taskMapper = mock(TaskMapper.class);
         when(taskMapper.selectOne(any())).thenReturn(null);
         TaskController controller = new TaskController(taskMapper);
 
-        Result<Task> result = controller.getById(404L, 1001L);
-
-        assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getData()).isNull();
+        assertThatThrownBy(() -> controller.getById(404L, 1001L))
+                .hasMessageContaining("task not found");
     }
 
     @Test

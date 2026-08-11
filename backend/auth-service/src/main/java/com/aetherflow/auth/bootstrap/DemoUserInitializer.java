@@ -60,6 +60,11 @@ public class DemoUserInitializer implements ApplicationRunner {
                 .eq(User::getUsername, username.trim())
                 .last("limit 1"));
         if (existing != null) {
+            if (!"OWNER".equalsIgnoreCase(existing.getRole())) {
+                existing.setRole("OWNER");
+                existing.setUpdatedAt(LocalDateTime.now());
+                userMapper.updateById(existing);
+            }
             return;
         }
 
@@ -69,6 +74,7 @@ public class DemoUserInitializer implements ApplicationRunner {
         user.setEmail(normalizeEmail(StringUtils.hasText(email) ? email : username.trim() + "@aetherflow.local"));
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setStatus(ENABLED);
+        user.setRole("OWNER");
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
         userMapper.insert(user);

@@ -9,12 +9,14 @@ import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WorkflowRuntimeRecoveryService {
 
     private final RuntimeSnapshotRepository snapshotRepository;
@@ -33,9 +35,16 @@ public class WorkflowRuntimeRecoveryService {
     }
 
     public List<WorkflowExecutionSnapshot> recoverRunnableWorkflows(int limit) {
-        return snapshotRepository.findRecoverable(limit).stream()
-                .map(this::recover)
-                .toList();
+        List<WorkflowExecutionSnapshot> recovered = new java.util.ArrayList<>();
+        for (WorkflowRuntimeSnapshot snapshot : snapshotRepository.findRecoverable(limit)) {
+            try {
+                recovered.add(recover(snapshot));
+            } catch (RuntimeException exception) {
+                log.error("workflow runtime recovery skipped corrupted snapshot, workflowId={}, reason={}",
+                        snapshot == null ? null : snapshot.workflowId(), exception.getMessage(), exception);
+            }
+        }
+        return List.copyOf(recovered);
     }
 
     public WorkflowExecutionSnapshot recover(WorkflowRuntimeSnapshot snapshot) {

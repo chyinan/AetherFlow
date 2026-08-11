@@ -50,6 +50,28 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void removesGatewayIdentityHeadersOnPermitAllPaths() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/auth/me")
+                        .header("X-User-Id", "999")
+                        .header("X-Username", "mallory")
+                        .header("X-Roles", "ADMIN")
+                        .build()
+        );
+        AtomicReference<ServerWebExchange> forwarded = new AtomicReference<>();
+
+        filter.filter(exchange, chain(exchange1 -> {
+            forwarded.set(exchange1);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        assertThat(forwarded.get().getRequest().getHeaders().containsKey("X-User-Id")).isFalse();
+        assertThat(forwarded.get().getRequest().getHeaders().containsKey("X-Username")).isFalse();
+        assertThat(forwarded.get().getRequest().getHeaders().containsKey("X-Roles")).isFalse();
+    }
+
+    @Test
     void permitsGoogleOauthPathsWithoutToken() {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
 
@@ -174,6 +196,26 @@ class JwtAuthenticationFilterTest {
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-User-Id")).isEqualTo("7");
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Username")).isEqualTo("alice");
         assertThat(forwarded.get().getRequest().getHeaders().getFirst("X-Roles")).isEqualTo("ADMIN,USER");
+    }
+
+    @Test
+    void rejectsNonAdminForProviderManagementRoutes() throws Exception {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        String token = jwtTokenProvider.createToken(new JwtUserClaims(7L, "alice", List.of("USER")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.put("/ai/provider/config/openai")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .build()
+        );
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.filter(exchange, chain(exchange1 -> {
+            called.set(true);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        assertThat(called).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     private JwtAuthenticationFilter newFilter(TokenBlacklistService tokenBlacklistService) {

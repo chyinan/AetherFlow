@@ -9,17 +9,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 @Repository
 @RequiredArgsConstructor
+@Slf4j
 public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotRepository {
 
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
@@ -31,21 +34,37 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
 
     private final WorkflowRuntimeSnapshotMapper mapper;
     private final ObjectMapper objectMapper;
+    private final Object[] saveLocks = createSaveLocks();
 
     @Override
     public void save(WorkflowRuntimeSnapshot snapshot) {
         if (snapshot == null) {
             return;
         }
-        WorkflowRuntimeSnapshotEntity existing = mapper.selectOne(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
-                .eq(WorkflowRuntimeSnapshotEntity::getWorkflowId, snapshot.workflowId())
-                .last("LIMIT 1"));
-        WorkflowRuntimeSnapshotEntity entity = toEntity(snapshot, existing);
-        if (existing == null) {
-            mapper.insert(entity);
-        } else {
-            mapper.updateById(entity);
+        synchronized (saveLock(snapshot.workflowId())) {
+            WorkflowRuntimeSnapshotEntity existing = mapper.selectOne(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                    .eq(WorkflowRuntimeSnapshotEntity::getWorkflowId, snapshot.workflowId())
+                    .last("LIMIT 1"));
+            WorkflowRuntimeSnapshotEntity entity = toEntity(snapshot, existing);
+            if (existing == null) {
+                mapper.insert(entity);
+            } else {
+                mapper.updateById(entity);
+            }
         }
+    }
+
+    private Object saveLock(String workflowId) {
+        int hash = workflowId == null ? 0 : workflowId.hashCode();
+        return saveLocks[(hash & Integer.MAX_VALUE) % saveLocks.length];
+    }
+
+    private static Object[] createSaveLocks() {
+        Object[] locks = new Object[64];
+        for (int index = 0; index < locks.length; index++) {
+            locks[index] = new Object();
+        }
+        return locks;
     }
 
     @Override
@@ -59,28 +78,38 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
     @Override
     public List<WorkflowRuntimeSnapshot> findRecoverable(int limit) {
         int maxResults = Math.max(1, limit);
-        return mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+        return readSnapshots(mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
                         .in(WorkflowRuntimeSnapshotEntity::getRuntimeState,
                                 RuntimeState.RUNNING.name(),
                                 RuntimeState.RETRYING.name())
                         .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
-                        .last("LIMIT " + maxResults))
-                .stream()
-                .map(this::toSnapshot)
-                .toList();
+                        .last("LIMIT " + maxResults)));
     }
 
     @Override
     public List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
         int maxResults = Math.max(1, limit);
-        return mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+        return readSnapshots(mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
                         .in(WorkflowRuntimeSnapshotEntity::getRuntimeState,
                                 RuntimeState.SUCCESS.name(), RuntimeState.FAILED.name(), RuntimeState.CANCELLED.name())
                         .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
-                        .last("LIMIT " + maxResults))
-                .stream()
-                .map(this::toSnapshot)
-                .toList();
+                        .last("LIMIT " + maxResults)));
+    }
+
+    private List<WorkflowRuntimeSnapshot> readSnapshots(List<WorkflowRuntimeSnapshotEntity> entities) {
+        List<WorkflowRuntimeSnapshot> snapshots = new ArrayList<>();
+        if (entities == null) {
+            return snapshots;
+        }
+        for (WorkflowRuntimeSnapshotEntity entity : entities) {
+            try {
+                snapshots.add(toSnapshot(entity));
+            } catch (RuntimeException exception) {
+                log.error("skipping malformed workflow runtime snapshot, workflowId={}, reason={}",
+                        entity == null ? null : entity.getWorkflowId(), exception.getMessage());
+            }
+        }
+        return List.copyOf(snapshots);
     }
 
     private WorkflowRuntimeSnapshotEntity toEntity(WorkflowRuntimeSnapshot snapshot,

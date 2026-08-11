@@ -30,6 +30,7 @@ import java.util.Optional;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+// pattern: Imperative Shell
 public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     private final JwtTokenProvider jwtTokenProvider;
@@ -44,7 +45,7 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
         if (!securityProperties.isAuthEnabled() || isPermitAll(path)) {
-            return chain.filter(exchange);
+            return chain.filter(stripGatewayIdentityHeaders(exchange));
         }
 
         String authorization = exchange.getRequest().getHeaders().getFirst(jwtProperties.getHeader());
@@ -77,12 +78,11 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
                                               String authorization) {
         try {
             JwtUserClaims claims = jwtTokenProvider.parseToken(authorization);
-            ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                    .headers(headers -> {
-                        headers.remove("X-User-Id");
-                        headers.remove("X-Username");
-                        headers.remove("X-Roles");
-                    })
+            if (requiresAdminRole(exchange.getRequest().getURI().getPath())
+                    && !hasAdminRole(claims)) {
+                return forbidden(exchange, "admin role is required");
+            }
+            ServerHttpRequest mutatedRequest = stripGatewayIdentityHeaders(exchange).getRequest().mutate()
                     .header("X-User-Id", String.valueOf(claims.getUserId()))
                     .header("X-Username", Optional.ofNullable(claims.getUsername()).orElse(""))
                     .header("X-Roles", String.join(",", Optional.ofNullable(claims.getRoles()).orElseGet(java.util.List::of)))
@@ -97,8 +97,38 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         }
     }
 
+    private ServerWebExchange stripGatewayIdentityHeaders(ServerWebExchange exchange) {
+        ServerHttpRequest request = exchange.getRequest().mutate()
+                .headers(headers -> {
+                    headers.remove("X-User-Id");
+                    headers.remove("X-Username");
+                    headers.remove("X-Roles");
+                })
+                .build();
+        return exchange.mutate().request(request).build();
+    }
+
+    private boolean requiresAdminRole(String path) {
+        return pathMatcher.match("/ai/provider/**", path)
+                || pathMatcher.match("/knowledge/vector-stores/**", path)
+                || pathMatcher.match("/settings/members/**", path)
+                || pathMatcher.match("/settings/billing", path)
+                || pathMatcher.match("/settings/audit-events", path)
+                || pathMatcher.match("/settings/integrations/**", path);
+    }
+
+    private boolean hasAdminRole(JwtUserClaims claims) {
+        return Optional.ofNullable(claims.getRoles()).orElseGet(java.util.List::of).stream()
+                .map(String::trim)
+                .anyMatch(role -> "ADMIN".equalsIgnoreCase(role) || "OWNER".equalsIgnoreCase(role));
+    }
+
     private Mono<Void> unauthorized(ServerWebExchange exchange, String message) {
         return responseWriter.write(exchange, HttpStatus.UNAUTHORIZED, ResultCode.UNAUTHORIZED, message);
+    }
+
+    private Mono<Void> forbidden(ServerWebExchange exchange, String message) {
+        return responseWriter.write(exchange, HttpStatus.FORBIDDEN, ResultCode.FORBIDDEN, message);
     }
 }
 

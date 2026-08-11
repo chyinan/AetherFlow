@@ -4,13 +4,19 @@ import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
+import com.aetherflow.ai.config.AiInternalProperties;
 import com.aetherflow.common.core.Result;
+import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
+import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,7 +26,7 @@ class AiWorkflowNodeControllerTest {
     void routesWhisperToAsrExecutor() {
         AiNodeExecutor asrExecutor = new StubExecutor("ASR", "hello world");
         AiWorkflowNodeController controller = new AiWorkflowNodeController(
-                new DefaultAiNodeExecutorRegistry(List.of(asrExecutor))
+                new DefaultAiNodeExecutorRegistry(List.of(asrExecutor)), properties()
         );
 
         AiWorkflowNodeRequestDTO request = request("WHISPER", Map.of(
@@ -29,7 +35,7 @@ class AiWorkflowNodeControllerTest {
                 "prompt", ""
         ));
 
-        Result<AiWorkflowNodeResponseDTO> result = controller.execute(request);
+        Result<AiWorkflowNodeResponseDTO> result = controller.execute(token(), request);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData().getNodeType()).isEqualTo("WHISPER");
@@ -40,7 +46,7 @@ class AiWorkflowNodeControllerTest {
     void routesSummaryThroughSummaryExecutor() {
         AiNodeExecutor summaryExecutor = new StubExecutor("SUMMARY", "short summary");
         AiWorkflowNodeController controller = new AiWorkflowNodeController(
-                new DefaultAiNodeExecutorRegistry(List.of(summaryExecutor))
+                new DefaultAiNodeExecutorRegistry(List.of(summaryExecutor)), properties()
         );
 
         AiWorkflowNodeRequestDTO request = request("SUMMARY", Map.of(
@@ -49,11 +55,37 @@ class AiWorkflowNodeControllerTest {
                 "prompt", "Focus on actions"
         ));
 
-        Result<AiWorkflowNodeResponseDTO> result = controller.execute(request);
+        Result<AiWorkflowNodeResponseDTO> result = controller.execute(token(), request);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData().getNodeType()).isEqualTo("SUMMARY");
         assertThat(result.getData().getOutput()).containsEntry("summary", "short summary");
+    }
+
+    @Test
+    void rejectsMissingInternalToken() {
+        AiWorkflowNodeController controller = new AiWorkflowNodeController(
+                new DefaultAiNodeExecutorRegistry(List.of(new StubExecutor("ASR", "hello"))), properties()
+        );
+
+        try {
+            controller.execute(null, request("WHISPER", Map.of()));
+        } catch (BusinessException exception) {
+            assertThat(exception.getErrorCode()).isEqualTo(ResultCode.FORBIDDEN);
+            return;
+        }
+        throw new AssertionError("expected missing internal token to be rejected");
+    }
+
+    private static AiInternalProperties properties() {
+        AiInternalProperties properties = new AiInternalProperties();
+        properties.setInternalToken("0123456789abcdef0123456789abcdef");
+        return properties;
+    }
+
+    private static String token() {
+        return new InternalServiceTokenService(properties().getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1))
+                .issue("ai-service", Instant.now());
     }
 
     private static AiWorkflowNodeRequestDTO request(String nodeType, Map<String, Object> payload) {

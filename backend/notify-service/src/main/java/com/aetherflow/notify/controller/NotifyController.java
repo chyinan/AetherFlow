@@ -2,8 +2,11 @@ package com.aetherflow.notify.controller;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.core.InternalHeaders;
 import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
+import com.aetherflow.notify.config.NotifyInternalProperties;
 import com.aetherflow.notify.dto.NotificationRecordResponse;
 import com.aetherflow.notify.dto.StreamTokenResponse;
 import com.aetherflow.notify.service.NotificationService;
@@ -15,7 +18,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,16 +31,30 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.time.Duration;
+import java.time.Instant;
 
 @Tag(name = "Notify", description = "Frontend public notification SSE API plus Internal service-to-service send API.")
 @RestController
 @RequestMapping("/notify")
-@RequiredArgsConstructor
+// pattern: Imperative Shell
 public class NotifyController {
 
     private final SseEmitterRegistry sseEmitterRegistry;
     private final NotificationService notificationService;
     private final StreamTokenService streamTokenService;
+    private final InternalServiceTokenService internalTokenService;
+
+    public NotifyController(SseEmitterRegistry sseEmitterRegistry,
+                            NotificationService notificationService,
+                            StreamTokenService streamTokenService,
+                            NotifyInternalProperties properties) {
+        this.sseEmitterRegistry = sseEmitterRegistry;
+        this.notificationService = notificationService;
+        this.streamTokenService = streamTokenService;
+        this.internalTokenService = new InternalServiceTokenService(
+                properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1));
+    }
 
     @Operation(summary = "Subscribe notification SSE stream",
             description = "Frontend public Server-Sent Events endpoint for receiving user notification events.")
@@ -115,7 +131,12 @@ public class NotifyController {
             @ApiResponse(responseCode = "500", description = "Unexpected server error.")
     })
     @PostMapping("/internal/send")
-    public Result<Void> send(@RequestBody NotifyMessageDTO message) {
+    public Result<Void> send(
+            @RequestHeader(value = InternalHeaders.NOTIFY_SERVICE_TOKEN, required = false) String internalToken,
+            @RequestBody NotifyMessageDTO message) {
+        if (!internalTokenService.isValid(internalToken, "notify-service", Instant.now())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal notify token");
+        }
         notificationService.send(message);
         return Result.success();
     }

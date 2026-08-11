@@ -303,7 +303,7 @@ class WorkflowRuntimeEngineTest {
     }
 
     @Test
-    void failsWhenTriggeredJoinCannotCompleteBecauseAnotherPredecessorWasSkipped() {
+    void completesTriggeredJoinWhenAnotherPredecessorWasSkipped() {
         NodeRegistry registry = new NodeRegistry(List.of(
                 executor("CONDITION", context -> NodeResult.success(Map.of()).withBranchKey("left")),
                 executor("LEFT", context -> NodeResult.success(Map.of("left", true))),
@@ -312,7 +312,7 @@ class WorkflowRuntimeEngineTest {
         ));
         WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
 
-        assertThatThrownBy(() -> engine.execute(new WorkflowRuntimeRequest(
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
                 "workflow-incomplete-join",
                 "trace-incomplete-join",
                 "task-incomplete-join",
@@ -324,9 +324,11 @@ class WorkflowRuntimeEngineTest {
                 ),
                 Map.of(),
                 RetryPolicy.none()
-        )))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("incomplete expected nodes");
+        ));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.completedNodeIds()).containsExactly("condition", "left", "join");
+        assertThat(snapshot.nodeOutputs()).doesNotContainKey("right");
     }
 
     @Test
@@ -439,6 +441,59 @@ class WorkflowRuntimeEngineTest {
         WorkflowExecutionSnapshot snapshot = execution.get(2, TimeUnit.SECONDS);
         assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
         assertThat(snapshot.completedNodeIds()).contains("start", "left", "right", "join");
+    }
+
+    @Test
+    void isolatesCurrentNodeIdentityAcrossParallelExecutors() throws Exception {
+        CountDownLatch bothStarted = new CountDownLatch(2);
+        CountDownLatch releaseBranches = new CountDownLatch(1);
+        Map<String, String> observedNodeIds = new ConcurrentHashMap<>();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("LEFT", context -> {
+                    bothStarted.countDown();
+                    await(releaseBranches);
+                    observedNodeIds.put("left", context.currentNodeId());
+                    return NodeResult.success(Map.of("leftNode", context.currentNodeId()));
+                }),
+                executor("RIGHT", context -> {
+                    bothStarted.countDown();
+                    await(releaseBranches);
+                    observedNodeIds.put("right", context.currentNodeId());
+                    return NodeResult.success(Map.of("rightNode", context.currentNodeId()));
+                }),
+                executor("JOIN", context -> NodeResult.success(Map.of()))
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        CompletableFuture<WorkflowExecutionSnapshot> execution = CompletableFuture.supplyAsync(() ->
+                engine.execute(new WorkflowRuntimeRequest(
+                        "workflow-parallel-context",
+                        "trace-parallel-context",
+                        "task-parallel-context",
+                        definition(
+                                node("start", "START", Map.of("nextNodes", List.of("left", "right"))),
+                                node("left", "LEFT", Map.of("next", "join")),
+                                node("right", "RIGHT", Map.of("next", "join")),
+                                node("join", "JOIN", Map.of())
+                        ),
+                        Map.of(),
+                        RetryPolicy.none()
+                )));
+
+        try {
+            assertThat(bothStarted.await(500, TimeUnit.MILLISECONDS)).isTrue();
+        } finally {
+            releaseBranches.countDown();
+        }
+
+        WorkflowExecutionSnapshot snapshot = execution.get(2, TimeUnit.SECONDS);
+        assertThat(observedNodeIds).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "left", "left",
+                "right", "right"
+        ));
+        assertThat(snapshot.nodeOutputs().get("left").output()).containsEntry("leftNode", "left");
+        assertThat(snapshot.nodeOutputs().get("right").output()).containsEntry("rightNode", "right");
     }
 
     @Test

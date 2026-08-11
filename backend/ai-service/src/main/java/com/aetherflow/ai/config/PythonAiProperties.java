@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class PythonAiProperties {
 
     private String baseUrl = "http://192.168.101.68:8200";
+    private String apiKey = "";
     private int connectTimeoutMillis = 3000;
     private int readTimeoutMillis = 120000;
 }

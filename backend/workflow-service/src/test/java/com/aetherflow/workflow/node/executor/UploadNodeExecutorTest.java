@@ -37,7 +37,7 @@ class UploadNodeExecutorTest {
                 1024L,
                 "http://minio/aetherflow/objects/audio.mp3"
         );
-        when(fileClient.getMetadata(any(String.class), eq(9L))).thenReturn(Result.success(metadata));
+        when(fileClient.getMetadata(any(String.class), eq(7L), eq(9L))).thenReturn(Result.success(metadata));
 
         NodeResult result = executor.execute(context(Map.of("fileId", 9L), Map.of()));
 
@@ -48,7 +48,7 @@ class UploadNodeExecutorTest {
         assertThat(result.variables()).containsEntry("fileOriginalName", metadata.getOriginalName());
         assertThat(result.variables()).containsEntry("fileContentType", metadata.getContentType());
         assertThat(result.variables()).containsEntry("fileSize", metadata.getSize());
-        verify(fileClient).getMetadata(any(String.class), eq(9L));
+        verify(fileClient).getMetadata(any(String.class), eq(7L), eq(9L));
     }
 
     @Test
@@ -66,17 +66,18 @@ class UploadNodeExecutorTest {
                 1024L,
                 "http://minio/aetherflow/objects/audio.mp3"
         );
-        when(fileClient.getMetadata(any(String.class), eq(9L))).thenReturn(Result.success(metadata));
+        when(fileClient.getMetadata(any(String.class), eq(7L), eq(9L))).thenReturn(Result.success(metadata));
 
         NodeResult result = executor.execute(context(Map.of("fileIdVariable", "sourceFileId"),
                 Map.of("sourceFileId", 9L)));
 
         assertThat(result.variables()).containsEntry("fileUrl", metadata.getUrl());
-        verify(fileClient).getMetadata(any(String.class), eq(9L));
+        verify(fileClient).getMetadata(any(String.class), eq(7L), eq(9L));
     }
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {
         Map<String, Object> initialVariables = new LinkedHashMap<>(variables);
+        initialVariables.putIfAbsent("userId", 7L);
         initialVariables.put(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("upload", config));
         DefaultWorkflowContext context = new DefaultWorkflowContext("workflow-1", "trace-1", "task-1", initialVariables);
         context.updateCurrentNodeId("upload");

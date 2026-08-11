@@ -3,6 +3,7 @@ package com.aetherflow.workflow.embedding.store;
 import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.embedding.store.VectorStoreDtos.VectorStoreConfigRequest;
 import com.aetherflow.workflow.embedding.store.VectorStoreDtos.VectorStoreConfigResponse;
+import com.aetherflow.common.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +66,19 @@ class VectorStoreConfigServiceTest {
         assertThat(saved.getBaseUrl()).isEqualTo("https://qdrant.example.com");
         assertThat(saved.getCollection()).isEqualTo("production-embeddings");
         assertThat(response.apiKeyConfigured()).isTrue();
+    }
+
+    @Test
+    void rejectsVectorStoreAddressesThatResolveToLoopbackOrPrivateNetworks() {
+        VectorStoreConfigRequest request = new VectorStoreConfigRequest();
+        request.setEnabled(true);
+        request.setProvider("qdrant");
+        request.setBaseUrl("http://127.0.0.1:6333");
+        request.setCollection("production-embeddings");
+
+        assertThatThrownBy(() -> service.update(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("private network");
     }
 
     private static VectorStoreConfigEntity entity(String apiKey) {

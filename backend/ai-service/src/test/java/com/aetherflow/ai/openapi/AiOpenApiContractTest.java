@@ -34,7 +34,8 @@ class AiOpenApiContractTest {
         assertOperationDocumented(AiProviderController.class, "logs", int.class);
 
         assertControllerDocumented(AiWorkflowNodeController.class, true);
-        assertOperationDocumented(AiWorkflowNodeController.class, "execute", AiWorkflowNodeRequestDTO.class);
+        assertOperationDocumented(AiWorkflowNodeController.class, "execute",
+                String.class, AiWorkflowNodeRequestDTO.class);
     }
 
     private static void assertControllerDocumented(Class<?> controllerType, boolean internal) {

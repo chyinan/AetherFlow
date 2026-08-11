@@ -20,10 +20,13 @@ import com.aetherflow.auth.settings.mapper.SettingsMemberMapper;
 import com.aetherflow.auth.settings.mapper.SettingsProfileMapper;
 import com.aetherflow.auth.settings.service.SettingsService;
 import com.aetherflow.auth.settings.service.TelegramBotClient;
+import com.aetherflow.auth.entity.User;
+import com.aetherflow.auth.mapper.UserMapper;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -54,6 +57,9 @@ public class SettingsServiceImpl implements SettingsService {
     private final SettingsBillingMapper billingMapper;
     private final SettingsAuditEventMapper auditEventMapper;
     private final TelegramBotClient telegramBotClient;
+
+    @Autowired(required = false)
+    private UserMapper userMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -114,6 +120,7 @@ public class SettingsServiceImpl implements SettingsService {
         } else {
             memberMapper.updateById(member);
         }
+        syncUserRole(member);
         recordAudit("invited settings member", member.getEmail());
         return toMemberResponse(member);
     }
@@ -145,6 +152,7 @@ public class SettingsServiceImpl implements SettingsService {
         }
         member.setUpdatedAt(LocalDateTime.now());
         memberMapper.updateById(member);
+        syncUserRole(member);
         recordAudit("updated settings member", member.getEmail());
         return toMemberResponse(member);
     }
@@ -157,6 +165,7 @@ public class SettingsServiceImpl implements SettingsService {
         member.setDeletedAt(LocalDateTime.now());
         member.setUpdatedAt(LocalDateTime.now());
         memberMapper.updateById(member);
+        syncUserRole(member);
         recordAudit("removed settings member", member.getEmail());
     }
 
@@ -282,6 +291,32 @@ public class SettingsServiceImpl implements SettingsService {
         return member;
     }
 
+    private void syncUserRole(SettingsMemberEntity member) {
+        if (userMapper == null || member == null || !hasText(member.getEmail())) {
+            return;
+        }
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getEmail, normalizeEmail(member.getEmail()))
+                .last("limit 1"));
+        if (user == null) {
+            return;
+        }
+        String role = STATUS_REMOVED.equals(member.getStatus()) ? "USER" : authRole(member.getRole());
+        if (!role.equalsIgnoreCase(defaultText(user.getRole(), "USER"))) {
+            user.setRole(role);
+            userMapper.updateById(user);
+        }
+    }
+
+    private String authRole(String role) {
+        String normalized = role == null ? "" : role.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "OWNER" -> "OWNER";
+            case "ADMIN" -> "ADMIN";
+            default -> "USER";
+        };
+    }
+
     private void ensureDefaultOwnerMember() {
         Long memberCount = memberMapper.selectCount(new LambdaQueryWrapper<SettingsMemberEntity>()
                 .ne(SettingsMemberEntity::getStatus, STATUS_REMOVED));
@@ -298,6 +333,7 @@ public class SettingsServiceImpl implements SettingsService {
         member.setCreatedAt(now);
         member.setUpdatedAt(now);
         memberMapper.insert(member);
+        syncUserRole(member);
     }
 
     private SettingsMemberEntity findMemberByEmail(String email) {

@@ -18,6 +18,7 @@ public interface FileMetadataClient {
     @GetMapping("/metadata/{fileId}")
     Result<FileMetadataDTO> getMetadata(
             @RequestHeader(InternalHeaders.FILE_SERVICE_TOKEN) String internalToken,
+            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long fileId);
 
     @PostMapping("/metadata")
@@ -28,5 +29,6 @@ public interface FileMetadataClient {
     @GetMapping("/{fileId}/download")
     ResponseEntity<byte[]> downloadFile(
             @RequestHeader(InternalHeaders.FILE_SERVICE_TOKEN) String internalToken,
+            @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long fileId);
 }

@@ -14,6 +14,8 @@ import java.time.Instant;
 public class WorkflowNodeProperties {
 
     private String fileInternalToken = "aetherflow-file-internal-dev-token";
+    private String aiInternalToken = "aetherflow-ai-internal-dev-token";
+    private String notifyInternalToken = "aetherflow-notify-internal-dev-token";
     private String defaultWhisperLanguage = "auto";
     private String defaultSummaryLanguage = "English";
     private String exportObjectPrefix = "workflow/exports";
@@ -27,5 +29,15 @@ public class WorkflowNodeProperties {
     public String issueFileInternalToken() {
         return new InternalServiceTokenService(fileInternalToken, "aetherflow-internal", Duration.ofMinutes(1))
                 .issue("file-service", Instant.now());
+    }
+
+    public String issueAiInternalToken() {
+        return new InternalServiceTokenService(aiInternalToken, "aetherflow-internal", Duration.ofMinutes(1))
+                .issue("ai-service", Instant.now());
+    }
+
+    public String issueNotifyInternalToken() {
+        return new InternalServiceTokenService(notifyInternalToken, "aetherflow-internal", Duration.ofMinutes(1))
+                .issue("notify-service", Instant.now());
     }
 }

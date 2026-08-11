@@ -230,6 +230,46 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertTrue(response.json()["truncated"])
         self.assertLessEqual(len(response.json()["stdout"].encode('utf-8')), 1024)
 
+    def test_whisper_materialization_rewrites_before_internal_url_check(self):
+        from app.main import _materialize_source
+
+        original = "http://localhost:9000/aetherflow/audio.mp3"
+        rewritten = "http://minio:9000/aetherflow/audio.mp3"
+
+        class FakeResponse:
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def raise_for_status(self):
+                return None
+
+            def iter_bytes(self):
+                yield b"audio"
+
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "FILE_URL_REWRITE_FROM": "http://localhost:9000",
+                    "FILE_URL_REWRITE_TO": "http://minio:9000",
+                },
+                clear=False,
+            ),
+            patch("app.main.is_internal_url", side_effect=lambda url: url != rewritten),
+            patch("app.main.httpx.stream", return_value=FakeResponse()) as stream,
+        ):
+            materialized = _materialize_source(original)
+
+        self.addCleanup(lambda: materialized.unlink(missing_ok=True))
+        self.assertTrue(materialized.exists())
+        stream.assert_called_once()
+        self.assertEqual(rewritten, stream.call_args.args[1])
+
 
 if __name__ == "__main__":
     unittest.main()

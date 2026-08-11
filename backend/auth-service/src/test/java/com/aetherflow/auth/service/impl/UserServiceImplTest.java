@@ -163,6 +163,21 @@ class UserServiceImplTest {
     }
 
     @Test
+    void loginIssuesPersistedAdminRoleInsteadOfHardcodedUserRole() {
+        AuthLoginRequest request = new AuthLoginRequest();
+        request.setUsername("alice");
+        request.setPassword("Password123");
+        User user = existingUser(7L, "alice", "hashed-password", "ENABLED");
+        user.setRole("ADMIN");
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(passwordEncoder.matches("Password123", "hashed-password")).thenReturn(true);
+
+        AuthTokenResponse response = userService.login(request, requestContext());
+
+        assertThat(response.getRoles()).containsExactly("USER", "ADMIN");
+    }
+
+    @Test
     void loginRejectsInvalidPasswordRecordsAuditAndFailureCounter() {
         AuthLoginRequest request = new AuthLoginRequest();
         request.setUsername("alice");
@@ -188,14 +203,15 @@ class UserServiceImplTest {
         when(userMapper.selectById(7L)).thenReturn(existingUser(7L, "alice", "hashed-password", "ENABLED"));
         when(authSessionService.isRefreshTokenActive(7L, original.getRefreshToken())).thenReturn(true);
         when(authSessionService.getAccessToken(7L)).thenReturn(original.getAccessToken());
+        when(authSessionService.rotateRefreshToken(eq(7L), eq(original.getRefreshToken()), any(), eq(Duration.ofDays(7))))
+                .thenReturn(true);
 
         AuthTokenResponse response = userService.refresh(request, requestContext());
 
         assertThat(response.getAccessToken()).isNotEqualTo(original.getAccessToken());
         assertThat(response.getRefreshToken()).isNotEqualTo(original.getRefreshToken());
         verify(authSessionService).blacklistToken(eq(original.getAccessToken()), any(Duration.class));
-        verify(authSessionService).storeSession(eq(7L), eq(response.getAccessToken()), eq(Duration.ofMinutes(120)),
-                eq(response.getRefreshToken()), eq(Duration.ofDays(7)));
+        verify(authSessionService).storeAccessToken(eq(7L), eq(response.getAccessToken()), eq(Duration.ofMinutes(120)));
     }
 
     @Test

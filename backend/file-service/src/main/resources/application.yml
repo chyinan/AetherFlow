@@ -70,6 +70,8 @@ aetherflow:
       upload-cache-ttl-seconds: ${FILE_UPLOAD_CACHE_TTL_SECONDS:86400}
       hash-cache-ttl-seconds: ${FILE_HASH_CACHE_TTL_SECONDS:604800}
       chunk-session-ttl-seconds: ${FILE_CHUNK_SESSION_TTL_SECONDS:3600}
+      max-chunk-parts: ${FILE_MAX_CHUNK_PARTS:10000}
+      max-chunk-size: ${FILE_MAX_CHUNK_SIZE:64MB}
       allowed-extensions:
         - jpg
         - jpeg

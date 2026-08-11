@@ -23,5 +23,8 @@ public class User extends BaseEntity {
 
     @Schema(description = "Account status.", example = "ENABLED")
     private String status;
+
+    @Schema(description = "Account role.", example = "USER")
+    private String role;
 }
 

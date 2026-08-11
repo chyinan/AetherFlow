@@ -26,7 +26,8 @@ class ComfyUiWorkflowImportServiceTest {
         WorkflowNodeDTO prompt = node(definition, "PROMPT");
         assertThat(prompt.getConfig())
                 .containsEntry("prompt", "cinematic product photo")
-                .containsEntry("negativePrompt", "blur, low quality");
+                .containsEntry("negativePrompt", "blur, low quality")
+                .containsEntry("next", "image-generation");
 
         WorkflowNodeDTO image = node(definition, "IMAGE_GENERATION");
         assertThat(image.getConfig())

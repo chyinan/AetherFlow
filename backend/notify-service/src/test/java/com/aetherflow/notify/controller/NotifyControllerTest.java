@@ -3,13 +3,16 @@ package com.aetherflow.notify.controller;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.notify.dto.StreamTokenResponse;
+import com.aetherflow.notify.config.NotifyInternalProperties;
 import com.aetherflow.notify.service.NotificationService;
 import com.aetherflow.notify.service.SseEmitterRegistry;
 import com.aetherflow.notify.service.StreamTokenService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,7 +28,7 @@ class NotifyControllerTest {
         SseEmitterRegistry registry = mock(SseEmitterRegistry.class);
         NotificationService notificationService = mock(NotificationService.class);
         StreamTokenService streamTokenService = mock(StreamTokenService.class);
-        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService);
+        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService, properties());
         StreamTokenResponse response = new StreamTokenResponse(
                 "stream-token",
                 "stream",
@@ -50,7 +53,7 @@ class NotifyControllerTest {
         SseEmitterRegistry registry = mock(SseEmitterRegistry.class);
         NotificationService notificationService = mock(NotificationService.class);
         StreamTokenService streamTokenService = mock(StreamTokenService.class);
-        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService);
+        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService, properties());
         when(streamTokenService.validate("stream-token"))
                 .thenReturn(new StreamTokenService.StreamTokenClaims(8L, "bob"));
 
@@ -64,12 +67,38 @@ class NotifyControllerTest {
         SseEmitterRegistry registry = mock(SseEmitterRegistry.class);
         NotificationService notificationService = mock(NotificationService.class);
         StreamTokenService streamTokenService = mock(StreamTokenService.class);
-        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService);
+        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService, properties());
         when(streamTokenService.validate("stream-token"))
                 .thenReturn(new StreamTokenService.StreamTokenClaims(7L, "alice"));
 
         controller.subscribe(7L, "stream-token");
 
         verify(registry).register(7L);
+    }
+
+    @Test
+    void requiresInternalTokenForNotificationSend() {
+        SseEmitterRegistry registry = mock(SseEmitterRegistry.class);
+        NotificationService notificationService = mock(NotificationService.class);
+        StreamTokenService streamTokenService = mock(StreamTokenService.class);
+        NotifyInternalProperties properties = new NotifyInternalProperties();
+        properties.setInternalToken("0123456789abcdef0123456789abcdef");
+        NotifyController controller = new NotifyController(registry, notificationService, streamTokenService, properties);
+
+        assertThatThrownBy(() -> controller.send(null, new com.aetherflow.common.dto.NotifyMessageDTO()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ResultCode.FORBIDDEN);
+
+        String token = new InternalServiceTokenService(properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1))
+                .issue("notify-service", Instant.now());
+        controller.send(token, new com.aetherflow.common.dto.NotifyMessageDTO());
+        verify(notificationService).send(org.mockito.ArgumentMatchers.any());
+    }
+
+    private static NotifyInternalProperties properties() {
+        NotifyInternalProperties properties = new NotifyInternalProperties();
+        properties.setInternalToken("0123456789abcdef0123456789abcdef");
+        return properties;
     }
 }

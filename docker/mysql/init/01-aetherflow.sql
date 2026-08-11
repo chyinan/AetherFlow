@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS af_user (
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(128) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'USER',
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_user_username (username),
@@ -207,7 +208,6 @@ CREATE TABLE IF NOT EXISTS af_ai_job (
 
 CREATE TABLE IF NOT EXISTS af_copilot_conversation (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id BIGINT NOT NULL,
     title VARCHAR(128) NOT NULL,
     workflow_id VARCHAR(128),
     project_id VARCHAR(128),
@@ -217,7 +217,6 @@ CREATE TABLE IF NOT EXISTS af_copilot_conversation (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_af_copilot_conversation_updated (updated_at),
-    KEY idx_af_copilot_conversation_user (user_id),
     KEY idx_af_copilot_conversation_workflow (workflow_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -245,7 +244,6 @@ CREATE TABLE IF NOT EXISTS af_file_info (
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_file_info_object (bucket, object_key),
     KEY idx_af_file_info_user (user_id),
-    KEY idx_af_file_info_workflow (workflow_id),
     KEY idx_af_file_info_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

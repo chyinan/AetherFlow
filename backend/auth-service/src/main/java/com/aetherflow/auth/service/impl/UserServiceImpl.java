@@ -140,7 +140,14 @@ public class UserServiceImpl implements UserService {
         if (!authSessionService.isRefreshTokenActive(user.getId(), request.getRefreshToken())) {
             throw new UnauthorizedException("refresh token expired or revoked");
         }
-        return issueAndStoreTokenPair(user, true);
+        AuthTokenBundle bundle = authTokenService.issueTokenBundle(user.getId(), user.getUsername(), rolesFor(user));
+        if (!authSessionService.rotateRefreshToken(user.getId(), request.getRefreshToken(),
+                bundle.getRefreshToken(), authTokenService.refreshTokenTtl())) {
+            throw new UnauthorizedException("refresh token expired or revoked");
+        }
+        blacklistExistingAccessToken(user.getId());
+        authSessionService.storeAccessToken(user.getId(), bundle.getAccessToken(), authTokenService.accessTokenTtl());
+        return toTokenResponse(user, rolesFor(user), bundle);
     }
 
     @Override
@@ -181,19 +188,35 @@ public class UserServiceImpl implements UserService {
         if (invalidatePreviousAccessToken) {
             blacklistExistingAccessToken(user.getId());
         }
-        AuthTokenBundle bundle = authTokenService.issueTokenBundle(user.getId(), user.getUsername(), DEFAULT_ROLES);
+        List<String> roles = rolesFor(user);
+        AuthTokenBundle bundle = authTokenService.issueTokenBundle(user.getId(), user.getUsername(), roles);
         authSessionService.storeSession(user.getId(), bundle.getAccessToken(), authTokenService.accessTokenTtl(),
                 bundle.getRefreshToken(), authTokenService.refreshTokenTtl());
+        return toTokenResponse(user, roles, bundle);
+    }
+
+    private AuthTokenResponse toTokenResponse(User user, List<String> roles, AuthTokenBundle bundle) {
         return new AuthTokenResponse(
                 user.getId(),
                 user.getUsername(),
-                DEFAULT_ROLES,
+                roles,
                 "Bearer",
                 bundle.getAccessToken(),
                 bundle.getRefreshToken(),
                 bundle.getAccessExpiresInSeconds(),
                 bundle.getRefreshExpiresInSeconds()
         );
+    }
+
+    private List<String> rolesFor(User user) {
+        String role = user == null || user.getRole() == null ? "" : user.getRole().trim().toUpperCase(Locale.ROOT);
+        if ("OWNER".equals(role)) {
+            return List.of("USER", "ADMIN", "OWNER");
+        }
+        if ("ADMIN".equals(role)) {
+            return List.of("USER", "ADMIN");
+        }
+        return DEFAULT_ROLES;
     }
 
     private void blacklistExistingAccessToken(Long userId) {

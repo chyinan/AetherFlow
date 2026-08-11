@@ -18,6 +18,8 @@ public class FileUploadProperties {
     private long uploadCacheTtlSeconds = 86400;
     private long hashCacheTtlSeconds = 604800;
     private long chunkSessionTtlSeconds = 3600;
+    private int maxChunkParts = 10_000;
+    private DataSize maxChunkSize = DataSize.ofMegabytes(64);
     private Set<String> allowedExtensions = new LinkedHashSet<>();
     private Set<String> allowedMimeTypes = new LinkedHashSet<>();
     private Set<String> blockedExtensions = new LinkedHashSet<>();

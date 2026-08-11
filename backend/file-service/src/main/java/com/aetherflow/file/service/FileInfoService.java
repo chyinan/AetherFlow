@@ -18,11 +18,15 @@ public interface FileInfoService {
 
     FileDownload downloadInternal(Long fileId);
 
+    FileDownload downloadInternal(Long userId, Long fileId);
+
     void delete(Long userId, Long fileId);
 
     FileAssetMetadataView updateClassification(Long userId, Long fileId, FileClassificationUpdateRequest request);
 
     FileMetadataDTO getMetadata(Long fileId);
+
+    FileMetadataDTO getMetadata(Long userId, Long fileId);
 
     FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request);
 

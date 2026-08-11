@@ -79,10 +79,12 @@ class RedisOAuth2AuthorizationRequestRepositoryTest {
         assertThat(loaded.getScopes()).contains("openid", "profile", "email");
         assertThat(loaded.getAttributes()).containsEntry("registration_id", "google");
 
+        when(valueOperations.getAndDelete("auth:oauth2:google:authorization:state-1"))
+                .thenReturn(storedPayload.getValue());
         OAuth2AuthorizationRequest removed = repository.removeAuthorizationRequest(callbackRequest, response);
 
         assertThat(removed.getState()).isEqualTo("state-1");
-        verify(redisTemplate).delete("auth:oauth2:google:authorization:state-1");
+        verify(valueOperations).getAndDelete("auth:oauth2:google:authorization:state-1");
     }
 
     private HttpServletRequest callbackRequest(String state) {

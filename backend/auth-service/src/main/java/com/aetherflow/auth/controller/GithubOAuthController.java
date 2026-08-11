@@ -4,6 +4,7 @@ import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.oauth.GithubOAuthLoginResult;
 import com.aetherflow.auth.oauth.GithubOAuthService;
+import com.aetherflow.auth.oauth.GithubOAuthStateService;
 import com.aetherflow.auth.web.AuthRequestContext;
 import com.aetherflow.auth.web.RefreshTokenCookieService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.ResponseCookie;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.StringJoiner;
 
 @RestController
@@ -29,6 +32,7 @@ import java.util.StringJoiner;
 public class GithubOAuthController {
 
     private final GithubOAuthService githubOAuthService;
+    private final GithubOAuthStateService stateService;
     private final AuthProperties authProperties;
     private final RefreshTokenCookieService refreshTokenCookieService;
 
@@ -38,7 +42,11 @@ public class GithubOAuthController {
             HttpServletRequest request) {
         String callbackUri = configuredCallbackUri(request);
         String authorizeUrl = githubOAuthService.createAuthorizationUrl(redirectPath, callbackUri);
-        return redirect(authorizeUrl);
+        String state = org.springframework.web.util.UriComponentsBuilder.fromUriString(authorizeUrl)
+                .build()
+                .getQueryParams()
+                .getFirst("state");
+        return redirectWithStateCookie(authorizeUrl, state, request);
     }
 
     @GetMapping("/callback")
@@ -46,15 +54,28 @@ public class GithubOAuthController {
             @RequestParam(value = "code", required = false) String code,
             @RequestParam(value = "state", required = false) String state,
             HttpServletRequest request,
-            HttpServletResponse response) {
+        HttpServletResponse response) {
         try {
+            if (!stateMatchesBrowserCookie(request, state)) {
+                throw new IllegalArgumentException("invalid oauth state");
+            }
             GithubOAuthLoginResult result = githubOAuthService.completeLogin(code, state, AuthRequestContext.from(request));
             AuthTokenResponse token = result.tokenResponse();
             refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
-            return redirect(successRedirectUrl(result));
+            return redirectWithClearedStateCookie(successRedirectUrl(result), request);
         } catch (RuntimeException exception) {
-            return redirect(failureRedirectUrl(exception));
+            return redirectWithClearedStateCookie(failureRedirectUrl(exception), request);
         }
+    }
+
+    private boolean stateMatchesBrowserCookie(HttpServletRequest request, String state) {
+        if (!StringUtils.hasText(state) || request.getCookies() == null) {
+            return false;
+        }
+        return java.util.Arrays.stream(request.getCookies())
+                .filter(cookie -> GithubOAuthStateService.BROWSER_COOKIE_NAME.equals(cookie.getName()))
+                .map(jakarta.servlet.http.Cookie::getValue)
+                .anyMatch(state::equals);
     }
 
     private String successRedirectUrl(GithubOAuthLoginResult result) {
@@ -116,6 +137,34 @@ public class GithubOAuthController {
 
     private ResponseEntity<Void> redirect(String location) {
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(location)).build();
+    }
+
+    private ResponseEntity<Void> redirectWithStateCookie(String location, String state, HttpServletRequest request) {
+        ResponseCookie cookie = ResponseCookie.from(GithubOAuthStateService.BROWSER_COOKIE_NAME, state == null ? "" : state)
+                .httpOnly(true)
+                .secure(request.isSecure())
+                .sameSite("Lax")
+                .path("/auth/oauth/github")
+                .maxAge(java.time.Duration.ofMinutes(authProperties.getOauth().getGithub().getStateTtlMinutes()))
+                .build();
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(location))
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .build();
+    }
+
+    private ResponseEntity<Void> redirectWithClearedStateCookie(String location, HttpServletRequest request) {
+        ResponseCookie cookie = ResponseCookie.from(GithubOAuthStateService.BROWSER_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(request.isSecure())
+                .sameSite("Lax")
+                .path("/auth/oauth/github")
+                .maxAge(Duration.ZERO)
+                .build();
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(location))
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .build();
     }
 
     private String encode(String value) {

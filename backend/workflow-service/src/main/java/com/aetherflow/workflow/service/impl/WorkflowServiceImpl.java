@@ -182,6 +182,12 @@ public class WorkflowServiceImpl implements WorkflowService {
         if (definition == null || STATUS_DELETED.equals(definition.getStatus()) || !owns(definition.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "workflow definition not found");
         }
+        if (definition.getProjectId() != null) {
+            ProjectEntity project = projectMapper.selectById(definition.getProjectId());
+            if (project == null || STATUS_DELETED.equals(project.getStatus()) || !owns(project.getOwnerUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "workflow project not found");
+            }
+        }
         return definition;
     }
 
@@ -210,7 +216,7 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private Map<String, Object> runtimeVariables(WorkflowDefinitionDTO definition, Map<String, Object> input, Long userId) {
         Map<String, Object> variables = new LinkedHashMap<>(input == null ? Map.of() : input);
-        if (userId != null && !variables.containsKey("userId")) {
+        if (userId != null) {
             variables.put("userId", userId);
         }
         variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, nodeConfigs(definition));

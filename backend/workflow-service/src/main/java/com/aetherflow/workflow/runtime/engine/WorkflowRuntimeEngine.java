@@ -158,6 +158,7 @@ public class WorkflowRuntimeEngine {
         DefaultWorkflowContext context = contextFromSnapshot(recoverySnapshot);
         context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
         ExecutionTracker tracker = ExecutionTracker.from(recoverySnapshot);
+        replaySkippedBranches(dag, context, tracker);
         RuntimeLogContext.run(context, context.currentNodeId(),
                 () -> log.info("workflow runtime recovering, completedNodes={}", tracker.completedNodeIds().size()));
         publish(context, RuntimeEventType.WORKFLOW_STARTED, context.currentNodeId(),
@@ -374,6 +375,7 @@ public class WorkflowRuntimeEngine {
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Queue<String> readyQueue = initialReadyNodes(dag, tracker, remainingPredecessors);
         Set<String> scheduled = new LinkedHashSet<>(tracker.completedNodeIds());
+        scheduled.addAll(tracker.skippedNodeIds());
         Set<String> expectedNodeIds = new LinkedHashSet<>(readyQueue);
         int inFlight = 0;
 
@@ -386,15 +388,14 @@ public class WorkflowRuntimeEngine {
                 recordCompletedNode(request, context, tracker, execution);
 
                 if (!execution.result().waiting()) {
+                    markUnselectedBranches(dag, execution, tracker, remainingPredecessors,
+                            readyQueue, scheduled, expectedNodeIds);
                     for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
-                    expectedNodeIds.add(nextNodeId);
-                    int remaining = remainingPredecessors.compute(nextNodeId, (ignored, current) -> {
-                        int currentCount = current == null ? 0 : current;
-                        return Math.max(0, currentCount - 1);
-                    });
-                    if (remaining == 0 && !scheduled.contains(nextNodeId)) {
-                        readyQueue.add(nextNodeId);
-                    }
+                        expectedNodeIds.add(nextNodeId);
+                        int remaining = decrementRemaining(remainingPredecessors, nextNodeId);
+                        if (remaining == 0 && !scheduled.contains(nextNodeId)) {
+                            readyQueue.add(nextNodeId);
+                        }
                     }
                 }
                 inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight);
@@ -410,7 +411,9 @@ public class WorkflowRuntimeEngine {
     private void assertExpectedNodesCompleted(Set<String> expectedNodeIds, ExecutionTracker tracker) {
         Set<String> completedNodeIds = Set.copyOf(tracker.completedNodeIds());
         List<String> incompleteNodeIds = expectedNodeIds.stream()
-                .filter(nodeId -> !completedNodeIds.contains(nodeId) && !tracker.isWaiting(nodeId))
+                .filter(nodeId -> !completedNodeIds.contains(nodeId)
+                        && !tracker.isWaiting(nodeId)
+                        && !tracker.isSkipped(nodeId))
                 .toList();
         if (!incompleteNodeIds.isEmpty()) {
             throw new IllegalStateException("workflow runtime completed with incomplete expected nodes: " + incompleteNodeIds);
@@ -729,6 +732,77 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
     }
 
+    private void markUnselectedBranches(WorkflowDag dag,
+                                        NodeExecution execution,
+                                        ExecutionTracker tracker,
+                                        Map<String, Integer> remainingPredecessors,
+                                        Queue<String> readyQueue,
+                                        Set<String> scheduled,
+                                        Set<String> expectedNodeIds) {
+        if (!hasDynamicNext(execution.result())) {
+            return;
+        }
+        Set<String> selected = Set.copyOf(dag.nextNodeIds(execution.nodeId(), execution.result()));
+        for (String candidate : dag.declaredNextNodeIds(execution.nodeId())) {
+            if (!selected.contains(candidate)) {
+                markSkippedNode(dag, candidate, execution.nodeId(), tracker, remainingPredecessors,
+                        readyQueue, scheduled, expectedNodeIds);
+            }
+        }
+    }
+
+    private boolean hasDynamicNext(NodeResult result) {
+        return result.nextNodeId() != null || result.branchKey() != null;
+    }
+
+    private void markSkippedNode(WorkflowDag dag,
+                                 String nodeId,
+                                 String skippedPredecessor,
+                                 ExecutionTracker tracker,
+                                 Map<String, Integer> remainingPredecessors,
+                                 Queue<String> readyQueue,
+                                 Set<String> scheduled,
+                                 Set<String> expectedNodeIds) {
+        if (tracker.isCompleted(nodeId) || tracker.isWaiting(nodeId) || tracker.isInFlight(nodeId)
+                || tracker.isSkipped(nodeId)) {
+            return;
+        }
+        if (dag.predecessorNodeIds(nodeId).stream()
+                .anyMatch(predecessor -> !predecessor.equals(skippedPredecessor)
+                        && !tracker.isSkipped(predecessor))) {
+            return;
+        }
+        tracker.markSkipped(nodeId);
+        scheduled.add(nodeId);
+        expectedNodeIds.remove(nodeId);
+        for (String nextNodeId : dag.declaredNextNodeIds(nodeId)) {
+            int remaining = decrementRemaining(remainingPredecessors, nextNodeId);
+            if (remaining == 0 && !tracker.isCompleted(nextNodeId)
+                    && !tracker.isWaiting(nextNodeId) && !tracker.isInFlight(nextNodeId)
+                    && !tracker.isSkipped(nextNodeId)) {
+                if (allPredecessorsSkipped(dag, nextNodeId, tracker)) {
+                    markSkippedNode(dag, nextNodeId, nodeId, tracker, remainingPredecessors,
+                            readyQueue, scheduled, expectedNodeIds);
+                } else {
+                    expectedNodeIds.add(nextNodeId);
+                    readyQueue.add(nextNodeId);
+                }
+            }
+        }
+    }
+
+    private boolean allPredecessorsSkipped(WorkflowDag dag, String nodeId, ExecutionTracker tracker) {
+        List<String> predecessors = dag.predecessorNodeIds(nodeId);
+        return !predecessors.isEmpty() && predecessors.stream().allMatch(tracker::isSkipped);
+    }
+
+    private int decrementRemaining(Map<String, Integer> remainingPredecessors, String nodeId) {
+        return remainingPredecessors.compute(nodeId, (ignored, current) -> {
+            int currentCount = current == null ? 0 : current;
+            return Math.max(0, currentCount - 1);
+        });
+    }
+
     private Map<String, Integer> remainingPredecessors(WorkflowDag dag,
                                                        ExecutionTracker tracker,
                                                        DefaultWorkflowContext context) {
@@ -742,13 +816,53 @@ public class WorkflowRuntimeEngine {
                 completedResult = NodeResult.success(Map.of());
             }
             for (String nextNodeId : dag.nextNodeIds(completedNodeId, completedResult)) {
-                remainingPredecessors.compute(nextNodeId, (ignored, current) -> {
-                    int currentCount = current == null ? 0 : current;
-                    return Math.max(0, currentCount - 1);
-                });
+                decrementRemaining(remainingPredecessors, nextNodeId);
+            }
+        }
+        for (String skippedNodeId : tracker.skippedNodeIds()) {
+            for (String nextNodeId : dag.declaredNextNodeIds(skippedNodeId)) {
+                decrementRemaining(remainingPredecessors, nextNodeId);
             }
         }
         return remainingPredecessors;
+    }
+
+    private void replaySkippedBranches(WorkflowDag dag,
+                                       DefaultWorkflowContext context,
+                                       ExecutionTracker tracker) {
+        for (String completedNodeId : tracker.completedNodeIds()) {
+            NodeResult result = context.nodeOutputs().get(completedNodeId);
+            if (result == null || result.waiting() || !hasDynamicNext(result)) {
+                continue;
+            }
+            Set<String> selected = Set.copyOf(dag.nextNodeIds(completedNodeId, result));
+            for (String candidate : dag.declaredNextNodeIds(completedNodeId)) {
+                if (!selected.contains(candidate)) {
+                    replaySkippedNode(dag, candidate, completedNodeId, tracker);
+                }
+            }
+        }
+    }
+
+    private void replaySkippedNode(WorkflowDag dag,
+                                   String nodeId,
+                                   String skippedPredecessor,
+                                   ExecutionTracker tracker) {
+        if (tracker.isCompleted(nodeId) || tracker.isWaiting(nodeId)
+                || tracker.isInFlight(nodeId) || tracker.isSkipped(nodeId)) {
+            return;
+        }
+        if (dag.predecessorNodeIds(nodeId).stream()
+                .anyMatch(predecessor -> !predecessor.equals(skippedPredecessor)
+                        && !tracker.isSkipped(predecessor))) {
+            return;
+        }
+        tracker.markSkipped(nodeId);
+        for (String nextNodeId : dag.declaredNextNodeIds(nodeId)) {
+            if (allPredecessorsSkipped(dag, nextNodeId, tracker)) {
+                replaySkippedNode(dag, nextNodeId, nodeId, tracker);
+            }
+        }
     }
 
     private Queue<String> initialReadyNodes(WorkflowDag dag,
@@ -758,6 +872,8 @@ public class WorkflowRuntimeEngine {
         Set<String> completedNodeIds = Set.copyOf(tracker.completedNodeIds());
         for (String nodeId : dag.nodeIds()) {
             if (!completedNodeIds.contains(nodeId)
+                    && !tracker.isSkipped(nodeId)
+                    && !tracker.isWaiting(nodeId)
                     && remainingPredecessors.getOrDefault(nodeId, 0) == 0) {
                 readyQueue.add(nodeId);
             }
@@ -921,6 +1037,7 @@ public class WorkflowRuntimeEngine {
 
         private final Set<String> inFlightNodeIds = ConcurrentHashMap.newKeySet();
         private final Set<String> waitingNodeIds = ConcurrentHashMap.newKeySet();
+        private final Set<String> skippedNodeIds = ConcurrentHashMap.newKeySet();
         private final List<String> completedNodeIds = Collections.synchronizedList(new ArrayList<>());
         private final List<String> failedNodeIds = Collections.synchronizedList(new ArrayList<>());
 
@@ -947,6 +1064,7 @@ public class WorkflowRuntimeEngine {
         void markCompleted(String nodeId) {
             inFlightNodeIds.remove(nodeId);
             waitingNodeIds.remove(nodeId);
+            skippedNodeIds.remove(nodeId);
             failedNodeIds.remove(nodeId);
             if (!completedNodeIds.contains(nodeId)) {
                 completedNodeIds.add(nodeId);
@@ -964,6 +1082,30 @@ public class WorkflowRuntimeEngine {
         void markWaiting(String nodeId) {
             inFlightNodeIds.remove(nodeId);
             waitingNodeIds.add(nodeId);
+        }
+
+        void markSkipped(String nodeId) {
+            inFlightNodeIds.remove(nodeId);
+            waitingNodeIds.remove(nodeId);
+            skippedNodeIds.add(nodeId);
+        }
+
+        boolean isCompleted(String nodeId) {
+            synchronized (completedNodeIds) {
+                return completedNodeIds.contains(nodeId);
+            }
+        }
+
+        boolean isInFlight(String nodeId) {
+            return inFlightNodeIds.contains(nodeId);
+        }
+
+        boolean isSkipped(String nodeId) {
+            return skippedNodeIds.contains(nodeId);
+        }
+
+        List<String> skippedNodeIds() {
+            return List.copyOf(skippedNodeIds);
         }
 
         boolean isWaiting(String nodeId) {

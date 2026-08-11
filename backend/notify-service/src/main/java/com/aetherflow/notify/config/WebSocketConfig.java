@@ -16,11 +16,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
     /**
      * Comma-separated list of allowed origin patterns for the notification WebSocket.
-     * Defaults to {@code *} only for local development convenience. Production should
-     * set {@code aetherflow.notify.websocket.allowed-origins=https://app.example.com}
-     * via an environment variable to prevent cross-site WebSocket hijacking.
+     * An empty value is fail-closed. Set an explicit comma-separated allow-list per
+     * environment to prevent cross-site WebSocket hijacking.
      */
-    @Value("${aetherflow.notify.websocket.allowed-origins:*}")
+    @Value("${aetherflow.notify.websocket.allowed-origins:}")
     private String allowedOrigins;
 
     private final NotificationWebSocketHandler notificationWebSocketHandler;
@@ -32,9 +31,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toArray(String[]::new);
-        if (origins.length == 0) {
-            origins = new String[]{"*"};
-        }
         registry.addHandler(notificationWebSocketHandler, "/notify/ws")
                 .addInterceptors(streamTokenHandshakeInterceptor)
                 .setAllowedOriginPatterns(origins);

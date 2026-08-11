@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -54,6 +55,8 @@ public class LocalChunkUploadService implements ChunkUploadService {
     private final MinioProperties minioProperties;
     private final FileUploadProperties uploadProperties;
     private final Map<String, UploadSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, CompletedUpload> completedUploads = new ConcurrentHashMap<>();
+    private final Object[] completionLocks = createCompletionLocks();
 
     @Autowired
     public LocalChunkUploadService(FileInfoService fileInfoService,
@@ -72,6 +75,12 @@ public class LocalChunkUploadService implements ChunkUploadService {
 
     LocalChunkUploadService(FileInfoService fileInfoService, Path rootDirectory) {
         this(fileInfoService, rootDirectory, null, null, null, null);
+    }
+
+    LocalChunkUploadService(FileInfoService fileInfoService,
+                            Path rootDirectory,
+                            FileUploadProperties uploadProperties) {
+        this(fileInfoService, rootDirectory, null, null, null, uploadProperties);
     }
 
     private LocalChunkUploadService(FileInfoService fileInfoService,
@@ -102,9 +111,15 @@ public class LocalChunkUploadService implements ChunkUploadService {
         if (size < 0) {
             throw new UploadException(ResultCode.BAD_REQUEST, "file size must not be negative");
         }
+        if (size > maxUploadSize()) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "file size exceeds configured maximum");
+        }
         int totalParts = request.totalParts() == null ? 0 : request.totalParts();
         if (totalParts <= 0) {
             throw new UploadException(ResultCode.BAD_REQUEST, "totalParts must be positive");
+        }
+        if (totalParts > maxChunkParts()) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "totalParts exceeds configured maximum parts");
         }
         requireStorageConfiguration();
 
@@ -152,6 +167,14 @@ public class LocalChunkUploadService implements ChunkUploadService {
             throw new UploadException(ResultCode.BAD_REQUEST, "chunk part must not be empty");
         }
         long size = part.getSize() > 0 ? part.getSize() : safeSize(part);
+        if (size <= 0 || size > maxChunkSize()) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "chunk part exceeds configured maximum size");
+        }
+        long previousSize = session.parts().getOrDefault(partNumber, 0L);
+        long totalSize = session.parts().values().stream().mapToLong(Long::longValue).sum() - previousSize + size;
+        if (totalSize > session.size()) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "chunk parts exceed declared file size");
+        }
         if (sharedStorageEnabled()) {
             putRemotePart(session, partNumber, part);
         } else {
@@ -184,32 +207,48 @@ public class LocalChunkUploadService implements ChunkUploadService {
 
     @Override
     public FileMetadataDTO complete(Long userId, String uploadId, ChunkUploadDtos.CompleteRequest request) {
-        UploadSession session = requireSession(userId, uploadId);
-        ensureAllPartsReceived(session);
-        String expectedChecksum = request != null && StringUtils.hasText(request.checksum())
-                ? normalizeChecksum(request.checksum())
-                : session.checksum();
-        Path assembled = session.directory().resolve("assembled.bin");
-        try {
-            assemble(session, assembled);
-            ensureAssembledSize(session, assembled);
-            if (StringUtils.hasText(expectedChecksum)) {
-                String actualChecksum = sha256(assembled);
-                if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
-                    throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload checksum mismatch");
-                }
+        requireUserId(userId);
+        if (!StringUtils.hasText(uploadId)) {
+            throw new UploadException(ResultCode.BAD_REQUEST, "uploadId is required");
+        }
+        CompletedUpload completed = completedUploads.get(uploadId);
+        if (completed != null) {
+            return completed.resultFor(userId);
+        }
+        synchronized (completionLock(uploadId)) {
+            completed = completedUploads.get(uploadId);
+            if (completed != null) {
+                return completed.resultFor(userId);
             }
-            PathMultipartFile multipartFile = new PathMultipartFile(
-                    assembled,
-                    "file",
-                    session.originalName(),
-                    session.contentType()
-            );
-            return fileInfoService.upload(userId, multipartFile, uploadId);
-        } finally {
-            removePersistedSession(uploadId);
-            deleteDirectory(session.directory());
-            deleteRemoteParts(session);
+            UploadSession session = requireSession(userId, uploadId);
+            ensureAllPartsReceived(session);
+            String expectedChecksum = request != null && StringUtils.hasText(request.checksum())
+                    ? normalizeChecksum(request.checksum())
+                    : session.checksum();
+            Path assembled = session.directory().resolve("assembled.bin");
+            try {
+                assemble(session, assembled);
+                ensureAssembledSize(session, assembled);
+                if (StringUtils.hasText(expectedChecksum)) {
+                    String actualChecksum = sha256(assembled);
+                    if (!expectedChecksum.equalsIgnoreCase(actualChecksum)) {
+                        throw new UploadException(ResultCode.BAD_REQUEST, "chunk upload checksum mismatch");
+                    }
+                }
+                PathMultipartFile multipartFile = new PathMultipartFile(
+                        assembled,
+                        "file",
+                        session.originalName(),
+                        session.contentType()
+                );
+                FileMetadataDTO result = fileInfoService.upload(userId, multipartFile, uploadId);
+                completedUploads.put(uploadId, new CompletedUpload(userId, result));
+                return result;
+            } finally {
+                removePersistedSession(uploadId);
+                deleteDirectory(session.directory());
+                deleteRemoteParts(session);
+            }
         }
     }
 
@@ -394,7 +433,7 @@ public class LocalChunkUploadService implements ChunkUploadService {
 
     private void requireStorageConfiguration() {
         boolean anySharedDependency = redisTemplate != null || minioClient != null
-                || minioProperties != null || uploadProperties != null;
+                || minioProperties != null;
         if (anySharedDependency && !sharedStorageEnabled()) {
             throw new UploadException(ResultCode.SERVICE_UNAVAILABLE,
                     "chunk upload requires Redis session storage and MinIO part storage");
@@ -421,9 +460,54 @@ public class LocalChunkUploadService implements ChunkUploadService {
         return redisTemplate != null && minioClient != null && minioProperties != null;
     }
 
+    private long maxUploadSize() {
+        if (uploadProperties == null || uploadProperties.getMaxSize() == null) {
+            return Long.MAX_VALUE;
+        }
+        return uploadProperties.getMaxSize().toBytes();
+    }
+
+    private long maxChunkSize() {
+        if (uploadProperties == null || uploadProperties.getMaxChunkSize() == null) {
+            return maxUploadSize();
+        }
+        return Math.min(maxUploadSize(), uploadProperties.getMaxChunkSize().toBytes());
+    }
+
+    private int maxChunkParts() {
+        return uploadProperties == null ? 10_000 : Math.max(1, uploadProperties.getMaxChunkParts());
+    }
+
+    private Object completionLock(String uploadId) {
+        return completionLocks[(uploadId.hashCode() & Integer.MAX_VALUE) % completionLocks.length];
+    }
+
+    private static Object[] createCompletionLocks() {
+        Object[] locks = new Object[64];
+        for (int index = 0; index < locks.length; index++) {
+            locks[index] = new Object();
+        }
+        return locks;
+    }
+
     private Duration sessionTtl() {
         long seconds = uploadProperties == null ? 3600L : uploadProperties.getChunkSessionTtlSeconds();
         return Duration.ofSeconds(Math.max(60L, seconds));
+    }
+
+    @Scheduled(fixedDelayString = "${aetherflow.file.upload.cleanup-interval-millis:300000}")
+    public void cleanupExpiredSessions() {
+        Instant cutoff = Instant.now().minus(sessionTtl());
+        sessions.values().stream()
+                .filter(session -> session.createdAt().isBefore(cutoff))
+                .toList()
+                .forEach(session -> {
+                    if (sessions.remove(session.uploadId(), session)) {
+                        removePersistedSession(session.uploadId());
+                        deleteDirectory(session.directory());
+                        deleteRemoteParts(session);
+                    }
+                });
     }
 
     private void putRemotePart(UploadSession session, int partNumber, MultipartFile part) {
@@ -565,6 +649,16 @@ public class LocalChunkUploadService implements ChunkUploadService {
                               Path directory) {
             this(uploadId, userId, originalName, contentType, size, totalParts, checksum, createdAt, directory,
                     new ConcurrentHashMap<>());
+        }
+    }
+
+    private record CompletedUpload(Long userId, FileMetadataDTO metadata) {
+
+        private FileMetadataDTO resultFor(Long requestedUserId) {
+            if (!userId.equals(requestedUserId)) {
+                throw new UploadException(ResultCode.FORBIDDEN, "chunk upload session does not belong to current user");
+            }
+            return metadata;
         }
     }
 }

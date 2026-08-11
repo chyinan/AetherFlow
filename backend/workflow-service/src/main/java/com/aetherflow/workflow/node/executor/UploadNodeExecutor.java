@@ -35,7 +35,11 @@ public class UploadNodeExecutor extends BaseNodeExecutor {
         if (fileId == null || fileId <= 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "upload node fileId is required");
         }
-        Result<FileMetadataDTO> result = fileClient.getMetadata(properties.issueFileInternalToken(), fileId);
+        Long userId = longValue(context.variables().get("userId"));
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "upload node userId is required");
+        }
+        Result<FileMetadataDTO> result = fileClient.getMetadata(properties.issueFileInternalToken(), userId, fileId);
         if (result == null || !result.isSuccess() || result.getData() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file metadata lookup failed");
         }

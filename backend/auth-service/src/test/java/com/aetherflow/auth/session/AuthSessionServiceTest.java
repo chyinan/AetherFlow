@@ -14,6 +14,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ExtendWith(MockitoExtension.class)
 class AuthSessionServiceTest {
@@ -28,7 +31,7 @@ class AuthSessionServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         authSessionService = new AuthSessionService(redisTemplate);
     }
 
@@ -64,5 +67,15 @@ class AuthSessionServiceTest {
         assertThat(snapshot.getOnlineUserCount()).isEqualTo(2);
         assertThat(snapshot.getTokenCount()).isEqualTo(2);
         assertThat(snapshot.getLoginFailureCount()).isEqualTo(5);
+    }
+
+    @Test
+    void rotatesRefreshTokenWithAtomicRedisOperation() {
+        when(redisTemplate.execute(any(), eq(java.util.List.of("auth:refresh:7")),
+                eq("old-refresh"), eq("new-refresh"), eq("604800000")))
+                .thenReturn(1L);
+
+        assertThat(authSessionService.rotateRefreshToken(7L, "old-refresh", "new-refresh", Duration.ofDays(7)))
+                .isTrue();
     }
 }

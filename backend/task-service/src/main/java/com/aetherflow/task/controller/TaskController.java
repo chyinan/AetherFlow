@@ -33,6 +33,9 @@ public class TaskController {
         Task task = taskMapper.selectOne(new LambdaQueryWrapper<Task>()
                 .eq(Task::getId, id)
                 .eq(Task::getUserId, userId));
+        if (task == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "task not found");
+        }
         return Result.success(task);
     }
 }

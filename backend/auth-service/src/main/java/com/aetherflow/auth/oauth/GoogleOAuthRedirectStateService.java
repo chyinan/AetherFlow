@@ -30,8 +30,7 @@ public class GoogleOAuthRedirectStateService {
             return authProperties.getOauth().getGoogle().getDefaultRedirectPath();
         }
         String key = key(state);
-        String redirectPath = redisTemplate.opsForValue().get(key);
-        redisTemplate.delete(key);
+        String redirectPath = redisTemplate.opsForValue().getAndDelete(key);
         return normalizeRedirectPath(redirectPath);
     }
 

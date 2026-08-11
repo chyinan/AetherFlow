@@ -56,12 +56,15 @@ mybatis-plus:
       id-type: auto
 
 aetherflow:
+  ai:
+    internal-token: ${AI_INTERNAL_TOKEN:aetherflow-ai-internal-dev-token}
   file:
     internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
   task:
     internal-token: ${TASK_INTERNAL_TOKEN:aetherflow-task-internal-dev-token}
   python-ai:
     base-url: ${PYTHON_AI_BASE_URL:http://192.168.101.68:8200}
+    api-key: ${AI_SERVICE_API_KEY:}
     connect-timeout-millis: ${PYTHON_AI_CONNECT_TIMEOUT_MILLIS:3000}
     read-timeout-millis: ${PYTHON_AI_READ_TIMEOUT_MILLIS:1800000}
   ai:

@@ -7,7 +7,7 @@ import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
-@FeignClient(name = "ai-service", path = "/ai/internal/workflow")
+@FeignClient(name = "ai-service", path = "/ai/internal/workflow", configuration = AiWorkflowFeignConfig.class)
 public interface AiWorkflowNodeClient {
 
     @PostMapping("/nodes/execute")

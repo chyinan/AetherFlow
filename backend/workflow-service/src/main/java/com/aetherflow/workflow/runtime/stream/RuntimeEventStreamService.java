@@ -78,16 +78,23 @@ public class RuntimeEventStreamService {
     }
 
     List<RuntimeEvent> eventsAfterCursor(String workflowId, String cursor) {
-        List<RuntimeEvent> events = safeEvents(workflowId);
         if (!hasText(cursor)) {
+            return safeEvents(workflowId);
+        }
+        if (!runtimeEventStore.supportsIncrementalQuery()) {
+            List<RuntimeEvent> events = safeEvents(workflowId);
+            for (int index = 0; index < events.size(); index++) {
+                if (cursor.equals(events.get(index).eventId())) {
+                    return List.copyOf(events.subList(index + 1, events.size()));
+                }
+            }
             return events;
         }
-        for (int index = 0; index < events.size(); index++) {
-            if (cursor.equals(events.get(index).eventId())) {
-                return List.copyOf(events.subList(index + 1, events.size()));
-            }
+        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim());
+        if (events == null) {
+            return safeEvents(workflowId);
         }
-        return events;
+        return List.copyOf(events);
     }
 
     String effectiveCursor(String lastEventId, String cursor) {
@@ -191,7 +198,8 @@ public class RuntimeEventStreamService {
             thread.setDaemon(true);
             return thread;
         };
-        return Executors.newScheduledThreadPool(2, threadFactory);
+        int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
+        return Executors.newScheduledThreadPool(poolSize, threadFactory);
     }
 
     private static final class StreamState {

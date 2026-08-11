@@ -892,19 +892,42 @@ def is_internal_url(url: str) -> bool:
 
 def _materialize_source(file_url: str) -> Path:
     if file_url.startswith("http://") or file_url.startswith("https://"):
-        if is_internal_url(file_url):
+        download_url = _rewrite_file_url(file_url)
+        rewritten = download_url != file_url
+        if not rewritten and is_internal_url(download_url):
             raise HTTPException(status_code=400, detail="access to internal/private URLs is not allowed")
+        parsed_download_url = urllib.parse.urlparse(download_url)
+        if parsed_download_url.scheme not in ("http", "https") or not parsed_download_url.hostname:
+            raise HTTPException(status_code=400, detail="file URL is invalid")
+        if parsed_download_url.username or parsed_download_url.password:
+            raise HTTPException(status_code=400, detail="file URL user info is not allowed")
         suffix = Path(file_url.split("?")[0]).suffix or ".bin"
         target = Path(tempfile.gettempdir()) / f"aetherflow-input-{uuid.uuid4().hex}{suffix}"
-        download_url = _rewrite_file_url(file_url)
         if download_url != file_url:
             logger.info("Rewrote fileUrl for container download from %s to %s", file_url, download_url)
-        with httpx.stream("GET", download_url, timeout=float(os.getenv("FILE_DOWNLOAD_TIMEOUT_SECONDS", "60"))) as response:
-            response.raise_for_status()
-            with target.open("wb") as output:
-                for chunk in response.iter_bytes():
-                    output.write(chunk)
-        return target
+        max_bytes = max(1, int(os.getenv("FILE_DOWNLOAD_MAX_BYTES", str(2 * 1024 * 1024 * 1024))))
+        try:
+            with httpx.stream(
+                "GET",
+                download_url,
+                timeout=float(os.getenv("FILE_DOWNLOAD_TIMEOUT_SECONDS", "60")),
+                follow_redirects=False,
+            ) as response:
+                response.raise_for_status()
+                content_length = response.headers.get("content-length")
+                if content_length and int(content_length) > max_bytes:
+                    raise HTTPException(status_code=413, detail="input file is too large")
+                total_bytes = 0
+                with target.open("wb") as output:
+                    for chunk in response.iter_bytes():
+                        total_bytes += len(chunk)
+                        if total_bytes > max_bytes:
+                            raise HTTPException(status_code=413, detail="input file is too large")
+                        output.write(chunk)
+            return target
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
     source = Path(file_url)
     if not source.exists():
         raise HTTPException(status_code=400, detail=f"input file does not exist: {file_url}")

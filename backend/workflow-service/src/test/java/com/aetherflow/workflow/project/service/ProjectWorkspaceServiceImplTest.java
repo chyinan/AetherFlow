@@ -139,6 +139,7 @@ class ProjectWorkspaceServiceImplTest {
     void updatesProjectAndReturnsLatestState() {
         ProjectEntity existing = project();
         when(projectMapper.selectById(7L)).thenReturn(existing);
+        when(workspaceMapper.selectById(5L)).thenReturn(workspace());
         ProjectUpdateRequest request = new ProjectUpdateRequest();
         request.setName("Updated Media Lab");
         request.setQueueDepth(5);
@@ -155,6 +156,7 @@ class ProjectWorkspaceServiceImplTest {
     @Test
     void returnsProjectStatsFromStoredCounters() {
         when(projectMapper.selectById(7L)).thenReturn(project());
+        when(workspaceMapper.selectById(5L)).thenReturn(workspace());
 
         ProjectStats stats = asUser(7L, () -> service.getProjectStats(7L));
 
@@ -176,6 +178,7 @@ class ProjectWorkspaceServiceImplTest {
         WorkflowDefinition second = definition(12L, "Notify owner", "ENABLED", 7L,
                 LocalDateTime.parse("2026-08-09T10:00:00"));
         when(projectMapper.selectById(7L)).thenReturn(project());
+        when(workspaceMapper.selectById(5L)).thenReturn(workspace());
         when(definitionMapper.selectList(any())).thenReturn(List.of(first, second));
         when(instanceMapper.selectList(any())).thenReturn(List.of(
                 instance(101L, 11L, "RUNNING", "2026-08-10T11:00:00"),

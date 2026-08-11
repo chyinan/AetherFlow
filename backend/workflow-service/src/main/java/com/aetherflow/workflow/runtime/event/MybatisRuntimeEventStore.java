@@ -28,6 +28,11 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
     private final ObjectMapper objectMapper;
 
     @Override
+    public boolean supportsIncrementalQuery() {
+        return true;
+    }
+
+    @Override
     public void append(RuntimeEvent event) {
         if (event == null) {
             return;
@@ -50,6 +55,31 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
         }
         return mapper.selectList(new LambdaQueryWrapper<RuntimeEventEntity>()
                         .eq(RuntimeEventEntity::getWorkflowId, workflowId)
+                        .orderByAsc(RuntimeEventEntity::getOccurredAt)
+                        .orderByAsc(RuntimeEventEntity::getId))
+                .stream()
+                .map(this::toEvent)
+                .toList();
+    }
+
+    @Override
+    public List<RuntimeEvent> findByWorkflowIdAfter(String workflowId, String eventId) {
+        if (workflowId == null || workflowId.isBlank() || eventId == null || eventId.isBlank()) {
+            return findByWorkflowId(workflowId);
+        }
+        RuntimeEventEntity cursor = mapper.selectOne(new LambdaQueryWrapper<RuntimeEventEntity>()
+                .eq(RuntimeEventEntity::getEventId, eventId)
+                .eq(RuntimeEventEntity::getWorkflowId, workflowId)
+                .last("LIMIT 1"));
+        if (cursor == null) {
+            return findByWorkflowId(workflowId);
+        }
+        return mapper.selectList(new LambdaQueryWrapper<RuntimeEventEntity>()
+                        .eq(RuntimeEventEntity::getWorkflowId, workflowId)
+                        .and(wrapper -> wrapper.gt(RuntimeEventEntity::getOccurredAt, cursor.getOccurredAt())
+                                .or()
+                                .eq(RuntimeEventEntity::getOccurredAt, cursor.getOccurredAt())
+                                .gt(RuntimeEventEntity::getId, cursor.getId()))
                         .orderByAsc(RuntimeEventEntity::getOccurredAt)
                         .orderByAsc(RuntimeEventEntity::getId))
                 .stream()

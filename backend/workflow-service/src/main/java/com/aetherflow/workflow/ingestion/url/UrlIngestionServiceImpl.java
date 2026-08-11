@@ -39,7 +39,7 @@ public class UrlIngestionServiceImpl implements UrlIngestionService {
         URI uri = validateUri(request.getUrl());
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(timeout())
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         HttpRequest httpRequest = HttpRequest.newBuilder(uri)
                 .timeout(timeout())

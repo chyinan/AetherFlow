@@ -40,7 +40,8 @@ public class ComfyUiWorkflowImportService {
                 node("prompt", "PROMPT", "Prompt", mapOf(
                         "prompt", imported.prompt(),
                         "negativePrompt", imported.negativePrompt(),
-                        "stylePreset", "comfyui-import"
+                        "stylePreset", "comfyui-import",
+                        "next", "image-generation"
                 )),
                 node("image-generation", "IMAGE_GENERATION", "ComfyUI Image Generation", imageConfig(workflow, imported)),
                 node("end", "END", "End", Map.of())

@@ -19,7 +19,8 @@ public class DefaultWorkflowContext implements WorkflowContext {
     private final ConcurrentMap<String, Object> variables = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, NodeResult> nodeOutputs = new ConcurrentHashMap<>();
     private final AtomicReference<RuntimeState> runtimeState = new AtomicReference<>(RuntimeState.PENDING);
-    private final AtomicReference<String> currentNodeId = new AtomicReference<>();
+    private final ThreadLocal<String> currentNodeId = new ThreadLocal<>();
+    private final AtomicReference<String> lastCurrentNodeId = new AtomicReference<>();
 
     public DefaultWorkflowContext(String workflowId,
                                   String traceId,
@@ -65,7 +66,8 @@ public class DefaultWorkflowContext implements WorkflowContext {
 
     @Override
     public String currentNodeId() {
-        return currentNodeId.get();
+        String nodeId = currentNodeId.get();
+        return nodeId == null ? lastCurrentNodeId.get() : nodeId;
     }
 
     public void updateRuntimeState(RuntimeState state) {
@@ -74,6 +76,7 @@ public class DefaultWorkflowContext implements WorkflowContext {
 
     public void updateCurrentNodeId(String nodeId) {
         currentNodeId.set(nodeId);
+        lastCurrentNodeId.set(nodeId);
     }
 
     public void recordNodeOutput(String nodeId, NodeResult result) {

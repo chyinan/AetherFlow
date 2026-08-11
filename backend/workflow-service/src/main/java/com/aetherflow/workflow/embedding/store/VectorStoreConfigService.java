@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.net.InetAddress;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -168,10 +169,42 @@ public class VectorStoreConfigService {
             if (uri.getHost() == null || uri.getHost().isBlank()) {
                 throw new BusinessException(ResultCode.BAD_REQUEST, "vector store baseUrl host is required");
             }
+            validateHost(uri.getHost());
             return value.replaceAll("/+$", "");
         } catch (URISyntaxException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "vector store baseUrl is invalid");
         }
+    }
+
+    private void validateHost(String rawHost) {
+        String host = rawHost.trim();
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
+        if (host.equalsIgnoreCase("localhost") || host.endsWith(".localhost")) {
+            rejectPrivateNetwork();
+        }
+        try {
+            for (InetAddress address : InetAddress.getAllByName(host)) {
+                if (isPrivateAddress(address)) {
+                    rejectPrivateNetwork();
+                }
+            }
+        } catch (java.net.UnknownHostException ignored) {
+            // A public hostname can be temporarily unresolvable while saving configuration.
+        }
+    }
+
+    private boolean isPrivateAddress(InetAddress address) {
+        return address.isAnyLocalAddress()
+                || address.isLoopbackAddress()
+                || address.isLinkLocalAddress()
+                || address.isSiteLocalAddress()
+                || address.isMulticastAddress();
+    }
+
+    private void rejectPrivateNetwork() {
+        throw new BusinessException(ResultCode.BAD_REQUEST, "vector store private network targets are not allowed");
     }
 
     private String text(String value, String fallback) {

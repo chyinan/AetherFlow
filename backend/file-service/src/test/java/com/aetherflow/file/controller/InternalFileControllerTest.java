@@ -81,13 +81,13 @@ class InternalFileControllerTest {
                 1024L,
                 "http://minio/aetherflow/objects/audio.mp3"
         );
-        when(fileInfoService.getMetadata(7L)).thenReturn(metadata);
+        when(fileInfoService.getMetadata(1001L, 7L)).thenReturn(metadata);
 
-        Result<FileMetadataDTO> result = controller.getMetadata(fileToken(), 7L);
+        Result<FileMetadataDTO> result = controller.getMetadata(fileToken(), 1001L, 7L);
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(metadata);
-        verify(fileInfoService).getMetadata(7L);
+        verify(fileInfoService).getMetadata(1001L, 7L);
     }
 
     @Test
@@ -97,7 +97,7 @@ class InternalFileControllerTest {
         properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
 
-        assertThatThrownBy(() -> controller.download("wrong-token", 9L))
+        assertThatThrownBy(() -> controller.download("wrong-token", 1001L, 9L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.FORBIDDEN));
         verifyNoInteractions(fileInfoService);
@@ -110,14 +110,14 @@ class InternalFileControllerTest {
         properties.setInternalToken(secret());
         InternalFileController controller = new InternalFileController(fileInfoService, properties);
         byte[] bytes = "ocr image bytes".getBytes(StandardCharsets.UTF_8);
-        when(fileInfoService.downloadInternal(9L)).thenReturn(new FileDownload(
+        when(fileInfoService.downloadInternal(1001L, 9L)).thenReturn(new FileDownload(
                 "invoice.png",
                 "image/png",
                 (long) bytes.length,
                 new ByteArrayInputStream(bytes)
         ));
 
-        ResponseEntity<InputStreamResource> response = controller.download(fileToken(), 9L);
+        ResponseEntity<InputStreamResource> response = controller.download(fileToken(), 1001L, 9L);
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getHeaders().getContentLength()).isEqualTo(bytes.length);
@@ -125,7 +125,7 @@ class InternalFileControllerTest {
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("image/png");
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getInputStream().readAllBytes()).isEqualTo(bytes);
-        verify(fileInfoService).downloadInternal(9L);
+        verify(fileInfoService).downloadInternal(1001L, 9L);
     }
 
     private CreateFileMetadataRequestDTO validRequest() {

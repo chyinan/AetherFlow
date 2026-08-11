@@ -29,5 +29,11 @@ spring:
 springdoc:
   api-docs:
     enabled: false
+
+aetherflow:
+  notify:
+    internal-token: ${NOTIFY_INTERNAL_TOKEN}
+    websocket:
+      allowed-origins: ${AETHERFLOW_NOTIFY_ALLOWED_ORIGINS:}
   swagger-ui:
     enabled: false

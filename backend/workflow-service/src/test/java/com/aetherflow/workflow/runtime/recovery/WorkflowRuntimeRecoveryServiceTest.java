@@ -13,8 +13,10 @@ import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.util.List;
@@ -22,6 +24,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 class WorkflowRuntimeRecoveryServiceTest {
 
@@ -59,6 +63,24 @@ class WorkflowRuntimeRecoveryServiceTest {
                 .isEqualTo(RuntimeState.SUCCESS);
         assertThat(repository.findByWorkflowId("workflow-success").orElseThrow().runtimeState())
                 .isEqualTo(RuntimeState.SUCCESS);
+    }
+
+    @Test
+    void continuesRecoveringOtherWorkflowsWhenOneSnapshotIsCorrupt() {
+        RuntimeSnapshotRepository repository = Mockito.mock(RuntimeSnapshotRepository.class);
+        WorkflowRuntimeEngine runtimeEngine = Mockito.mock(WorkflowRuntimeEngine.class);
+        WorkflowRuntimeSnapshot bad = snapshot("bad", RuntimeState.RUNNING, definition(
+                node("node-input", "INPUT", Map.of())));
+        WorkflowRuntimeSnapshot good = snapshot("good", RuntimeState.RUNNING, definition(
+                node("node-input", "INPUT", Map.of())));
+        when(repository.findRecoverable(100)).thenReturn(List.of(bad, good));
+        when(runtimeEngine.resume(any(), any())).thenThrow(new IllegalStateException("corrupt snapshot"))
+                .thenReturn(good.toExecutionSnapshot());
+
+        WorkflowRuntimeRecoveryService recoveryService = new WorkflowRuntimeRecoveryService(
+                repository, runtimeEngine, new WorkflowRuntimeProperties());
+
+        assertThat(recoveryService.recoverRunnableWorkflows()).containsExactly(good.toExecutionSnapshot());
     }
 
     private static WorkflowRuntimeSnapshot snapshot(String workflowId,

@@ -4,6 +4,11 @@ import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
+import com.aetherflow.ai.config.AiInternalProperties;
+import com.aetherflow.common.core.InternalHeaders;
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
@@ -15,25 +20,35 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.time.Duration;
+import java.time.Instant;
 
 @Slf4j
 @Tag(name = "Internal AI Workflow Node", description = "Internal service-to-service API used by workflow-service. Frontend clients should not call this endpoint directly.")
 @RestController
 @RequestMapping("/ai/internal/workflow/nodes")
-@RequiredArgsConstructor
+// pattern: Imperative Shell
 public class AiWorkflowNodeController {
 
     private final DefaultAiNodeExecutorRegistry executorRegistry;
+    private final InternalServiceTokenService internalTokenService;
+
+    public AiWorkflowNodeController(DefaultAiNodeExecutorRegistry executorRegistry,
+                                    AiInternalProperties properties) {
+        this.executorRegistry = executorRegistry;
+        this.internalTokenService = new InternalServiceTokenService(
+                properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1));
+    }
 
     @Operation(summary = "Execute AI workflow node internally",
             description = "Internal service-to-service endpoint for workflow-service to execute ASR, LLM, translate and summary AI nodes. Frontend should use workflow-service APIs and node catalog instead.")
@@ -45,7 +60,12 @@ public class AiWorkflowNodeController {
             @ApiResponse(responseCode = "500", description = "Unexpected server error.")
     })
     @PostMapping("/execute")
-    public Result<AiWorkflowNodeResponseDTO> execute(@Valid @RequestBody AiWorkflowNodeRequestDTO request) {
+    public Result<AiWorkflowNodeResponseDTO> execute(
+            @RequestHeader(value = InternalHeaders.AI_SERVICE_TOKEN, required = false) String internalToken,
+            @Valid @RequestBody AiWorkflowNodeRequestDTO request) {
+        if (!internalTokenService.isValid(internalToken, "ai-service", Instant.now())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal ai token");
+        }
         String executorType = executorType(request.getNodeType());
         Map<String, Object> payload = request.getPayload() == null
                 ? Map.of()

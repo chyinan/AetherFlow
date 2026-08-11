@@ -19,6 +19,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,6 +75,34 @@ class MybatisRuntimeSnapshotRepositoryTest {
         assertThat(restored.orElseThrow().nodeOutputs()).containsKey("node-input");
         assertThat(restored.orElseThrow().completedNodeIds()).containsExactly("node-input");
         assertThat(restored.orElseThrow().currentNodeIds()).containsExactly("node-summary");
+    }
+
+    @Test
+    void serializesConcurrentSavesForTheSameWorkflow() throws Exception {
+        WorkflowRuntimeSnapshotEntity existing = entity(snapshot("workflow-lock", RuntimeState.RUNNING));
+        CountDownLatch firstRead = new CountDownLatch(1);
+        CountDownLatch releaseFirstRead = new CountDownLatch(1);
+        CountDownLatch secondRead = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        when(mapper.selectOne(any(Wrapper.class))).thenAnswer(invocation -> {
+            if (reads.incrementAndGet() == 1) {
+                firstRead.countDown();
+                assertThat(releaseFirstRead.await(2, TimeUnit.SECONDS)).isTrue();
+            } else {
+                secondRead.countDown();
+            }
+            return existing;
+        });
+
+        CompletableFuture<Void> first = CompletableFuture.runAsync(() -> repository.save(snapshot("workflow-lock", RuntimeState.RUNNING)));
+        assertThat(firstRead.await(1, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Void> second = CompletableFuture.runAsync(() -> repository.save(snapshot("workflow-lock", RuntimeState.SUCCESS)));
+
+        assertThat(secondRead.await(100, TimeUnit.MILLISECONDS)).isFalse();
+        releaseFirstRead.countDown();
+        first.get(2, TimeUnit.SECONDS);
+        second.get(2, TimeUnit.SECONDS);
+        assertThat(reads).hasValue(2);
     }
 
     private WorkflowRuntimeSnapshotEntity entity(WorkflowRuntimeSnapshot snapshot) throws Exception {

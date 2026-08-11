@@ -177,6 +177,7 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         entity.setStatus(STATUS_DELETED);
         entity.setUpdatedAt(LocalDateTime.now());
         projectMapper.updateById(entity);
+        retireProjectWorkflows(entity.getId());
     }
 
     @Override
@@ -271,6 +272,18 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         entity.setStatus(STATUS_DELETED);
         entity.setUpdatedAt(LocalDateTime.now());
         workspaceMapper.updateById(entity);
+        List<ProjectEntity> projects = projectMapper.selectList(new LambdaQueryWrapper<ProjectEntity>()
+                .eq(ProjectEntity::getWorkspaceId, id)
+                .eq(ProjectEntity::getOwnerUserId, currentUserId())
+                .ne(ProjectEntity::getStatus, STATUS_DELETED));
+        if (projects != null) {
+            for (ProjectEntity project : projects) {
+                project.setStatus(STATUS_DELETED);
+                project.setUpdatedAt(LocalDateTime.now());
+                projectMapper.updateById(project);
+                retireProjectWorkflows(project.getId());
+            }
+        }
     }
 
     private LambdaQueryWrapper<ProjectEntity> projectQuery(Long userId, String query, Long workspaceId, String status) {
@@ -318,7 +331,50 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
         if (entity == null || STATUS_DELETED.equals(entity.getStatus()) || !owns(entity.getOwnerUserId())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "project not found");
         }
+        if (entity.getWorkspaceId() != null) {
+            WorkspaceEntity workspace = workspaceMapper.selectById(entity.getWorkspaceId());
+            if (workspace == null || STATUS_DELETED.equals(workspace.getStatus()) || !owns(workspace.getOwnerUserId())) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "project not found");
+            }
+        }
         return entity;
+    }
+
+    private void retireProjectWorkflows(Long projectId) {
+        if (projectId == null || workflowDefinitionMapper == null) {
+            return;
+        }
+        List<WorkflowDefinition> definitions = workflowDefinitionMapper.selectList(new LambdaQueryWrapper<WorkflowDefinition>()
+                .eq(WorkflowDefinition::getProjectId, projectId)
+                .eq(WorkflowDefinition::getOwnerUserId, currentUserId())
+                .ne(WorkflowDefinition::getStatus, STATUS_DELETED));
+        if (definitions == null || definitions.isEmpty()) {
+            return;
+        }
+        List<Long> definitionIds = definitions.stream()
+                .map(WorkflowDefinition::getId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        definitions.forEach(definition -> {
+            definition.setStatus(STATUS_DELETED);
+            definition.setUpdatedAt(LocalDateTime.now());
+            workflowDefinitionMapper.updateById(definition);
+        });
+        if (workflowInstanceMapper == null || definitionIds.isEmpty()) {
+            return;
+        }
+        List<WorkflowInstance> instances = workflowInstanceMapper.selectList(new LambdaQueryWrapper<WorkflowInstance>()
+                .in(WorkflowInstance::getDefinitionId, definitionIds)
+                .eq(WorkflowInstance::getUserId, currentUserId())
+                .in(WorkflowInstance::getStatus, "PENDING", "RUNNING", "RETRYING", "WAITING"));
+        if (instances != null) {
+            instances.forEach(instance -> {
+                instance.setStatus(com.aetherflow.workflow.runtime.api.RuntimeState.CANCELLED.name());
+                instance.setCompletedAt(LocalDateTime.now());
+                instance.setUpdatedAt(LocalDateTime.now());
+                workflowInstanceMapper.updateById(instance);
+            });
+        }
     }
 
     private WorkspaceEntity requireWorkspace(Long id) {
