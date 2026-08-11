@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 @TableName("af_settings_billing")
 public class SettingsBillingEntity extends BaseEntity {
 
+    private Long ownerUserId;
     private String plan;
     private Integer aiCredits;
     private String monthlyBudget;

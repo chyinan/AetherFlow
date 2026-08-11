@@ -348,12 +348,12 @@ export const mockApiExtensions: ApiExtensionSetting[] = [
 ]
 
 export const mockBillingSnapshot: BillingSnapshot = {
-  plan: 'Team Mock',
-  aiCredits: 200,
-  monthlyBudget: '$300',
-  currentSpend: '$42.18',
-  renewalAt: '2026-06-01',
-  seats: '3 / 10',
+  plan: 'usage-only',
+  aiCredits: 0,
+  monthlyBudget: 'unavailable',
+  currentSpend: 'unavailable',
+  renewalAt: 'unavailable',
+  seats: '0 / 0',
 }
 
 export const mockAuditEvents: AuditEvent[] = [

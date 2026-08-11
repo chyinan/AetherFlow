@@ -142,7 +142,7 @@ function openProject(project: ProjectSummary) {
 }
 
 onMounted(async () => {
-  await Promise.all([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles(), difyStore.loadSurface()])
+  await Promise.allSettled([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles(), difyStore.loadSurface()])
 })
 </script>
 
@@ -164,6 +164,9 @@ onMounted(async () => {
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="w-full space-y-5">
+        <p v-if="projectStore.loadError" role="status" class="rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
+          {{ projectStore.loadError }}
+        </p>
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">

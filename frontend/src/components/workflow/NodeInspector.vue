@@ -46,6 +46,7 @@ import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
+import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
 
 type ConfigValue = unknown
 type ConfigRecord = Record<string, ConfigValue>
@@ -108,6 +109,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
 
 const nodeIcon = computed(() => (selectedNode.value ? iconMap[selectedNode.value.data.kind] : SlidersHorizontal))
 const selectedKind = computed(() => selectedNode.value?.data.kind ?? '')
+const workflowNeedsFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 const imageSchemaKinds = new Set<WorkflowNodeKind>(['prompt', 'image-generation', 'upscale', 'save-image'])
 const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
   prompt: 'PROMPT',
@@ -574,6 +576,11 @@ onMounted(() => {
 
       <div v-if="activeTab === 'settings'" class="min-h-0 flex-1 overflow-y-auto">
         <section v-if="selectedKind === 'start'" class="space-y-5 p-5">
+          <div v-if="!workflowNeedsFileInput" class="rounded-xl border border-status-success/25 bg-green-50 p-4">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.noFileInputTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.noFileInputHint') }}</p>
+          </div>
+          <template v-else>
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputFileTitle') }} <span class="text-status-error">*</span></p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.inputFileHint') }}</p>
@@ -615,6 +622,7 @@ onMounted(() => {
             <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 text-sm outline-none" value="fileId" readonly />
             <p class="mt-2 text-xs text-text-muted">{{ t('workflow.inspector.runtimeVariableHint') }}</p>
           </label>
+          </template>
         </section>
 
         <section v-else-if="selectedKind === 'ffmpeg'" class="space-y-5 p-5">

@@ -3,7 +3,27 @@ import type { ProjectHealth, ProjectSummary } from '@/types/project'
 import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
 
 interface PageResult<T> {
+  pageNo?: number
+  pageSize?: number
+  total?: number
   records?: T[]
+}
+
+async function listAllPages<T>(loadPage: (page: number, pageSize: number) => Promise<PageResult<T>>) {
+  const pageSize = 100
+  const records: T[] = []
+  let page = 1
+  while (page <= 1000) {
+    const result = await loadPage(page, pageSize)
+    const pageRecords = Array.isArray(result.records) ? result.records : []
+    records.push(...pageRecords)
+    const total = typeof result.total === 'number' ? result.total : records.length
+    if (pageRecords.length === 0 || records.length >= total || pageRecords.length < pageSize) {
+      break
+    }
+    page += 1
+  }
+  return records
 }
 
 interface ProjectSummaryResponse {
@@ -97,11 +117,11 @@ function mapProject(project: ProjectSummaryResponse): ProjectSummary {
 
 export const projectApi = {
   async listProjects() {
-    const page = await apiClient.get<PageResult<ProjectSummaryResponse>>('/projects', {
-      params: { page: 1, size: 100 },
+    const records = await listAllPages((page, pageSize) => apiClient.get<PageResult<ProjectSummaryResponse>>('/projects', {
+      params: { page, size: pageSize },
       source: 'workflow',
-    })
-    return (page.records ?? []).map(mapProject)
+    }))
+    return records.map(mapProject)
   },
   async getProject(projectId: string) {
     const project = await apiClient.get<ProjectSummaryResponse>(

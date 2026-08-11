@@ -37,6 +37,7 @@ import { useRunStore } from '@/stores/runStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { SettingsModelProvider, WorkspaceMember, WorkspaceSettings } from '@/types/settings'
 import { formatTime } from '@/utils/localeFormat'
+import { getStoredTimezone, setStoredTimezone } from '@/i18n/locale'
 
 type SettingsTab = 'provider' | 'members' | 'billing' | 'data-source' | 'api' | 'custom' | 'language'
 
@@ -51,7 +52,13 @@ const { t } = useI18n()
 
 const validTabs: SettingsTab[] = ['provider', 'members', 'billing', 'data-source', 'api', 'custom', 'language']
 const providerSearch = ref('')
-const timezone = ref('shanghai')
+const timezone = ref(getStoredTimezone() === 'UTC'
+  ? 'utc'
+  : getStoredTimezone() === 'Asia/Singapore'
+    ? 'singapore'
+    : getStoredTimezone() === 'Asia/Tokyo'
+      ? 'tokyo'
+      : 'shanghai')
 const savedAt = ref('')
 const workspaceSaving = ref(false)
 const workspaceSaveError = ref('')
@@ -105,7 +112,7 @@ const vectorStoreConfig = ref<VectorStoreConfig | null>(null)
 const vectorStoreForm = ref({
   enabled: false,
   provider: 'qdrant',
-  baseUrl: 'http://localhost:6333',
+  baseUrl: 'https://qdrant.example.com',
   collection: 'workflow-embeddings',
   apiKey: '',
 })
@@ -138,6 +145,10 @@ function readRouteTab(): SettingsTab {
 }
 
 const activeTab = ref<SettingsTab>(readRouteTab())
+
+watch(timezone, (value) => {
+  setStoredTimezone(value)
+})
 
 const workspaceInitial = computed(() => {
   const name = settingsStore.workspace?.name ?? 'AetherFlow'
@@ -399,7 +410,7 @@ const developerAccessCards = computed(() => [
   {
     titleKey: 'settings.developerAccessAiRuntime',
     detailKey: 'settings.developerAccessAiRuntimeHint',
-    endpoint: `${runtimeEnv.apiBase}/ai/providers/status`,
+    endpoint: `${runtimeEnv.apiBase}/ai/provider/status`,
     status: 'configured',
     value: `${usageStats.value.onlineProviders}/${usageStats.value.providerCount}`,
     valueLabelKey: 'settings.developerAccessProviders',
@@ -459,6 +470,11 @@ function closeSettings() {
 
 function markSaved() {
   savedAt.value = formatTime(new Date())
+}
+
+async function retrySettingsLoad() {
+  if (settingsStore.loading) return
+  await settingsStore.loadSettings()
 }
 
 async function saveSettings() {
@@ -658,7 +674,7 @@ async function loadVectorStoreConfig() {
     vectorStoreForm.value = {
       enabled: Boolean(config.enabled),
       provider: config.provider || 'qdrant',
-      baseUrl: config.baseUrl || 'http://localhost:6333',
+      baseUrl: config.baseUrl || 'https://qdrant.example.com',
       collection: config.collection || 'workflow-embeddings',
       apiKey: '',
     }
@@ -755,6 +771,7 @@ function providerAvatarClass(provider: SettingsModelProvider) {
 }
 
 onMounted(() => {
+  setStoredTimezone(timezone.value)
   void Promise.allSettled([
     settingsStore.loadSettings(),
     projectStore.loadProjects(),
@@ -874,6 +891,18 @@ watch(
       </aside>
 
       <section class="min-h-0 overflow-y-auto p-5 max-sm:p-3">
+        <div v-if="settingsStore.loadErrorCount > 0" role="status" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
+          <span>{{ t('settings.partialLoadWarning') }}</span>
+          <button
+            data-action="retry-settings"
+            type="button"
+            class="rounded-md border border-status-warning/30 bg-white px-3 py-1.5 text-xs font-medium text-status-warning transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="settingsStore.loading"
+            @click="retrySettingsLoad"
+          >
+            {{ settingsStore.loading ? t('common.loading') : t('common.retry') }}
+          </button>
+        </div>
         <div v-if="activeTab === 'provider'" class="space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1277,6 +1306,22 @@ watch(
             </article>
           </section>
 
+          <section v-if="settingsStore.dataSources.length" class="grid gap-3 md:grid-cols-2">
+            <article v-for="source in settingsStore.dataSources" :key="source.id" class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold text-text-primary">{{ source.name }}</p>
+                  <p class="mt-1 text-xs leading-5 text-text-secondary">{{ source.description }}</p>
+                </div>
+                <StatusDot :tone="source.status === 'connected' ? 'online' : 'degraded'" :label="statusLabel(source.status)" />
+              </div>
+              <div class="mt-4 flex items-center justify-between gap-3">
+                <span class="text-xs text-text-muted">{{ source.installCount }}</span>
+                <span class="text-right text-xs text-text-muted">{{ t('settings.catalogStatusManaged') }}</span>
+              </div>
+            </article>
+          </section>
+
           <section class="grid gap-4 xl:grid-cols-2">
             <article class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
               <div class="flex flex-wrap items-start justify-between gap-3">
@@ -1360,7 +1405,7 @@ watch(
                   <input
                     v-model="vectorStoreForm.baseUrl"
                     class="h-10 w-full rounded-md border border-app-border bg-app-bg2 px-3 text-sm text-text-primary outline-none transition focus:border-primary"
-                    placeholder="http://localhost:6333"
+                    placeholder="https://qdrant.example.com"
                   />
                 </label>
                 <label class="space-y-1 text-xs text-text-muted">
@@ -1434,6 +1479,7 @@ watch(
               </div>
             </article>
           </section>
+
         </div>
 
         <div v-else-if="activeTab === 'api'" class="space-y-4">
@@ -1582,6 +1628,25 @@ watch(
                 <p class="rounded-lg bg-app-bg2 p-3">{{ t('settings.developerGuardrailTimeout', { timeout: runtimeEnv.requestTimeoutMs }) }}</p>
               </div>
             </article>
+          </section>
+
+          <section v-if="settingsStore.apiExtensions.length" class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+            <div class="grid gap-3 md:grid-cols-2">
+              <article v-for="extension in settingsStore.apiExtensions" :key="extension.id" class="rounded-lg border border-app-border bg-app-bg2 p-3">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-text-primary">{{ extension.name }}</p>
+                    <p class="mt-1 text-xs leading-5 text-text-secondary">{{ extension.description }}</p>
+                    <p class="mt-2 truncate font-mono text-[11px] text-text-muted">{{ extension.endpoint }}</p>
+                  </div>
+                  <span class="shrink-0 rounded-full border px-2 py-0.5 text-xs" :class="statusBadgeClass(extension.status)">{{ statusLabel(extension.status) }}</span>
+                </div>
+                <div class="mt-3 flex items-center justify-between gap-3 text-xs text-text-muted">
+                  <span>{{ extension.scope }}</span>
+                  <span>{{ t('settings.catalogStatusManaged') }}</span>
+                </div>
+              </article>
+            </div>
           </section>
         </div>
 

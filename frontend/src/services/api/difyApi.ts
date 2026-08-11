@@ -13,7 +13,27 @@ import type {
 } from '@/types/dify'
 
 interface PageResult<T> {
+  pageNo?: number
+  pageSize?: number
+  total?: number
   records?: T[]
+}
+
+async function listAllPages<T>(loadPage: (page: number, pageSize: number) => Promise<PageResult<T>>) {
+  const pageSize = 100
+  const records: T[] = []
+  let page = 1
+  while (page <= 1000) {
+    const result = await loadPage(page, pageSize)
+    const pageRecords = Array.isArray(result.records) ? result.records : []
+    records.push(...pageRecords)
+    const total = typeof result.total === 'number' ? result.total : records.length
+    if (pageRecords.length === 0 || records.length >= total || pageRecords.length < pageSize) {
+      break
+    }
+    page += 1
+  }
+  return records
 }
 
 interface KnowledgeDatasetResponse {
@@ -197,19 +217,19 @@ function isFailedProviderLog(log: ProviderRuntimeLog) {
 
 export const difyApi = {
   async listKnowledgeDatasets() {
-    const page = await apiClient.get<PageResult<KnowledgeDatasetResponse>>('/knowledge/datasets', {
-      params: { page: 1, pageSize: 100 },
+    const records = await listAllPages((page, pageSize) => apiClient.get<PageResult<KnowledgeDatasetResponse>>('/knowledge/datasets', {
+      params: { page, pageSize },
       source: 'workflow',
-    })
-    return (page.records ?? []).map(mapDataset)
+    }))
+    return records.map(mapDataset)
   },
   async listDatasetChunks(datasetId: string) {
-    const documents = await apiClient.get<PageResult<{ id?: string }>>(
+    const documents = await listAllPages((page, pageSize) => apiClient.get<PageResult<{ id?: string }>>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
-      { params: { page: 1, pageSize: 100 }, source: 'workflow' },
-    )
-    const chunks = await Promise.all(
-      (documents.records ?? [])
+      { params: { page, pageSize }, source: 'workflow' },
+    ))
+    const chunks = await Promise.allSettled(
+      documents
         .map((document) => document.id)
         .filter((documentId): documentId is string => Boolean(documentId))
         .map((documentId) =>
@@ -219,7 +239,10 @@ export const difyApi = {
           ),
         ),
     )
-    return chunks.flat().map(mapChunk)
+    return chunks
+      .filter((result): result is PromiseFulfilledResult<KnowledgeChunkResponse[]> => result.status === 'fulfilled')
+      .flatMap((result) => result.value)
+      .map(mapChunk)
   },
   async createKnowledgeDataset(input: DatasetCreateInput) {
     const dataset = await apiClient.post<KnowledgeDatasetResponse>('/knowledge/datasets', input, {
@@ -233,11 +256,11 @@ export const difyApi = {
     })
   },
   async listDatasetDocuments(datasetId: string) {
-    const page = await apiClient.get<PageResult<KnowledgeDocumentResponse>>(
+    const records = await listAllPages((page, pageSize) => apiClient.get<PageResult<KnowledgeDocumentResponse>>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
-      { params: { page: 1, pageSize: 100 }, source: 'workflow' },
-    )
-    return (page.records ?? []).map(mapDocument)
+      { params: { page, pageSize }, source: 'workflow' },
+    ))
+    return records.map(mapDocument)
   },
   async createKnowledgeDocument(datasetId: string, input: DocumentCreateInput) {
     const document = await apiClient.post<KnowledgeDocumentResponse>(
@@ -256,11 +279,14 @@ export const difyApi = {
     return (response.results ?? []).map(mapChunk)
   },
   async listMonitorMetrics() {
-    const [runtimeMetrics, providerMetrics, providerLogs] = await Promise.all([
+    const [runtimeResult, providerMetricsResult, providerLogsResult] = await Promise.allSettled([
       getRuntimeMetrics(),
       getProviderMetrics(),
       getProviderLogs(50),
     ])
+    const runtimeMetrics = runtimeResult.status === 'fulfilled' ? runtimeResult.value : {}
+    const providerMetrics = providerMetricsResult.status === 'fulfilled' ? providerMetricsResult.value : { metrics: {} }
+    const providerLogs = providerLogsResult.status === 'fulfilled' ? providerLogsResult.value : { logs: [] }
     const metrics = providerMetrics.metrics ?? {}
     const providerTotals = Object.values(metrics).reduce<{ calls: number; failures: number; latency: number }>(
       (acc, item) => {

@@ -60,6 +60,8 @@ CALL af_add_index_if_missing('af_project', 'idx_af_project_owner',
 
 CALL af_add_column_if_missing('af_knowledge_dataset', 'owner_user_id',
     'ALTER TABLE af_knowledge_dataset ADD COLUMN owner_user_id BIGINT AFTER retrieval_mode');
+CALL af_add_column_if_missing('af_knowledge_chunk', 'vector_json',
+    'ALTER TABLE af_knowledge_chunk ADD COLUMN vector_json LONGTEXT AFTER preview');
 CALL af_add_index_if_missing('af_knowledge_dataset', 'idx_af_knowledge_dataset_owner',
     'ALTER TABLE af_knowledge_dataset ADD INDEX idx_af_knowledge_dataset_owner (owner_user_id)');
 

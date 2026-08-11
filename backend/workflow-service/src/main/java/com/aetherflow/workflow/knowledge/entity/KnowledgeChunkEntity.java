@@ -20,6 +20,7 @@ public class KnowledgeChunkEntity {
     private String preview;
     private Integer tokens;
     private Double score;
+    private String vectorJson;
     private String status;
     private Integer chunkIndex;
     private LocalDateTime createdAt;

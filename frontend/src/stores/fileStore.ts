@@ -9,6 +9,8 @@ import { formatDateTime } from '@/utils/localeFormat'
 export const useFileStore = defineStore('file', {
   state: () => ({
     files: [] as FileAsset[],
+    loading: false,
+    loadError: null as string | null,
     uploading: false,
     uploadProgress: 0,
     uploadError: null as string | null,
@@ -28,8 +30,19 @@ export const useFileStore = defineStore('file', {
   },
   actions: {
     async loadFiles() {
-      const loadedFiles = await fileApi.listFiles()
-      this.files = loadedFiles
+      this.loading = true
+      this.loadError = null
+      try {
+        const loadedFiles = await fileApi.listFiles()
+        this.files = loadedFiles
+      } catch (error) {
+        this.loadError = error instanceof Error && error.message
+          ? error.message
+          : i18n.global.t('files.loadFailed')
+        throw error
+      } finally {
+        this.loading = false
+      }
     },
     async refreshArtifactsFromBackend() {
       try {

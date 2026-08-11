@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
     preview LONGTEXT,
     tokens INT NOT NULL DEFAULT 0,
     score DOUBLE NOT NULL DEFAULT 0,
+    vector_json LONGTEXT,
     status VARCHAR(32) NOT NULL,
     chunk_index INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL,

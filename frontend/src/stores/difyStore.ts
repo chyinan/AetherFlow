@@ -65,11 +65,17 @@ export const useDifyStore = defineStore('difySurface', {
       this.loading = true
       this.error = null
       try {
-        const [datasets, metrics, conversations] = await Promise.all([
+        const [datasetsResult, metricsResult, conversationsResult] = await Promise.allSettled([
           difyApi.listKnowledgeDatasets(),
           difyApi.listMonitorMetrics(),
           difyApi.listConversationLogs(),
         ])
+        if (datasetsResult.status === 'rejected') {
+          throw datasetsResult.reason
+        }
+        const datasets = datasetsResult.value
+        const metrics = metricsResult.status === 'fulfilled' ? metricsResult.value : []
+        const conversations = conversationsResult.status === 'fulfilled' ? conversationsResult.value : []
         this.datasets = datasets
         this.metrics = metrics
         this.conversations = conversations
@@ -89,10 +95,15 @@ export const useDifyStore = defineStore('difySurface', {
       if (!activeDatasetId) {
         return
       }
-      const [documents, segments] = await Promise.all([
+      const [documentsResult, segmentsResult] = await Promise.allSettled([
         difyApi.listDatasetDocuments(activeDatasetId),
         difyApi.listDatasetChunks(activeDatasetId),
       ])
+      if (documentsResult.status === 'rejected') {
+        throw documentsResult.reason
+      }
+      const documents = documentsResult.value
+      const segments = segmentsResult.status === 'fulfilled' ? segmentsResult.value : []
       this.documents = [
         ...this.documents.filter((document) => document.datasetId !== activeDatasetId),
         ...documents,
@@ -136,7 +147,7 @@ export const useDifyStore = defineStore('difySurface', {
         description: input.empty
           ? i18n.global.t('knowledge.flow.emptyDescription')
           : i18n.global.t('knowledge.flow.createdDescription', { source: sourceName }),
-        embeddingModel: input.embeddingModel ?? 'text-embedding-3-small',
+        embeddingModel: input.embeddingModel ?? 'nomic-embed-text',
         retrievalMode: input.retrievalMode ?? input.indexingMode ?? i18n.global.t('knowledge.flow.invertedIndex'),
         owner: 'knowledge.ops',
         tags: input.empty ? ['empty'] : ['wizard', input.segmentMode ?? 'general'],

@@ -210,7 +210,6 @@ async function openDataset(datasetId: string) {
   lastRetry.value = null
   try {
     await difyStore.selectDataset(datasetId)
-    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
     viewMode.value = 'documents'
   } catch (error) {
     setPageError(error, () => openDataset(datasetId))
@@ -246,7 +245,11 @@ async function previewSegments() {
   previewError.value = ''
   try {
     const content = await knowledgeContentFromFile(selectedFile.value)
-    previewChunks.value = splitTextForPreview(content, maxChunkLength.value, overlapLength.value)
+    previewChunks.value = splitTextForPreview(content, maxChunkLength.value, overlapLength.value, {
+      delimiter: chunkDelimiter.value,
+      cleanSpaces: cleanSpaces.value,
+      cleanUrls: cleanUrls.value,
+    })
       .slice(0, 20)
       .map((text, index) => ({
         title: t('knowledge.flow.previewChunkTitle', { index: index + 1 }),
@@ -279,7 +282,7 @@ async function saveAndProcess() {
       segmentMode: segmentMode.value === 'general' ? t('knowledge.flow.generalMode') : t('knowledge.flow.parentChildMode'),
       indexingMode: indexMode.value === 'economy' ? t('knowledge.flow.economy') : t('knowledge.flow.highQuality'),
       retrievalMode: t('knowledge.flow.invertedIndex'),
-      embeddingModel: indexMode.value === 'quality' ? 'text-embedding-3-small' : 'keyword sparse index',
+      embeddingModel: indexMode.value === 'quality' ? 'nomic-embed-text' : 'keyword sparse index',
       chunkSize: maxChunkLength.value,
       overlap: overlapLength.value,
       delimiter: chunkDelimiter.value,
@@ -395,9 +398,11 @@ async function loadPage() {
   pageError.value = ''
   lastRetry.value = null
   try {
-    await Promise.all([difyStore.loadSurface(), fileStore.loadFiles()])
+    const [knowledgeResult] = await Promise.allSettled([difyStore.loadSurface(), fileStore.loadFiles()])
+    if (knowledgeResult.status === 'rejected') {
+      throw knowledgeResult.reason
+    }
     selectedFileId.value = importableFiles.value[0]?.id ?? ''
-    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
   } catch (error) {
     setPageError(error, loadPage)
   } finally {
@@ -495,6 +500,7 @@ onMounted(loadPage)
             <button
               v-for="dataset in filteredDatasets"
               :key="dataset.id"
+              data-action="open-dataset"
               type="button"
               class="min-w-0 rounded-lg border border-app-border bg-white p-4 text-left shadow-sm transition hover:border-primary/30 hover:shadow-node"
               @click="openDataset(dataset.id)"
@@ -990,7 +996,7 @@ onMounted(loadPage)
           <section class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
             <article class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <p class="text-sm font-semibold text-text-primary">{{ t('knowledge.retrievalTest') }}</p>
-              <form class="mt-4 flex gap-2" @submit.prevent="runRetrievalTest">
+              <form data-action="retrieval-test" class="mt-4 flex gap-2" @submit.prevent="runRetrievalTest">
                 <input
                   v-model="retrievalQuery"
                   class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-primary/50"

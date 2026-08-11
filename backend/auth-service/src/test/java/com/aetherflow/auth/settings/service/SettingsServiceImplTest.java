@@ -125,7 +125,7 @@ class SettingsServiceImplTest {
         assertThat(created.status()).isEqualTo("invited");
 
         SettingsMemberEntity existing = member(2L, "Workflow Operator", "Operator", "invited");
-        when(memberMapper.selectById(2L)).thenReturn(existing);
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(existing);
         MemberUpdateRequest updateRequest = new MemberUpdateRequest();
         updateRequest.setRole("Admin");
         updateRequest.setStatus("active");
@@ -182,8 +182,7 @@ class SettingsServiceImplTest {
         SettingsMemberEntity current = member(2L, "Workflow Operator", "Operator", "invited");
         SettingsMemberEntity duplicate = member(3L, "Other Operator", "Operator", "active");
         duplicate.setEmail("other@aetherflow.mock");
-        when(memberMapper.selectById(2L)).thenReturn(current);
-        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(duplicate);
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(current, duplicate);
         MemberUpdateRequest request = new MemberUpdateRequest();
         request.setEmail("OTHER@AETHERFLOW.MOCK");
 
@@ -215,7 +214,7 @@ class SettingsServiceImplTest {
 
     @Test
     void throwsWhenMemberIsMissing() {
-        when(memberMapper.selectById(404L)).thenReturn(null);
+        when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(null);
         MemberUpdateRequest request = new MemberUpdateRequest();
 
         assertThatThrownBy(() -> service.updateMember(404L, request))
@@ -234,8 +233,8 @@ class SettingsServiceImplTest {
 
         BillingSnapshotResponse response = service.getBilling();
 
-        assertThat(response.plan()).isEqualTo("Team");
-        assertThat(response.seats()).isEqualTo("3 / 10");
+        assertThat(response.plan()).isEqualTo("usage-only");
+        assertThat(response.seats()).isEqualTo("0 / 0");
     }
 
     @Test

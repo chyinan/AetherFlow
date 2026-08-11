@@ -3,6 +3,10 @@ package com.aetherflow.workflow.knowledge.service;
 import com.aetherflow.common.core.PageResult;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.SimpleTextSplitter;
+import com.aetherflow.workflow.embedding.EmbeddingResult;
+import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
+import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
+import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
@@ -29,6 +33,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -148,6 +153,97 @@ class KnowledgeServiceImplTest {
         assertThat(response.results()).hasSize(1);
         assertThat(response.results().get(0).source()).isEqualTo("workflow-runbook.md");
         assertThat(response.results().get(0).score()).isGreaterThan(0.82D);
+    }
+
+    @Test
+    void createsAndUsesSemanticEmbeddingVectorsWhenDatasetRequestsEmbedding() {
+        KnowledgeDatasetEntity dataset = dataset();
+        dataset.setEmbeddingModel("nomic-embed-text");
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("semantic.md");
+        request.setContent("cat facts");
+        request.setChunkSize(64);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest embeddingRequest) {
+                return new EmbeddingResult(
+                        embeddingRequest.text().contains("cat") ? List.of(1.0D, 0.0D) : List.of(0.0D, 1.0D),
+                        2,
+                        embeddingRequest.model(),
+                        embeddingRequest.chunkIndex()
+                );
+            }
+        };
+        KnowledgeServiceImpl semanticService = new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties()
+        );
+
+        asUser(7L, () -> semanticService.createDocument(11L, request));
+
+        ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
+        verify(chunkMapper).insert(chunkCaptor.capture());
+        assertThat(chunkCaptor.getValue().getVectorJson()).contains("1.0");
+    }
+
+    @Test
+    void fallsBackToLexicalRetrievalForChunksWithoutVectors() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                chunk("workflow-runbook.md", "Workflow apps can combine LLM nodes.", 0.82D),
+                chunk("billing.md", "Billing and quota handling guide.", 0.76D)
+        ));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest embeddingRequest) {
+                return new EmbeddingResult(
+                        List.of(1.0D, 0.0D),
+                        2,
+                        embeddingRequest.model(),
+                        embeddingRequest.chunkIndex()
+                );
+            }
+        };
+        KnowledgeServiceImpl semanticService = new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties()
+        );
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("workflow");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> semanticService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source())
+                .containsExactly("workflow-runbook.md");
     }
 
     @Test

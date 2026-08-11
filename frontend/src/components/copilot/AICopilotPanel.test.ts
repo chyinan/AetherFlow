@@ -72,4 +72,28 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     wrapper.unmount()
   })
+
+  it('does not load a conversation from another workflow', async () => {
+    listConversations.mockResolvedValue([
+      { id: 'conv-other', title: 'Other', workflowId: 'workflow-other', messageCount: 2, updatedAt: '' },
+    ])
+
+    const wrapper = mount(AICopilotPanel, {
+      props: {
+        context: {
+          workflowId: 'workflow-current',
+          workflowName: 'Current workflow',
+          nodes: [],
+          edges: [],
+          templates: [],
+        },
+      },
+      global: { plugins: [i18n] },
+    })
+
+    await flushPromises()
+
+    expect(listMessages).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

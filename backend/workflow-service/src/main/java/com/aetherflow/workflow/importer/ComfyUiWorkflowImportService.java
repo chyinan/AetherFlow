@@ -69,7 +69,9 @@ public class ComfyUiWorkflowImportService {
         if (!imported.lora().isEmpty()) {
             config.put("lora", imported.lora());
         }
+        // The AI service consumes workflowJson; workflow remains for older saved definitions.
         config.put("workflow", workflow);
+        config.put("workflowJson", workflow);
         config.put("next", "end");
         return config;
     }
@@ -201,16 +203,27 @@ public class ComfyUiWorkflowImportService {
             }
             case "KSampler", "KSamplerAdvanced" -> {
                 putWidget(inputs, widgets, 0, "seed");
-                putWidget(inputs, widgets, 1, "steps");
-                putWidget(inputs, widgets, 2, "cfg");
-                putWidget(inputs, widgets, 3, "sampler_name");
-                putWidget(inputs, widgets, 4, "scheduler");
-                putWidget(inputs, widgets, 5, "denoise");
+                int offset = hasControlAfterGenerate(widgets) ? 2 : 1;
+                putWidget(inputs, widgets, offset, "steps");
+                putWidget(inputs, widgets, offset + 1, "cfg");
+                putWidget(inputs, widgets, offset + 2, "sampler_name");
+                putWidget(inputs, widgets, offset + 3, "scheduler");
+                putWidget(inputs, widgets, offset + 4, "denoise");
             }
             default -> {
             }
         }
         return inputs;
+    }
+
+    private boolean hasControlAfterGenerate(List<Object> widgets) {
+        if (widgets.size() < 7 || !(widgets.get(1) instanceof String value)) {
+            return false;
+        }
+        return "randomize".equalsIgnoreCase(value)
+                || "fixed".equalsIgnoreCase(value)
+                || "increment".equalsIgnoreCase(value)
+                || "decrement".equalsIgnoreCase(value);
     }
 
     private static WorkflowNodeDTO node(String nodeId,
@@ -268,7 +281,7 @@ public class ComfyUiWorkflowImportService {
 
     private static Map<String, Object> objectMap(Object value) {
         if (!(value instanceof Map<?, ?> source)) {
-            return Map.of();
+            return new LinkedHashMap<>();
         }
         Map<String, Object> target = new LinkedHashMap<>();
         source.forEach((key, item) -> target.put(String.valueOf(key), item));

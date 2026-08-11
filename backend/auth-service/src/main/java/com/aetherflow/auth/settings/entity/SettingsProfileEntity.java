@@ -10,6 +10,7 @@ import lombok.EqualsAndHashCode;
 @TableName("af_settings_profile")
 public class SettingsProfileEntity extends BaseEntity {
 
+    private Long ownerUserId;
     private String name;
     private String slug;
     private String region;

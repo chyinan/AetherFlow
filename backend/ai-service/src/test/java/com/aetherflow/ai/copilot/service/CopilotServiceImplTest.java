@@ -117,6 +117,52 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void chatIncludesPreviousMessagesInProviderPrompt() {
+        stubAiReply("继续使用 Summary 节点。");
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                message(21L, 11L, "user", "我想把转写结果整理成会议纪要"),
+                message(22L, 11L, "assistant", "可以在 Whisper 后添加 Summary 节点。")
+        ));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 24L : 23L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-1001");
+        request.setPrompt("那下一步怎么配置？");
+
+        service.chat(7L, request);
+
+        ArgumentCaptor<AiProviderRequest> requestCaptor = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().prompt())
+                .contains("我想把转写结果整理成会议纪要")
+                .contains("可以在 Whisper 后添加 Summary 节点。")
+                .contains("那下一步怎么配置？");
+    }
+
+    @Test
+    void rejectsConversationFromAnotherWorkflow() {
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-other");
+        request.setPrompt("继续刚才的话题");
+
+        assertThatThrownBy(() -> service.chat(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("workflow");
+
+        verify(aiProviderRouter, never()).complete(any(AiProviderRequest.class));
+    }
+
+    @Test
     void chatPassesRequestedProviderAndModelToAiProviderRouter() {
         stubAiReply("Use Ollama qwen3.5 for this workflow suggestion.");
         doAnswer(invocation -> {

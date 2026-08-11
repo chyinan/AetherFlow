@@ -304,8 +304,20 @@ async function getLogs(runId: string) {
 
 async function listRuns() {
   try {
-    const page = await listWorkflowInstances({ page: 1, pageSize: 50 })
-    return (page.items ?? []).map(mapBackendRun)
+    const items: WorkflowRunViewDTO[] = []
+    const pageSize = 50
+    let page = 1
+    while (page <= 1000) {
+      const result = await listWorkflowInstances({ page, pageSize })
+      const pageItems = Array.isArray(result.items) ? result.items : []
+      items.push(...pageItems)
+      const total = typeof result.total === 'number' ? result.total : items.length
+      if (pageItems.length === 0 || items.length >= total || pageItems.length < pageSize) {
+        break
+      }
+      page += 1
+    }
+    return items.map(mapBackendRun)
   } catch (error) {
     if (shouldUseMockFallback(error, 'workflow')) {
       return delay(mockRuns)

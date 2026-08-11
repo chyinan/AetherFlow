@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   difyStore: {
-    datasets: [],
+    datasets: [] as Array<{ id: string }>,
     documents: [],
     segments: [],
     retrievalResults: [],
-    selectedDataset: undefined,
+    selectedDataset: undefined as { id: string } | undefined,
     selectedDatasetDocuments: [],
     loadSurface: vi.fn(),
     loadDatasetContent: vi.fn(),
@@ -50,6 +50,8 @@ describe('KnowledgePage', () => {
     mocks.difyStore.createDatasetFromWizard.mockReset().mockResolvedValue({ id: 'dataset-1', name: 'source' })
     mocks.fileStore.loadFiles.mockReset().mockResolvedValue(undefined)
     mocks.fileStore.files = []
+    mocks.difyStore.datasets = []
+    mocks.difyStore.selectedDataset = undefined
   })
 
   it('shows a page-level retry after initial loading fails', async () => {
@@ -105,6 +107,33 @@ describe('KnowledgePage', () => {
 
     expect(mocks.difyStore.createDatasetFromWizard).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[data-action="retry-processing"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not run a retrieval query just by opening the knowledge page', async () => {
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    expect(mocks.difyStore.runRetrievalTest).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('runs retrieval when the user submits the retrieval form', async () => {
+    mocks.difyStore.datasets = [{ id: 'dataset-1' }]
+    mocks.difyStore.selectedDataset = { id: 'dataset-1' }
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-action="open-dataset"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-action="retrieval-test"]').trigger('submit')
+    await flushPromises()
+
+    expect(mocks.difyStore.runRetrievalTest).toHaveBeenCalledWith('workflow retrieval configuration', 3)
     wrapper.unmount()
   })
 })

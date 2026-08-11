@@ -96,6 +96,7 @@ export const useProjectStore = defineStore('project', {
     workflowSummaries: [] as WorkflowSummary[],
     currentProjectId: 'project-media-ops',
     loading: false,
+    loadError: null as string | null,
   }),
   getters: {
     currentProject: (state) =>
@@ -148,13 +149,21 @@ export const useProjectStore = defineStore('project', {
   actions: {
     async loadProjects() {
       this.loading = true
+      this.loadError = null
       try {
-        const [projects, workflows] = await Promise.all([
+        const [projectsResult, workflowsResult] = await Promise.allSettled([
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
-        this.projects = projects
-        this.workflowSummaries = workflows
+        if (projectsResult.status === 'rejected') {
+          this.loadError = projectsResult.reason instanceof Error ? projectsResult.reason.message : i18n.global.t('common.error')
+          throw projectsResult.reason
+        }
+        this.projects = projectsResult.value
+        this.workflowSummaries = workflowsResult.status === 'fulfilled' ? workflowsResult.value : []
+        if (workflowsResult.status === 'rejected') {
+          this.loadError = i18n.global.t('projects.workflowLoadWarning')
+        }
         this.currentProjectId = this.currentProjectId || this.projects[0]?.id || 'project-media-ops'
       } finally {
         this.loading = false
@@ -162,13 +171,21 @@ export const useProjectStore = defineStore('project', {
     },
     async refreshProjects() {
       this.loading = true
+      this.loadError = null
       try {
-        const [projects, workflows] = await Promise.all([
+        const [projectsResult, workflowsResult] = await Promise.allSettled([
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
-        this.projects = projects
-        this.workflowSummaries = workflows
+        if (projectsResult.status === 'rejected') {
+          this.loadError = projectsResult.reason instanceof Error ? projectsResult.reason.message : i18n.global.t('common.error')
+          throw projectsResult.reason
+        }
+        this.projects = projectsResult.value
+        this.workflowSummaries = workflowsResult.status === 'fulfilled' ? workflowsResult.value : []
+        if (workflowsResult.status === 'rejected') {
+          this.loadError = i18n.global.t('projects.workflowLoadWarning')
+        }
         this.currentProjectId = this.projects[0]?.id || ''
       } finally {
         this.loading = false

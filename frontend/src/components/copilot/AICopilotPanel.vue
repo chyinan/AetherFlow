@@ -103,7 +103,9 @@ async function loadConversationHistory() {
   try {
     const conversations = await copilotApi.listConversations()
     const workflowId = props.context?.workflowId
-    const conversation = conversations.find((item) => item.workflowId === workflowId) || conversations[0]
+    const conversation = workflowId
+      ? conversations.find((item) => item.workflowId === workflowId)
+      : conversations.find((item) => !item.workflowId)
     if (!conversation) {
       return
     }

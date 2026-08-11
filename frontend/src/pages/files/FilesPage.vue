@@ -19,8 +19,12 @@ const summaryCards = computed(() => [
 ])
 
 onMounted(() => {
-  void fileStore.loadFiles()
+  void fileStore.loadFiles().catch(() => undefined)
 })
+
+function retryLoadFiles() {
+  void fileStore.loadFiles().catch(() => undefined)
+}
 
 async function downloadFile(fileId: string) {
   await fileStore.download(fileId).catch(() => undefined)
@@ -66,6 +70,16 @@ async function toggleFileSource(fileId: string) {
         </section>
 
         <FileUploader />
+        <div v-if="fileStore.loadError" class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error" role="alert">
+          <span>{{ fileStore.loadError }}</span>
+          <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-status-error/30 bg-white px-3 text-xs font-medium text-status-error hover:bg-red-100 disabled:opacity-50" :disabled="fileStore.loading" @click="retryLoadFiles">
+            <RefreshCw class="h-3.5 w-3.5" :class="fileStore.loading ? 'animate-spin' : ''" />
+            {{ t('common.retry') }}
+          </button>
+        </div>
+        <div v-if="fileStore.loading && fileStore.files.length === 0" class="rounded-md border border-app-border bg-white px-3 py-4 text-sm text-text-secondary" aria-busy="true">
+          {{ t('common.loading') }}
+        </div>
         <p v-if="fileStore.fileActionError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
           {{ fileStore.fileActionError }}
         </p>

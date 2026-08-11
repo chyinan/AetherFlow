@@ -20,6 +20,7 @@ import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowNodeKind } from '@/types/workflow'
+import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
 
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
@@ -40,6 +41,7 @@ const currentWorkflowRunActive = computed(() =>
   && ['queued', 'running'].includes(runStore.currentRun.status),
 )
 const runButtonBusy = computed(() => startingRun.value || currentWorkflowRunActive.value)
+const requiresFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 
 const hasWorkflowContext = computed(() => {
   return String(route.params.id || '') !== 'new'
@@ -198,13 +200,13 @@ const initializingWorkflow = ref(hasWorkflowContext.value)
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   const projectReady = projectStore.loadProjects()
-  const auxiliaryLoads = Promise.all([
+  const auxiliaryLoads = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
     runStore.loadRuns(),
     fileStore.loadFiles(),
   ])
   if (!hasWorkflowContext.value) {
-    await Promise.all([projectReady, auxiliaryLoads])
+    await Promise.allSettled([projectReady, auxiliaryLoads])
     workflowStore.resetToEmptyWorkflow()
     initializingWorkflow.value = false
     return
@@ -282,11 +284,14 @@ async function startRun() {
   workflowStore.setRunError(null)
   try {
     await runStore.loadRuns()
-    await fileStore.loadFiles()
-    const fileId = selectedInputFileId() ?? fileStore.latestBackendInputFileId
-    if (!fileId) {
-      workflowStore.setRunError(t('workflow.runRequiresFileId'))
-      return
+    let fileId: string | undefined
+    if (requiresFileInput.value) {
+      await fileStore.loadFiles()
+      fileId = selectedInputFileId() ?? fileStore.latestBackendInputFileId
+      if (!fileId) {
+        workflowStore.setRunError(t('workflow.runRequiresFileId'))
+        return
+      }
     }
 
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
@@ -310,7 +315,7 @@ async function startRun() {
     }
     const result = await workflowApi.startRun(
       workflowStore.workflowId,
-      { fileId },
+      fileId ? { fileId } : {},
       { allowMockFallback: false },
     )
     const run = runStore.createRunFromWorkflow({

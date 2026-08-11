@@ -28,6 +28,51 @@ const summaryCards = computed(() => [
   { label: t('monitor.errors'), value: metricValue('provider-error-rate', '0%'), hint: t('monitor.hints.errors'), icon: ShieldAlert },
 ])
 
+function numericMetric(metricId: string, suffix = '') {
+  const value = metricValue(metricId, '')
+  const match = value.match(new RegExp(`([0-9]+(?:\\.[0-9]+)?)\\s*${suffix}`))
+  return match ? Number(match[1]) : null
+}
+
+const alertRows = computed(() => {
+  const latency = numericMetric('provider-latency', 'ms')
+  const errorRate = numericMetric('provider-error-rate', '%')
+  const failedEvents = difyStore.failedConversationCount
+  return [
+    {
+      key: 'latency',
+      tone: latency === null ? 'degraded' : latency > 3000 ? 'error' : 'online',
+      message: latency === null
+        ? t('monitor.alerts.latencyUnknown')
+        : latency > 3000
+          ? t('monitor.alerts.latencyTriggered', { value: `${latency}ms`, threshold: '3000ms' })
+          : t('monitor.alerts.latencyHealthy', { value: `${latency}ms`, threshold: '3000ms' }),
+    },
+    {
+      key: 'quota',
+      tone: errorRate === null ? 'degraded' : errorRate > 10 ? 'error' : 'online',
+      message: errorRate === null
+        ? t('monitor.alerts.errorRateUnknown')
+        : errorRate > 10
+          ? t('monitor.alerts.errorRateTriggered', { value: `${errorRate}%`, threshold: '10%' })
+          : t('monitor.alerts.errorRateHealthy', { value: `${errorRate}%`, threshold: '10%' }),
+    },
+    {
+      key: 'retries',
+      tone: failedEvents > 0 ? 'degraded' : 'online',
+      message: failedEvents > 0
+        ? t('monitor.alerts.failuresObserved', { count: failedEvents })
+        : t('monitor.alerts.failuresHealthy'),
+    },
+  ] as const
+})
+
+function alertClass(tone: 'online' | 'degraded' | 'error') {
+  if (tone === 'error') return 'border-status-error/30 bg-red-50 text-status-error'
+  if (tone === 'degraded') return 'border-status-warning/30 bg-amber-50 text-status-warning'
+  return 'border-status-success/20 bg-green-50 text-status-success'
+}
+
 const selectedConversation = computed(() =>
   difyStore.conversations.find((conversation) => conversation.id === selectedConversationId.value) ?? difyStore.conversations[0],
 )
@@ -433,9 +478,9 @@ onMounted(async () => {
             <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <p class="text-sm font-semibold text-text-primary">{{ t('monitor.alertsTitle') }}</p>
               <div class="mt-4 space-y-3 text-sm text-text-secondary">
-                <p class="rounded-md bg-app-bg2 p-3">{{ t('monitor.alerts.latency') }}</p>
-                <p class="rounded-md bg-app-bg2 p-3">{{ t('monitor.alerts.quota') }}</p>
-                <p class="rounded-md bg-app-bg2 p-3">{{ t('monitor.alerts.retries') }}</p>
+                <p v-for="alert in alertRows" :key="alert.key" class="rounded-md border p-3" :class="alertClass(alert.tone)">
+                  {{ alert.message }}
+                </p>
               </div>
             </section>
           </aside>

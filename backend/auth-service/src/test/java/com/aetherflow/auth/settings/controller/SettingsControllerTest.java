@@ -105,7 +105,7 @@ class SettingsControllerTest {
     void returnsBillingAndAuditEvents() throws Exception {
         SettingsService service = mock(SettingsService.class);
         when(service.getBilling()).thenReturn(new BillingSnapshotResponse(
-                "Team", 200, "$300", "$42.18", "2026-06-01", "3 / 10"
+                "usage-only", 0, "unavailable", "unavailable", "unavailable", "0 / 0"
         ));
         when(service.listAuditEvents(20)).thenReturn(List.of(new AuditEventResponse(
                 "audit-1", "02:34:20", "aether.operator",
@@ -115,8 +115,8 @@ class SettingsControllerTest {
 
         mockMvc.perform(get("/settings/billing"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.aiCredits").value(200))
-                .andExpect(jsonPath("$.data.seats").value("3 / 10"));
+                .andExpect(jsonPath("$.data.aiCredits").value(0))
+                .andExpect(jsonPath("$.data.seats").value("0 / 0"));
 
         mockMvc.perform(get("/settings/audit-events").param("limit", "20"))
                 .andExpect(status().isOk())

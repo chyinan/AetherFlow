@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @TableName("af_settings_member")
 public class SettingsMemberEntity extends BaseEntity {
 
+    private Long ownerUserId;
     private String name;
     private String email;
     private String role;

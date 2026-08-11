@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @TableName("af_settings_audit_event")
 public class SettingsAuditEventEntity extends BaseEntity {
 
+    private Long ownerUserId;
     private LocalDateTime occurredAt;
     private String actor;
     private String action;

@@ -29,6 +29,7 @@ export const useSettingsStore = defineStore('settings', {
     telegramIntegration: null as TelegramIntegration | null,
     auditEvents: [] as AuditEvent[],
     loading: false,
+    loadErrorCount: 0,
   }),
   getters: {
     configuredVariableCount: (state) =>
@@ -47,19 +48,9 @@ export const useSettingsStore = defineStore('settings', {
   actions: {
     async loadSettings() {
       this.loading = true
+      this.loadErrorCount = 0
       try {
-        const [
-          workspace,
-          members,
-          modelProviders,
-          dataSources,
-          apiExtensions,
-          billing,
-          environmentVariables,
-          integrations,
-          telegramIntegration,
-          auditEvents,
-        ] = await Promise.all([
+        const results = await Promise.allSettled([
           settingsApi.getWorkspace(),
           settingsApi.listMembers(),
           settingsApi.listModelProviders(),
@@ -71,16 +62,41 @@ export const useSettingsStore = defineStore('settings', {
           settingsApi.getTelegramIntegration(),
           settingsApi.listAuditEvents(),
         ])
-        this.workspace = workspace
-        this.members = members
-        this.modelProviders = modelProviders
-        this.dataSources = dataSources
-        this.apiExtensions = apiExtensions
-        this.billing = billing
-        this.environmentVariables = environmentVariables
-        this.integrations = integrations
-        this.telegramIntegration = telegramIntegration
-        this.auditEvents = auditEvents
+        this.loadErrorCount = results.filter((result) => result.status === 'rejected').length
+
+        const [
+          workspace,
+          members,
+          modelProviders,
+          dataSources,
+          apiExtensions,
+          billing,
+          environmentVariables,
+          integrations,
+          telegramIntegration,
+          auditEvents,
+        ] = results.map((result) => result.status === 'fulfilled' ? result.value : undefined) as [
+          WorkspaceSettings | undefined,
+          WorkspaceMember[] | undefined,
+          SettingsModelProvider[] | undefined,
+          DataSourceProvider[] | undefined,
+          ApiExtensionSetting[] | undefined,
+          BillingSnapshot | undefined,
+          EnvironmentVariable[] | undefined,
+          IntegrationSetting[] | undefined,
+          TelegramIntegration | undefined,
+          AuditEvent[] | undefined,
+        ]
+        if (workspace !== undefined) this.workspace = workspace
+        if (members !== undefined) this.members = members
+        if (modelProviders !== undefined) this.modelProviders = modelProviders
+        if (dataSources !== undefined) this.dataSources = dataSources
+        if (apiExtensions !== undefined) this.apiExtensions = apiExtensions
+        if (billing !== undefined) this.billing = billing
+        if (environmentVariables !== undefined) this.environmentVariables = environmentVariables
+        if (integrations !== undefined) this.integrations = integrations
+        if (telegramIntegration !== undefined) this.telegramIntegration = telegramIntegration
+        if (auditEvents !== undefined) this.auditEvents = auditEvents
       } finally {
         this.loading = false
       }
@@ -151,18 +167,6 @@ export const useSettingsStore = defineStore('settings', {
       }
       this.recordAudit('configured model provider', provider.name)
       return provider
-    },
-    connectDataSource(sourceId: string) {
-      const source = this.dataSources.find((item) => item.id === sourceId)
-      if (!source) return
-      source.status = 'connected'
-      this.recordAudit('connected data source', source.name)
-    },
-    configureApiExtension(extensionId: string) {
-      const extension = this.apiExtensions.find((item) => item.id === extensionId)
-      if (!extension) return
-      extension.status = extension.status === 'disabled' ? 'configured' : extension.status
-      this.recordAudit('configured API extension', extension.name)
     },
     async configureTelegramIntegration(payload: {
       enabled: boolean

@@ -32,7 +32,7 @@ export const mockKnowledgeDatasets: KnowledgeDataset[] = [
     chunkCount: 1280,
     failedChunkCount: 0,
     hitRate: 86,
-    embeddingModel: 'text-embedding-3-small',
+    embeddingModel: 'nomic-embed-text',
     retrievalMode: 'semantic top-k',
     owner: 'support.ai',
     updatedAt: '2026-05-28 09:50',

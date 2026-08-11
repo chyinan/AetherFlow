@@ -22,6 +22,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,8 @@ public class CopilotServiceImpl implements CopilotService {
     private static final Duration COPILOT_TIMEOUT = Duration.ofSeconds(60);
     private static final int MAX_CONTEXT_ENTRIES = 12;
     private static final int MAX_CONTEXT_VALUE_LENGTH = 600;
+    private static final int MAX_HISTORY_MESSAGES = 20;
+    private static final int MAX_HISTORY_VALUE_LENGTH = 2000;
 
     private final CopilotConversationMapper conversationMapper;
     private final CopilotMessageMapper messageMapper;
@@ -74,7 +78,7 @@ public class CopilotServiceImpl implements CopilotService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
-        String assistantContent = assistantReply(request);
+        String assistantContent = assistantReply(request, prepared.history());
         CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
                 persistAssistantReply(prepared, assistantContent));
 
@@ -98,7 +102,7 @@ public class CopilotServiceImpl implements CopilotService {
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
         StringBuilder assistantContent = new StringBuilder();
-        aiProviderRouter.stream(providerRequest(request), response -> {
+        aiProviderRouter.stream(providerRequest(request, prepared.history()), response -> {
             if (response != null && hasText(response.text())) {
                 String delta = response.text();
                 assistantContent.append(delta);
@@ -121,9 +125,10 @@ public class CopilotServiceImpl implements CopilotService {
 
     private PreparedTurn prepareTurn(Long userId, CopilotChatRequest request) {
         CopilotConversationEntity conversation = resolveConversation(userId, request);
+        List<CopilotMessageEntity> history = loadConversationHistory(conversation.getId());
         LocalDateTime now = LocalDateTime.now();
         insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
-        return new PreparedTurn(conversation, now);
+        return new PreparedTurn(conversation, now, history);
     }
 
     private CopilotMessageEntity persistAssistantReply(PreparedTurn prepared, String assistantContent) {
@@ -137,7 +142,9 @@ public class CopilotServiceImpl implements CopilotService {
         return assistantMessage;
     }
 
-    private record PreparedTurn(CopilotConversationEntity conversation, LocalDateTime now) {
+    private record PreparedTurn(CopilotConversationEntity conversation,
+                                LocalDateTime now,
+                                List<CopilotMessageEntity> history) {
     }
 
     @Override
@@ -178,6 +185,7 @@ public class CopilotServiceImpl implements CopilotService {
             if (existing == null) {
                 throw new BusinessException(ResultCode.NOT_FOUND, "copilot conversation not found");
             }
+            validateConversationScope(existing, request);
             return existing;
         }
         return createConversation(userId, request);
@@ -229,19 +237,45 @@ public class CopilotServiceImpl implements CopilotService {
         return message;
     }
 
-    private String assistantReply(CopilotChatRequest request) {
-        AiProviderResponse response = aiProviderRouter.complete(providerRequest(request));
+    private List<CopilotMessageEntity> loadConversationHistory(Long conversationId) {
+        LambdaQueryWrapper<CopilotMessageEntity> wrapper = new LambdaQueryWrapper<CopilotMessageEntity>()
+                .eq(CopilotMessageEntity::getConversationId, conversationId)
+                .orderByAsc(CopilotMessageEntity::getId);
+        List<CopilotMessageEntity> messages = messageMapper.selectList(wrapper);
+        if (messages == null || messages.isEmpty()) {
+            return List.of();
+        }
+        List<CopilotMessageEntity> sorted = new ArrayList<>(messages);
+        sorted.sort(Comparator.comparing(CopilotMessageEntity::getId,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        int start = Math.max(0, sorted.size() - MAX_HISTORY_MESSAGES);
+        return List.copyOf(sorted.subList(start, sorted.size()));
+    }
+
+    private void validateConversationScope(CopilotConversationEntity conversation, CopilotChatRequest request) {
+        if (hasText(request.getWorkflowId())
+                && !Objects.equals(request.getWorkflowId().strip(), normalizeOptionalText(conversation.getWorkflowId()))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot conversation does not belong to workflow");
+        }
+        if (hasText(request.getProjectId())
+                && !Objects.equals(request.getProjectId().strip(), normalizeOptionalText(conversation.getProjectId()))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "copilot conversation does not belong to project");
+        }
+    }
+
+    private String assistantReply(CopilotChatRequest request, List<CopilotMessageEntity> history) {
+        AiProviderResponse response = aiProviderRouter.complete(providerRequest(request, history));
         if (response == null || !hasText(response.text())) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
         }
         return response.text().strip();
     }
 
-    private AiProviderRequest providerRequest(CopilotChatRequest request) {
+    private AiProviderRequest providerRequest(CopilotChatRequest request, List<CopilotMessageEntity> history) {
         return new AiProviderRequest(
                 parseProvider(request.getProvider()),
                 normalizeOptionalText(request.getModel()),
-                copilotPrompt(request),
+                copilotPrompt(request, history),
                 Map.of(
                         "temperature", 0.2,
                         "maxTokens", 900
@@ -250,7 +284,7 @@ public class CopilotServiceImpl implements CopilotService {
         );
     }
 
-    private String copilotPrompt(CopilotChatRequest request) {
+    private String copilotPrompt(CopilotChatRequest request, List<CopilotMessageEntity> history) {
         StringBuilder builder = new StringBuilder();
         builder.append("""
                 You are the AetherFlow workflow copilot.
@@ -269,8 +303,26 @@ public class CopilotServiceImpl implements CopilotService {
         if (hasText(contextText)) {
             builder.append("\ncontext:\n").append(contextText);
         }
+        if (history != null && !history.isEmpty()) {
+            builder.append("\nconversation history:\n");
+            for (CopilotMessageEntity message : history) {
+                builder.append("- ")
+                        .append(hasText(message.getRole()) ? message.getRole().strip() : "message")
+                        .append(": ")
+                        .append(truncateHistoryValue(message.getContent()))
+                        .append('\n');
+            }
+        }
         builder.append("\nuser request:\n").append(request.getPrompt().strip());
         return builder.toString();
+    }
+
+    private String truncateHistoryValue(String value) {
+        String text = value == null ? "" : value.strip();
+        if (text.length() <= MAX_HISTORY_VALUE_LENGTH) {
+            return text;
+        }
+        return text.substring(0, MAX_HISTORY_VALUE_LENGTH) + "...";
     }
 
     private String contextText(Map<String, Object> context) {

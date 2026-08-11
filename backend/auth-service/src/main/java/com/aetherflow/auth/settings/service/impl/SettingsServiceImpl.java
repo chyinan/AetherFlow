@@ -27,6 +27,7 @@ import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -88,6 +89,7 @@ public class SettingsServiceImpl implements SettingsService {
     public List<SettingsMemberResponse> listMembers() {
         ensureDefaultOwnerMember();
         LambdaQueryWrapper<SettingsMemberEntity> wrapper = new LambdaQueryWrapper<SettingsMemberEntity>()
+                .eq(SettingsMemberEntity::getOwnerUserId, currentOwnerUserId())
                 .ne(SettingsMemberEntity::getStatus, STATUS_REMOVED)
                 .orderByAsc(SettingsMemberEntity::getId);
         return memberMapper.selectList(wrapper).stream()
@@ -179,6 +181,7 @@ public class SettingsServiceImpl implements SettingsService {
     public List<AuditEventResponse> listAuditEvents(int limit) {
         int safeLimit = limit <= 0 ? 20 : Math.min(limit, 100);
         LambdaQueryWrapper<SettingsAuditEventEntity> wrapper = new LambdaQueryWrapper<SettingsAuditEventEntity>()
+                .eq(SettingsAuditEventEntity::getOwnerUserId, currentOwnerUserId())
                 .orderByDesc(SettingsAuditEventEntity::getOccurredAt)
                 .orderByDesc(SettingsAuditEventEntity::getId)
                 .last("limit " + safeLimit);
@@ -243,12 +246,14 @@ public class SettingsServiceImpl implements SettingsService {
 
     private SettingsProfileEntity findOrCreateProfile() {
         SettingsProfileEntity profile = profileMapper.selectOne(new LambdaQueryWrapper<SettingsProfileEntity>()
+                .eq(SettingsProfileEntity::getOwnerUserId, currentOwnerUserId())
                 .last("limit 1"));
         if (profile != null) {
             return profile;
         }
         LocalDateTime now = LocalDateTime.now();
         profile = new SettingsProfileEntity();
+        profile.setOwnerUserId(currentOwnerUserId());
         profile.setName("AetherFlow Lab");
         profile.setSlug("aetherflow-lab");
         profile.setRegion("cn-dev-01");
@@ -264,19 +269,21 @@ public class SettingsServiceImpl implements SettingsService {
 
     private SettingsBillingEntity findOrCreateBilling() {
         SettingsBillingEntity billing = billingMapper.selectOne(new LambdaQueryWrapper<SettingsBillingEntity>()
+                .eq(SettingsBillingEntity::getOwnerUserId, currentOwnerUserId())
                 .last("limit 1"));
         if (billing != null) {
             return billing;
         }
         LocalDateTime now = LocalDateTime.now();
         billing = new SettingsBillingEntity();
-        billing.setPlan("Team");
-        billing.setAiCredits(200);
-        billing.setMonthlyBudget("$300");
-        billing.setCurrentSpend("$42.18");
-        billing.setRenewalAt("2026-06-01");
-        billing.setSeatUsed(3);
-        billing.setSeatLimit(10);
+        billing.setOwnerUserId(currentOwnerUserId());
+        billing.setPlan("usage-only");
+        billing.setAiCredits(0);
+        billing.setMonthlyBudget("unavailable");
+        billing.setCurrentSpend("unavailable");
+        billing.setRenewalAt("unavailable");
+        billing.setSeatUsed(0);
+        billing.setSeatLimit(0);
         billing.setCreatedAt(now);
         billing.setUpdatedAt(now);
         billingMapper.insert(billing);
@@ -284,7 +291,10 @@ public class SettingsServiceImpl implements SettingsService {
     }
 
     private SettingsMemberEntity requireMember(Long memberId) {
-        SettingsMemberEntity member = memberMapper.selectById(memberId);
+        SettingsMemberEntity member = memberMapper.selectOne(new LambdaQueryWrapper<SettingsMemberEntity>()
+                .eq(SettingsMemberEntity::getId, memberId)
+                .eq(SettingsMemberEntity::getOwnerUserId, currentOwnerUserId())
+                .last("limit 1"));
         if (member == null || STATUS_REMOVED.equals(member.getStatus())) {
             throw new BusinessException(ResultCode.NOT_FOUND, "settings member not found");
         }
@@ -319,12 +329,14 @@ public class SettingsServiceImpl implements SettingsService {
 
     private void ensureDefaultOwnerMember() {
         Long memberCount = memberMapper.selectCount(new LambdaQueryWrapper<SettingsMemberEntity>()
+                .eq(SettingsMemberEntity::getOwnerUserId, currentOwnerUserId())
                 .ne(SettingsMemberEntity::getStatus, STATUS_REMOVED));
         if (memberCount != null && memberCount > 0) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
         SettingsMemberEntity member = new SettingsMemberEntity();
+        member.setOwnerUserId(currentOwnerUserId());
         member.setName(DEFAULT_OWNER_NAME);
         member.setEmail(DEFAULT_OWNER_EMAIL);
         member.setRole(DEFAULT_OWNER_ROLE);
@@ -338,6 +350,7 @@ public class SettingsServiceImpl implements SettingsService {
 
     private SettingsMemberEntity findMemberByEmail(String email) {
         return memberMapper.selectOne(new LambdaQueryWrapper<SettingsMemberEntity>()
+                .eq(SettingsMemberEntity::getOwnerUserId, currentOwnerUserId())
                 .eq(SettingsMemberEntity::getEmail, email)
                 .last("limit 1"));
     }
@@ -345,6 +358,7 @@ public class SettingsServiceImpl implements SettingsService {
     private void recordAudit(String action, String target) {
         SettingsAuditEventEntity event = new SettingsAuditEventEntity();
         LocalDateTime now = LocalDateTime.now();
+        event.setOwnerUserId(currentOwnerUserId());
         event.setOccurredAt(now);
         event.setActor(AUDIT_ACTOR);
         event.setAction(action);
@@ -453,6 +467,22 @@ public class SettingsServiceImpl implements SettingsService {
 
     private String defaultText(String value, String fallback) {
         return hasText(value) ? value : fallback;
+    }
+
+    private Long currentOwnerUserId() {
+        String value = MDC.get("userId");
+        if (value != null && !value.isBlank()) {
+            try {
+                long parsed = Long.parseLong(value.trim());
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+                // Request trace IDs are not ownership identities.
+            }
+        }
+        // Unit tests and internal calls without an authenticated principal stay in an isolated bucket.
+        return 0L;
     }
 
     private Integer defaultNumber(Integer value, int fallback) {

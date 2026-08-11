@@ -13,6 +13,7 @@ import {
   uploadFile,
   updateFileClassification,
   type UploadProgressView,
+  type FileAssetMetadataView,
 } from '@/api/modules/file'
 import { isApiError, toApiError } from '@/api/client/apiError'
 import { runtimeEnv } from '@/config/runtimeEnv'
@@ -25,6 +26,7 @@ const unavailableStatuses = new Set([0, 404, 502, 503, 504])
 const unavailableCodeTokens = ['GATEWAY', 'UNAVAILABLE', 'TIMEOUT', 'NETWORK', 'ECONNREFUSED', 'ECONNABORTED', 'ERR_NETWORK']
 const chunkUploadThresholdBytes = 50 * 1024 * 1024
 const chunkSizeBytes = 8 * 1024 * 1024
+const listPageSize = 100
 
 export interface FileUploadOptions {
   onProgress?: (percentage: number, progress?: UploadProgressView) => void
@@ -155,8 +157,19 @@ async function uploadFileInChunks(file: File, options: FileUploadOptions = {}) {
 export const fileApi = {
   async listFiles() {
     try {
-      const response = await listFiles({ page: 1, pageSize: 100 })
-      const items = Array.isArray(response.items) ? response.items : []
+      const items: FileAssetMetadataView[] = []
+      let page = 1
+      let total = 0
+      while (page <= 1000) {
+        const response = await listFiles({ page, pageSize: listPageSize })
+        const pageItems = Array.isArray(response.items) ? response.items : []
+        items.push(...pageItems)
+        total = typeof response.total === 'number' ? response.total : items.length
+        if (pageItems.length === 0 || items.length >= total || pageItems.length < listPageSize) {
+          break
+        }
+        page += 1
+      }
       return items.map(mapFileAssetViewToAsset)
     } catch (error) {
       if (!shouldUseMockFallback(error)) {
