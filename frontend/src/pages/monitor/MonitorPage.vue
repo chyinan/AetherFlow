@@ -1,8 +1,10 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { BarChart3, ShieldAlert, Timer, TrendingUp } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { getGovernanceSnapshot, type GovernanceSnapshot } from '@/api/modules/governance'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useDifyStore } from '@/stores/difyStore'
 import type { ConversationLog } from '@/types/dify'
@@ -11,6 +13,9 @@ import { formatDate, formatTime } from '@/utils/localeFormat'
 const difyStore = useDifyStore()
 const { t } = useI18n()
 const selectedConversationId = ref('')
+const governanceSnapshot = ref<GovernanceSnapshot | null>(null)
+const governanceLoading = ref(false)
+const governanceError = ref(false)
 
 function metricValue(metricId: string, fallback = '--') {
   return difyStore.metrics.find((metric) => metric.id === metricId)?.value ?? fallback
@@ -35,6 +40,107 @@ const monitorEventRows = computed(() =>
     statusBadge: eventStatusBadge(log.status),
   })),
 )
+
+function governanceValue(value: unknown) {
+  if (value === undefined || value === null || value === '') {
+    return '--'
+  }
+  return String(value)
+}
+
+function governanceBoolean(value: boolean | undefined) {
+  if (value === undefined) {
+    return '--'
+  }
+  return value ? t('common.yes') : t('common.no')
+}
+
+function governanceBytes(value: number | undefined) {
+  if (value === undefined) {
+    return '--'
+  }
+  return `${value.toLocaleString()} B`
+}
+
+const governanceCards = computed(() => {
+  const snapshot = governanceSnapshot.value
+  return [
+    {
+      key: 'workflow-node',
+      label: t('monitor.governance.workflowNode'),
+      rows: [
+        { label: t('monitor.governance.executions'), value: governanceValue(snapshot?.workflowNode?.executionCount) },
+        { label: t('monitor.governance.retries'), value: governanceValue(snapshot?.workflowNode?.retryCount) },
+        { label: t('monitor.governance.failures'), value: governanceValue(snapshot?.workflowNode?.failCount) },
+      ],
+    },
+    {
+      key: 'embedding',
+      label: t('monitor.governance.embedding'),
+      rows: [
+        { label: t('monitor.governance.executions'), value: governanceValue(snapshot?.embedding?.embeddingCount) },
+        { label: t('monitor.governance.failures'), value: governanceValue(snapshot?.embedding?.failCount) },
+        { label: t('monitor.governance.duration'), value: governanceValue(snapshot?.embedding?.averageDurationMs) },
+        { label: t('monitor.governance.vectors'), value: governanceValue(snapshot?.embedding?.vectorCount) },
+        { label: t('monitor.governance.model'), value: governanceValue(snapshot?.embedding?.currentModel) },
+      ],
+    },
+    {
+      key: 'ocr',
+      label: t('monitor.governance.ocr'),
+      rows: [
+        { label: t('monitor.governance.executions'), value: governanceValue(snapshot?.ocr?.ocrCount) },
+        { label: t('monitor.governance.failures'), value: governanceValue(snapshot?.ocr?.failCount) },
+        { label: t('monitor.governance.duration'), value: governanceValue(snapshot?.ocr?.averageDurationMs) },
+      ],
+    },
+    {
+      key: 'queue',
+      label: t('monitor.governance.queue'),
+      rows: [
+        { label: t('monitor.governance.status'), value: governanceValue(snapshot?.queue?.status) },
+        { label: t('monitor.governance.busy'), value: governanceBoolean(snapshot?.queue?.busy) },
+        { label: t('monitor.governance.ready'), value: governanceValue(snapshot?.queue?.readyMessages) },
+        { label: t('monitor.governance.unacked'), value: governanceValue(snapshot?.queue?.unackedMessages) },
+        { label: t('monitor.governance.total'), value: governanceValue(snapshot?.queue?.totalMessages) },
+        { label: t('monitor.governance.consumers'), value: governanceValue(snapshot?.queue?.consumers) },
+        { label: t('monitor.governance.rejected'), value: governanceValue(snapshot?.queue?.rejectedTaskCount) },
+        { label: t('monitor.governance.reason'), value: governanceValue(snapshot?.queue?.reason) },
+      ],
+    },
+    {
+      key: 'file',
+      label: t('monitor.governance.file'),
+      rows: [
+        { label: t('monitor.governance.minio'), value: governanceValue(snapshot?.fileStatus?.minioStatus) },
+        { label: t('monitor.governance.files'), value: governanceValue(snapshot?.fileMetrics?.fileCount ?? snapshot?.fileStatus?.fileCount) },
+        { label: t('monitor.governance.uploading'), value: governanceValue(snapshot?.fileMetrics?.uploadingTaskCount ?? snapshot?.fileStatus?.uploadingTaskCount) },
+        { label: t('monitor.governance.storage'), value: governanceBytes(snapshot?.fileMetrics?.storageSizeBytes ?? snapshot?.fileStatus?.storageSizeBytes) },
+        { label: t('monitor.governance.duration'), value: governanceValue(snapshot?.fileMetrics?.averageUploadDurationMs) },
+      ],
+    },
+    {
+      key: 'auth',
+      label: t('monitor.governance.auth'),
+      rows: [
+        { label: t('monitor.governance.onlineUsers'), value: governanceValue(snapshot?.authMetrics?.onlineUserCount ?? snapshot?.authStatus?.onlineUserCount) },
+        { label: t('monitor.governance.tokens'), value: governanceValue(snapshot?.authMetrics?.tokenCount ?? snapshot?.authStatus?.tokenCount) },
+        { label: t('monitor.governance.loginFailures'), value: governanceValue(snapshot?.authMetrics?.loginFailureCount ?? snapshot?.authStatus?.loginFailureCount) },
+      ],
+    },
+    {
+      key: 'gateway',
+      label: t('monitor.governance.gateway'),
+      rows: [
+        { label: t('monitor.governance.status'), value: governanceValue(snapshot?.gateway?.status) },
+        { label: t('monitor.governance.authEnabled'), value: governanceBoolean(snapshot?.gateway?.authEnabled) },
+        { label: t('monitor.governance.sentinelEnabled'), value: governanceBoolean(snapshot?.gateway?.sentinelEnabled) },
+        { label: t('monitor.governance.routes'), value: governanceValue(snapshot?.gateway?.routeCount) },
+        { label: t('monitor.governance.service'), value: governanceValue(snapshot?.gateway?.service) },
+      ],
+    },
+  ]
+})
 
 function feedbackText(value: string) {
   if (value === 'like') return t('monitor.feedback.like')
@@ -118,8 +224,20 @@ function latencyClass(latencyMs: number, status: ConversationLog['status']) {
   return 'text-text-primary'
 }
 
+async function loadGovernance() {
+  governanceLoading.value = true
+  governanceError.value = false
+  try {
+    governanceSnapshot.value = await getGovernanceSnapshot()
+  } catch {
+    governanceError.value = true
+  } finally {
+    governanceLoading.value = false
+  }
+}
+
 onMounted(async () => {
-  await difyStore.loadSurface()
+  await Promise.allSettled([difyStore.loadSurface(), loadGovernance()])
   selectedConversationId.value = difyStore.reviewQueue[0]?.id ?? difyStore.conversations[0]?.id ?? ''
 })
 </script>
@@ -136,8 +254,8 @@ onMounted(async () => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-hidden bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="grid h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-4">
+    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
+      <div class="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
@@ -147,6 +265,36 @@ onMounted(async () => {
             <p class="mt-3 text-2xl font-semibold text-text-primary">{{ card.value }}</p>
             <p class="mt-1 text-xs text-text-muted">{{ card.hint }}</p>
           </article>
+        </section>
+
+        <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="text-sm font-semibold text-text-primary">{{ t('monitor.governance.title') }}</p>
+              <p class="mt-1 text-xs text-text-muted">{{ t('monitor.governance.subtitle') }}</p>
+            </div>
+            <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-1.5 text-xs font-medium text-text-secondary hover:border-primary/30 hover:text-primary disabled:opacity-60" :disabled="governanceLoading" @click="loadGovernance">
+              <TrendingUp class="h-3.5 w-3.5" :class="governanceLoading ? 'animate-pulse' : ''" />
+              {{ t('common.refresh') }}
+            </button>
+          </div>
+          <p v-if="governanceError" class="mt-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs text-status-error" role="alert">
+            {{ t('monitor.governance.loadFailed') }}
+          </p>
+          <div v-if="governanceLoading" class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-busy="true">
+            <div v-for="index in 4" :key="index" class="h-32 animate-pulse rounded-md bg-app-bg2" />
+          </div>
+          <div v-else class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <article v-for="card in governanceCards" :key="card.key" class="rounded-md border border-app-border bg-app-bg2 p-3">
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-text-secondary">{{ card.label }}</h3>
+              <dl class="mt-3 space-y-2">
+                <div v-for="row in card.rows" :key="row.label" class="flex items-start justify-between gap-3 text-xs">
+                  <dt class="text-text-muted">{{ row.label }}</dt>
+                  <dd class="max-w-[65%] truncate text-right font-medium text-text-primary" :title="row.value">{{ row.value }}</dd>
+                </div>
+              </dl>
+            </article>
+          </div>
         </section>
 
         <section class="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_340px]">

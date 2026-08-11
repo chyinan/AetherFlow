@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { apiClient } from '@/api/client/apiClient'
 
 export interface WorkflowDefinitionNodeDTO {
@@ -12,6 +13,13 @@ export interface WorkflowDefinitionDTO {
   description?: string
   projectId?: number
   nodes: WorkflowDefinitionNodeDTO[]
+}
+
+export interface ComfyUiWorkflowImportRequest {
+  name?: string
+  description?: string
+  projectId?: number
+  workflowJson: Record<string, unknown>
 }
 
 export interface WorkflowDefinitionEntity {
@@ -94,6 +102,12 @@ export interface WorkflowRunLogFrameDTO {
 
 export function createDefinition(payload: WorkflowDefinitionDTO) {
   return apiClient.post<WorkflowDefinitionEntity>('/workflows/definitions', payload, {
+    source: 'workflow',
+  })
+}
+
+export function importComfyUiWorkflow(payload: ComfyUiWorkflowImportRequest) {
+  return apiClient.post<WorkflowDefinitionDTO>('/workflows/definitions/import/comfyui', payload, {
     source: 'workflow',
   })
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { FolderKanban, LoaderCircle, Play, Plus, RotateCcw, Save, Workflow } from 'lucide-vue-next'
+import { FileJson, FolderKanban, LoaderCircle, Play, Plus, RotateCcw, Save, Upload, Workflow } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -10,6 +10,8 @@ import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { toApiError } from '@/api/client/apiError'
+import { importComfyUiWorkflow } from '@/api/modules/workflow'
+import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
 import type { WorkflowCopilotCanvasAction } from '@/services/copilot/workflowCopilotActions'
 import { workflowApi } from '@/services/api/workflowApi'
 import { useFileStore } from '@/stores/fileStore'
@@ -30,6 +32,9 @@ const { t } = useI18n()
 const showCopilot = ref(false)
 const showRunConsole = ref(false)
 const startingRun = ref(false)
+const importingComfyUi = ref(false)
+const comfyUiImportError = ref<string | null>(null)
+const comfyUiFileInput = ref<HTMLInputElement | null>(null)
 const currentWorkflowRunActive = computed(() =>
   runStore.currentRun?.workflowId === workflowStore.workflowId
   && ['queued', 'running'].includes(runStore.currentRun.status),
@@ -64,6 +69,63 @@ function routeQueryString(value: unknown) {
 function numericProjectId(value: unknown) {
   const parsed = Number(routeQueryString(value) ?? value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+function openComfyUiFilePicker() {
+  comfyUiImportError.value = null
+  comfyUiFileInput.value?.click()
+}
+
+function importErrorMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : t('workflow.importComfyUiFailed')
+}
+
+async function handleComfyUiFileChange(event: Event) {
+  const input = event.target
+  const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined
+  if (!file) {
+    return
+  }
+
+  if (!confirmDiscardUnsavedChanges()) {
+    if (input instanceof HTMLInputElement) {
+      input.value = ''
+    }
+    return
+  }
+
+  importingComfyUi.value = true
+  comfyUiImportError.value = null
+  try {
+    const parsed = JSON.parse(await file.text()) as unknown
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(t('workflow.importComfyUiInvalid'))
+    }
+
+    const imported = await importComfyUiWorkflow({
+      name: file.name.replace(/\.json$/i, '') || t('workflow.importComfyUiDefaultName'),
+      description: t('workflow.importComfyUiDescription'),
+      projectId: numericProjectId(route.query.projectId) ?? numericProjectId(projectStore.currentProject?.id),
+      workflowJson: parsed as Record<string, unknown>,
+    })
+    const graph = mapBackendDefinitionGraph(imported.nodes)
+
+    workflowStore.resetToEmptyWorkflow()
+    workflowStore.workflowName = imported.name
+    workflowStore.projectId = imported.projectId ?? numericProjectId(route.query.projectId) ?? null
+    workflowStore.setNodes(graph.nodes)
+    workflowStore.setEdges(graph.edges)
+    uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
+  } catch (error) {
+    comfyUiImportError.value = importErrorMessage(error)
+  } finally {
+    importingComfyUi.value = false
+    if (input instanceof HTMLInputElement) {
+      input.value = ''
+    }
+  }
 }
 
 async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unknown> = Promise.resolve()) {
@@ -311,6 +373,14 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
 </script>
 
 <template>
+  <input
+    ref="comfyUiFileInput"
+    type="file"
+    accept=".json,application/json"
+    class="hidden"
+    @change="handleComfyUiFileChange"
+  />
+
   <section v-if="initializingWorkflow || workflowStore.loading" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
       <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
@@ -380,7 +450,28 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
             </div>
           </div>
         </RouterLink>
+
+        <button
+          type="button"
+          data-action="import-comfyui"
+          class="group rounded-xl border border-primary/20 bg-white p-5 text-left transition hover:border-primary/40 hover:bg-primary-soft/30 disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="importingComfyUi"
+          @click="openComfyUiFilePicker"
+        >
+          <div class="flex items-center gap-3">
+            <span class="grid h-10 w-10 place-items-center rounded-lg bg-primary-soft text-primary shadow-sm">
+              <FileJson class="h-5 w-5" />
+            </span>
+            <div>
+              <p class="text-sm font-semibold text-text-primary">{{ importingComfyUi ? t('workflow.importingComfyUi') : t('workflow.importComfyUi') }}</p>
+              <p class="mt-1 text-xs text-text-muted">{{ t('workflow.importComfyUiHint') }}</p>
+            </div>
+          </div>
+        </button>
       </div>
+      <p v-if="comfyUiImportError" class="mx-6 mb-6 rounded-lg border border-status-error/30 bg-red-50 px-4 py-3 text-sm text-status-error" role="alert">
+        {{ comfyUiImportError }}
+      </p>
     </div>
   </section>
 
@@ -389,11 +480,22 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
-        <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error">
-          {{ workflowStore.savingError || workflowStore.runError }}
+        <p v-if="workflowStore.savingError || workflowStore.runError || comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
+          {{ workflowStore.savingError || workflowStore.runError || comfyUiImportError }}
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-action="import-comfyui"
+          class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="importingComfyUi"
+          @click="openComfyUiFilePicker"
+        >
+          <LoaderCircle v-if="importingComfyUi" class="h-4 w-4 animate-spin" />
+          <Upload v-else class="h-4 w-4" />
+          {{ importingComfyUi ? t('workflow.importingComfyUi') : t('workflow.importComfyUi') }}
+        </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="resetWorkflow">
           <RotateCcw class="h-4 w-4" />
           {{ t('workflow.reset') }}

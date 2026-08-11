@@ -52,6 +52,12 @@ export const router = createRouter({
       meta: { requiresAuth: true, titleKey: 'projects.title', roles: ['owner', 'operator'] },
     },
     {
+      path: '/workspaces',
+      name: 'workspaces',
+      component: () => import('@/pages/workspaces/WorkspacesPage.vue'),
+      meta: { requiresAuth: true, titleKey: 'workspaces.title', roles: ['owner', 'operator'] },
+    },
+    {
       path: '/workflows',
       redirect: '/workflows/new',
     },

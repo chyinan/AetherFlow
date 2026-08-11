@@ -78,6 +78,25 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
+    void taskAndFileGovernancePathsRouteToTheirPublicServices() {
+        List.of("/task/metrics").forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("task-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://task-service");
+        });
+
+        List.of("/file/status", "/file/metrics").forEach(path -> {
+            Route route = firstMatchingRoute(path);
+
+            assertThat(route).as(path).isNotNull();
+            assertThat(route.getId()).as(path).isEqualTo("file-service");
+            assertThat(route.getUri().toString()).as(path).isEqualTo("lb://file-service");
+        });
+    }
+
+    @Test
     void workflowServiceGatewayRouteForwardsUrlIngestionApi() {
         Route route = firstMatchingRoute("/ingestion/url/fetch");
 
@@ -144,6 +163,23 @@ class GatewayRouteConfigurationTest {
         assertThat(workflowApi.getPatterns())
                 .contains("/workflows", "/workflow-instances", "/workflow",
                         "/projects", "/workspaces", "/knowledge");
+    }
+
+    @Test
+    void taskAndFileGovernancePathsBelongToTheirSentinelGroups() {
+        GatewaySentinelProperties.ApiGroup taskApi = sentinelProperties.getApiGroups().stream()
+                .filter(apiGroup -> "task-api".equals(apiGroup.getName()))
+                .findFirst()
+                .orElse(null);
+        GatewaySentinelProperties.ApiGroup fileApi = sentinelProperties.getApiGroups().stream()
+                .filter(apiGroup -> "file-api".equals(apiGroup.getName()))
+                .findFirst()
+                .orElse(null);
+
+        assertThat(taskApi).isNotNull();
+        assertThat(taskApi.getPatterns()).contains("/tasks", "/task");
+        assertThat(fileApi).isNotNull();
+        assertThat(fileApi.getPatterns()).contains("/files", "/file");
     }
 
     @Test

@@ -20,6 +20,7 @@ export type ApiErrorSource =
   | 'auth'
   | 'workflow'
   | 'runtime'
+  | 'task'
   | 'file'
   | 'notify'
   | 'ai'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BarChart3, BookOpen, Brain, FileText, FolderKanban, Workflow } from 'lucide-vue-next'
+import { Activity, BarChart3, BookOpen, Brain, Building2, FileText, FolderKanban, Workflow } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
@@ -9,6 +9,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 
 const navItems = [
   { key: 'projects', to: '/projects', icon: FolderKanban },
+  { key: 'workspaces', to: '/workspaces', icon: Building2 },
   { key: 'workflows', to: '', icon: Workflow },
   { key: 'runs', to: '/runs', icon: Activity },
   { key: 'knowledge', to: '/knowledge', icon: BookOpen },

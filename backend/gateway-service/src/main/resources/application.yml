@@ -106,7 +106,7 @@ spring:
         - id: task-service
           uri: lb://task-service
           predicates:
-            - Path=/tasks/**
+            - Path=/tasks/**,/task/**
         - id: ai-provider-management
           uri: lb://ai-service
           order: -50
@@ -119,7 +119,7 @@ spring:
         - id: file-service
           uri: lb://file-service
           predicates:
-            - Path=/files/**
+            - Path=/files/**,/file/**
         - id: notify-service
           uri: lb://notify-service
           predicates:
@@ -172,6 +172,7 @@ aetherflow:
         - name: task-api
           patterns:
             - /tasks
+            - /task
           match-strategy: prefix
         - name: ai-api
           patterns:
@@ -181,6 +182,7 @@ aetherflow:
         - name: file-api
           patterns:
             - /files
+            - /file
           match-strategy: prefix
         - name: notify-api
           patterns:
