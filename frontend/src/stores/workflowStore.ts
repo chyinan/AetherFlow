@@ -120,7 +120,7 @@ function variableNames(variables: WorkflowNodeCatalogItem['inputVariables'] | Wo
     .filter((name) => typeof name === 'string' && name.trim())
 }
 
-function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemplate | null {
+export function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemplate | null {
   const backendType = backendTypeOf(item)
   const kind = NODE_KIND_BY_BACKEND_TYPE[backendType]
   if (!kind) {
@@ -145,10 +145,9 @@ function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemplate | 
     catalog: fallback?.catalog ?? 'node',
     group,
     provider: fallback?.provider,
-    config: {
-      ...(fallback?.config ?? {}),
-      ...(item.exampleConfig ?? {}),
-    },
+    // Catalog examples are documentation/placeholder values, not executable defaults.
+    // Keep only safe local defaults so a new node cannot target another user's file or dataset.
+    config: structuredClone(fallback?.config ?? {}),
     inputs: variableNames(item.inputVariables).length > 0 ? variableNames(item.inputVariables) : fallback?.inputs ?? [],
     outputs: variableNames(item.outputVariables).length > 0 ? variableNames(item.outputVariables) : fallback?.outputs ?? [],
   }

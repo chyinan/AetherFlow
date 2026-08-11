@@ -63,6 +63,9 @@ class WorkflowNodeCatalogControllerTest {
                 .contains("fileUrl", "fileObjectKey", "fileSize");
         assertThat(upload.exampleConfig()).containsEntry("fileIdVariable", "fileId");
 
+        WorkflowNodeCatalogItem start = item(result.getData(), "START");
+        assertThat(start.exampleConfig()).doesNotContainKey("variables");
+
         WorkflowNodeCatalogItem ocr = item(result.getData(), "OCR");
         assertThat(ocr.configSchema())
                 .extracting(WorkflowNodeConfigSchema::name)
@@ -92,6 +95,9 @@ class WorkflowNodeCatalogControllerTest {
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
         assertThat(embedding.exampleConfig()).containsEntry("vectorStoreProvider", "memory");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
+
+        WorkflowNodeCatalogItem knowledgeRetrieval = item(result.getData(), "KNOWLEDGE_RETRIEVAL");
+        assertThat(knowledgeRetrieval.exampleConfig()).doesNotContainEntry("datasetId", "42");
 
         WorkflowNodeCatalogItem imageGeneration = item(result.getData(), "IMAGE_GENERATION");
         assertThat(imageGeneration.configSchema())
@@ -176,6 +182,21 @@ class WorkflowNodeCatalogControllerTest {
         assertThat(condition.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("matched", "branchKey");
+
+        WorkflowNodeCatalogItem agent = item(result.getData(), "AGENT");
+        assertThat(agent.outputVariables())
+                .extracting(WorkflowNodeVariableSchema::name)
+                .contains("plan", "actionLog");
+
+        WorkflowNodeCatalogItem iteration = item(result.getData(), "ITERATION");
+        assertThat(iteration.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .doesNotContain("itemVariable", "bodyNodes");
+
+        WorkflowNodeCatalogItem loop = item(result.getData(), "LOOP");
+        assertThat(loop.configSchema())
+                .extracting(WorkflowNodeConfigSchema::name)
+                .doesNotContain("bodyNodes");
     }
 
     private static WorkflowNodeCatalogItem item(List<WorkflowNodeCatalogItem> items, String type) {

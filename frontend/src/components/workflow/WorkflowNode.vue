@@ -84,22 +84,31 @@ const icon = computed(() => iconMap[props.data.kind])
 const isActive = computed(() => props.selected || props.data.status === 'running')
 const displayLabel = computed(() => t(`workflow.catalog.items.${props.data.kind}.label`))
 const displayDescription = computed(() => t(`workflow.catalog.items.${props.data.kind}.description`))
+
+function configText(key: string, fallback: string) {
+  const value = props.data.config[key]
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
 const nodeRows = computed(() => {
   switch (props.data.kind) {
     case 'question-classifier':
-      return [t('workflow.nodeCard.class', { index: 1 }), t('workflow.nodeCard.class', { index: 2 })]
+      return [
+        configText('class1', t('workflow.nodeCard.class', { index: 1 })),
+        configText('class2', t('workflow.nodeCard.class', { index: 2 })),
+      ]
     case 'condition':
       return [
         t('workflow.nodeCard.conditionMatched', { branch: String(props.data.config.trueBranch ?? 'true') }),
         t('workflow.nodeCard.conditionUnmatched', { branch: String(props.data.config.falseBranch ?? 'false') }),
       ]
-    case 'human':
-      return ['ACTION_1', 'TIMEOUT']
-    case 'iteration':
-    case 'loop':
-      return [t('workflow.nodeCard.parallelMode')]
     case 'agent':
-      return [t('workflow.nodeCard.agentNotSet')]
+      {
+        const strategy = configText('strategy', '')
+        return [strategy
+          ? t('workflow.nodeCard.agentStrategy', { strategy })
+          : t('workflow.nodeCard.agentNotSet')]
+      }
     default:
       return []
   }
@@ -157,6 +166,7 @@ const nodeRows = computed(() => {
         type="button"
         class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
         :title="t('workflow.addNextNode')"
+        :aria-label="t('workflow.addNextNode')"
         @click.stop="emit('addAfter', id, $event)"
       >
         <Plus class="h-3.5 w-3.5" />
@@ -166,6 +176,7 @@ const nodeRows = computed(() => {
           type="button"
           class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
           :title="t('workflow.duplicateNode')"
+          :aria-label="t('workflow.duplicateNode')"
           @click.stop="emit('duplicateNode', id)"
         >
           <Copy class="h-3.5 w-3.5" />
@@ -174,6 +185,7 @@ const nodeRows = computed(() => {
           type="button"
           class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
           :title="t('workflow.deleteNode')"
+          :aria-label="t('workflow.deleteNode')"
           @click.stop="emit('deleteNode', id)"
         >
           <Trash2 class="h-3.5 w-3.5" />

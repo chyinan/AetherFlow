@@ -6,6 +6,7 @@ import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
@@ -17,6 +18,15 @@ public class EndNodeExecutor extends BaseNodeExecutor {
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
-        return buildResult(asMap(config.get("output")), asMap(config.get("variables")));
+        Map<String, Object> configuredOutput = asMap(config.get("output"));
+        Map<String, Object> resolvedOutput = new LinkedHashMap<>();
+        configuredOutput.forEach((key, value) -> {
+            if (value instanceof String variableName && context.variables().containsKey(variableName)) {
+                resolvedOutput.put(key, context.variables().get(variableName));
+            } else {
+                resolvedOutput.put(key, value);
+            }
+        });
+        return buildResult(resolvedOutput, asMap(config.get("variables")));
     }
 }

@@ -109,6 +109,7 @@ interface BackendWorkflowNode {
   nodeId?: string
   nodeType?: string
   displayName?: string
+  position?: { x?: number; y?: number }
   config?: Record<string, unknown>
 }
 
@@ -278,10 +279,51 @@ function isFrontendWorkflowEdge(value: unknown): value is WorkflowGraphEdge {
     && typeof value.target === 'string'
 }
 
-function toFrontendNodeConfig(config: Record<string, unknown> = {}) {
-  return Object.fromEntries(
+function toFrontendNodeConfig(config: Record<string, unknown> = {}, kind?: WorkflowNodeKind) {
+  const frontendConfig = Object.fromEntries(
     Object.entries(config).filter(([key]) => !GRAPH_CONFIG_KEYS.has(key)),
   ) as WorkflowGraphNode['data']['config']
+
+  if (kind === 'output' && !('outputName' in frontendConfig) && !('outputValue' in frontendConfig) && isRecord(config.output)) {
+    const firstOutput = Object.entries(config.output)[0]
+    if (firstOutput) {
+      frontendConfig.outputName = firstOutput[0]
+      frontendConfig.outputValue = firstOutput[1]
+    }
+  }
+
+  if (kind === 'knowledge-retrieval') {
+    if (!('datasetId' in frontendConfig) && 'dataset' in config) {
+      frontendConfig.datasetId = config.dataset
+    }
+    if (!('queryVariable' in frontendConfig) && 'query' in config) {
+      frontendConfig.queryVariable = config.query
+    }
+    delete frontendConfig.dataset
+    delete frontendConfig.query
+  }
+
+  if (kind === 'question-classifier' && Array.isArray(frontendConfig.routes)) {
+    const routes = frontendConfig.routes.filter(
+      (route): route is string => typeof route === 'string' && route.trim() !== '',
+    )
+    if (!('class1' in frontendConfig) && routes[0]) {
+      frontendConfig.class1 = routes[0]
+    }
+    if (!('class2' in frontendConfig) && routes[1]) {
+      frontendConfig.class2 = routes[1]
+    }
+  }
+
+  if (kind === 'start' && !('fileId' in frontendConfig) && isRecord(frontendConfig.variables)) {
+    const fileId = frontendConfig.variables.fileId
+    if ((typeof fileId === 'number' && Number.isFinite(fileId))
+      || (typeof fileId === 'string' && fileId.trim() !== '')) {
+      frontendConfig.fileId = fileId
+    }
+  }
+
+  return frontendConfig
 }
 
 function backendTargets(config: Record<string, unknown> = {}) {
@@ -316,6 +358,21 @@ function backendConnections(config: Record<string, unknown> = {}): Array<Backend
   return [...branchConnections, ...sequentialConnections]
 }
 
+function persistedNodePosition(value: unknown, index: number) {
+  if (isRecord(value)) {
+    const x = Number(value.x)
+    const y = Number(value.y)
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      return { x, y }
+    }
+  }
+
+  return {
+    x: 80 + index * 310,
+    y: index % 2 === 0 ? 170 : 110,
+  }
+}
+
 export function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
   const nodeIds = new Set(nodes.map((node) => node.nodeId).filter(Boolean))
   const graphNodes = nodes.map<WorkflowGraphNode>((node, index) => {
@@ -333,15 +390,12 @@ export function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
     return {
       id: stringOr(node.nodeId, `node-${index + 1}`),
       type: 'workflow',
-      position: {
-        x: 80 + index * 310,
-        y: index % 2 === 0 ? 170 : 110,
-      },
+      position: persistedNodePosition(node.position, index),
       data: {
         label: stringOr(node.displayName, copy.label),
         description: copy.description,
         kind,
-        config: toFrontendNodeConfig(node.config),
+        config: toFrontendNodeConfig(node.config, kind),
         inputs: copy.inputs,
         outputs: copy.outputs,
         status: 'idle',

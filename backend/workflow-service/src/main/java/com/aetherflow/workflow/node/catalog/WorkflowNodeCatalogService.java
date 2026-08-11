@@ -8,6 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+// pattern: Functional Core
 @Service
 public class WorkflowNodeCatalogService {
     private static final List<String> IMAGE_SAMPLERS = List.of(
@@ -79,7 +80,7 @@ public class WorkflowNodeCatalogService {
                         variable("output", "OBJECT", "START output payload.", Map.of("started", true)),
                         variable("variables", "OBJECT", "Variables written into workflow context.", Map.of("fileId", 1001))
                 ),
-                mapOf("variables", Map.of("fileId", 1001))
+                Map.of()
         );
     }
 
@@ -176,16 +177,21 @@ public class WorkflowNodeCatalogService {
                 List.of(
                         field("fileUrl", "STRING", false, "Fixed file URL. Prefer fileUrlVariable for workflow binding.", "http://minio/aetherflow/audio.mp3"),
                         field("fileUrlVariable", "STRING", false, "Workflow variable name that contains the file URL.", "fileUrl"),
+                        field("fileId", "NUMBER", false, "Fallback file id when no file URL is available.", 1001),
+                        field("fileIdVariable", "STRING", false, "Workflow variable name used to resolve the fallback file id.", "fileId"),
                         field("language", "STRING", false, "ASR language hint. Use auto when unknown.", "auto"),
                         field("prompt", "STRING", false, "Optional ASR prompt.", "Return punctuation")
                 ),
-                List.of(variable("fileUrl", "STRING", "File URL produced by UPLOAD.", "http://minio/aetherflow/audio.mp3")),
+                List.of(
+                        variable("fileUrl", "STRING", "File URL produced by UPLOAD or file metadata lookup.", "http://minio/aetherflow/audio.mp3"),
+                        variable("fileId", "NUMBER", "Uploaded file id from workflow input.", 1001)
+                ),
                 List.of(
                         variable("transcription", "STRING", "Transcribed text.", "hello world"),
                         variable("srtObjectKey", "STRING", "Generated subtitle object key.", "subtitles/audio.srt"),
                         variable("durationSeconds", "NUMBER", "Audio or video duration.", 62.5)
                 ),
-                mapOf("fileUrlVariable", "fileUrl", "language", "auto", "prompt", "")
+                mapOf("fileUrlVariable", "fileUrl", "fileIdVariable", "fileId", "language", "auto", "prompt", "")
         );
     }
 
@@ -330,7 +336,7 @@ public class WorkflowNodeCatalogService {
                         variable("retrievalCount", "NUMBER", "Number of retrieved chunks.", 3),
                         variable("retrievalDatasetId", "STRING", "Dataset used for retrieval.", "42")
                 ),
-                mapOf("datasetId", "42", "queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "disabled")
+                mapOf("queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "disabled")
         );
     }
 
@@ -585,7 +591,10 @@ public class WorkflowNodeCatalogService {
                         field("model", "STRING", false, "Optional model override.", "llama3")
                 ),
                 List.of(variable("question", "STRING", "Task input.", "What should happen next?")),
-                List.of(variable("plan", "OBJECT", "Generated plan or plan JSON.", Map.of("steps", List.of()))),
+                List.of(
+                        variable("plan", "OBJECT", "Generated plan or plan JSON.", Map.of("steps", List.of())),
+                        variable("actionLog", "STRING", "Generated action log.", "")
+                ),
                 mapOf("taskVariable", "question", "strategy", "plan")
         );
     }
@@ -647,17 +656,15 @@ public class WorkflowNodeCatalogService {
                 "ITERATION",
                 "Iteration",
                 "Control",
-                "Runs an ordered bounded body for each item and collects the body variables as results.",
+                "Publishes a bounded list slice for downstream processing without executing nested nodes.",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow list variable.", "items"),
-                        field("itemVariable", "STRING", false, "Variable containing the current item inside the body.", "item"),
                         field("outputVariable", "STRING", false, "Variable written with selected items.", "iterationItems"),
-                        field("maxIterations", "NUMBER", false, "Maximum body executions. The runtime hard-caps this value.", 100),
-                        field("bodyNodes", "ARRAY", false, "Ordered nested node definitions executed for each item.", List.of())
+                        field("maxIterations", "NUMBER", false, "Maximum items published. The runtime hard-caps this value.", 100)
                 ),
                 List.of(variable("items", "ARRAY", "Items to iterate.", List.of("a", "b"))),
                 List.of(variable("iterationItems", "ARRAY", "Selected items.", List.of("a", "b"))),
-                mapOf("inputVariable", "items", "itemVariable", "item", "outputVariable", "iterationItems", "maxIterations", 100, "bodyNodes", List.of())
+                mapOf("inputVariable", "items", "outputVariable", "iterationItems", "maxIterations", 100)
         );
     }
 
@@ -666,17 +673,16 @@ public class WorkflowNodeCatalogService {
                 "LOOP",
                 "Loop",
                 "Control",
-                "Runs an ordered bounded body until the configured stop condition matches the loop state.",
+                "Publishes bounded loop-state metadata without introducing cyclic scheduling or nested execution.",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow state variable.", "state"),
                         field("outputVariable", "STRING", false, "Variable written with loop state.", "loopState"),
                         field("stopWhen", "STRING", false, "Stop marker matched against the state text.", "done"),
-                        field("maxIterations", "NUMBER", false, "Maximum body executions. The runtime hard-caps this value.", 10),
-                        field("bodyNodes", "ARRAY", false, "Ordered nested node definitions executed on each loop.", List.of())
+                        field("maxIterations", "NUMBER", false, "Maximum loop-state iterations reported. The runtime hard-caps this value.", 10)
                 ),
                 List.of(variable("state", "OBJECT", "Loop state.", Map.of("done", false))),
                 List.of(variable("loopState", "OBJECT", "Published loop state.", Map.of("done", false))),
-                mapOf("inputVariable", "state", "outputVariable", "loopState", "stopWhen", "done", "maxIterations", 10, "bodyNodes", List.of())
+                mapOf("inputVariable", "state", "outputVariable", "loopState", "stopWhen", "done", "maxIterations", 10)
         );
     }
 

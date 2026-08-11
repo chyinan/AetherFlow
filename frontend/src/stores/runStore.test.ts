@@ -9,6 +9,7 @@ vi.mock('@/services/realtime/realtimeClient', () => ({
 }))
 
 import { useRunStore } from './runStore'
+import { useWorkflowStore } from './workflowStore'
 
 describe('真实运行初始化', () => {
   beforeEach(() => {
@@ -127,5 +128,39 @@ describe('真实运行初始化', () => {
       runtimeWorkflowId: '102',
       status: 'running',
     })
+  })
+
+  it('不会把其他工作流的运行节点状态写入当前工作流画布', () => {
+    const runStore = useRunStore()
+    const workflowStore = useWorkflowStore()
+    workflowStore.workflowId = 'workflow-a'
+    workflowStore.nodes = [{
+      id: 'shared-node-id',
+      type: 'workflow',
+      position: { x: 0, y: 0 },
+      data: {
+        label: '当前工作流节点',
+        description: '',
+        kind: 'start',
+        config: {},
+        inputs: [],
+        outputs: [],
+        status: 'idle',
+      },
+    }]
+
+    runStore.createRunFromWorkflow({
+      runId: 'run-103',
+      workflowId: 'workflow-b',
+      workflowName: '另一个工作流',
+      nodes: workflowStore.nodes,
+    })
+    runStore.patchNodeState({
+      nodeId: 'shared-node-id',
+      label: '另一个工作流节点',
+      status: 'success',
+    })
+
+    expect(workflowStore.nodes[0]?.data.status).toBe('idle')
   })
 })

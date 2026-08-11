@@ -22,7 +22,7 @@ const emit = defineEmits<{
         <span class="text-sm font-semibold">{{ t('workflow.runConsole') }}</span>
         <StatusBadge v-if="runStore.currentRun" :status="runStore.currentRun.status" />
       </div>
-      <button type="button" class="grid h-8 w-8 place-items-center rounded text-slate-300 hover:bg-sidebar-soft" :title="t('common.close')" @click="emit('close')">
+      <button type="button" class="grid h-8 w-8 place-items-center rounded text-slate-300 hover:bg-sidebar-soft" :title="t('common.close')" :aria-label="t('common.close')" @click="emit('close')">
         <PanelRightClose class="h-4 w-4" />
       </button>
     </div>

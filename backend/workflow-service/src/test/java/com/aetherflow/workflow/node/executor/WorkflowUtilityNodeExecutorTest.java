@@ -1,6 +1,9 @@
 package com.aetherflow.workflow.node.executor;
 
+import com.aetherflow.common.core.Result;
+import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.workflow.client.NotifyInternalClient;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
@@ -19,10 +22,12 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 class WorkflowUtilityNodeExecutorTest {
 
@@ -125,9 +130,15 @@ class WorkflowUtilityNodeExecutorTest {
 
     @Test
     void humanNodePausesForExternalApproval() {
-        HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(new WorkflowNodeMetrics(), new WorkflowNodeProperties());
+        NotifyInternalClient notifyClient = mock(NotifyInternalClient.class);
+        when(notifyClient.send(any(NotifyMessageDTO.class))).thenReturn(Result.success());
+        HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(
+                new WorkflowNodeMetrics(),
+                new WorkflowNodeProperties(),
+                notifyClient
+        );
 
-        assertThatThrownBy(() -> executor.execute(context("human", Map.of("reviewer", "ops"), Map.of())))
+        assertThatThrownBy(() -> executor.execute(context("human", Map.of("reviewer", "ops"), Map.of("userId", 7L))))
                 .isInstanceOf(NodeWaitingException.class)
                 .satisfies(exception -> assertThat(((NodeWaitingException) exception).output())
                         .containsEntry("reviewer", "ops")
@@ -136,7 +147,11 @@ class WorkflowUtilityNodeExecutorTest {
 
     @Test
     void humanNodeCanAutoApproveWhenConfigured() throws Exception {
-        HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(new WorkflowNodeMetrics(), new WorkflowNodeProperties());
+        HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(
+                new WorkflowNodeMetrics(),
+                new WorkflowNodeProperties(),
+                mock(NotifyInternalClient.class)
+        );
 
         NodeResult result = executor.execute(context("human", Map.of(
                 "autoApprove", true,
@@ -145,6 +160,35 @@ class WorkflowUtilityNodeExecutorTest {
 
         assertThat(result.variables()).containsEntry("approved", true);
         assertThat(result.output()).containsEntry("reviewer", "ops");
+    }
+
+    @Test
+    void humanNodeNotifiesConfiguredChannelsBeforeWaiting() {
+        NotifyInternalClient notifyClient = mock(NotifyInternalClient.class);
+        when(notifyClient.send(any(NotifyMessageDTO.class))).thenReturn(Result.success());
+        HumanInterventionNodeExecutor executor = new HumanInterventionNodeExecutor(
+                new WorkflowNodeMetrics(),
+                new WorkflowNodeProperties(),
+                notifyClient
+        );
+
+        assertThatThrownBy(() -> executor.execute(context("human", Map.of(
+                "reviewer", "ops",
+                "methods", "webapp,telegram"
+        ), Map.of("userId", 7L, "draft", "Draft answer"))))
+                .isInstanceOf(NodeWaitingException.class);
+
+        ArgumentCaptor<NotifyMessageDTO> messageCaptor = ArgumentCaptor.forClass(NotifyMessageDTO.class);
+        verify(notifyClient).send(messageCaptor.capture());
+        NotifyMessageDTO message = messageCaptor.getValue();
+        assertThat(message.getUserId()).isEqualTo(7L);
+        assertThat(message.getEventId()).isEqualTo("human:approval:workflow-1:human:task-1");
+        assertThat(message.getEventType()).isEqualTo("HUMAN_APPROVAL_REQUIRED");
+        assertThat(message.getPayload())
+                .containsEntry("methods", "webapp,telegram")
+                .containsEntry("reviewer", "ops")
+                .containsEntry("draft", "Draft answer")
+                .containsEntry("nodeId", "human");
     }
 
     @Test

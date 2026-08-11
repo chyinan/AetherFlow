@@ -114,13 +114,25 @@ function booleanValue(value: unknown, fallback = false) {
 }
 
 function numberValue(value: unknown, fallback: number) {
+  if (typeof value === 'string' && value.trim() === '') {
+    return fallback
+  }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function optionalNumber(value: unknown) {
+  if (typeof value === 'string' && value.trim() === '') {
+    return undefined
+  }
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function validCanvasPosition(value: WorkflowGraphNode['position']) {
+  return Number.isFinite(value.x) && Number.isFinite(value.y)
+    ? { x: value.x, y: value.y }
+    : undefined
 }
 
 function stringList(value: unknown) {
@@ -182,6 +194,9 @@ function normalizeStartConfig(config: Record<string, unknown>, nextNodes: string
   const variables = {
     ...toRecord(config.variables),
   }
+  if ('fileId' in config) {
+    delete variables.fileId
+  }
   const fileId = optionalNumber(config.fileId) ?? optionalString(config.fileId)
   if (fileId !== undefined) {
     variables.fileId = fileId
@@ -209,9 +224,12 @@ function normalizeOcrConfig(config: Record<string, unknown>, nextNodes: string[]
 }
 
 function normalizeWhisperConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const fileId = optionalNumber(config.fileId)
   return withNextNodes({
     ...(optionalString(config.fileUrl) ? { fileUrl: optionalString(config.fileUrl) } : {}),
     fileUrlVariable: stringValue(config.fileUrlVariable, 'fileUrl'),
+    ...(fileId === undefined ? {} : { fileId }),
+    fileIdVariable: stringValue(config.fileIdVariable, 'fileId'),
     language: stringValue(config.language, 'auto'),
     prompt: stringValue(config.prompt, ''),
   }, nextNodes)
@@ -228,11 +246,11 @@ function normalizeUrlFetchConfig(config: Record<string, unknown>, nextNodes: str
 
 function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const model = optionalModel(config.model)
+  const fixedContext = optionalString(config.context ?? config.contextText)
   return withNextNodes({
     ...(optionalString(config.prompt) ? { prompt: optionalString(config.prompt) } : {}),
     promptVariable: stringValue(config.promptVariable, 'question'),
-    ...(optionalString(config.contextText) ? { context: optionalString(config.contextText) } : {}),
-    ...(optionalString(config.context) ? { contextVariable: optionalString(config.context) } : {}),
+    ...(fixedContext ? { context: fixedContext } : {}),
     ...(optionalString(config.contextVariable) ? { contextVariable: optionalString(config.contextVariable) } : {}),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
     ...(model ? { model } : {}),
@@ -372,6 +390,7 @@ function normalizeExportConfig(
 function normalizeKnowledgeRetrievalConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
     datasetId: stringValue(config.datasetId ?? config.dataset, ''),
+    ...(optionalString(config.queryText) ? { queryText: optionalString(config.queryText) } : {}),
     queryVariable: stringValue(config.queryVariable ?? config.query, 'question'),
     topK: Math.min(10, Math.max(1, Math.floor(numberValue(config.topK, 3)))),
     outputVariable: stringValue(config.outputVariable, 'retrievalContext'),
@@ -383,13 +402,33 @@ function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]
   const output = toRecord(config.output)
   const outputName = stringValue(config.outputName, 'result')
   const outputValue = config.outputValue ?? config.value
+  const firstPersistedOutput = Object.entries(output)[0]
+  const editorFieldsPresent = config.outputName !== undefined
+    || config.outputValue !== undefined
+    || config.value !== undefined
+  const editorMatchesPersistedOutput = Boolean(firstPersistedOutput)
+    && firstPersistedOutput?.[0] === outputName
+    && sameConfigValue(outputValue, firstPersistedOutput?.[1])
+  const outputToPersist = Object.keys(output).length > 0
+    && (!editorFieldsPresent || editorMatchesPersistedOutput)
+    ? output
+    : { [outputName]: outputValue === undefined || outputValue === '' ? 'completed' : outputValue }
 
   return withNextNodes({
-    output: Object.keys(output).length > 0
-      ? output
-      : { [outputName]: outputValue === undefined || outputValue === '' ? 'completed' : outputValue },
+    output: outputToPersist,
     variables: toRecord(config.variables),
   }, nextNodes)
+}
+
+function sameConfigValue(left: unknown, right: unknown) {
+  if (Object.is(left, right)) {
+    return true
+  }
+  try {
+    return JSON.stringify(left) === JSON.stringify(right)
+  } catch {
+    return false
+  }
 }
 
 function normalizeConditionConfig(
@@ -437,15 +476,10 @@ function normalizeQuestionClassifierConfig(
   branchRouting?: BranchRoutingConfig,
 ) {
   const model = optionalModel(config.model)
-  const routes = stringList(config.routes)
-  const fallbackRoutes = [
-    stringValue(config.class1, 'CLASS 1'),
-    stringValue(config.class2, 'CLASS 2'),
-  ].filter(Boolean)
 
   return withNextNodes({
     inputVariable: stringValue(config.inputVariable ?? config.input, 'question'),
-    routes: routes.length > 0 ? routes : fallbackRoutes,
+    routes: classifierRoutes(config),
     threshold: numberValue(config.threshold, 0.5),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
     ...(model ? { model } : {}),
@@ -456,9 +490,6 @@ function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string
   return withNextNodes({
     reviewer: stringValue(config.reviewer, 'ops'),
     methods: stringValue(config.methods, 'webapp,telegram'),
-    timeoutValue: Math.max(0, Math.floor(numberValue(config.timeoutValue, 3))),
-    timeoutUnit: stringValue(config.timeoutUnit, 'days'),
-    notify: booleanValue(config.notify, true),
     autoApprove: booleanValue(config.autoApprove, false),
   }, nextNodes)
 }
@@ -631,7 +662,12 @@ function normalizedBranchLabel(value: unknown) {
 }
 
 function classifierRoutes(config: Record<string, unknown>) {
-  const routes = stringList(config.routes)
+  const existingRoutes = stringList(config.routes)
+  const editorRoutes = [optionalString(config.class1), optionalString(config.class2)]
+    .filter((route): route is string => Boolean(route))
+  const routes = editorRoutes.length > 0
+    ? [...editorRoutes, ...existingRoutes.slice(editorRoutes.length)]
+    : existingRoutes
   if (routes.length > 0) {
     return routes
   }
@@ -752,6 +788,7 @@ export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): Workfl
         nodeId: node.id,
         nodeType,
         displayName: node.data.label,
+        ...(validCanvasPosition(node.position) ? { position: validCanvasPosition(node.position) } : {}),
         config: normalizeNodeConfig(
           node,
           nodeType,

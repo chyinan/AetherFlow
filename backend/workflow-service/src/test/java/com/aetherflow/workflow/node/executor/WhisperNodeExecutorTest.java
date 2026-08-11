@@ -2,7 +2,9 @@ package com.aetherflow.workflow.node.executor;
 
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
+import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
@@ -15,6 +17,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -26,7 +30,7 @@ class WhisperNodeExecutorTest {
         AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
         properties.setDefaultWhisperLanguage("auto");
-        WhisperNodeExecutor executor = new WhisperNodeExecutor(new WorkflowNodeMetrics(), aiClient, properties);
+        WhisperNodeExecutor executor = new WhisperNodeExecutor(new WorkflowNodeMetrics(), aiClient, mock(FileMetadataClient.class), properties);
         when(aiClient.execute(argThat(request -> "WHISPER".equals(request.getNodeType()))))
                 .thenReturn(Result.success(new AiWorkflowNodeResponseDTO(
                         "WHISPER",
@@ -51,7 +55,7 @@ class WhisperNodeExecutorTest {
     void readsFileUrlFromConfiguredVariableName() throws Exception {
         AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
-        WhisperNodeExecutor executor = new WhisperNodeExecutor(new WorkflowNodeMetrics(), aiClient, properties);
+        WhisperNodeExecutor executor = new WhisperNodeExecutor(new WorkflowNodeMetrics(), aiClient, mock(FileMetadataClient.class), properties);
         when(aiClient.execute(argThat(request -> "WHISPER".equals(request.getNodeType()))))
                 .thenReturn(Result.success(new AiWorkflowNodeResponseDTO(
                         "WHISPER",
@@ -65,6 +69,38 @@ class WhisperNodeExecutorTest {
         assertThat(result.variables()).containsEntry("transcription", "hello world");
         verify(aiClient).execute(argThat(request ->
                 "http://minio/audio.mp3".equals(request.getPayload().get("fileUrl"))
+        ));
+    }
+
+    @Test
+    void resolvesFileUrlFromFileMetadataWhenWorkflowOnlyProvidesFileId() throws Exception {
+        AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
+        FileMetadataClient fileClient = mock(FileMetadataClient.class);
+        WorkflowNodeProperties properties = new WorkflowNodeProperties();
+        properties.setFileInternalToken("0123456789abcdef0123456789abcdef");
+        WhisperNodeExecutor executor = new WhisperNodeExecutor(new WorkflowNodeMetrics(), aiClient, fileClient, properties);
+        when(fileClient.getMetadata(any(String.class), eq(7L), eq(9L))).thenReturn(Result.success(new FileMetadataDTO(
+                9L,
+                "aetherflow",
+                "objects/audio.mp3",
+                "audio.mp3",
+                "audio/mpeg",
+                1024L,
+                "http://minio/aetherflow/objects/audio.mp3"
+        )));
+        when(aiClient.execute(argThat(request -> "WHISPER".equals(request.getNodeType()))))
+                .thenReturn(Result.success(new AiWorkflowNodeResponseDTO(
+                        "WHISPER",
+                        "SUCCEEDED",
+                        Map.of("text", "hello world")
+                )));
+
+        NodeResult result = executor.execute(context(Map.of(), Map.of("fileId", 9L, "userId", 7L)));
+
+        assertThat(result.variables()).containsEntry("transcription", "hello world");
+        verify(fileClient).getMetadata(any(String.class), eq(7L), eq(9L));
+        verify(aiClient).execute(argThat(request ->
+                "http://minio/aetherflow/objects/audio.mp3".equals(request.getPayload().get("fileUrl"))
         ));
     }
 

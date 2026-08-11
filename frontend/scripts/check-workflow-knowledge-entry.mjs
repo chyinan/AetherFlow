@@ -25,7 +25,7 @@ if (!/v-for="dataset in knowledgeDatasets"/.test(inspector)) {
   failures.push('Knowledge retrieval inspector must render selectable datasets')
 }
 
-if (!/handleTextInput\('dataset'/.test(inspector)) {
+if (!/handleTextInput\('datasetId'/.test(inspector)) {
   failures.push('Knowledge retrieval inspector must write selected dataset to node config')
 }
 

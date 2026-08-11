@@ -156,13 +156,43 @@ function flowDropPosition(event: DragEvent) {
   }
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parseNodeTemplate(raw: string): NodeTemplate | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    return null
+  }
+
+  if (!isRecord(parsed)
+    || typeof parsed.kind !== 'string'
+    || !implementedNodeKinds.has(parsed.kind as WorkflowNodeKind)
+    || typeof parsed.label !== 'string'
+    || typeof parsed.description !== 'string'
+    || !isRecord(parsed.config)
+    || !isStringArray(parsed.inputs)
+    || !isStringArray(parsed.outputs)) {
+    return null
+  }
+
+  return parsed as unknown as NodeTemplate
+}
+
 async function onCanvasDrop(event: DragEvent) {
   const raw = event.dataTransfer?.getData('application/aetherflow-node')
   if (!raw) {
     return
   }
-  const template = JSON.parse(raw) as NodeTemplate
-  if (!implementedNodeKinds.has(template.kind)) {
+  const template = parseNodeTemplate(raw)
+  if (!template) {
     return
   }
   const node = workflowStore.addNodeFromTemplate(template, flowDropPosition(event))
@@ -180,6 +210,10 @@ async function duplicateNode(nodeId: string) {
 }
 
 function deleteNode(nodeId: string) {
+  const node = workflowStore.nodes.find((item) => item.id === nodeId)
+  if (!node || !window.confirm(t('workflow.deleteNodeConfirm', { name: node.data.label }))) {
+    return
+  }
   const nextNode = workflowStore.nodes.find((node) => node.id !== nodeId)
   workflowStore.deleteNode(nodeId)
   if (nextNode) {

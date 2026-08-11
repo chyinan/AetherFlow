@@ -12,6 +12,7 @@ import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 import type { WorkflowGraphNode } from '@/types/workflow'
 import { formatDateTime, formatTime } from '@/utils/localeFormat'
+import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 import { useAuthStore } from './authStore'
 import { useFileStore } from './fileStore'
@@ -41,6 +42,10 @@ function refreshArtifactsForRun(runId: string) {
   }
   refreshedArtifactRuns.add(runId)
   void fileStore.refreshArtifactsFromBackend()
+}
+
+function runBelongsToWorkflow(run: WorkflowRun, workflowStore: ReturnType<typeof useWorkflowStore>) {
+  return workflowRunBelongsToWorkflow(run, workflowStore.workflowId, workflowStore.backendDefinitionId)
 }
 
 export const useRunStore = defineStore('run', {
@@ -135,6 +140,27 @@ export const useRunStore = defineStore('run', {
         this.logsLoading = false
       }
     },
+    async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
+      await this.loadRuns({ selectDefault: false })
+      const run = this.runs.find((item) =>
+        item.workflowId === workflowId
+        || (typeof definitionId === 'number' && item.definitionId === definitionId),
+      )
+      if (!run) {
+        this.clearCurrentRun()
+        return null
+      }
+      if (this.currentRun?.id !== run.id) {
+        await this.selectRun(run.id)
+      }
+      return this.currentRun
+    },
+    clearCurrentRun() {
+      this.stopRealtime()
+      this.currentRun = null
+      this.logs = []
+      this.logsLoading = false
+    },
     appendLog(entry: RunLogEntry) {
       this.logs = [...this.logs.slice(-80), entry]
       if (this.currentRun) {
@@ -171,7 +197,9 @@ export const useRunStore = defineStore('run', {
         Object.assign(runInList, this.currentRun)
       }
       const workflowStore = useWorkflowStore()
-      workflowStore.updateNodeStatus(patch.nodeId, patch.status, patch.durationMs)
+      if (runBelongsToWorkflow(this.currentRun, workflowStore)) {
+        workflowStore.updateNodeStatus(patch.nodeId, patch.status, patch.durationMs)
+      }
     },
     patchCurrentRun(patch: Partial<WorkflowRun>) {
       if (!this.currentRun) {
@@ -290,7 +318,10 @@ export const useRunStore = defineStore('run', {
       ]
       this.logsByRunId[run.id] = this.logs
       useFileStore().addArtifactsFromRun(run)
-      nodeStates.forEach((node) => useWorkflowStore().updateNodeStatus(node.nodeId, node.status, node.durationMs))
+      const workflowStore = useWorkflowStore()
+      if (runBelongsToWorkflow(run, workflowStore)) {
+        nodeStates.forEach((node) => workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs))
+      }
       this.subscribeCurrentRun()
       return run
     },
@@ -332,6 +363,11 @@ export const useRunStore = defineStore('run', {
         return
       }
       stopRealtime?.()
+      const subscribedRunId = this.currentRun.id
+      const subscribedRuntimeWorkflowId = runtimeWorkflowIdFromRun(this.currentRun)
+      const isCurrentSubscription = () =>
+        this.currentRun?.id === subscribedRunId
+        && runtimeWorkflowIdFromRun(this.currentRun) === subscribedRuntimeWorkflowId
       const uiStore = useUiStore()
       const authStore = useAuthStore()
       const userId = authStore.user?.userId ?? authStore.user?.id
@@ -340,11 +376,17 @@ export const useRunStore = defineStore('run', {
       }
       stopRealtime = realtimeClient.subscribeRun({
         runId: this.currentRun.id,
-        runtimeWorkflowId: runtimeWorkflowIdFromRun(this.currentRun),
+        runtimeWorkflowId: subscribedRuntimeWorkflowId,
       }, {
-        onLog: (entry) => this.appendLog(entry),
-        onNodePatch: (patch) => this.patchNodeState(patch),
-        onRunPatch: (patch) => this.patchCurrentRun(patch),
+        onLog: (entry) => {
+          if (isCurrentSubscription()) this.appendLog(entry)
+        },
+        onNodePatch: (patch) => {
+          if (isCurrentSubscription()) this.patchNodeState(patch)
+        },
+        onRunPatch: (patch) => {
+          if (isCurrentSubscription()) this.patchCurrentRun(patch)
+        },
         onConnectionChange: (state) => {
           this.runRealtimeState = state
         },

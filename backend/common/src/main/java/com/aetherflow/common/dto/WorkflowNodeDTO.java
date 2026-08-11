@@ -15,8 +15,12 @@ public class WorkflowNodeDTO {
     @Schema(description = "Node type. See GET /workflow/node/catalog for supported types.", example = "WHISPER")
     private String nodeType;
 
-    @Schema(description = "Human readable node label shown in the workflow canvas.", example = "Transcribe uploaded file")
+    @Schema(description = "Human readable node label shown on the workflow canvas.", example = "Transcribe uploaded file")
     private String displayName;
+
+    @Schema(description = "Optional persisted canvas position. It is ignored by runtime execution but returned when reopening the designer.",
+            example = "{\"x\":412.5,\"y\":-96}")
+    private Map<String, Object> position;
 
     @Schema(description = "Node-specific config object. See GET /workflow/node/catalog for config schema.",
             example = "{\"fileUrlVariable\":\"fileUrl\",\"language\":\"auto\"}")

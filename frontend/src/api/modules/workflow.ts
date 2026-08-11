@@ -5,6 +5,7 @@ export interface WorkflowDefinitionNodeDTO {
   nodeId: string
   nodeType: string
   displayName?: string
+  position?: { x: number; y: number }
   config?: Record<string, unknown>
 }
 

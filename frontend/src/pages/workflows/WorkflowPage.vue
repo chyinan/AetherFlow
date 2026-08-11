@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { FileJson, FolderKanban, LoaderCircle, Play, Plus, RotateCcw, Save, Upload, Workflow } from 'lucide-vue-next'
+import { FileJson, FolderKanban, LoaderCircle, PauseCircle, Play, Plus, RotateCcw, Save, Upload, Workflow } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -21,6 +21,7 @@ import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowNodeKind } from '@/types/workflow'
 import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
+import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 const workflowStore = useWorkflowStore()
 const runStore = useRunStore()
@@ -36,11 +37,24 @@ const startingRun = ref(false)
 const importingComfyUi = ref(false)
 const comfyUiImportError = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
-const currentWorkflowRunActive = computed(() =>
-  runStore.currentRun?.workflowId === workflowStore.workflowId
-  && ['queued', 'running'].includes(runStore.currentRun.status),
+const currentWorkflowRun = computed(() =>
+  runStore.currentRun && workflowRunBelongsToWorkflow(
+    runStore.currentRun,
+    workflowStore.workflowId,
+    workflowStore.backendDefinitionId,
+  )
+    ? runStore.currentRun
+    : null,
 )
+const currentWorkflowRunActive = computed(() => isActiveWorkflowRun(currentWorkflowRun.value))
+const currentWorkflowRunWaiting = computed(() => isWaitingWorkflowRun(currentWorkflowRun.value))
 const runButtonBusy = computed(() => startingRun.value || currentWorkflowRunActive.value)
+const runButtonLabel = computed(() => currentWorkflowRunWaiting.value
+  ? t('workflow.waitingForInput')
+  : runButtonBusy.value
+    ? t('status.running')
+    : t('workflow.run'),
+)
 const requiresFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 
 const hasWorkflowContext = computed(() => {
@@ -145,7 +159,12 @@ async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unkno
   } else {
     projectStore.selectProjectByWorkflow(workflowId)
   }
-  if (runStore.currentRun?.workflowId === workflowId) {
+  await runStore.selectRunForWorkflow(workflowStore.workflowId, workflowStore.backendDefinitionId)
+  if (runStore.currentRun && workflowRunBelongsToWorkflow(
+    runStore.currentRun,
+    workflowStore.workflowId,
+    workflowStore.backendDefinitionId,
+  )) {
     runStore.currentRun.nodeStates.forEach((node) => {
       workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs)
     })
@@ -202,12 +221,13 @@ onMounted(async () => {
   const projectReady = projectStore.loadProjects()
   const auxiliaryLoads = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
-    runStore.loadRuns(),
+    runStore.loadRuns({ selectDefault: false }),
     fileStore.loadFiles(),
   ])
   if (!hasWorkflowContext.value) {
     await Promise.allSettled([projectReady, auxiliaryLoads])
     workflowStore.resetToEmptyWorkflow()
+    runStore.clearCurrentRun()
     initializingWorkflow.value = false
     return
   }
@@ -509,10 +529,11 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
           <Save class="h-4 w-4" />
           {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveWorkflow') : t('workflow.saved') }}
         </button>
-        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
-          <LoaderCircle v-if="runButtonBusy" class="h-4 w-4 animate-spin" />
+        <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :title="runButtonBusy ? runButtonLabel : undefined" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
+          <LoaderCircle v-if="runButtonBusy && !currentWorkflowRunWaiting" class="h-4 w-4 animate-spin" />
+          <PauseCircle v-else-if="currentWorkflowRunWaiting" class="h-4 w-4" />
           <Play v-else class="h-4 w-4" />
-          {{ runButtonBusy ? t('status.running') : t('workflow.run') }}
+          {{ runButtonLabel }}
         </button>
       </div>
     </header>
