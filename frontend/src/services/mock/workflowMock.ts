@@ -179,7 +179,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'AI',
     catalog: 'node',
     group: 'recommended',
-    config: { datasetId: '', queryVariable: 'question', topK: 3, outputVariable: 'retrievalContext', metadataFilter: 'disabled' },
+    config: { datasetId: '', queryVariable: 'question', topK: 3, outputVariable: 'retrievalContext', metadataFilter: '' },
     inputs: ['question'],
     outputs: ['retrievalContext', 'retrievalResults', 'retrievalCount'],
   },

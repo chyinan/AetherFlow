@@ -126,12 +126,37 @@ class WorkflowServiceImplTest {
         assertThat(runtimeRequest.getValue().taskId()).isEqualTo("99");
         assertThat(runtimeRequest.getValue().variables()).containsEntry("file", "audio.mp3");
         assertThat(runtimeRequest.getValue().variables()).containsEntry("userId", 7L);
+        assertThat(runtimeRequest.getValue().variables()).containsEntry("username", "aether.operator");
         assertThat(runtimeRequest.getValue().variables()).containsKey(WorkflowNodeContextKeys.NODE_CONFIGS);
         ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
         verify(instanceMapper).updateById(instanceCaptor.capture());
         assertThat(instanceCaptor.getValue().getId()).isEqualTo(99L);
         assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("SUCCESS");
         assertThat(instanceCaptor.getValue().getCurrentNodeId()).isEqualTo("node-summary");
+    }
+
+    @Test
+    void startInstancePropagatesAuthenticatedUserToAsyncRuntimeTask() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        StartWorkflowRequest request = request();
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(102L);
+            return 1;
+        }).when(instanceMapper).insert(any(WorkflowInstance.class));
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenAnswer(invocation -> {
+            assertThat(AuthenticatedUserContext.requireUserId()).isEqualTo(7L);
+            return new WorkflowExecutionSnapshot(
+                    "102", "trace-generated", "102", RuntimeState.SUCCESS,
+                    "node-summary", Map.of(), Map.of(), List.of("node-input", "node-summary"));
+        });
+
+        asUser(7L, () -> workflowService.startInstance(10L, request));
+
+        verify(runtimeEngine).execute(any(WorkflowRuntimeRequest.class));
     }
 
     @Test

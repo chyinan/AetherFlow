@@ -132,6 +132,14 @@ describe('节点配置与后端执行语义一致', () => {
     expect(retrievalPanel).not.toContain("textConfig('dataset',")
   })
 
+  it('在编辑时校验知识检索元数据 JSON', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const retrievalPanel = source.slice(source.indexOf("selectedKind === 'knowledge-retrieval'"), source.indexOf("selectedKind === 'output'"))
+
+    expect(retrievalPanel).toContain('handleMetadataFilterInput')
+    expect(retrievalPanel).toContain('metadataFilterError')
+  })
+
   it('使用 OCR 执行器实际读取的 fileIdVariable 字段', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
     const extractorPanel = source.slice(source.indexOf("selectedKind === 'document-extractor'"), source.indexOf("selectedKind === 'variable-assigner'"))

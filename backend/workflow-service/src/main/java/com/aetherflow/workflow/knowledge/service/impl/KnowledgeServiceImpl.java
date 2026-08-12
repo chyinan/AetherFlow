@@ -32,6 +32,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,9 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -60,8 +64,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private static final int DEFAULT_OVERLAP = 50;
     private static final int DEFAULT_PAGE = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int DEFAULT_CHUNK_PAGE_SIZE = 100;
     private static final int DEFAULT_TOP_K = 3;
-    private static final Pattern RETRIEVAL_TOKEN_PATTERN = Pattern.compile("\\p{IsHan}|[\\p{L}\\p{N}]+");
+    private static final int MAX_TOP_K = 50;
+    private static final int MAX_RETRIEVAL_CANDIDATES = 2_000;
+    private static final double MIN_SEMANTIC_SIMILARITY = 0.35D;
+    private static final Pattern RETRIEVAL_TOKEN_PATTERN = Pattern.compile("[\\p{IsHan}]+|[\\p{L}\\p{N}]+");
 
     private final KnowledgeDatasetMapper datasetMapper;
     private final KnowledgeDocumentMapper documentMapper;
@@ -126,6 +134,19 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDatasetSummary createDataset(DatasetCreateRequest request) {
+        if (request == null || !hasText(request.getName())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge dataset name is required");
+        }
+        String idempotencyKey = normalizedIdempotencyKey(request.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            KnowledgeDatasetEntity existing = datasetMapper.selectOne(new LambdaQueryWrapper<KnowledgeDatasetEntity>()
+                    .eq(KnowledgeDatasetEntity::getOwnerUserId, currentUserId())
+                    .eq(KnowledgeDatasetEntity::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (existing != null) {
+                return toDatasetSummary(existing);
+            }
+        }
         LocalDateTime now = LocalDateTime.now();
         KnowledgeDatasetEntity entity = new KnowledgeDatasetEntity();
         entity.setName(request.getName());
@@ -139,11 +160,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         entity.setEmbeddingModel(defaultText(request.getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL));
         entity.setRetrievalMode(defaultText(request.getRetrievalMode(), DEFAULT_RETRIEVAL_MODE));
         entity.setOwnerUserId(currentUserId());
+        entity.setIdempotencyKey(idempotencyKey);
         entity.setOwner(defaultText(request.getOwner(), currentUsername()));
         entity.setTagsJson(writeJson(request.getTags() == null ? List.of() : request.getTags()));
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
-        datasetMapper.insert(entity);
+        try {
+            datasetMapper.insert(entity);
+        } catch (DuplicateKeyException exception) {
+            KnowledgeDatasetEntity existing = findDatasetByIdempotencyKey(idempotencyKey);
+            if (existing != null) {
+                return toDatasetSummary(existing);
+            }
+            throw exception;
+        }
         return toDatasetSummary(entity);
     }
 
@@ -183,9 +213,25 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public KnowledgeDocumentSummary createDocument(Long datasetId, DocumentCreateRequest request) {
+        if (request == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document request is required");
+        }
         KnowledgeDatasetEntity dataset = requireDataset(datasetId);
+        String idempotencyKey = normalizedIdempotencyKey(request.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            KnowledgeDocumentEntity existing = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                    .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
+                    .eq(KnowledgeDocumentEntity::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (existing != null) {
+                return toDocumentSummary(existing);
+            }
+        }
         LocalDateTime now = LocalDateTime.now();
         String content = preprocessContent(request);
+        if (!hasText(content)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document content is required");
+        }
         List<TextChunk> chunks = textSplitter.split(content, defaultNumber(request.getChunkSize(), DEFAULT_CHUNK_SIZE),
                 defaultNumber(request.getOverlap(), DEFAULT_OVERLAP), request.getDelimiter());
         String embeddingModel = defaultText(dataset.getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL);
@@ -195,44 +241,42 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
         KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
         document.setDatasetId(datasetId);
+        document.setIdempotencyKey(idempotencyKey);
         document.setName(defaultText(request.getSourceName(), "document-" + datasetId));
         document.setSourceType(defaultText(request.getSourceType(), DEFAULT_SOURCE_TYPE));
         document.setFileId(request.getFileId());
         document.setMode(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
         document.setCharCount(content.length());
-        document.setChunkCount(chunks.size());
+        boolean parentChildMode = "parentChild".equalsIgnoreCase(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
+        int persistedChunkCount = parentChildMode ? chunks.size() + (chunks.size() + 1) / 2 : chunks.size();
+        document.setChunkCount(persistedChunkCount);
         document.setRecallCount(0);
         document.setStatus(STATUS_READY);
         document.setUploadedAt(now);
         document.setCreatedAt(now);
         document.setUpdatedAt(now);
-        documentMapper.insert(document);
-
-        for (TextChunk textChunk : chunks) {
-            KnowledgeChunkEntity chunk = new KnowledgeChunkEntity();
-            chunk.setDatasetId(datasetId);
-            chunk.setDocumentId(document.getId());
-            chunk.setSource(document.getName());
-            chunk.setPreview(textChunk.text());
-            chunk.setTokens(estimateTokens(textChunk.text()));
-            chunk.setScore(chunkQualityScore(textChunk.text()));
-            if (!embeddings.isEmpty()) {
-                chunk.setVectorJson(writeJson(embeddings.get(textChunk.chunkIndex()).vector()));
+        try {
+            documentMapper.insert(document);
+        } catch (DuplicateKeyException exception) {
+            KnowledgeDocumentEntity existing = findDocumentByIdempotencyKey(datasetId, idempotencyKey);
+            if (existing != null) {
+                return toDocumentSummary(existing);
             }
-            chunk.setStatus(STATUS_READY);
-            chunk.setChunkIndex(textChunk.chunkIndex());
-            chunk.setCreatedAt(now);
-            chunk.setUpdatedAt(now);
-            chunkMapper.insert(chunk);
+            throw exception;
+        }
+
+        if (parentChildMode) {
+            insertParentChildChunks(datasetId, document, chunks, embeddings, request, now);
+        } else {
+            for (TextChunk textChunk : chunks) {
+                insertChunk(datasetId, document, textChunk, embeddings, null, "general", chunkMetadata(request), now);
+            }
         }
 
         dataset.setDocumentCount(nvl(dataset.getDocumentCount()) + 1);
         dataset.setProcessingDocumentCount(0);
-        dataset.setChunkCount(nvl(dataset.getChunkCount()) + chunks.size());
+        dataset.setChunkCount(nvl(dataset.getChunkCount()) + persistedChunkCount);
         dataset.setFailedChunkCount(nvl(dataset.getFailedChunkCount()));
-        if (dataset.getHitRate() == null || dataset.getHitRate() == 0) {
-            dataset.setHitRate(84);
-        }
         dataset.setStatus(STATUS_READY);
         dataset.setUpdatedAt(now);
         datasetMapper.updateById(dataset);
@@ -254,36 +298,65 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
+    public PageResult<KnowledgeChunkSummary> listDatasetChunks(Long datasetId, int page, int pageSize) {
+        requireDataset(datasetId);
+        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
+                .orderByAsc(KnowledgeChunkEntity::getDocumentId)
+                .orderByAsc(KnowledgeChunkEntity::getChunkIndex)
+                .orderByAsc(KnowledgeChunkEntity::getId);
+        IPage<KnowledgeChunkEntity> result = chunkMapper.selectPage(
+                new Page<>(safePage(page), safeChunkPageSize(pageSize)), wrapper);
+        return new PageResult<>(
+                result.getCurrent(),
+                result.getSize(),
+                result.getTotal(),
+                result.getRecords().stream().map(this::toChunkSummary).toList()
+        );
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public RetrievalTestResponse runRetrievalTest(Long datasetId, RetrievalTestRequest request) {
         KnowledgeDatasetEntity dataset = requireDataset(datasetId);
+        if (!STATUS_READY.equalsIgnoreCase(defaultText(dataset.getStatus(), ""))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge dataset is not ready for retrieval");
+        }
         String query = request == null ? null : request.getQuery();
-        int topK = defaultNumber(request == null ? null : request.getTopK(), DEFAULT_TOP_K);
-        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
-                .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
-                .orderByDesc(KnowledgeChunkEntity::getScore)
-                .orderByAsc(KnowledgeChunkEntity::getChunkIndex);
-        List<KnowledgeChunkEntity> storedChunks = chunkMapper.selectList(wrapper);
-        boolean hasQuery = hasText(query);
+        Integer requestedTopK = request == null ? null : request.getTopK();
+        int topK = defaultNumber(requestedTopK, DEFAULT_TOP_K);
+        if (!hasText(query)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval query is required");
+        }
+        if ((requestedTopK != null && requestedTopK <= 0) || topK > MAX_TOP_K) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval topK must be between 1 and 50");
+        }
+        query = query.trim();
+        Map<String, Object> metadataFilter = parseMetadataFilter(request == null ? null : request.getMetadataFilter());
         Set<String> queryTokens = tokenize(query);
         List<Double> queryVector = semanticModel(dataset.getEmbeddingModel()) && hasText(query)
                 ? embedQuery(query, dataset.getEmbeddingModel())
                 : List.of();
         boolean semanticSearch = !queryVector.isEmpty();
+        List<KnowledgeChunkEntity> storedChunks = loadRetrievalCandidates(datasetId, query, queryTokens, semanticSearch);
         boolean hasCompatibleSemanticCandidate = semanticSearch && storedChunks.stream()
                 .anyMatch(chunk -> hasCompatibleVector(chunk, queryVector));
-        List<KnowledgeChunkEntity> matchedEntities = storedChunks.stream()
-                .filter(chunk -> !hasQuery || matchesRetrievalQuery(
+        List<KnowledgeChunkEntity> rankedEntities = storedChunks.stream()
+                .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
+                .filter(chunk -> metadataMatches(chunk, metadataFilter))
+                .filter(chunk -> matchesRetrievalQuery(
                         chunk, queryTokens, queryVector, semanticSearch, hasCompatibleSemanticCandidate))
                 .sorted(Comparator.comparing((KnowledgeChunkEntity chunk) -> retrievalScore(chunk, queryTokens, queryVector), Comparator.reverseOrder()))
-                .limit(Math.max(1, topK))
                 .toList();
-        matchedEntities.forEach(chunk -> incrementRecall(chunk.getDocumentId()));
+        List<KnowledgeChunkEntity> matchedEntities = uniqueRetrievalContexts(rankedEntities, topK);
+        matchedEntities.stream().map(KnowledgeChunkEntity::getDocumentId).distinct()
+                .forEach(documentId -> incrementRecall(datasetId, documentId));
         dataset.setHitRate(averageScore(matchedEntities, queryTokens, queryVector));
         dataset.setUpdatedAt(LocalDateTime.now());
         datasetMapper.updateById(dataset);
+        Map<Long, KnowledgeChunkEntity> parentChunks = loadParentChunks(datasetId, matchedEntities);
         return new RetrievalTestResponse(String.valueOf(datasetId), query,
-                matchedEntities.stream().map(chunk -> toRetrievalChunkSummary(chunk, queryTokens, queryVector)).toList());
+                matchedEntities.stream().map(chunk -> toRetrievalChunkSummary(chunk, queryTokens, queryVector, parentChunks)).toList());
     }
 
     private KnowledgeDatasetEntity requireDataset(Long datasetId) {
@@ -348,13 +421,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 entity.getPreview(),
                 nvl(entity.getTokens()),
                 defaultScore(entity.getScore()),
-                entity.getStatus()
+                entity.getStatus(),
+                defaultText(entity.getChunkType(), "general"),
+                stringId(entity.getParentChunkId()),
+                readMetadata(entity.getMetadataJson())
         );
     }
 
     private KnowledgeChunkSummary toRetrievalChunkSummary(KnowledgeChunkEntity entity,
                                                            Set<String> queryTokens,
-                                                           List<Double> queryVector) {
+                                                           List<Double> queryVector,
+                                                           Map<Long, KnowledgeChunkEntity> parentChunks) {
         double score = queryTokens.isEmpty() && queryVector.isEmpty()
                 ? defaultScore(entity.getScore())
                 : retrievalScore(entity, queryTokens, queryVector);
@@ -363,16 +440,193 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 stringId(entity.getDatasetId()),
                 stringId(entity.getDocumentId()),
                 entity.getSource(),
-                entity.getPreview(),
+                retrievalPreview(entity, parentChunks),
                 nvl(entity.getTokens()),
                 score,
-                entity.getStatus()
+                entity.getStatus(),
+                defaultText(entity.getChunkType(), "general"),
+                stringId(entity.getParentChunkId()),
+                readMetadata(entity.getMetadataJson())
         );
+    }
+
+    private List<KnowledgeChunkEntity> loadRetrievalCandidates(Long datasetId,
+                                                               String query,
+                                                               Set<String> queryTokens,
+                                                               boolean semanticSearch) {
+        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
+                .eq(KnowledgeChunkEntity::getStatus, STATUS_READY)
+                .and(nested -> nested.ne(KnowledgeChunkEntity::getChunkType, "parent")
+                        .or()
+                        .isNull(KnowledgeChunkEntity::getChunkType))
+                .apply("EXISTS (SELECT 1 FROM af_knowledge_document d "
+                        + "WHERE d.id = af_knowledge_chunk.document_id "
+                        + "AND d.dataset_id = af_knowledge_chunk.dataset_id "
+                        + "AND d.status = {0})", STATUS_READY)
+                .orderByDesc(KnowledgeChunkEntity::getScore)
+                .orderByAsc(KnowledgeChunkEntity::getChunkIndex);
+        if (!semanticSearch) {
+            wrapper.last("LIMIT " + MAX_RETRIEVAL_CANDIDATES);
+        }
+        if (!semanticSearch) {
+            if (queryTokens.isEmpty()) {
+                return List.of();
+            }
+            if (containsHan(query)) {
+                wrapper.and(nested -> {
+                    boolean first = true;
+                    for (String token : queryTokens) {
+                        if (!first) {
+                            nested.or();
+                        }
+                        nested.like(KnowledgeChunkEntity::getPreview, token)
+                                .or()
+                                .like(KnowledgeChunkEntity::getSource, token);
+                        first = false;
+                    }
+                });
+            } else {
+                wrapper.and(nested -> {
+                    nested.apply("MATCH(source, preview) AGAINST ({0} IN NATURAL LANGUAGE MODE)", query);
+                    queryTokens.stream()
+                            .filter(token -> token.length() < 4)
+                            .forEach(token -> nested.or(orClause -> orClause
+                                    .like(KnowledgeChunkEntity::getPreview, token)
+                                    .or()
+                                    .like(KnowledgeChunkEntity::getSource, token)));
+                });
+            }
+        }
+        return chunkMapper.selectList(wrapper).stream()
+                .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
+                .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
+                .toList();
+    }
+
+    private List<KnowledgeChunkEntity> uniqueRetrievalContexts(List<KnowledgeChunkEntity> rankedEntities, int topK) {
+        Set<Long> contextIds = new HashSet<>();
+        return rankedEntities.stream()
+                .filter(chunk -> contextIds.add(chunk.getParentChunkId() == null
+                        ? chunk.getId()
+                        : chunk.getParentChunkId()))
+                .limit(Math.min(MAX_TOP_K, Math.max(1, topK)))
+                .toList();
+    }
+
+    private void insertParentChildChunks(Long datasetId,
+                                         KnowledgeDocumentEntity document,
+                                         List<TextChunk> chunks,
+                                         List<EmbeddingResult> embeddings,
+                                         DocumentCreateRequest request,
+                                         LocalDateTime now) {
+        for (int parentStart = 0; parentStart < chunks.size(); parentStart += 2) {
+            List<TextChunk> children = chunks.subList(parentStart, Math.min(parentStart + 2, chunks.size()));
+            String parentText = children.stream().map(TextChunk::text).reduce((left, right) -> left + "\n\n" + right).orElse("");
+            TextChunk parentTextChunk = new TextChunk(parentText, parentStart / 2, 0, parentText.length());
+            KnowledgeChunkEntity parent = insertChunk(datasetId, document, parentTextChunk, List.of(), null, "parent", chunkMetadata(request), now, -1);
+            for (TextChunk child : children) {
+                insertChunk(datasetId, document, child, embeddings, parent.getId(), "child", chunkMetadata(request), now, child.chunkIndex());
+            }
+        }
+    }
+
+    private Map<String, Object> chunkMetadata(DocumentCreateRequest request) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (request.getMetadata() != null) {
+            metadata.putAll(request.getMetadata());
+        }
+        if (!metadata.containsKey("sourceType") && hasText(request.getSourceType())) {
+            metadata.put("sourceType", request.getSourceType().trim());
+        }
+        return metadata;
+    }
+
+    private KnowledgeChunkEntity insertChunk(Long datasetId,
+                                             KnowledgeDocumentEntity document,
+                                             TextChunk textChunk,
+                                             List<EmbeddingResult> embeddings,
+                                             Long parentChunkId,
+                                             String chunkType,
+                                             Map<String, Object> metadata,
+                                             LocalDateTime now) {
+        return insertChunk(datasetId, document, textChunk, embeddings, parentChunkId, chunkType, metadata, now, textChunk.chunkIndex());
+    }
+
+    private KnowledgeChunkEntity insertChunk(Long datasetId,
+                                             KnowledgeDocumentEntity document,
+                                             TextChunk textChunk,
+                                             List<EmbeddingResult> embeddings,
+                                             Long parentChunkId,
+                                             String chunkType,
+                                             Map<String, Object> metadata,
+                                             LocalDateTime now,
+                                             int embeddingIndex) {
+        KnowledgeChunkEntity chunk = new KnowledgeChunkEntity();
+        chunk.setDatasetId(datasetId);
+        chunk.setDocumentId(document.getId());
+        chunk.setParentChunkId(parentChunkId);
+        chunk.setChunkType(chunkType);
+        chunk.setSource(document.getName());
+        chunk.setPreview(textChunk.text());
+        chunk.setMetadataJson(writeJson(metadata == null ? Map.of() : metadata));
+        chunk.setTokens(estimateTokens(textChunk.text()));
+        chunk.setScore(chunkQualityScore(textChunk.text()));
+        if (embeddingIndex >= 0 && embeddingIndex < embeddings.size()) {
+            chunk.setVectorJson(writeJson(embeddings.get(embeddingIndex).vector()));
+        }
+        chunk.setStatus(STATUS_READY);
+        chunk.setChunkIndex(textChunk.chunkIndex());
+        chunk.setCreatedAt(now);
+        chunk.setUpdatedAt(now);
+        chunkMapper.insert(chunk);
+        return chunk;
     }
 
     private boolean hasQueryTokenOverlap(KnowledgeChunkEntity chunk, Set<String> queryTokens) {
         Set<String> contentTokens = tokenize(contentText(chunk));
         return queryTokens.stream().anyMatch(contentTokens::contains);
+    }
+
+    private Map<Long, KnowledgeChunkEntity> loadParentChunks(Long datasetId, List<KnowledgeChunkEntity> chunks) {
+        List<Long> parentIds = chunks.stream()
+                .map(KnowledgeChunkEntity::getParentChunkId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (parentIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> childDocumentIds = chunks.stream()
+                .map(KnowledgeChunkEntity::getDocumentId)
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        return chunkMapper.selectBatchIds(parentIds).stream()
+                .filter(parent -> Objects.equals(parent.getDatasetId(), datasetId))
+                .filter(parent -> childDocumentIds.contains(parent.getDocumentId()))
+                .filter(parent -> STATUS_READY.equalsIgnoreCase(defaultText(parent.getStatus(), "")))
+                .collect(java.util.stream.Collectors.toMap(KnowledgeChunkEntity::getId, chunk -> chunk));
+    }
+
+    private String retrievalPreview(KnowledgeChunkEntity entity, Map<Long, KnowledgeChunkEntity> parentChunks) {
+        if (!"child".equalsIgnoreCase(entity.getChunkType()) || entity.getParentChunkId() == null) {
+            return entity.getPreview();
+        }
+        KnowledgeChunkEntity parent = parentChunks.get(entity.getParentChunkId());
+        return parent == null || !hasText(parent.getPreview()) ? entity.getPreview() : parent.getPreview();
+    }
+
+    private boolean metadataMatches(KnowledgeChunkEntity chunk, Map<String, Object> filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        Map<String, Object> metadata = readMetadata(chunk.getMetadataJson());
+        return filter.entrySet().stream().allMatch(entry -> metadata.containsKey(entry.getKey())
+                && jsonValuesEqual(metadata.get(entry.getKey()), entry.getValue()));
+    }
+
+    private boolean jsonValuesEqual(Object left, Object right) {
+        return objectMapper.valueToTree(left).equals(objectMapper.valueToTree(right));
     }
 
     private boolean matchesRetrievalQuery(KnowledgeChunkEntity chunk,
@@ -383,7 +637,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (!semanticSearch || !hasCompatibleSemanticCandidate) {
             return !queryTokens.isEmpty() && hasQueryTokenOverlap(chunk, queryTokens);
         }
-        return hasCompatibleVector(chunk, queryVector) || hasQueryTokenOverlap(chunk, queryTokens);
+        return semanticSimilarity(chunk, queryVector) >= MIN_SEMANTIC_SIMILARITY
+                || hasQueryTokenOverlap(chunk, queryTokens);
     }
 
     private double retrievalScore(KnowledgeChunkEntity chunk, Set<String> queryTokens, List<Double> queryVector) {
@@ -405,13 +660,19 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         Set<String> contentTokens = tokenize(contentText(chunk));
         long overlapCount = queryTokens.stream().filter(contentTokens::contains).count();
         double overlapRatio = (double) overlapCount / queryTokens.size();
-        double storedScore = Math.max(0.0D, Math.min(1.0D, defaultScore(chunk.getScore())));
-        return Math.min(1.0D, 0.7D * overlapRatio + 0.3D * storedScore);
+        return Math.min(1.0D, overlapRatio);
     }
 
     private boolean hasCompatibleVector(KnowledgeChunkEntity chunk, List<Double> queryVector) {
         List<Double> storedVector = vectorFromJson(chunk.getVectorJson());
         return !queryVector.isEmpty() && storedVector.size() == queryVector.size();
+    }
+
+    private double semanticSimilarity(KnowledgeChunkEntity chunk, List<Double> queryVector) {
+        if (!hasCompatibleVector(chunk, queryVector)) {
+            return 0.0D;
+        }
+        return cosineSimilarity(queryVector, vectorFromJson(chunk.getVectorJson()));
     }
 
     private int averageScore(List<KnowledgeChunkEntity> chunks,
@@ -489,12 +750,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         return Math.max(0.0D, Math.min(1.0D, dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))));
     }
 
-    private void incrementRecall(Long documentId) {
+    private void incrementRecall(Long datasetId, Long documentId) {
         if (documentId == null) {
             return;
         }
         KnowledgeDocumentEntity document = documentMapper.selectById(documentId);
-        if (document == null) {
+        if (document == null || !Objects.equals(datasetId, document.getDatasetId())) {
             return;
         }
         document.setRecallCount(nvl(document.getRecallCount()) + 1);
@@ -531,9 +792,25 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         Set<String> tokens = new HashSet<>();
         Matcher matcher = RETRIEVAL_TOKEN_PATTERN.matcher(value.toLowerCase(Locale.ROOT));
         while (matcher.find()) {
-            tokens.add(matcher.group());
+            String token = matcher.group();
+            if (token.codePoints().allMatch(character -> Character.UnicodeScript.of(character) == Character.UnicodeScript.HAN)) {
+                if (token.length() == 1) {
+                    tokens.add(token);
+                } else {
+                    for (int index = 0; index < token.length() - 1; index++) {
+                        tokens.add(token.substring(index, index + 2));
+                    }
+                }
+            } else {
+                tokens.add(token);
+            }
         }
         return tokens;
+    }
+
+    private boolean containsHan(String value) {
+        return value != null && value.codePoints()
+                .anyMatch(character -> Character.UnicodeScript.of(character) == Character.UnicodeScript.HAN);
     }
 
     private List<String> readTags(String tagsJson) {
@@ -546,6 +823,40 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             return tags == null ? List.of() : tags;
         } catch (JsonProcessingException exception) {
             return List.of();
+        }
+    }
+
+    private Map<String, Object> readMetadata(String metadataJson) {
+        if (!hasText(metadataJson)) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> metadata = objectMapper.readValue(metadataJson, new TypeReference<>() {
+            });
+            return metadata == null
+                    ? Map.of()
+                    : Collections.unmodifiableMap(new LinkedHashMap<>(metadata));
+        } catch (JsonProcessingException exception) {
+            return Map.of();
+        }
+    }
+
+    private Map<String, Object> parseMetadataFilter(String metadataFilter) {
+        if (!hasText(metadataFilter)) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> filter = objectMapper.readValue(metadataFilter, new TypeReference<>() {
+            });
+            if (filter == null) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval metadataFilter must be a JSON object");
+            }
+            if (filter.isEmpty()) {
+                return Map.of();
+            }
+            return new LinkedHashMap<>(filter);
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval metadataFilter must be valid JSON");
         }
     }
 
@@ -572,6 +883,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         return pageSize <= 0 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, 100);
     }
 
+    private int safeChunkPageSize(int pageSize) {
+        return pageSize <= 0 ? DEFAULT_CHUNK_PAGE_SIZE : Math.min(pageSize, 100);
+    }
+
     private int defaultNumber(Integer value, int fallback) {
         return value == null || value <= 0 ? fallback : value;
     }
@@ -582,6 +897,33 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String normalizedIdempotencyKey(String value) {
+        if (!hasText(value)) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private KnowledgeDatasetEntity findDatasetByIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        return datasetMapper.selectOne(new LambdaQueryWrapper<KnowledgeDatasetEntity>()
+                .eq(KnowledgeDatasetEntity::getOwnerUserId, currentUserId())
+                .eq(KnowledgeDatasetEntity::getIdempotencyKey, idempotencyKey)
+                .last("LIMIT 1"));
+    }
+
+    private KnowledgeDocumentEntity findDocumentByIdempotencyKey(Long datasetId, String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        return documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
+                .eq(KnowledgeDocumentEntity::getIdempotencyKey, idempotencyKey)
+                .last("LIMIT 1"));
     }
 
     private Integer nvl(Integer value) {

@@ -198,7 +198,7 @@ const selectedInputFile = computed(() => {
   return selectableInputFiles.value.find((file) => String(file.backendFileId) === fileId)
 })
 
-const knowledgeDatasets = computed(() => difyStore.datasets.filter((dataset) => dataset.status !== 'disabled'))
+const knowledgeDatasets = computed(() => difyStore.datasets.filter((dataset) => dataset.status === 'ready'))
 
 const selectedKnowledgeDataset = computed(() => {
   const datasetId = textConfig('datasetId', '')
@@ -290,6 +290,27 @@ function boolConfig(key: string, fallback = false) {
 
 function handleTextInput(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement | HTMLTextAreaElement).value)
+}
+
+function metadataFilterErrorMessage(value: string) {
+  const normalized = value.trim()
+  if (!normalized) {
+    return ''
+  }
+  try {
+    const parsed = JSON.parse(normalized) as unknown
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? ''
+      : t('workflow.inspector.invalidJson')
+  } catch {
+    return t('workflow.inspector.invalidJson')
+  }
+}
+
+const metadataFilterError = computed(() => metadataFilterErrorMessage(textConfig('metadataFilter', '')))
+
+function handleMetadataFilterInput(event: Event) {
+  updateConfig('metadataFilter', (event.target as HTMLTextAreaElement).value)
 }
 
 function handleNumberInput(key: string, event: Event) {
@@ -856,8 +877,8 @@ onMounted(() => {
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">Top K</span>
               <div class="flex items-center gap-3">
-                <input type="range" min="1" max="10" class="min-w-0 flex-1 accent-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
-                <input type="number" min="1" max="10" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="number" min="1" max="50" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
               </div>
             </label>
             <label class="block">
@@ -865,12 +886,17 @@ onMounted(() => {
               <input class="w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'retrievalContext')" @input="handleTextInput('outputVariable', $event)" />
             </label>
             <label class="flex items-center justify-between text-sm font-semibold text-text-primary">
-              {{ t('workflow.inspector.metadataFilter') }}
-              <select class="rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary" :value="textConfig('metadataFilter', 'disabled')" @change="handleTextInput('metadataFilter', $event)">
-                <option value="disabled">{{ t('workflow.inspector.disabled') }}</option>
-                <option value="enabled">{{ t('status.active') }}</option>
-              </select>
+              <span>{{ t('workflow.inspector.metadataFilter') }}</span>
+              <span class="text-xs font-normal text-text-muted">JSON</span>
             </label>
+            <textarea
+              class="min-h-20 w-full rounded-lg border border-app-border bg-white px-3 py-2 font-mono text-xs outline-none focus:border-primary"
+              :placeholder="t('workflow.inspector.metadataFilterPlaceholder')"
+              :value="textConfig('metadataFilter', '')"
+              @input="handleMetadataFilterInput"
+            />
+            <p v-if="metadataFilterError" class="text-xs leading-5 text-status-error" role="alert">{{ metadataFilterError }}</p>
+            <p class="text-xs leading-5 text-text-muted">{{ t('workflow.inspector.metadataFilterHint') }}</p>
           </div>
         </section>
 

@@ -25,6 +25,7 @@ public class KnowledgeDatasetEntity {
     private String embeddingModel;
     private String retrievalMode;
     private Long ownerUserId;
+    private String idempotencyKey;
     private String owner;
     private String tagsJson;
     private LocalDateTime createdAt;

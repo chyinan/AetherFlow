@@ -30,13 +30,16 @@ public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
         Long datasetId = datasetId(config);
         String query = query(context, config);
-        int topK = Math.max(1, NodeValueSupport.intValue(config.get("topK"), 3));
+        int topK = Math.min(50, Math.max(1, NodeValueSupport.intValue(config.get("topK"), 3)));
         String outputVariable = NodeValueSupport.stringValue(config.get("outputVariable"), "retrievalContext");
-        String metadataFilter = NodeValueSupport.stringValue(config.get("metadataFilter"), "disabled");
+        String metadataFilter = NodeValueSupport.stringValue(config.get("metadataFilter"), "");
 
         RetrievalTestRequest request = new RetrievalTestRequest();
         request.setQuery(query);
         request.setTopK(topK);
+        if (!metadataFilter.equalsIgnoreCase("disabled") && !metadataFilter.equalsIgnoreCase("enabled")) {
+            request.setMetadataFilter(metadataFilter);
+        }
         RetrievalTestResponse response = knowledgeService.runRetrievalTest(datasetId, request);
         List<KnowledgeChunkSummary> results = response.results() == null ? List.of() : response.results();
         String contextText = results.stream()
@@ -51,7 +54,7 @@ public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
         output.put("retrievalCount", results.size());
         output.put("retrievalContext", contextText);
         output.put("retrievalResults", results);
-        output.put("metadataFilter", metadataFilter);
+        output.put("metadataFilter", metadataFilter.isBlank() ? "disabled" : metadataFilter);
 
         Map<String, Object> variables = new LinkedHashMap<>();
         variables.put(outputVariable, contextText);
@@ -79,8 +82,14 @@ public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
     }
 
     private String query(WorkflowContext context, Map<String, Object> config) {
-        Object value = NodeValueSupport.valueFromConfigOrVariable(config, context, "queryText", "queryVariable", "question");
-        String query = NodeValueSupport.stringValue(value).trim();
+        String queryVariable = NodeValueSupport.stringValue(config.get("queryVariable"), "question").trim();
+        String query = NodeValueSupport.stringValue(context.variables().get(queryVariable)).trim();
+        if (query.isBlank()) {
+            query = NodeValueSupport.stringValue(config.get("queryText")).trim();
+        }
+        if (query.isBlank() && !"question".equals(queryVariable)) {
+            query = NodeValueSupport.stringValue(context.variables().get("question")).trim();
+        }
         if (query.isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval node query is required");
         }

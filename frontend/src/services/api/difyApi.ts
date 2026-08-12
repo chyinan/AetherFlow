@@ -62,6 +62,9 @@ interface KnowledgeChunkResponse {
   tokens?: number
   score?: number
   status?: string
+  chunkType?: string
+  parentChunkId?: string
+  metadata?: Record<string, unknown>
 }
 
 interface KnowledgeDocumentResponse {
@@ -79,6 +82,7 @@ interface KnowledgeDocumentResponse {
 
 interface DatasetCreateInput {
   name: string
+  idempotencyKey?: string
   description?: string
   embeddingModel?: string
   retrievalMode?: string
@@ -87,6 +91,7 @@ interface DatasetCreateInput {
 }
 
 interface DocumentCreateInput {
+  idempotencyKey?: string
   sourceName: string
   sourceType?: string
   fileId?: string
@@ -97,11 +102,13 @@ interface DocumentCreateInput {
   delimiter?: string
   cleanSpaces?: boolean
   cleanUrls?: boolean
+  metadata?: Record<string, unknown>
 }
 
 interface RetrievalTestInput {
   query: string
   topK?: number
+  metadataFilter?: string
 }
 
 type MetricTone = MonitorMetric['tone']
@@ -179,7 +186,10 @@ function mapChunk(chunk: KnowledgeChunkResponse): KnowledgeSegment {
     preview: stringOr(chunk.preview, ''),
     tokens: numberOr(chunk.tokens),
     score: numberOr(chunk.score),
-    status: statusOr(chunk.status),
+  status: statusOr(chunk.status),
+    ...(chunk.chunkType ? { chunkType: chunk.chunkType } : {}),
+    ...(chunk.parentChunkId ? { parentChunkId: chunk.parentChunkId } : {}),
+    ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
   }
 }
 
@@ -224,25 +234,11 @@ export const difyApi = {
     return records.map(mapDataset)
   },
   async listDatasetChunks(datasetId: string) {
-    const documents = await listAllPages((page, pageSize) => apiClient.get<PageResult<{ id?: string }>>(
-      `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
+    const records = await listAllPages((page, pageSize) => apiClient.get<PageResult<KnowledgeChunkResponse>>(
+      `/knowledge/datasets/${encodeURIComponent(datasetId)}/chunks`,
       { params: { page, pageSize }, source: 'workflow' },
     ))
-    const chunks = await Promise.allSettled(
-      documents
-        .map((document) => document.id)
-        .filter((documentId): documentId is string => Boolean(documentId))
-        .map((documentId) =>
-          apiClient.get<KnowledgeChunkResponse[]>(
-            `/knowledge/documents/${encodeURIComponent(documentId)}/chunks`,
-            { source: 'workflow' },
-          ),
-        ),
-    )
-    return chunks
-      .filter((result): result is PromiseFulfilledResult<KnowledgeChunkResponse[]> => result.status === 'fulfilled')
-      .flatMap((result) => result.value)
-      .map(mapChunk)
+    return records.map(mapChunk)
   },
   async createKnowledgeDataset(input: DatasetCreateInput) {
     const dataset = await apiClient.post<KnowledgeDatasetResponse>('/knowledge/datasets', input, {

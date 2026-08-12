@@ -261,6 +261,60 @@ class WorkflowUtilityNodeExecutorTest {
         ));
     }
 
+    @Test
+    void knowledgeRetrievalNodeUsesVariableWhenFixedQueryIsBlank() throws Exception {
+        KnowledgeService knowledgeService = mock(KnowledgeService.class);
+        KnowledgeRetrievalNodeExecutor executor = new KnowledgeRetrievalNodeExecutor(new WorkflowNodeMetrics(), knowledgeService);
+        when(knowledgeService.runRetrievalTest(eq(42L), any(RetrievalTestRequest.class)))
+                .thenReturn(new RetrievalTestResponse("42", "pricing", List.of()));
+
+        executor.execute(context("knowledge", Map.of(
+                "datasetId", "42",
+                "queryText", "  ",
+                "queryVariable", "question"
+        ), Map.of("question", "pricing")));
+
+        verify(knowledgeService).runRetrievalTest(eq(42L), org.mockito.ArgumentMatchers.argThat(request ->
+                request != null && "pricing".equals(request.getQuery())
+        ));
+    }
+
+    @Test
+    void knowledgeRetrievalNodePrefersConfiguredQueryVariableOverFixedText() throws Exception {
+        KnowledgeService knowledgeService = mock(KnowledgeService.class);
+        KnowledgeRetrievalNodeExecutor executor = new KnowledgeRetrievalNodeExecutor(new WorkflowNodeMetrics(), knowledgeService);
+        when(knowledgeService.runRetrievalTest(eq(42L), any(RetrievalTestRequest.class)))
+                .thenReturn(new RetrievalTestResponse("42", "runtime question", List.of()));
+
+        executor.execute(context("knowledge", Map.of(
+                "datasetId", "42",
+                "queryText", "template example",
+                "queryVariable", "question"
+        ), Map.of("question", "runtime question")));
+
+        verify(knowledgeService).runRetrievalTest(eq(42L), org.mockito.ArgumentMatchers.argThat(request ->
+                request != null && "runtime question".equals(request.getQuery())
+        ));
+    }
+
+    @Test
+    void knowledgeRetrievalNodePassesJsonMetadataFilterToService() throws Exception {
+        KnowledgeService knowledgeService = mock(KnowledgeService.class);
+        KnowledgeRetrievalNodeExecutor executor = new KnowledgeRetrievalNodeExecutor(new WorkflowNodeMetrics(), knowledgeService);
+        when(knowledgeService.runRetrievalTest(eq(42L), any(RetrievalTestRequest.class)))
+                .thenReturn(new RetrievalTestResponse("42", "pricing", List.of()));
+
+        executor.execute(context("knowledge", Map.of(
+                "datasetId", "42",
+                "queryVariable", "question",
+                "metadataFilter", "{\"sourceType\":\"input\"}"
+        ), Map.of("question", "pricing")));
+
+        verify(knowledgeService).runRetrievalTest(eq(42L), org.mockito.ArgumentMatchers.argThat(request ->
+                request != null && "{\"sourceType\":\"input\"}".equals(request.getMetadataFilter())
+        ));
+    }
+
     private static DefaultWorkflowContext context(String nodeId,
                                                   Map<String, Object> config,
                                                   Map<String, Object> variables) {

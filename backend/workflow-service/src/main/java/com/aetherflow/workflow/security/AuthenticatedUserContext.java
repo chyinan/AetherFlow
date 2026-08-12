@@ -30,6 +30,16 @@ public final class AuthenticatedUserContext {
         return user.userId();
     }
 
+    public static Long userIdOrNull() {
+        AuthenticatedUser user = CURRENT.get();
+        return user == null || user.userId() == null || user.userId() <= 0 ? null : user.userId();
+    }
+
+    public static String usernameOrNull() {
+        AuthenticatedUser user = CURRENT.get();
+        return user == null ? null : user.username();
+    }
+
     public static String usernameOrDefault(String fallback) {
         AuthenticatedUser user = CURRENT.get();
         return user != null && StringUtils.hasText(user.username()) ? user.username() : fallback;

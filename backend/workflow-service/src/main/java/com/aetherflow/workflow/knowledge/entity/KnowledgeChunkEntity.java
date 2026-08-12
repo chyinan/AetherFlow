@@ -16,8 +16,11 @@ public class KnowledgeChunkEntity {
 
     private Long datasetId;
     private Long documentId;
+    private Long parentChunkId;
+    private String chunkType;
     private String source;
     private String preview;
+    private String metadataJson;
     private Integer tokens;
     private Double score;
     private String vectorJson;

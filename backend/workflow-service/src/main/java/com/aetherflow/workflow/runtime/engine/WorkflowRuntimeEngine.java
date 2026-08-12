@@ -19,6 +19,7 @@ import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
 import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLockLease;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
@@ -378,9 +379,11 @@ public class WorkflowRuntimeEngine {
         scheduled.addAll(tracker.skippedNodeIds());
         Set<String> expectedNodeIds = new LinkedHashSet<>(readyQueue);
         int inFlight = 0;
+        Long userId = AuthenticatedUserContext.userIdOrNull();
+        String username = AuthenticatedUserContext.usernameOrNull();
 
         try {
-            inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight);
+            inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
             saveSnapshot(request, context, tracker);
             while (inFlight > 0) {
                 NodeExecution execution = awaitCompletedNode(completionService);
@@ -398,7 +401,7 @@ public class WorkflowRuntimeEngine {
                         }
                     }
                 }
-                inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight);
+                inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
                 saveSnapshot(request, context, tracker);
             }
             assertExpectedNodesCompleted(expectedNodeIds, tracker);
@@ -427,7 +430,9 @@ public class WorkflowRuntimeEngine {
                                  Queue<String> readyQueue,
                                  Set<String> scheduled,
                                  ExecutionTracker tracker,
-                                 int inFlight) {
+                                 int inFlight,
+                                 Long userId,
+                                 String username) {
         int submittedCount = inFlight;
         while (!readyQueue.isEmpty()) {
             String nodeId = readyQueue.remove();
@@ -436,13 +441,15 @@ public class WorkflowRuntimeEngine {
             }
             tracker.markInFlight(nodeId);
             completionService.submit(() -> {
-                try {
-                    return executeNode(request, dag, context, nodeId);
-                } catch (RuntimeException exception) {
-                    tracker.markFailed(nodeId);
-                    saveSnapshot(request, context, tracker);
-                    throw new NodeExecutionException(nodeId, exception);
-                }
+                return AuthenticatedUserContext.runAs(userId, username, () -> {
+                    try {
+                        return executeNode(request, dag, context, nodeId);
+                    } catch (RuntimeException exception) {
+                        tracker.markFailed(nodeId);
+                        saveSnapshot(request, context, tracker);
+                        throw new NodeExecutionException(nodeId, exception);
+                    }
+                });
             });
             submittedCount++;
         }

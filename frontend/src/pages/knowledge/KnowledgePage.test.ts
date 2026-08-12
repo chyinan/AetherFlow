@@ -101,12 +101,36 @@ describe('KnowledgePage', () => {
 
     expect(wrapper.find('[data-action="retry-processing"]').exists()).toBe(true)
     expect(wrapper.find('[role="alert"]').text()).toContain('indexing failed')
+    expect(wrapper.find('[data-status="processing-error"]').exists()).toBe(true)
 
     await wrapper.find('[data-action="retry-processing"]').trigger('click')
     await flushPromises()
 
     expect(mocks.difyStore.createDatasetFromWizard).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[data-action="retry-processing"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not allow an uploading file to be imported into a knowledge base', async () => {
+    mocks.fileStore.files = [{
+      id: 'file-processing',
+      name: 'still-uploading.md',
+      mime: 'text/markdown',
+      source: 'input',
+      status: 'processing',
+      type: 'document',
+      size: '1 KB',
+      result: 'not ready',
+      updatedAt: '2026-08-11 01:00',
+    }]
+
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    await wrapper.find('[data-action="create-knowledge"]').trigger('click')
+    expect(wrapper.get('button[data-action="next-source"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
 
@@ -134,6 +158,60 @@ describe('KnowledgePage', () => {
     await flushPromises()
 
     expect(mocks.difyStore.runRetrievalTest).toHaveBeenCalledWith('workflow retrieval configuration', 3)
+    wrapper.unmount()
+  })
+
+  it('keeps the page visible when the retrieval query is blank', async () => {
+    mocks.difyStore.datasets = [{ id: 'dataset-1' }]
+    mocks.difyStore.selectedDataset = { id: 'dataset-1' }
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-action="open-dataset"]').trigger('click')
+    await flushPromises()
+    const input = wrapper.get('[data-action="retrieval-test"] input')
+    await input.setValue('   ')
+    await wrapper.get('[data-action="retrieval-test"]').trigger('submit')
+
+    expect(wrapper.find('[data-action="retrieval-local-error"]').exists()).toBe(true)
+    expect(wrapper.find('[data-action="retry-knowledge"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not mark a successful save as failed when save is clicked twice', async () => {
+    mocks.fileStore.files = [{
+      id: 'file-1',
+      name: 'source.md',
+      mime: 'text/markdown',
+      source: 'input',
+      status: 'ready',
+      type: 'document',
+      size: '1 KB',
+      result: 'source content',
+      updatedAt: '2026-08-11 01:00',
+    }]
+    let resolveCreate: ((value: { id: string; name: string }) => void) | undefined
+    mocks.difyStore.createDatasetFromWizard.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveCreate = resolve
+    }))
+
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.find('[data-action="create-knowledge"]').trigger('click')
+    await wrapper.get('button[data-action="next-source"]').trigger('click')
+    const saveButton = wrapper.get('button[data-action="save-knowledge"]')
+    await saveButton.trigger('click')
+
+    expect(wrapper.find('[data-status="processing-error"]').exists()).toBe(false)
+    await saveButton.trigger('click')
+    expect(wrapper.find('[data-status="processing-error"]').exists()).toBe(false)
+    resolveCreate?.({ id: 'dataset-1', name: 'source' })
+    await flushPromises()
+    expect(wrapper.find('[data-status="processing-error"]').exists()).toBe(false)
     wrapper.unmount()
   })
 })

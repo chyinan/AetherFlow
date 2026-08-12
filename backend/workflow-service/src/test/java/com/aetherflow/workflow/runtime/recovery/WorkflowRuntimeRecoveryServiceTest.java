@@ -15,6 +15,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -24,6 +25,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +41,7 @@ class WorkflowRuntimeRecoveryServiceTest {
         NodeRegistry registry = new NodeRegistry(List.of(
                 executor("INPUT", context -> NodeResult.success(Map.of("text", "already-done"))),
                 executor("SUMMARY", context -> {
+                    assertThat(AuthenticatedUserContext.requireUserId()).isEqualTo(7L);
                     resumedNodes.incrementAndGet();
                     return NodeResult.success(Map.of("summary", "done"));
                 })
@@ -83,6 +86,19 @@ class WorkflowRuntimeRecoveryServiceTest {
         assertThat(recoveryService.recoverRunnableWorkflows()).containsExactly(good.toExecutionSnapshot());
     }
 
+    @Test
+    void rejectsRecoveryWhenSnapshotDoesNotContainUserIdentity() {
+        WorkflowDefinitionDTO definition = definition(node("node-input", "INPUT", Map.of()));
+        WorkflowRuntimeRecoveryService recoveryService = new WorkflowRuntimeRecoveryService(
+                Mockito.mock(RuntimeSnapshotRepository.class),
+                Mockito.mock(WorkflowRuntimeEngine.class),
+                new WorkflowRuntimeProperties());
+
+        assertThatThrownBy(() -> recoveryService.recover(snapshotWithoutUser("missing-user", definition)))
+                .isInstanceOf(com.aetherflow.common.exception.BusinessException.class)
+                .hasMessageContaining("authenticated user is required");
+    }
+
     private static WorkflowRuntimeSnapshot snapshot(String workflowId,
                                                     RuntimeState state,
                                                     WorkflowDefinitionDTO definition) {
@@ -96,8 +112,26 @@ class WorkflowRuntimeRecoveryServiceTest {
                 List.of("node-summary"),
                 List.of("node-input"),
                 List.of(),
-                Map.of("text", "transcribed"),
+                Map.of("text", "transcribed", "userId", 7L, "username", "reviewer"),
                 Map.of("node-input", NodeResult.success(Map.of("text", "transcribed"))),
+                Instant.parse("2026-05-28T10:00:00Z")
+        );
+    }
+
+    private static WorkflowRuntimeSnapshot snapshotWithoutUser(String workflowId,
+                                                               WorkflowDefinitionDTO definition) {
+        return new WorkflowRuntimeSnapshot(
+                workflowId,
+                "trace-" + workflowId,
+                "task-" + workflowId,
+                null,
+                definition,
+                RuntimeState.RUNNING,
+                List.of("node-input"),
+                List.of(),
+                List.of(),
+                Map.of(),
+                Map.of(),
                 Instant.parse("2026-05-28T10:00:00Z")
         );
     }

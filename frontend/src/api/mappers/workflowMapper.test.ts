@@ -200,6 +200,88 @@ describe('workflowMapper', () => {
     })
   })
 
+  it('preserves knowledge retrieval metadata filters', () => {
+    const result = mapWorkflowToDefinitionDTO({
+      id: 'workflow-1',
+      name: 'Filtered knowledge retrieval workflow',
+      nodes: [
+        {
+          id: 'node-retrieval',
+          type: 'workflow',
+          position: { x: 0, y: 0 },
+          data: {
+            label: 'Knowledge Retrieval',
+            description: 'Knowledge retrieval',
+            kind: 'knowledge-retrieval',
+            config: {
+              datasetId: '11',
+              queryVariable: 'question',
+              metadataFilter: '{"sourceType":"input"}',
+            },
+            inputs: [],
+            outputs: [],
+            status: 'idle',
+          },
+        },
+      ],
+      edges: [],
+    })
+
+    expect(result.nodes[0]?.config).toMatchObject({
+      metadataFilter: '{"sourceType":"input"}',
+    })
+  })
+
+  it('keeps knowledge retrieval topK aligned with the backend limit', () => {
+    const result = mapWorkflowToDefinitionDTO({
+      id: 'workflow-1',
+      name: 'Top K knowledge retrieval workflow',
+      nodes: [
+        {
+          id: 'node-retrieval',
+          type: 'workflow',
+          position: { x: 0, y: 0 },
+          data: {
+            label: 'Knowledge Retrieval',
+            description: 'Knowledge retrieval',
+            kind: 'knowledge-retrieval',
+            config: { datasetId: '11', topK: 50 },
+            inputs: [],
+            outputs: [],
+            status: 'idle',
+          },
+        },
+      ],
+      edges: [],
+    })
+
+    expect(result.nodes[0]?.config).toMatchObject({ topK: 50 })
+  })
+
+  it('rejects malformed knowledge retrieval metadata filters before save', () => {
+    expect(() => mapWorkflowToDefinitionDTO({
+      id: 'workflow-1',
+      name: 'Invalid metadata filter workflow',
+      nodes: [
+        {
+          id: 'node-retrieval',
+          type: 'workflow',
+          position: { x: 0, y: 0 },
+          data: {
+            label: 'Knowledge Retrieval',
+            description: 'Knowledge retrieval',
+            kind: 'knowledge-retrieval',
+            config: { datasetId: '11', metadataFilter: '{invalid' },
+            inputs: [],
+            outputs: [],
+            status: 'idle',
+          },
+        },
+      ],
+      edges: [],
+    })).toThrow(/metadataFilter/i)
+  })
+
   it('preserves fixed LLM context separately from its variable binding', () => {
     const result = mapWorkflowToDefinitionDTO({
       id: 'workflow-1',

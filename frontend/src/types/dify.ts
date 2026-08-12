@@ -21,6 +21,9 @@ export interface KnowledgeSegment {
   id: string
   datasetId: string
   documentId?: string
+  chunkType?: string
+  parentChunkId?: string
+  metadata?: Record<string, unknown>
   source: string
   preview: string
   tokens: number

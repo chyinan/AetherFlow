@@ -388,13 +388,24 @@ function normalizeExportConfig(
 }
 
 function normalizeKnowledgeRetrievalConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const metadataFilter = optionalString(config.metadataFilter)
+  if (metadataFilter) {
+    try {
+      const parsed = JSON.parse(metadataFilter) as unknown
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('metadataFilter must be a JSON object')
+      }
+    } catch (error) {
+      throw new Error(`knowledge retrieval metadataFilter is invalid: ${error instanceof Error ? error.message : 'invalid JSON'}`)
+    }
+  }
   return withNextNodes({
     datasetId: stringValue(config.datasetId ?? config.dataset, ''),
     ...(optionalString(config.queryText) ? { queryText: optionalString(config.queryText) } : {}),
     queryVariable: stringValue(config.queryVariable ?? config.query, 'question'),
-    topK: Math.min(10, Math.max(1, Math.floor(numberValue(config.topK, 3)))),
+    topK: Math.min(50, Math.max(1, Math.floor(numberValue(config.topK, 3)))),
     outputVariable: stringValue(config.outputVariable, 'retrievalContext'),
-    metadataFilter: stringValue(config.metadataFilter, 'disabled'),
+    ...(metadataFilter ? { metadataFilter } : {}),
   }, nextNodes)
 }
 

@@ -11,11 +11,13 @@ CREATE TABLE IF NOT EXISTS af_knowledge_dataset (
     embedding_model VARCHAR(128) NOT NULL,
     retrieval_mode VARCHAR(128) NOT NULL,
     owner_user_id BIGINT,
+    idempotency_key VARCHAR(128),
     owner VARCHAR(128),
     tags_json LONGTEXT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_af_knowledge_dataset_owner (owner_user_id),
+    UNIQUE KEY uk_af_knowledge_dataset_owner_idempotency (owner_user_id, idempotency_key),
     KEY idx_af_knowledge_dataset_status (status),
     KEY idx_af_knowledge_dataset_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS af_knowledge_dataset (
 CREATE TABLE IF NOT EXISTS af_knowledge_document (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     dataset_id BIGINT NOT NULL,
+    idempotency_key VARCHAR(128),
     name VARCHAR(255) NOT NULL,
     source_type VARCHAR(64) NOT NULL,
     file_id VARCHAR(128),
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS af_knowledge_document (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_af_knowledge_document_dataset (dataset_id),
+    UNIQUE KEY uk_af_knowledge_document_dataset_idempotency (dataset_id, idempotency_key),
     KEY idx_af_knowledge_document_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -42,8 +46,11 @@ CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     dataset_id BIGINT NOT NULL,
     document_id BIGINT NOT NULL,
+    parent_chunk_id BIGINT,
+    chunk_type VARCHAR(32) NOT NULL DEFAULT 'general',
     source VARCHAR(255),
     preview LONGTEXT,
+    metadata_json LONGTEXT,
     tokens INT NOT NULL DEFAULT 0,
     score DOUBLE NOT NULL DEFAULT 0,
     vector_json LONGTEXT,
@@ -53,5 +60,6 @@ CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
     updated_at DATETIME NOT NULL,
     KEY idx_af_knowledge_chunk_dataset (dataset_id),
     KEY idx_af_knowledge_chunk_document (document_id),
-    KEY idx_af_knowledge_chunk_status (status)
+    KEY idx_af_knowledge_chunk_status (status),
+    FULLTEXT KEY ft_af_knowledge_chunk_search (source, preview)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

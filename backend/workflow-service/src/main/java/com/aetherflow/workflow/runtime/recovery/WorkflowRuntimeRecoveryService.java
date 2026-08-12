@@ -8,6 +8,7 @@ import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -58,7 +59,9 @@ public class WorkflowRuntimeRecoveryService {
                 recoverySnapshot.variables(),
                 runtimeProperties.getRetry().toRetryPolicy()
         );
-        WorkflowExecutionSnapshot recovered = runtimeEngine.resume(request, recoverySnapshot.toExecutionSnapshot());
+        Long userId = userId(recoverySnapshot.variables());
+        WorkflowExecutionSnapshot recovered = AuthenticatedUserContext.runAs(userId, username(recoverySnapshot.variables()),
+                () -> runtimeEngine.resume(request, recoverySnapshot.toExecutionSnapshot()));
         snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
                 recoverySnapshot.workflowId(),
                 recoverySnapshot.traceId(),
@@ -70,6 +73,31 @@ public class WorkflowRuntimeRecoveryService {
                 recovered.failedNodeIds()
         ));
         return recovered;
+    }
+
+    private Long userId(java.util.Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("userId");
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                long parsed = Long.parseLong(String.valueOf(value));
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to the explicit authentication error.
+            }
+        }
+        throw new com.aetherflow.common.exception.BusinessException(
+                com.aetherflow.common.core.ResultCode.UNAUTHORIZED,
+                "authenticated user is required for workflow recovery");
+    }
+
+    private String username(java.util.Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("username");
+        return value == null || String.valueOf(value).isBlank() ? "aether.operator" : String.valueOf(value).trim();
     }
 
     public int reconcileTerminalWorkflows(int limit) {

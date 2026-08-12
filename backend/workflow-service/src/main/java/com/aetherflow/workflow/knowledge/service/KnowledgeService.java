@@ -27,5 +27,7 @@ public interface KnowledgeService {
 
     List<KnowledgeChunkSummary> listDocumentChunks(Long documentId);
 
+    PageResult<KnowledgeChunkSummary> listDatasetChunks(Long datasetId, int page, int pageSize);
+
     RetrievalTestResponse runRetrievalTest(Long datasetId, RetrievalTestRequest request);
 }

@@ -15,6 +15,7 @@ public class KnowledgeDocumentEntity {
     private Long id;
 
     private Long datasetId;
+    private String idempotencyKey;
     private String name;
     private String sourceType;
     private String fileId;

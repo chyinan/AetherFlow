@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  TriangleAlert,
   Trash2,
   Upload,
   Workflow,
@@ -61,13 +62,18 @@ const previewLoaded = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
 const previewChunks = ref<Array<{ title: string; text: string }>>([])
+const previewChunkCount = ref(0)
 const processingProgress = ref(0)
+const processingActive = ref(false)
 const processingError = ref('')
 const pageLoading = ref(true)
 const pageError = ref('')
 const retrying = ref(false)
 const lastRetry = ref<(() => Promise<void>) | null>(null)
 const retrievalLoading = ref(false)
+const retrievalError = ref('')
+const importing = ref(false)
+const saving = ref(false)
 const createdDatasetId = ref('')
 const chunkDelimiter = ref('\\n\\n')
 const maxChunkLength = ref(1024)
@@ -77,11 +83,12 @@ const cleanUrls = ref(false)
 const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const deletingDatasetId = ref('')
+const MAX_TOP_K = 50
 
 const selectedDataset = computed(() => difyStore.selectedDataset)
 const selectedDatasetDocuments = computed(() => difyStore.selectedDatasetDocuments)
 const importableFiles = computed(() => fileStore.files.filter((file) =>
-  file.status !== 'failed' && isSupportedKnowledgeFile(file),
+  file.status === 'ready' && isSupportedKnowledgeFile(file),
 ))
 const selectedFile = computed(() => importableFiles.value.find((file) => file.id === selectedFileId.value))
 const selectedFileName = computed(() => {
@@ -188,11 +195,17 @@ function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
 }
 
 function openCreateFlow(preferredSource: SourceType = 'file') {
+  difyStore.pendingWizardDatasetId = ''
+  difyStore.pendingWizardPersistenceComplete = false
+  difyStore.pendingWizardDataset = null
+  difyStore.pendingWizardIdempotencyKey = ''
+  difyStore.pendingWizardDocumentIdempotencyKey = ''
   viewMode.value = 'create'
   createStep.value = 1
   sourceType.value = preferredSource
   previewLoaded.value = false
   previewChunks.value = []
+  previewChunkCount.value = 0
   previewError.value = ''
   processingProgress.value = 0
   createdDatasetId.value = ''
@@ -245,11 +258,13 @@ async function previewSegments() {
   previewError.value = ''
   try {
     const content = await knowledgeContentFromFile(selectedFile.value)
-    previewChunks.value = splitTextForPreview(content, maxChunkLength.value, overlapLength.value, {
+    const chunks = splitTextForPreview(content, maxChunkLength.value, overlapLength.value, {
       delimiter: chunkDelimiter.value,
       cleanSpaces: cleanSpaces.value,
       cleanUrls: cleanUrls.value,
     })
+    previewChunkCount.value = chunks.length
+    previewChunks.value = chunks
       .slice(0, 20)
       .map((text, index) => ({
         title: t('knowledge.flow.previewChunkTitle', { index: index + 1 }),
@@ -259,6 +274,7 @@ async function previewSegments() {
   } catch (error) {
     previewLoaded.value = false
     previewChunks.value = []
+    previewChunkCount.value = 0
     previewError.value = error instanceof Error ? error.message : t('common.error')
   } finally {
     previewLoading.value = false
@@ -266,12 +282,17 @@ async function previewSegments() {
 }
 
 async function saveAndProcess() {
+  if (saving.value) {
+    return
+  }
   if (!selectedFile.value) {
     processingError.value = t('knowledge.fileContentUnavailable')
     return
   }
   createStep.value = 3
   processingProgress.value = 0
+  processingActive.value = true
+  saving.value = true
   processingError.value = ''
   try {
     const dataset = await difyStore.createDatasetFromWizard({
@@ -279,7 +300,7 @@ async function saveAndProcess() {
       sourceName: selectedFileName.value,
       file: selectedFile.value,
       preview: selectedFile.value?.result,
-      segmentMode: segmentMode.value === 'general' ? t('knowledge.flow.generalMode') : t('knowledge.flow.parentChildMode'),
+      segmentMode: segmentMode.value,
       indexingMode: indexMode.value === 'economy' ? t('knowledge.flow.economy') : t('knowledge.flow.highQuality'),
       retrievalMode: t('knowledge.flow.invertedIndex'),
       embeddingModel: indexMode.value === 'quality' ? 'nomic-embed-text' : 'keyword sparse index',
@@ -288,22 +309,36 @@ async function saveAndProcess() {
       delimiter: chunkDelimiter.value,
       cleanSpaces: cleanSpaces.value,
       cleanUrls: cleanUrls.value,
+      datasetId: difyStore.pendingWizardDatasetId || undefined,
     })
     createdDatasetId.value = dataset.id
     processingProgress.value = 100
   } catch (error) {
     processingError.value = errorMessage(error)
+  } finally {
+    processingActive.value = false
+    saving.value = false
   }
 }
 
 async function runRetrievalTest() {
+  const query = retrievalQuery.value.trim()
+  if (!query) {
+    difyStore.retrievalResults = []
+    retrievalError.value = t('knowledge.queryRequired')
+    return
+  }
   retrievalLoading.value = true
+  retrievalError.value = ''
   pageError.value = ''
   lastRetry.value = null
   try {
-    await difyStore.runRetrievalTest(retrievalQuery.value, topK.value)
+    retrievalQuery.value = query
+    const normalizedTopK = Math.min(MAX_TOP_K, Math.max(1, Math.floor(Number(topK.value) || 3)))
+    topK.value = normalizedTopK
+    await difyStore.runRetrievalTest(query, normalizedTopK)
   } catch (error) {
-    setPageError(error, runRetrievalTest)
+    retrievalError.value = errorMessage(error)
   } finally {
     retrievalLoading.value = false
   }
@@ -338,25 +373,26 @@ async function handleSourceUpload(event: Event) {
   pageError.value = ''
   lastRetry.value = null
   try {
-    await fileStore.upload(file)
-    selectedFileId.value = fileStore.files[0]?.id ?? selectedFileId.value
+    const uploaded = await fileStore.upload(file)
+    selectedFileId.value = uploaded.id
     wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
     input.value = ''
   } catch (error) {
     setPageError(error, async () => {
-      await fileStore.upload(file)
-      selectedFileId.value = fileStore.files[0]?.id ?? selectedFileId.value
+      const uploaded = await fileStore.upload(file)
+      selectedFileId.value = uploaded.id
       wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
     })
   }
 }
 
 async function importSelectedFileToDataset() {
-  if (!selectedFile.value) {
+  if (!selectedFile.value || importing.value) {
     return
   }
   pageError.value = ''
   lastRetry.value = null
+  importing.value = true
   try {
     await difyStore.importFileToSelectedDataset(selectedFile.value, {
       chunkSize: maxChunkLength.value,
@@ -369,6 +405,8 @@ async function importSelectedFileToDataset() {
     viewMode.value = 'documents'
   } catch (error) {
     setPageError(error, importSelectedFileToDataset)
+  } finally {
+    importing.value = false
   }
 }
 
@@ -595,8 +633,8 @@ onMounted(loadPage)
               <Upload class="mx-auto h-8 w-8 text-primary" />
               <p class="mt-3 text-sm font-semibold text-text-primary">{{ t('knowledge.flow.uploadTextFile') }}</p>
               <p class="mt-1 text-xs text-text-muted">{{ t('knowledge.flow.dragOrChoose') }}</p>
-              <input ref="uploadInput" type="file" class="hidden" @change="handleSourceUpload" />
-              <button type="button" class="mt-4 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary" @click="uploadInput?.click()">
+               <input ref="uploadInput" type="file" accept=".csv,.json,.md,.mdx,.text,.txt,.xml,.yaml,.yml,text/*" class="hidden" @change="handleSourceUpload" />
+               <button type="button" class="mt-4 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary disabled:cursor-not-allowed disabled:opacity-60" :disabled="fileStore.uploading || retrying" @click="uploadInput?.click()">
                 {{ t('knowledge.flow.chooseFile') }}
               </button>
               <div v-if="fileStore.uploading" class="mx-auto mt-4 max-w-sm">
@@ -628,7 +666,7 @@ onMounted(loadPage)
                 data-action="next-source"
                 type="button"
                 class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="!selectedFile"
+                  :disabled="!selectedFile || importing"
                 @click="continueFromSource"
               >
                 {{ t('knowledge.flow.nextStep') }}
@@ -746,8 +784,8 @@ onMounted(loadPage)
                   <div class="mt-4">
                     <label class="mb-2 block text-xs font-medium text-text-muted">Top K</label>
                     <div class="flex items-center gap-4">
-                      <input v-model.number="topK" type="number" min="1" max="10" class="w-20 rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
-                      <input v-model.number="topK" type="range" min="1" max="10" class="min-w-0 flex-1 accent-primary" />
+                      <input v-model.number="topK" type="number" min="1" max="50" class="w-20 rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+                      <input v-model.number="topK" type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" />
                     </div>
                   </div>
                 </div>
@@ -756,14 +794,14 @@ onMounted(loadPage)
                   <button type="button" class="rounded-md border border-app-border bg-white px-4 py-2 text-sm text-text-secondary" @click="createStep = 1">
                     {{ t('knowledge.flow.previousStep') }}
                   </button>
-                  <button
-                    data-action="save-knowledge"
+                <button
+                  data-action="save-knowledge"
                     type="button"
                     class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white shadow-node disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled="!selectedFile"
+                    :disabled="!selectedFile || saving"
                     @click="saveAndProcess"
                   >
-                    {{ t('knowledge.flow.saveAndProcess') }}
+                    {{ saving ? t('common.loading') : t('knowledge.flow.saveAndProcess') }}
                   </button>
                 </div>
               </div>
@@ -777,7 +815,7 @@ onMounted(loadPage)
                     <FileText class="h-4 w-4 shrink-0 text-primary" />
                     <p class="truncate text-sm font-semibold text-text-primary">{{ selectedFileName }}</p>
                     <span class="rounded-md border border-app-border bg-app-bg2 px-2 py-0.5 text-xs text-text-muted">
-                      {{ previewLoaded ? previewChunks.length : 0 }} {{ t('knowledge.flow.estimatedChunks') }}
+                      {{ previewLoaded ? previewChunkCount : 0 }} {{ t('knowledge.flow.estimatedChunks') }}
                     </span>
                   </div>
                 </div>
@@ -812,10 +850,15 @@ onMounted(loadPage)
               </div>
 
               <div class="mt-8 border-t border-app-border pt-6">
-                <div class="mb-3 flex items-center gap-2 text-sm font-semibold text-text-primary">
-                  <Loader2 v-if="processingProgress < 100" class="h-4 w-4 animate-spin text-primary" />
+                <div
+                  class="mb-3 flex items-center gap-2 text-sm font-semibold"
+                  :class="processingError ? 'text-status-error' : 'text-text-primary'"
+                  :data-status="processingError ? 'processing-error' : undefined"
+                >
+                  <Loader2 v-if="processingActive" class="h-4 w-4 animate-spin text-primary" />
+                  <TriangleAlert v-else-if="processingError" class="h-4 w-4 text-status-error" />
                   <CheckCircle2 v-else class="h-4 w-4 text-status-success" />
-                  {{ processingProgress < 100 ? t('knowledge.flow.embeddingProcessing') : t('knowledge.flow.embeddingComplete') }}
+                  {{ processingActive ? t('knowledge.flow.embeddingProcessing') : processingError ? t('knowledge.flow.processingFailed') : t('knowledge.flow.embeddingComplete') }}
                 </div>
                 <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
                   <div class="mb-3 flex items-center justify-between gap-3 rounded-lg bg-primary-soft/30 p-3 text-sm">
@@ -823,9 +866,11 @@ onMounted(loadPage)
                     <span class="rounded-md bg-white px-2 py-1 text-xs text-primary">{{ t('knowledge.flow.standard') }}</span>
                   </div>
                   <div class="overflow-hidden rounded-full bg-app-bg2">
-                    <div class="h-3 rounded-full bg-primary transition-[width]" :style="{ width: `${processingProgress}%` }" />
+                    <div class="h-3 rounded-full transition-[width]" :class="processingActive ? 'w-1/3 animate-pulse bg-primary' : processingError ? 'w-1/3 bg-status-error' : 'w-full bg-primary'" />
                   </div>
-                  <div class="mt-2 text-right text-xs font-medium text-text-secondary">{{ processingProgress }}%</div>
+                  <div class="mt-2 text-right text-xs font-medium text-text-secondary">
+                    {{ processingActive ? t('knowledge.flow.processingIndeterminate') : processingError ? t('knowledge.flow.processingFailed') : t('knowledge.flow.embeddingComplete') }}
+                  </div>
                   <div v-if="processingError" class="mt-3 flex flex-wrap items-center gap-3">
                     <p role="alert" class="text-sm text-status-error">{{ processingError }}</p>
                     <button
@@ -923,8 +968,8 @@ onMounted(loadPage)
               <p class="text-xs text-text-muted">{{ t('knowledge.hitRate') }}</p>
             </div>
             <div class="col-span-2 flex items-center justify-between rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary">
-              {{ t('models.realBackend') }}
-              <span class="h-2 w-2 rounded-full bg-status-success" />
+              {{ selectedDataset?.status === 'ready' ? t('knowledge.flow.backendReady') : t('knowledge.flow.backendUnavailable') }}
+              <span class="h-2 w-2 rounded-full" :class="selectedDataset?.status === 'ready' ? 'bg-status-success' : 'bg-status-error'" />
             </div>
           </div>
         </aside>
@@ -1002,11 +1047,12 @@ onMounted(loadPage)
                   class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-primary/50"
                   :placeholder="t('knowledge.queryPlaceholder')"
                 />
-                <button type="submit" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" :disabled="retrievalLoading">
+                <button type="submit" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" :disabled="retrievalLoading || !retrievalQuery.trim()">
                   <Loader2 v-if="retrievalLoading" class="h-4 w-4 animate-spin" />
                   {{ retrievalLoading ? t('common.loading') : t('common.search') }}
                 </button>
               </form>
+              <p v-if="retrievalError" data-action="retrieval-local-error" role="alert" class="mt-2 text-sm text-status-error">{{ retrievalError }}</p>
               <div class="mt-4 space-y-2 font-mono text-xs leading-6">
                 <p v-for="segment in difyStore.retrievalResults" :key="segment.id" class="rounded bg-app-bg2 px-2 py-1 text-text-secondary">
                   <span class="text-primary">{{ segment.score.toFixed(2) }}</span>
@@ -1032,10 +1078,10 @@ onMounted(loadPage)
                 </div>
                 <button
                   class="rounded-md border border-app-border px-3 py-2 text-sm font-medium text-text-secondary disabled:cursor-not-allowed disabled:opacity-50"
-                  :disabled="!selectedFile"
+                    :disabled="!selectedFile || saving"
                   @click="importSelectedFileToDataset"
                 >
-                  {{ t('knowledge.importSelected') }}
+                  {{ importing ? t('common.loading') : t('knowledge.importSelected') }}
                 </button>
               </div>
             </article>

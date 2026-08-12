@@ -11,6 +11,7 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeChunkEntity;
@@ -95,11 +96,32 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void returnsTheExistingDatasetForARepeatedIdempotencyKey() {
+        DatasetCreateRequest request = new DatasetCreateRequest();
+        request.setName("Product Docs RAG");
+        request.setIdempotencyKey("dataset-operation-1");
+        KnowledgeDatasetEntity existing = dataset();
+        when(datasetMapper.selectOne(any(Wrapper.class))).thenReturn(null, existing);
+        doAnswer(invocation -> {
+            KnowledgeDatasetEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(datasetMapper).insert(any(KnowledgeDatasetEntity.class));
+
+        KnowledgeDatasetSummary first = asUser(7L, () -> service.createDataset(request));
+        KnowledgeDatasetSummary second = asUser(7L, () -> service.createDataset(request));
+
+        assertThat(first.id()).isEqualTo(second.id());
+        verify(datasetMapper, times(1)).insert(any(KnowledgeDatasetEntity.class));
+    }
+
+    @Test
     void createsDocumentChunksAndUpdatesDatasetCounters() {
         KnowledgeDatasetEntity dataset = dataset();
         when(datasetMapper.selectById(11L)).thenReturn(dataset);
         DocumentCreateRequest request = new DocumentCreateRequest();
         request.setSourceName("workflow-runbook.md");
+        request.setSourceType("input");
         request.setContent("abcdefghi");
         request.setChunkSize(5);
         request.setOverlap(1);
@@ -117,9 +139,78 @@ class KnowledgeServiceImplTest {
         verify(chunkMapper, times(2)).insert(chunkCaptor.capture());
         assertThat(chunkCaptor.getAllValues()).extracting(KnowledgeChunkEntity::getPreview)
                 .containsExactly("abcde", "efghi");
+        assertThat(chunkCaptor.getAllValues().get(0).getMetadataJson()).contains("\"sourceType\":\"input\"");
         verify(datasetMapper).updateById(dataset);
         assertThat(dataset.getDocumentCount()).isEqualTo(1);
         assertThat(dataset.getChunkCount()).isEqualTo(2);
+        assertThat(dataset.getHitRate()).isEqualTo(92);
+    }
+
+    @Test
+    void returnsTheExistingDocumentForARepeatedIdempotencyKey() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("workflow-runbook.md");
+        request.setContent("abcdefghi");
+        request.setIdempotencyKey("document-operation-1");
+        KnowledgeDocumentEntity existing = new KnowledgeDocumentEntity();
+        existing.setId(21L);
+        existing.setDatasetId(11L);
+        existing.setName("workflow-runbook.md");
+        existing.setSourceType("file");
+        existing.setMode("general");
+        existing.setCharCount(9);
+        existing.setChunkCount(1);
+        existing.setRecallCount(0);
+        existing.setStatus("ready");
+        when(documentMapper.selectOne(any(Wrapper.class))).thenReturn(null, existing);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        KnowledgeDocumentSummary first = asUser(7L, () -> service.createDocument(11L, request));
+        KnowledgeDocumentSummary second = asUser(7L, () -> service.createDocument(11L, request));
+
+        assertThat(first.id()).isEqualTo(second.id());
+        verify(documentMapper, times(1)).insert(any(KnowledgeDocumentEntity.class));
+    }
+
+    @Test
+    void createsParentAndChildChunksWhenParentChildModeIsSelected() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("parent-child.md");
+        request.setContent("abcdefghijklmno");
+        request.setChunkSize(5);
+        request.setOverlap(1);
+        request.setMode("parentChild");
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        long[] nextChunkId = {31L};
+        doAnswer(invocation -> {
+            KnowledgeChunkEntity entity = invocation.getArgument(0);
+            entity.setId(nextChunkId[0]++);
+            return 1;
+        }).when(chunkMapper).insert(any(KnowledgeChunkEntity.class));
+
+        asUser(7L, () -> service.createDocument(11L, request));
+
+        ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
+        verify(chunkMapper, times(6)).insert(chunkCaptor.capture());
+        assertThat(chunkCaptor.getAllValues()).extracting(KnowledgeChunkEntity::getChunkType)
+                .containsExactly("parent", "child", "child", "parent", "child", "child");
+        assertThat(chunkCaptor.getAllValues().get(1).getParentChunkId()).isEqualTo(31L);
+        assertThat(chunkCaptor.getAllValues().get(2).getParentChunkId()).isEqualTo(31L);
+        assertThat(chunkCaptor.getAllValues().get(4).getParentChunkId()).isEqualTo(34L);
+        assertThat(chunkCaptor.getAllValues().get(5).getParentChunkId()).isEqualTo(34L);
     }
 
     @Test
@@ -153,6 +244,62 @@ class KnowledgeServiceImplTest {
         assertThat(response.results()).hasSize(1);
         assertThat(response.results().get(0).source()).isEqualTo("workflow-runbook.md");
         assertThat(response.results().get(0).score()).isGreaterThan(0.82D);
+    }
+
+    @Test
+    void rejectsBlankRetrievalQuery() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("  ");
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.runRetrievalTest(11L, request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("retrieval query is required");
+    }
+
+    @Test
+    void rejectsRetrievalTopKAboveTheSupportedLimit() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("pricing");
+        request.setTopK(101);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.runRetrievalTest(11L, request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("topK must be between 1 and 50");
+    }
+
+    @Test
+    void filtersRetrievalResultsByMetadataJson() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity inputChunk = chunk("input.md", "pricing policy", 0.0D);
+        inputChunk.setMetadataJson("{\"sourceType\":\"input\"}");
+        KnowledgeChunkEntity artifactChunk = chunk("artifact.md", "pricing policy", 0.0D);
+        artifactChunk.setMetadataJson("{\"sourceType\":\"artifact\"}");
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(inputChunk, artifactChunk));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("pricing");
+        request.setMetadataFilter("{\"sourceType\":\"artifact\"}");
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("artifact.md");
+    }
+
+    @Test
+    void preservesNullValuesWhenListingChunkMetadata() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity chunk = chunk("input.md", "pricing policy", 0.0D);
+        chunk.setMetadataJson("{\"sourceType\":null}");
+        Page<KnowledgeChunkEntity> page = new Page<>(1, 100);
+        page.setRecords(List.of(chunk));
+        page.setTotal(1);
+        when(chunkMapper.selectPage(any(IPage.class), any())).thenReturn(page);
+
+        PageResult<KnowledgeChunkSummary> result = asUser(7L, () -> service.listDatasetChunks(11L, 1, 100));
+
+        assertThat(result.getRecords()).hasSize(1);
+        assertThat(result.getRecords().get(0).metadata()).containsEntry("sourceType", null);
     }
 
     @Test
@@ -247,6 +394,82 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void excludesSemanticallyUnrelatedChunksWithCompatibleVectors() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity catChunk = chunk("cats.md", "feline facts", 0.0D);
+        catChunk.setVectorJson("[1.0,0.0]");
+        KnowledgeChunkEntity dogChunk = chunk("dogs.md", "canine facts", 0.0D);
+        dogChunk.setVectorJson("[0.0,1.0]");
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(catChunk, dogChunk));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest embeddingRequest) {
+                return new EmbeddingResult(List.of(1.0D, 0.0D), 2, embeddingRequest.model(), embeddingRequest.chunkIndex());
+            }
+        };
+        KnowledgeServiceImpl semanticService = new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties()
+        );
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("cat");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> semanticService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("cats.md");
+    }
+
+    @Test
+    void doesNotApplyTheLexicalCandidateLimitToSemanticRetrieval() throws Exception {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity chunk = chunk("semantic.md", "semantic facts", 0.0D);
+        chunk.setVectorJson("[1.0,0.0]");
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(chunk));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest embeddingRequest) {
+                return new EmbeddingResult(List.of(1.0D, 0.0D), 2, embeddingRequest.model(), embeddingRequest.chunkIndex());
+            }
+        };
+        KnowledgeServiceImpl semanticService = new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties()
+        );
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+
+        asUser(7L, () -> semanticService.runRetrievalTest(11L, request));
+
+        ArgumentCaptor<Wrapper<KnowledgeChunkEntity>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(chunkMapper).selectList(wrapperCaptor.capture());
+        String wrapperDescription = wrapperCaptor.getValue().toString();
+        assertThat(wrapperDescription).doesNotContain("LIMIT 2000");
+    }
+
+    @Test
     void doesNotReturnUnrelatedChunksWhenQueryHasNoMatch() {
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
         when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
@@ -260,6 +483,21 @@ class KnowledgeServiceImplTest {
         RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
 
         assertThat(response.results()).isEmpty();
+    }
+
+    @Test
+    void doesNotReturnChunksThatAreNotReady() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity failedChunk = chunk("failed.md", "pricing policy", 0.0D);
+        failedChunk.setStatus("failed");
+        KnowledgeChunkEntity readyChunk = chunk("ready.md", "pricing policy", 0.0D);
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(failedChunk, readyChunk));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("pricing");
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("ready.md");
     }
 
     @Test
@@ -280,6 +518,43 @@ class KnowledgeServiceImplTest {
         assertThat(response.results().get(0).score())
                 .isGreaterThan(response.results().get(1).score())
                 .isLessThanOrEqualTo(1.0D);
+    }
+
+    @Test
+    void usesChineseBigramsInsteadOfSingleCharacterMatches() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                chunk("policy.md", "价格政策", 0.0D),
+                chunk("value.md", "价值观", 0.95D)
+        ));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("价格政策");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source())
+                .containsExactly("policy.md");
+    }
+
+    @Test
+    void ignoresParentContextFromAnotherDocument() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity child = chunk("child.md", "specific pricing", 0.0D);
+        child.setChunkType("child");
+        child.setParentChunkId(99L);
+        KnowledgeChunkEntity unrelatedParent = chunk("other.md", "unrelated context", 0.95D);
+        unrelatedParent.setId(99L);
+        unrelatedParent.setDocumentId(22L);
+        unrelatedParent.setChunkType("parent");
+        when(chunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(child));
+        when(chunkMapper.selectBatchIds(any())).thenReturn(List.of(unrelatedParent));
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("pricing");
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results().get(0).preview()).isEqualTo("specific pricing");
     }
 
     @Test
@@ -338,7 +613,7 @@ class KnowledgeServiceImplTest {
 
     private static KnowledgeChunkEntity chunk(String source, String preview, Double score) {
         KnowledgeChunkEntity chunk = new KnowledgeChunkEntity();
-        chunk.setId(31L);
+        chunk.setId((long) Math.abs(source.hashCode()));
         chunk.setDatasetId(11L);
         chunk.setDocumentId(21L);
         chunk.setSource(source);

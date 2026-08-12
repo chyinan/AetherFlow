@@ -133,7 +133,7 @@ class WorkflowAsyncCompletionServiceTest {
     private WorkflowRuntimeSnapshot waitingSnapshot() {
         return new WorkflowRuntimeSnapshot(
                 "101", "trace-101", "101", 10L, new WorkflowDefinitionDTO(), RuntimeState.WAITING,
-                List.of("node-ai"), List.of(), List.of(), Map.of(),
+                List.of("node-ai"), List.of(), List.of(), Map.of("userId", 7L, "username", "reviewer"),
                 Map.of("node-ai", NodeResult.waiting(Map.of("externalTaskId", 91L))), Instant.now());
     }
 
@@ -147,7 +147,7 @@ class WorkflowAsyncCompletionServiceTest {
         definition.setNodes(List.of(human));
         return new WorkflowRuntimeSnapshot(
                 "101", "trace-101", "101", 10L, definition, RuntimeState.WAITING,
-                List.of("node-human"), List.of(), List.of(), Map.of(),
+                List.of("node-human"), List.of(), List.of(), Map.of("userId", 7L),
                 Map.of("node-human", NodeResult.waiting(Map.of("approvalStatus", "pending"))), Instant.now());
     }
 }

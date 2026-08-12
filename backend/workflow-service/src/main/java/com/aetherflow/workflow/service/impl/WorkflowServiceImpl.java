@@ -147,7 +147,11 @@ public class WorkflowServiceImpl implements WorkflowService {
                 runtimeProperties.getRetry().toRetryPolicy()
         );
 
-        workflowRuntimeTaskExecutor.execute(() -> executeRuntime(instance.getId(), runtimeRequest));
+        String username = currentUsername();
+        workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(userId, username, () -> {
+            executeRuntime(instance.getId(), runtimeRequest);
+            return null;
+        }));
         return instance;
     }
 
@@ -218,6 +222,10 @@ public class WorkflowServiceImpl implements WorkflowService {
         Map<String, Object> variables = new LinkedHashMap<>(input == null ? Map.of() : input);
         if (userId != null) {
             variables.put("userId", userId);
+        }
+        String username = currentUsername();
+        if (username != null && !username.isBlank()) {
+            variables.put("username", username);
         }
         variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, nodeConfigs(definition));
         return variables;

@@ -57,7 +57,8 @@ if (!/datasetId:\s*stringValue\(config\.datasetId\s*\?\?\s*config\.dataset/.test
   failures.push('workflowMapper must map selected knowledge dataset into datasetId')
 }
 
-if (!/metadataFilter:\s*stringValue\(config\.metadataFilter/.test(mapper)) {
+if (!/const metadataFilter\s*=\s*optionalString\(config\.metadataFilter\)/.test(mapper)
+  || !/\.\.\.\(metadataFilter\s*\?\s*\{\s*metadataFilter\s*\}\s*:\s*\{\}\)/.test(mapper)) {
   failures.push('workflowMapper must preserve knowledge retrieval metadataFilter setting')
 }
 

@@ -323,7 +323,7 @@ public class WorkflowNodeCatalogService {
                         field("queryVariable", "STRING", false, "Workflow variable used as retrieval query.", "question"),
                         field("topK", "NUMBER", false, "Maximum number of chunks to retrieve.", 3),
                         field("outputVariable", "STRING", false, "Variable name used for joined retrieval context.", "retrievalContext"),
-                        field("metadataFilter", "STRING", false, "Metadata filtering mode for retrieval.", "disabled")
+                        field("metadataFilter", "STRING", false, "Optional JSON object; every key/value pair must match chunk metadata.", "{\"sourceType\":\"input\"}")
                 ),
                 List.of(variable("question", "STRING", "Query produced by upstream nodes or workflow input.", "How is pricing calculated?")),
                 List.of(
@@ -336,7 +336,7 @@ public class WorkflowNodeCatalogService {
                         variable("retrievalCount", "NUMBER", "Number of retrieved chunks.", 3),
                         variable("retrievalDatasetId", "STRING", "Dataset used for retrieval.", "42")
                 ),
-                mapOf("queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "disabled")
+                mapOf("queryVariable", "question", "topK", 3, "outputVariable", "retrievalContext", "metadataFilter", "")
         );
     }
 

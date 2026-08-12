@@ -65,13 +65,21 @@ public class KnowledgeController {
 
     @PostMapping("/datasets/{id}/documents")
     public Result<KnowledgeDocumentSummary> createDocument(@PathVariable Long id,
-                                                           @RequestBody DocumentCreateRequest request) {
+                                                           @Valid @RequestBody DocumentCreateRequest request) {
         return Result.success(knowledgeService.createDocument(id, request));
     }
 
     @GetMapping("/documents/{id}/chunks")
     public Result<List<KnowledgeChunkSummary>> listDocumentChunks(@PathVariable Long id) {
         return Result.success(knowledgeService.listDocumentChunks(id));
+    }
+
+    @GetMapping("/datasets/{id}/chunks")
+    public Result<PageResult<KnowledgeChunkSummary>> listDatasetChunks(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "100") int pageSize) {
+        return Result.success(knowledgeService.listDatasetChunks(id, page, pageSize));
     }
 
     @PostMapping("/datasets/{id}/retrieval-test")

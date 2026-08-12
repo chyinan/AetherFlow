@@ -12,6 +12,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
+import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -85,11 +86,13 @@ public class WorkflowAsyncCompletionService {
                 stored.definition(),
                 stored.variables(),
                 runtimeProperties.getRetry().toRetryPolicy());
-        WorkflowExecutionSnapshot completed = runtimeEngine.completeWaitingNode(
-                request,
-                stored.toExecutionSnapshot(),
-                nodeId,
-                NodeResult.success(safeOutput, safeOutput));
+        Long userId = userId(stored.variables());
+        WorkflowExecutionSnapshot completed = AuthenticatedUserContext.runAs(userId, username(stored.variables()), () ->
+                runtimeEngine.completeWaitingNode(
+                        request,
+                        stored.toExecutionSnapshot(),
+                        nodeId,
+                        NodeResult.success(safeOutput, safeOutput)));
         snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
                 stored.workflowId(), stored.traceId(), stored.taskId(), stored.definitionId(), stored.definition(),
                 completed, completed.currentNodeIds(), completed.failedNodeIds()));
@@ -116,8 +119,9 @@ public class WorkflowAsyncCompletionService {
         WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
                 stored.workflowId(), stored.traceId(), stored.taskId(), stored.definitionId(), stored.definition(),
                 stored.variables(), runtimeProperties.getRetry().toRetryPolicy());
-        WorkflowExecutionSnapshot failed = runtimeEngine.failWaitingNode(
-                request, stored.toExecutionSnapshot(), nodeId, error);
+        Long userId = userId(stored.variables());
+        WorkflowExecutionSnapshot failed = AuthenticatedUserContext.runAs(userId, username(stored.variables()), () ->
+                runtimeEngine.failWaitingNode(request, stored.toExecutionSnapshot(), nodeId, error));
         snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
                 stored.workflowId(), stored.traceId(), stored.taskId(), stored.definitionId(), stored.definition(),
                 failed, failed.currentNodeIds(), failed.failedNodeIds()));
@@ -172,5 +176,30 @@ public class WorkflowAsyncCompletionService {
 
     private String textOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private Long userId(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("userId");
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                long parsed = Long.parseLong(String.valueOf(value));
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to the explicit authentication error.
+            }
+        }
+        throw new com.aetherflow.common.exception.BusinessException(
+                com.aetherflow.common.core.ResultCode.UNAUTHORIZED,
+                "authenticated user is required for workflow completion");
+    }
+
+    private String username(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("username");
+        return value == null || String.valueOf(value).isBlank() ? "aether.operator" : String.valueOf(value).trim();
     }
 }

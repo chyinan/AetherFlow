@@ -1,9 +1,11 @@
 package com.aetherflow.workflow.knowledge.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 public final class KnowledgeDtos {
 
@@ -14,6 +16,8 @@ public final class KnowledgeDtos {
     public static class DatasetCreateRequest {
         @NotBlank
         private String name;
+        @Size(max = 128)
+        private String idempotencyKey;
         private String description;
         private String embeddingModel;
         private String retrievalMode;
@@ -23,6 +27,8 @@ public final class KnowledgeDtos {
 
     @Data
     public static class DocumentCreateRequest {
+        @Size(max = 128)
+        private String idempotencyKey;
         private String sourceName;
         private String sourceType;
         private String fileId;
@@ -33,12 +39,14 @@ public final class KnowledgeDtos {
         private String delimiter;
         private Boolean cleanSpaces;
         private Boolean cleanUrls;
+        private Map<String, Object> metadata;
     }
 
     @Data
     public static class RetrievalTestRequest {
         private String query;
         private Integer topK;
+        private String metadataFilter;
     }
 
     public record KnowledgeDatasetSummary(
@@ -81,8 +89,21 @@ public final class KnowledgeDtos {
             String preview,
             Integer tokens,
             Double score,
-            String status
+            String status,
+            String chunkType,
+            String parentChunkId,
+            Map<String, Object> metadata
     ) {
+        public KnowledgeChunkSummary(String id,
+                                     String datasetId,
+                                     String documentId,
+                                     String source,
+                                     String preview,
+                                     Integer tokens,
+                                     Double score,
+                                     String status) {
+            this(id, datasetId, documentId, source, preview, tokens, score, status, "general", null, Map.of());
+        }
     }
 
     public record RetrievalTestResponse(

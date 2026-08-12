@@ -29,6 +29,37 @@ interface CreateKnowledgeDatasetInput {
   cleanSpaces?: boolean
   cleanUrls?: boolean
   empty?: boolean
+  datasetId?: string
+}
+
+interface KnowledgeImportOptions {
+  chunkSize?: number
+  overlap?: number
+  mode?: string
+  delimiter?: string
+  cleanSpaces?: boolean
+  cleanUrls?: boolean
+}
+
+function knowledgeImportKey(datasetId: string, file: FileAsset, options: KnowledgeImportOptions) {
+  return JSON.stringify([
+    datasetId,
+    file.backendFileId ?? file.id,
+    file.name,
+    options.chunkSize ?? null,
+    options.overlap ?? null,
+    options.mode ?? null,
+    options.delimiter ?? null,
+    options.cleanSpaces ?? null,
+    options.cleanUrls ?? null,
+  ])
+}
+
+let operationSequence = 0
+
+function newOperationKey(prefix: string) {
+  operationSequence += 1
+  return `${prefix}:${Date.now().toString(36)}:${operationSequence.toString(36)}`
 }
 
 export const useDifyStore = defineStore('difySurface', {
@@ -42,6 +73,15 @@ export const useDifyStore = defineStore('difySurface', {
     selectedDatasetId: 'kb-product-docs',
     loading: false,
     error: null as string | null,
+    pendingWizardDatasetId: '' as string,
+    pendingWizardPersistenceComplete: false,
+    pendingWizardDataset: null as KnowledgeDataset | null,
+    pendingWizardIdempotencyKey: '' as string,
+    pendingWizardDocumentIdempotencyKey: '' as string,
+    pendingKnowledgeImportKey: '' as string,
+    pendingKnowledgeImportIdempotencyKey: '' as string,
+    pendingKnowledgeImportPersisted: false,
+    loadedDatasetSegmentIds: [] as string[],
   }),
   getters: {
     selectedDataset: (state) =>
@@ -50,6 +90,7 @@ export const useDifyStore = defineStore('difySurface', {
       state.documents.filter((document) => document.datasetId === state.selectedDatasetId),
     selectedDatasetSegments: (state) =>
       state.segments.filter((segment) => segment.datasetId === state.selectedDatasetId),
+    selectedDatasetSegmentsLoaded: (state) => state.loadedDatasetSegmentIds.includes(state.selectedDatasetId),
     readyDatasetCount: (state) => state.datasets.filter((dataset) => dataset.status === 'ready').length,
     successfulConversationCount: (state) => state.conversations.filter((conversation) => conversation.status === 'success').length,
     averageHitRate: (state) =>
@@ -59,9 +100,6 @@ export const useDifyStore = defineStore('difySurface', {
   },
   actions: {
     async loadSurface() {
-      if (this.datasets.length > 0) {
-        return
-      }
       this.loading = true
       this.error = null
       try {
@@ -80,6 +118,10 @@ export const useDifyStore = defineStore('difySurface', {
         this.metrics = metrics
         this.conversations = conversations
         this.selectedDatasetId = datasets.find((dataset) => dataset.id === this.selectedDatasetId)?.id || datasets[0]?.id || ''
+        const datasetIds = new Set(datasets.map((dataset) => dataset.id))
+        this.documents = this.documents.filter((document) => datasetIds.has(document.datasetId))
+        this.segments = this.segments.filter((segment) => datasetIds.has(segment.datasetId))
+        this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => datasetIds.has(id))
         if (this.selectedDatasetId) {
           await this.refreshDatasetContent(this.selectedDatasetId)
         }
@@ -89,28 +131,57 @@ export const useDifyStore = defineStore('difySurface', {
     },
     async refreshDatasets() {
       this.datasets = await difyApi.listKnowledgeDatasets()
+      const datasetIds = new Set(this.datasets.map((dataset) => dataset.id))
+      this.documents = this.documents.filter((document) => datasetIds.has(document.datasetId))
+      this.segments = this.segments.filter((segment) => datasetIds.has(segment.datasetId))
+      this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => datasetIds.has(id))
+      if (!datasetIds.has(this.selectedDatasetId)) {
+        this.selectedDatasetId = this.datasets[0]?.id ?? ''
+      }
     },
-    async refreshDatasetContent(datasetId?: string) {
+    async refreshDatasetContent(datasetId?: string, options: { includeChunks?: boolean } = {}) {
       const activeDatasetId = datasetId || this.selectedDatasetId
       if (!activeDatasetId) {
         return
       }
       const [documentsResult, segmentsResult] = await Promise.allSettled([
         difyApi.listDatasetDocuments(activeDatasetId),
-        difyApi.listDatasetChunks(activeDatasetId),
+        options.includeChunks ? difyApi.listDatasetChunks(activeDatasetId) : Promise.resolve([]),
       ])
       if (documentsResult.status === 'rejected') {
         throw documentsResult.reason
       }
       const documents = documentsResult.value
-      const segments = segmentsResult.status === 'fulfilled' ? segmentsResult.value : []
+      if (segmentsResult.status === 'rejected') {
+        throw segmentsResult.reason
+      }
+      const segments = segmentsResult.value
       this.documents = [
         ...this.documents.filter((document) => document.datasetId !== activeDatasetId),
         ...documents,
       ]
       this.segments = [
         ...this.segments.filter((segment) => segment.datasetId !== activeDatasetId),
+        ...(options.includeChunks ? segments : []),
+      ]
+      this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => id !== activeDatasetId)
+      if (options.includeChunks) {
+        this.loadedDatasetSegmentIds = [...this.loadedDatasetSegmentIds, activeDatasetId]
+      }
+    },
+    async loadDatasetSegments(datasetId?: string) {
+      const activeDatasetId = datasetId || this.selectedDatasetId
+      if (!activeDatasetId) {
+        return
+      }
+      const segments = await difyApi.listDatasetChunks(activeDatasetId)
+      this.segments = [
+        ...this.segments.filter((segment) => segment.datasetId !== activeDatasetId),
         ...segments,
+      ]
+      this.loadedDatasetSegmentIds = [
+        ...this.loadedDatasetSegmentIds.filter((id) => id !== activeDatasetId),
+        activeDatasetId,
       ]
     },
     async selectDataset(datasetId: string) {
@@ -118,49 +189,95 @@ export const useDifyStore = defineStore('difySurface', {
       this.retrievalResults = []
       await this.refreshDatasetContent(datasetId)
     },
-    async importFileToSelectedDataset(file: FileAsset, options: { chunkSize?: number; overlap?: number; mode?: string; delimiter?: string; cleanSpaces?: boolean; cleanUrls?: boolean } = {}) {
+    async importFileToSelectedDataset(file: FileAsset, options: KnowledgeImportOptions = {}) {
       const dataset = this.selectedDataset
       if (!dataset) {
         return
       }
       const sourceName = file.name
-      await difyApi.createKnowledgeDocument(dataset.id, {
-        sourceName,
-        sourceType: file.source,
-        fileId: file.backendFileId ?? file.id,
-        content: await knowledgeContentFromFile(file),
-        mode: options.mode ?? 'general',
-        chunkSize: options.chunkSize,
-        overlap: options.overlap,
-        delimiter: options.delimiter,
-        cleanSpaces: options.cleanSpaces,
-        cleanUrls: options.cleanUrls,
-      })
-      await this.refreshDatasets()
-      await this.refreshDatasetContent(dataset.id)
-      await this.runRetrievalTest(sourceName)
+      const importKey = knowledgeImportKey(dataset.id, file, options)
+      const hasPendingOperation = this.pendingKnowledgeImportKey === importKey
+        && Boolean(this.pendingKnowledgeImportIdempotencyKey)
+      const resumeAfterPersistence = hasPendingOperation && this.pendingKnowledgeImportPersisted
+      const idempotencyKey = hasPendingOperation
+        ? this.pendingKnowledgeImportIdempotencyKey
+        : newOperationKey('knowledge-document')
+      try {
+        if (!resumeAfterPersistence) {
+          this.pendingKnowledgeImportKey = importKey
+          this.pendingKnowledgeImportIdempotencyKey = idempotencyKey
+          this.pendingKnowledgeImportPersisted = false
+          await difyApi.createKnowledgeDocument(dataset.id, {
+            idempotencyKey,
+            sourceName,
+            sourceType: file.source,
+            fileId: file.backendFileId ?? file.id,
+            content: await knowledgeContentFromFile(file),
+            mode: options.mode ?? 'general',
+            chunkSize: options.chunkSize,
+            overlap: options.overlap,
+            delimiter: options.delimiter,
+            cleanSpaces: options.cleanSpaces,
+            cleanUrls: options.cleanUrls,
+          })
+          this.pendingKnowledgeImportPersisted = true
+        }
+        await this.refreshDatasets()
+        await this.refreshDatasetContent(dataset.id)
+        await this.runRetrievalTest(sourceName)
+        this.pendingKnowledgeImportKey = ''
+        this.pendingKnowledgeImportIdempotencyKey = ''
+        this.pendingKnowledgeImportPersisted = false
+      } catch (error) {
+        if (!resumeAfterPersistence && this.pendingKnowledgeImportKey !== importKey) {
+          this.pendingKnowledgeImportKey = ''
+          this.pendingKnowledgeImportPersisted = false
+        }
+        throw error
+      }
     },
     async createDatasetFromWizard(input: CreateKnowledgeDatasetInput = {}) {
       const sourceName = input.sourceName ?? i18n.global.t('knowledge.flow.sampleFileName')
-      const dataset = await difyApi.createKnowledgeDataset({
-        name: input.name?.trim() || sourceName.replace(/\.[^.]+$/, ''),
-        description: input.empty
-          ? i18n.global.t('knowledge.flow.emptyDescription')
-          : i18n.global.t('knowledge.flow.createdDescription', { source: sourceName }),
-        embeddingModel: input.embeddingModel ?? 'nomic-embed-text',
-        retrievalMode: input.retrievalMode ?? input.indexingMode ?? i18n.global.t('knowledge.flow.invertedIndex'),
-        owner: 'knowledge.ops',
-        tags: input.empty ? ['empty'] : ['wizard', input.segmentMode ?? 'general'],
-      })
+      const existingDataset = input.datasetId
+        ? this.datasets.find((item) => item.id === input.datasetId)
+          ?? (this.pendingWizardDataset?.id === input.datasetId ? this.pendingWizardDataset : undefined)
+        : this.pendingWizardPersistenceComplete ? this.pendingWizardDataset : undefined
+      const createdNewDataset = !existingDataset
+      const datasetIdempotencyKey = existingDataset
+        ? this.pendingWizardIdempotencyKey || newOperationKey('knowledge-dataset')
+        : this.pendingWizardIdempotencyKey || newOperationKey('knowledge-dataset')
+      this.pendingWizardIdempotencyKey = datasetIdempotencyKey
+      const dataset = existingDataset ?? await difyApi.createKnowledgeDataset({
+          name: input.name?.trim() || sourceName.replace(/\.[^.]+$/, ''),
+          description: input.empty
+            ? i18n.global.t('knowledge.flow.emptyDescription')
+            : i18n.global.t('knowledge.flow.createdDescription', { source: sourceName }),
+          embeddingModel: input.embeddingModel ?? 'nomic-embed-text',
+          retrievalMode: input.retrievalMode ?? input.indexingMode ?? i18n.global.t('knowledge.flow.invertedIndex'),
+          owner: 'knowledge.ops',
+          tags: input.empty ? ['empty'] : ['wizard', input.segmentMode ?? 'general'],
+          idempotencyKey: datasetIdempotencyKey,
+        })
 
-      this.datasets = [dataset, ...this.datasets]
+      if (createdNewDataset) {
+        this.datasets = [dataset, ...this.datasets]
+        this.pendingWizardDataset = dataset
+      }
       this.selectedDatasetId = dataset.id
+      const canResumePersistedImport = Boolean(existingDataset && this.pendingWizardPersistenceComplete)
+      this.pendingWizardDatasetId = createdNewDataset ? dataset.id : ''
+      const resumeAfterPersistence = Boolean(
+        canResumePersistedImport,
+      )
 
       try {
-        if (!input.empty) {
+        if (!resumeAfterPersistence && !input.empty) {
+          const documentIdempotencyKey = this.pendingWizardDocumentIdempotencyKey || newOperationKey('knowledge-document')
+          this.pendingWizardDocumentIdempotencyKey = documentIdempotencyKey
           await difyApi.createKnowledgeDocument(dataset.id, {
+            idempotencyKey: documentIdempotencyKey,
             sourceName,
-            sourceType: 'file',
+            sourceType: input.file?.source ?? 'file',
             fileId: input.file?.backendFileId ?? input.file?.id,
             content: input.file ? await knowledgeContentFromFile(input.file) : input.preview || sourceName,
             mode: input.segmentMode ?? 'general',
@@ -172,13 +289,39 @@ export const useDifyStore = defineStore('difySurface', {
           })
         }
       } catch (error) {
-        await difyApi.deleteKnowledgeDataset(dataset.id).catch(() => undefined)
-        this.datasets = this.datasets.filter((item) => item.id !== dataset.id)
-        this.selectedDatasetId = this.datasets[0]?.id ?? ''
+        try {
+          if (createdNewDataset) {
+            await difyApi.deleteKnowledgeDataset(dataset.id)
+          }
+          this.pendingWizardDatasetId = createdNewDataset ? '' : dataset.id
+        } catch (cleanupError) {
+          this.pendingWizardDatasetId = dataset.id
+          this.error = cleanupError instanceof Error
+            ? `${i18n.global.t('knowledge.flow.cleanupFailed')}: ${cleanupError.message}`
+            : i18n.global.t('knowledge.flow.cleanupFailed')
+        }
+        if (createdNewDataset && !this.pendingWizardDatasetId) {
+          this.datasets = this.datasets.filter((item) => item.id !== dataset.id)
+          this.selectedDatasetId = this.datasets[0]?.id ?? ''
+          this.pendingWizardDataset = null
+        }
+        this.pendingWizardPersistenceComplete = false
         throw error
       }
-      await this.refreshDatasets()
-      await this.refreshDatasetContent(dataset.id)
+      this.pendingWizardDatasetId = dataset.id
+      this.pendingWizardPersistenceComplete = true
+      try {
+        await this.refreshDatasets()
+        await this.refreshDatasetContent(dataset.id)
+      } catch (error) {
+        this.error = error instanceof Error ? error.message : i18n.global.t('common.error')
+        throw error
+      }
+      this.pendingWizardDatasetId = ''
+      this.pendingWizardPersistenceComplete = false
+      this.pendingWizardDataset = null
+      this.pendingWizardIdempotencyKey = ''
+      this.pendingWizardDocumentIdempotencyKey = ''
       this.retrievalResults = []
 
       return dataset
@@ -188,7 +331,13 @@ export const useDifyStore = defineStore('difySurface', {
       this.datasets = this.datasets.filter((dataset) => dataset.id !== datasetId)
       this.documents = this.documents.filter((document) => document.datasetId !== datasetId)
       this.segments = this.segments.filter((segment) => segment.datasetId !== datasetId)
+      this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => id !== datasetId)
       this.retrievalResults = []
+      if (this.pendingKnowledgeImportKey.startsWith(`[\"${datasetId}\"`)) {
+        this.pendingKnowledgeImportKey = ''
+        this.pendingKnowledgeImportIdempotencyKey = ''
+        this.pendingKnowledgeImportPersisted = false
+      }
       if (this.selectedDatasetId === datasetId) {
         this.selectedDatasetId = this.datasets[0]?.id ?? ''
       }
