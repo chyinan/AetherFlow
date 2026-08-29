@@ -1,5 +1,8 @@
 package com.aetherflow.workflow.knowledge.service.impl;
 
+// pattern: Mixed (needs refactoring)
+// 说明：历史实现同时包含持久化编排与检索排序；新增文档预处理逻辑已提取到 Functional Core。
+
 import com.aetherflow.common.core.PageResult;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -228,12 +231,24 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
         LocalDateTime now = LocalDateTime.now();
-        String content = preprocessContent(request);
+        String content = KnowledgeDocumentPreparation.preprocessContent(
+                request.getContent(),
+                Boolean.TRUE.equals(request.getCleanSpaces()),
+                Boolean.TRUE.equals(request.getCleanUrls())
+        );
         if (!hasText(content)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document content is required");
         }
-        List<TextChunk> chunks = textSplitter.split(content, defaultNumber(request.getChunkSize(), DEFAULT_CHUNK_SIZE),
-                defaultNumber(request.getOverlap(), DEFAULT_OVERLAP), request.getDelimiter());
+        KnowledgeDocumentPreparation.ChunkSettings chunkSettings = KnowledgeDocumentPreparation.resolveChunkSettings(
+                request.getChunkSize(), request.getOverlap(), DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+        boolean parentChildMode = "parentChild".equalsIgnoreCase(
+                defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
+        KnowledgeDocumentPreparation.validateProjectedChunkCount(
+                content, chunkSettings, request.getDelimiter(), parentChildMode);
+        List<TextChunk> chunks = textSplitter.split(
+                content, chunkSettings.chunkSize(), chunkSettings.overlap(), request.getDelimiter());
+        int persistedChunkCount = parentChildMode ? chunks.size() + (chunks.size() + 1) / 2 : chunks.size();
+        KnowledgeDocumentPreparation.validateChunkCount(persistedChunkCount);
         String embeddingModel = defaultText(dataset.getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL);
         List<EmbeddingResult> embeddings = semanticModel(embeddingModel)
                 ? embedChunks(chunks, embeddingModel)
@@ -247,8 +262,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         document.setFileId(request.getFileId());
         document.setMode(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
         document.setCharCount(content.length());
-        boolean parentChildMode = "parentChild".equalsIgnoreCase(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
-        int persistedChunkCount = parentChildMode ? chunks.size() + (chunks.size() + 1) / 2 : chunks.size();
         document.setChunkCount(persistedChunkCount);
         document.setRecallCount(0);
         document.setStatus(STATUS_READY);
@@ -766,19 +779,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private double chunkQualityScore(String text) {
         int length = text == null ? 0 : text.strip().length();
         return Math.min(0.95D, Math.max(0.1D, length / 1024D));
-    }
-
-    private String preprocessContent(DocumentCreateRequest request) {
-        String content = request.getContent() == null ? "" : request.getContent();
-        if (Boolean.TRUE.equals(request.getCleanSpaces())) {
-            content = content.replaceAll("[ \\t]+", " ")
-                    .replaceAll(" *\\r?\\n *", "\n")
-                    .replaceAll("\\n{3,}", "\\n\\n");
-        }
-        if (Boolean.TRUE.equals(request.getCleanUrls())) {
-            content = content.replaceAll("https?://[^\\s]+", "[URL]");
-        }
-        return content.strip();
     }
 
     private String contentText(KnowledgeChunkEntity chunk) {

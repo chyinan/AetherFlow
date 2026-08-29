@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
@@ -14,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class LlmNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public LlmNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -28,7 +31,7 @@ public class LlmNodeExecutor extends AbstractAiWorkflowNodeExecutor {
         }
         Map<String, Object> payload = payload(config, prompt);
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", payload);
-        return aiResult(response, Map.of());
+        return aiResult(response);
     }
 
     protected Map<String, Object> payload(Map<String, Object> config, String prompt) {
@@ -47,18 +50,19 @@ public class LlmNodeExecutor extends AbstractAiWorkflowNodeExecutor {
     }
 
     protected String prompt(Map<String, Object> config, WorkflowContext context) {
-        Object value = NodeValueSupport.valueFromConfigOrVariable(
+        Object promptValue = NodeValueSupport.valueFromConfigOrVariable(
                 config, context, "prompt", "promptVariable", "prompt");
-        if (value == null) {
-            value = NodeValueSupport.valueFromConfigOrVariable(
-                    config, context, "context", "contextVariable", "context");
+        Object contextValue = NodeValueSupport.valueFromConfigOrVariable(
+                config, context, "context", "contextVariable", "context");
+        if (promptValue == null) {
+            promptValue = context.variables().get("question");
         }
-        if (value == null) {
-            value = context.variables().get("question");
+        if (promptValue == null) {
+            promptValue = context.variables().get("text");
         }
-        if (value == null) {
-            value = context.variables().get("text");
-        }
-        return NodeValueSupport.stringValue(value);
+        return LlmPromptComposer.compose(
+                NodeValueSupport.stringValue(promptValue),
+                NodeValueSupport.stringValue(contextValue)
+        );
     }
 }

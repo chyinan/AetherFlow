@@ -1,6 +1,11 @@
 package com.aetherflow.workflow.knowledge.dto;
 
+// pattern: Functional Core
+
+import com.aetherflow.workflow.knowledge.KnowledgeDocumentLimits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -32,9 +37,19 @@ public final class KnowledgeDtos {
         private String sourceName;
         private String sourceType;
         private String fileId;
+        @NotBlank(message = "knowledge document content is required")
+        @Size(max = KnowledgeDocumentLimits.MAX_DOCUMENT_CHARS,
+                message = "knowledge document content must not exceed 1000000 characters")
         private String content;
         private String mode;
+        @Min(value = KnowledgeDocumentLimits.MIN_CHUNK_SIZE,
+                message = "knowledge document chunkSize must be at least 64")
+        @Max(value = KnowledgeDocumentLimits.MAX_CHUNK_SIZE,
+                message = "knowledge document chunkSize must not exceed 16384")
         private Integer chunkSize;
+        @Min(value = 0, message = "knowledge document overlap must be at least 0")
+        @Max(value = KnowledgeDocumentLimits.MAX_OVERLAP,
+                message = "knowledge document overlap must not exceed 4096")
         private Integer overlap;
         private String delimiter;
         private Boolean cleanSpaces;

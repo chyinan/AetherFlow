@@ -1,6 +1,7 @@
 package com.aetherflow.workflow.knowledge.service;
 
 import com.aetherflow.common.core.PageResult;
+import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.SimpleTextSplitter;
 import com.aetherflow.workflow.embedding.EmbeddingResult;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -122,8 +124,8 @@ class KnowledgeServiceImplTest {
         DocumentCreateRequest request = new DocumentCreateRequest();
         request.setSourceName("workflow-runbook.md");
         request.setSourceType("input");
-        request.setContent("abcdefghi");
-        request.setChunkSize(5);
+        request.setContent("a".repeat(64) + "b".repeat(63));
+        request.setChunkSize(64);
         request.setOverlap(1);
         doAnswer(invocation -> {
             KnowledgeDocumentEntity entity = invocation.getArgument(0);
@@ -138,12 +140,166 @@ class KnowledgeServiceImplTest {
         ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
         verify(chunkMapper, times(2)).insert(chunkCaptor.capture());
         assertThat(chunkCaptor.getAllValues()).extracting(KnowledgeChunkEntity::getPreview)
-                .containsExactly("abcde", "efghi");
+                .containsExactly("a".repeat(64), "a" + "b".repeat(63));
         assertThat(chunkCaptor.getAllValues().get(0).getMetadataJson()).contains("\"sourceType\":\"input\"");
         verify(datasetMapper).updateById(dataset);
         assertThat(dataset.getDocumentCount()).isEqualTo(1);
         assertThat(dataset.getChunkCount()).isEqualTo(2);
         assertThat(dataset.getHitRate()).isEqualTo(92);
+    }
+
+    @Test
+    void cleanSpacesCollapsesThreeOrMoreLineBreaksToTwoRealLineBreaks() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("multiline.md");
+        request.setContent("第一段  \n\n\n\n  第二段");
+        request.setCleanSpaces(true);
+        request.setChunkSize(128);
+        request.setOverlap(0);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        asUser(7L, () -> service.createDocument(11L, request));
+
+        ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
+        verify(chunkMapper).insert(chunkCaptor.capture());
+        assertThat(chunkCaptor.getValue().getPreview()).isEqualTo("第一段\n\n第二段");
+    }
+
+    @Test
+    void cleanSpacesLeavesAlreadyNormalizedLineBreaksUnchanged() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("normalized.md");
+        request.setContent("第一段\n\n第二段");
+        request.setCleanSpaces(true);
+        request.setChunkSize(128);
+        request.setOverlap(0);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        asUser(7L, () -> service.createDocument(11L, request));
+
+        ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
+        verify(chunkMapper).insert(chunkCaptor.capture());
+        assertThat(chunkCaptor.getValue().getPreview()).isEqualTo(request.getContent());
+    }
+
+    @Test
+    void preservesExplicitZeroOverlapWhenCreatingDocumentChunks() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setSourceName("no-overlap.md");
+        request.setContent("a".repeat(64) + "b".repeat(64));
+        request.setChunkSize(64);
+        request.setOverlap(0);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        assertThatCode(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .doesNotThrowAnyException();
+
+        ArgumentCaptor<KnowledgeChunkEntity> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunkEntity.class);
+        verify(chunkMapper, times(2)).insert(chunkCaptor.capture());
+        assertThat(chunkCaptor.getAllValues()).extracting(KnowledgeChunkEntity::getPreview)
+                .containsExactly("a".repeat(64), "b".repeat(64));
+    }
+
+    @Test
+    void rejectsNegativeChunkSizeAsBadRequest() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("content");
+        request.setChunkSize(-1);
+        request.setOverlap(0);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("chunkSize must be between 64 and 16384");
+    }
+
+    @Test
+    void rejectsNegativeOverlapAsBadRequest() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("content");
+        request.setChunkSize(128);
+        request.setOverlap(-1);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("overlap must be between 0 and 4096");
+    }
+
+    @Test
+    void rejectsOverlapEqualToChunkSizeAsBadRequest() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("content");
+        request.setChunkSize(128);
+        request.setOverlap(128);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("overlap must be smaller than chunkSize");
+    }
+
+    @Test
+    void rejectsChunkSizeAboveBusinessResourceLimit() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("content");
+        request.setChunkSize(16_385);
+        request.setOverlap(0);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("chunkSize must be between 64 and 16384");
+    }
+
+    @Test
+    void rejectsDocumentAboveBusinessCharacterLimit() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("a".repeat(1_000_001));
+        request.setChunkSize(16_384);
+        request.setOverlap(0);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("content must not exceed 1000000 characters");
+    }
+
+    @Test
+    void rejectsProjectedChunkCountAboveBusinessLimit() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setContent("a".repeat(2_064));
+        request.setChunkSize(64);
+        request.setOverlap(63);
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("chunk count must not exceed 2000");
     }
 
     @Test
@@ -184,9 +340,9 @@ class KnowledgeServiceImplTest {
         when(datasetMapper.selectById(11L)).thenReturn(dataset);
         DocumentCreateRequest request = new DocumentCreateRequest();
         request.setSourceName("parent-child.md");
-        request.setContent("abcdefghijklmno");
-        request.setChunkSize(5);
-        request.setOverlap(1);
+        request.setContent("a".repeat(256));
+        request.setChunkSize(64);
+        request.setOverlap(0);
         request.setMode("parentChild");
         doAnswer(invocation -> {
             KnowledgeDocumentEntity entity = invocation.getArgument(0);
