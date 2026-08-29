@@ -24,6 +24,7 @@ Thumbs.db
 *.log
 logs/
 .worktrees/
+.hermes/
 application-local.yml
 application-*.local.yml
 .env
