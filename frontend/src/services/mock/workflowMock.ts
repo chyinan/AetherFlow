@@ -1,3 +1,4 @@
+// pattern: Functional Core
 import type { NodeTemplate, WorkflowDefinition, WorkflowSummary } from '@/types/workflow'
 
 export const nodeTemplates: NodeTemplate[] = [
@@ -197,7 +198,7 @@ export const nodeTemplates: NodeTemplate[] = [
   {
     kind: 'agent',
     label: 'Agent',
-    description: 'Plan and execute multi-step actions.',
+    description: 'Generate a multi-step plan and action log; this node does not execute tools.',
     category: 'AI',
     catalog: 'node',
     group: 'recommended',

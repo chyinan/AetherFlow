@@ -1,3 +1,4 @@
+// pattern: Functional Core
 export const enUS = {
   app: {
     name: 'AetherFlow',
@@ -721,7 +722,7 @@ export const enUS = {
         },
         agent: {
           label: 'Agent',
-          description: 'Plan and execute multi-step actions.',
+          description: 'Generate a multi-step plan and action log; this node does not execute tools.',
         },
         'question-understand': {
           label: 'Question Understand',

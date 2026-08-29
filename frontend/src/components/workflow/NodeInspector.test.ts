@@ -106,6 +106,23 @@ describe('节点配置与后端执行语义一致', () => {
     expect(llmPanel).toContain("handleTextInput('contextVariable'")
   })
 
+  it('LLM 面板不展示后端未实现的视觉、节点重试和 fallback 配置', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const llmPanel = source.slice(source.indexOf("selectedKind === 'llm'"), source.indexOf("selectedKind === 'knowledge-retrieval'"))
+
+    expect(llmPanel).not.toContain("boolConfig('vision'")
+    expect(llmPanel).not.toContain("boolConfig('retry'")
+    expect(llmPanel).not.toContain("textConfig('exceptionHandling'")
+  })
+
+  it('代码节点只允许后端实际支持的 Python 3', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const codePanel = source.slice(source.indexOf("selectedKind === 'code'"), source.indexOf("selectedKind === 'template-transform'"))
+
+    expect(codePanel).toContain('<option value="python3">Python 3</option>')
+    expect(codePanel).not.toContain('<option value="javascript">JavaScript</option>')
+  })
+
   it('问题理解和翻译面板暴露可绑定的输入变量', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
     const understandPanel = source.slice(source.indexOf("selectedKind === 'question-understand'"), source.indexOf("selectedKind === 'question-classifier'"))

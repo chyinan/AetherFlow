@@ -268,6 +268,7 @@ onMounted(() => {
       <VueFlow
         v-model:nodes="nodes"
         v-model:edges="edges"
+        :delete-key-code="null"
         class="h-full"
         :default-viewport="{ zoom: 0.84, x: 0, y: 0 }"
         :min-zoom="0.4"

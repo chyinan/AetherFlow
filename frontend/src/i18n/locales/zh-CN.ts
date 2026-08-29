@@ -1,3 +1,4 @@
+// pattern: Functional Core
 export const zhCN = {
   app: {
     name: 'AetherFlow',
@@ -721,7 +722,7 @@ export const zhCN = {
         },
         agent: {
           label: 'Agent',
-          description: '规划并执行多步骤动作。',
+          description: '仅生成多步骤执行计划和动作日志，不执行工具调用。',
         },
         'question-understand': {
           label: '问题理解',

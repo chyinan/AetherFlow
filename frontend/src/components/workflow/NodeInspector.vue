@@ -797,10 +797,6 @@ onMounted(() => {
             <textarea class="min-h-24 w-full resize-y rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.contextTextPlaceholder')" :value="textConfig('context', '')" @input="handleTextInput('context', $event)" />
           </label>
           <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.vision') }}
-            <input type="checkbox" class="h-5 w-9 rounded-full accent-primary" :checked="boolConfig('vision', false)" @change="handleToggle('vision', $event)" />
-          </label>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
             {{ t('workflow.inspector.reasoningTags') }}
             <input type="checkbox" class="h-5 w-9 rounded-full accent-primary" :checked="boolConfig('reasoningTags', false)" @change="handleToggle('reasoningTags', $event)" />
           </label>
@@ -813,17 +809,6 @@ onMounted(() => {
               </label>
             </div>
           </div>
-          <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
-            {{ t('workflow.inspector.retryOnFailure') }}
-            <input type="checkbox" class="accent-primary" :checked="boolConfig('retry', false)" @change="handleToggle('retry', $event)" />
-          </label>
-          <label class="block border-t border-app-border pt-4">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.exceptionHandling') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm" :value="textConfig('exceptionHandling', 'none')" @change="handleTextInput('exceptionHandling', $event)">
-              <option value="none">{{ t('workflow.inspector.none') }}</option>
-              <option value="fallback">{{ t('workflow.inspector.fallback') }}</option>
-            </select>
-          </label>
         </section>
 
         <section v-else-if="selectedKind === 'knowledge-retrieval'" class="space-y-5 p-5">
@@ -1137,8 +1122,6 @@ onMounted(() => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.codeLanguage') }}</span>
             <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'python3')" @change="handleTextInput('language', $event)">
               <option value="python3">Python 3</option>
-              <option value="javascript">JavaScript</option>
-              <option value="text">Text</option>
             </select>
           </label>
 

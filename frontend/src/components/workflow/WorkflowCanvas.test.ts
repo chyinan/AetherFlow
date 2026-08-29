@@ -9,6 +9,7 @@ describe('工作流画布删除操作', () => {
 
     expect(source).toContain('deleteNodeConfirm')
     expect(source).toContain('window.confirm')
+    expect(source).toContain(':delete-key-code="null"')
   })
 })
 

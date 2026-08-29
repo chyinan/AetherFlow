@@ -1,5 +1,6 @@
 import { enUS } from './en-US'
 
+// pattern: Functional Core
 export const jaJP = {
   app: {
     name: 'AetherFlow',
@@ -723,7 +724,7 @@ export const jaJP = {
         },
         agent: {
           label: 'エージェント',
-          description: '複数ステップのアクションを計画・実行します。',
+          description: '複数ステップの計画とアクションログのみを生成し、ツールは実行しません。',
         },
         'question-understand': {
           label: '質問理解',
