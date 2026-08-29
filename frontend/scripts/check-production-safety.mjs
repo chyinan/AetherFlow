@@ -76,6 +76,8 @@ assertExcludes(workflowNodeCatalog, '"MOCK",\n                "Mock"', 'public w
 assertIncludes(compose, 'ENABLE_WHISPER: ${ENABLE_WHISPER:-false}', 'production compose must keep Whisper opt-in')
 assertIncludes(compose, 'ENABLE_LLM: ${ENABLE_LLM:-false}', 'production compose must keep local LLM loading opt-in')
 assertIncludes(compose, 'WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}', 'production workflows must use asynchronous AI tasks by default')
+assertIncludes(compose, 'WORKFLOW_CODE_EXECUTION_ENABLED: ${WORKFLOW_CODE_EXECUTION_ENABLED:-false}', 'production compose must keep code execution disabled until a resource-isolated runtime is configured')
+assertIncludes(envExample, 'WORKFLOW_CODE_EXECUTION_ENABLED=false', 'environment template must keep code execution disabled by default')
 assertIncludes(compose, 'MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces', 'Java services must export traces through OTLP')
 assertIncludes(compose, 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces', 'Python service must export traces through OTLP')
 assertIncludes(compose, 'SPRING_RABBITMQ_TEMPLATE_OBSERVATION_ENABLED: "true"', 'RabbitMQ producers must emit observations')
