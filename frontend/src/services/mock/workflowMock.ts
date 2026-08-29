@@ -92,7 +92,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'AI',
     catalog: 'node',
     group: 'recommended',
-    config: { model: '', context: '', vision: false, reasoningTags: false, structuredOutput: false, retry: false, exceptionHandling: 'none', temperature: 0.3, maxTokens: 1200 },
+    config: { model: '', context: '', reasoningTags: false, structuredOutput: false, temperature: 0.3, maxTokens: 1200 },
     inputs: ['prompt.text', 'context.text'],
     outputs: ['completion.text', 'json.data'],
   },
