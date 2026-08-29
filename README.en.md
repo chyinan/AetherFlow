@@ -139,6 +139,8 @@ npm install
 npm run build
 ```
 
+Workflow code execution is disabled by default (`WORKFLOW_CODE_EXECUTION_ENABLED=false`). The current Python subprocess runtime enforces syntax, timeout, and output-size limits, but it does not provide container-level CPU, memory, filesystem, or network isolation. Do not enable it for untrusted production users until a separately isolated runtime has passed security validation.
+
 ### Start With Docker
 
 ```powershell
