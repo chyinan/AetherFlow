@@ -250,6 +250,13 @@ public class WorkflowRuntimeEngine {
         Objects.requireNonNull(resultFactory, "resultFactory must not be null");
         return withWorkflowLock(workflowId, () -> {
             WorkflowRuntimeSnapshot stored = requiredSnapshot(workflowId);
+            if (stateMachine.isTerminal(stored.runtimeState())) {
+                return stored.toExecutionSnapshot();
+            }
+            if (stored.runtimeState() != RuntimeState.WAITING) {
+                throw new IllegalStateException("workflow is not ready for external completion: "
+                        + workflowId + " state=" + stored.runtimeState());
+            }
             validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
             NodeResult result = Objects.requireNonNull(
                     resultFactory.apply(stored), "external completion result must not be null");
