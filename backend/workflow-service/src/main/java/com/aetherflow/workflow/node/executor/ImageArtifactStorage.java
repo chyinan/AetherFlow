@@ -19,8 +19,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.UUID;
 
+// pattern: Imperative Shell
 @Component
 public class ImageArtifactStorage {
+
+    private static final int MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
     private final MinioClient minioClient;
     private final FileMetadataClient fileClient;
@@ -56,8 +59,23 @@ public class ImageArtifactStorage {
         if (base64 == null || base64.isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "generated image data is empty");
         }
+        String encoded = base64.trim();
+        if (encoded.regionMatches(true, 0, "data:", 0, 5)) {
+            int comma = encoded.indexOf(',');
+            if (comma < 0) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "generated image data URI is invalid");
+            }
+            encoded = encoded.substring(comma + 1);
+        }
+        if (encoded.length() > ((MAX_IMAGE_BYTES + 2) / 3) * 4) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "generated image exceeds the 20 MB limit");
+        }
         try {
-            return Base64.getDecoder().decode(base64);
+            byte[] decoded = Base64.getDecoder().decode(encoded);
+            if (decoded.length > MAX_IMAGE_BYTES) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "generated image exceeds the 20 MB limit");
+            }
+            return decoded;
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "generated image data is invalid base64");
         }
@@ -101,9 +119,13 @@ public class ImageArtifactStorage {
     }
 
     private String contentType(ImageWorkflowDtos.GeneratedImage image) {
-        return image.getContentType() == null || image.getContentType().isBlank()
+        String contentType = image.getContentType() == null || image.getContentType().isBlank()
                 ? "image/png"
-                : image.getContentType();
+                : image.getContentType().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!java.util.Set.of("image/png", "image/jpeg", "image/webp", "image/gif").contains(contentType)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "generated image content type is invalid");
+        }
+        return contentType;
     }
 
     private String sanitize(String value) {
