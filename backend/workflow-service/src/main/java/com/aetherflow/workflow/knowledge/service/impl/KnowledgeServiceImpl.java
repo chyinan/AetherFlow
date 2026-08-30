@@ -385,10 +385,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         query = query.trim();
         Map<String, Object> metadataFilter = parseMetadataFilter(request == null ? null : request.getMetadataFilter());
         Set<String> queryTokens = tokenize(query);
-        List<Double> queryVector = List.of();
+        List<Double> embeddedQueryVector = List.of();
         if (semanticModel(dataset.getEmbeddingModel()) && hasText(query)) {
             try {
-                queryVector = embedQuery(query, dataset.getEmbeddingModel());
+                embeddedQueryVector = embedQuery(query, dataset.getEmbeddingModel());
             } catch (BusinessException exception) {
                 // Semantic retrieval is an enhancement; a provider outage must
                 // degrade to the indexed lexical path instead of taking down RAG.
@@ -396,6 +396,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                         datasetId, exception.getMessage());
             }
         }
+        List<Double> queryVector = List.copyOf(embeddedQueryVector);
         boolean semanticSearch = !queryVector.isEmpty();
         List<KnowledgeChunkEntity> storedChunks = loadRetrievalCandidates(datasetId, query, queryTokens, semanticSearch);
         boolean hasCompatibleSemanticCandidate = semanticSearch && storedChunks.stream()
