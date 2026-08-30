@@ -1,6 +1,7 @@
 // pattern: Mixed (needs refactoring)
 import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
+import { toRaw } from 'vue'
 
 import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node'
 import { i18n } from '@/i18n'
@@ -26,6 +27,32 @@ function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
     position: node.position,
     data: node.data,
   })))
+}
+
+type WorkflowGraphHistoryEntry = {
+  nodes: WorkflowGraphNode[]
+  edges: WorkflowGraphEdge[]
+}
+
+function cloneGraph(nodes: WorkflowGraphNode[], edges: WorkflowGraphEdge[]): WorkflowGraphHistoryEntry {
+  return {
+    nodes: nodes.map((node) => {
+      const rawNode = toRaw(node)
+      const rawData = toRaw(rawNode.data)
+      return {
+        ...rawNode,
+        position: { ...toRaw(rawNode.position) },
+        data: {
+          ...rawData,
+          config: { ...toRaw(rawData.config) },
+          inputs: [...rawData.inputs],
+          outputs: [...rawData.outputs],
+          ...(rawData.runtime ? { runtime: { ...toRaw(rawData.runtime) } } : {}),
+        },
+      }
+    }),
+    edges: edges.map((edge) => ({ ...toRaw(edge) })),
+  }
 }
 
 let nodeCounter = 10
@@ -176,8 +203,19 @@ export const useWorkflowStore = defineStore('workflow', {
     saving: false,
     savingError: null as string | null,
     runError: null as string | null,
+    historyPast: [] as WorkflowGraphHistoryEntry[],
+    historyFuture: [] as WorkflowGraphHistoryEntry[],
+    historyLimit: 50,
   }),
+  getters: {
+    canUndo: (state) => state.historyPast.length > 0,
+    canRedo: (state) => state.historyFuture.length > 0,
+  },
   actions: {
+    recordHistory() {
+      this.historyPast = [...this.historyPast, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
+      this.historyFuture = []
+    },
     markDirty() {
       this.editRevision += 1
       this.dirty = true
@@ -202,12 +240,16 @@ export const useWorkflowStore = defineStore('workflow', {
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
+      if (changed) {
+        this.recordHistory()
+      }
       this.nodes = nodes
       if (changed) {
         this.markDirty()
       }
     },
     setEdges(edges: WorkflowGraphEdge[]) {
+      this.recordHistory()
       this.edges = edges
       this.markDirty()
     },
@@ -216,6 +258,7 @@ export const useWorkflowStore = defineStore('workflow', {
         return
       }
       const source = this.nodes.find((node) => node.id === connection.source)
+      this.recordHistory()
       const outgoingCount = this.edges.filter((edge) => edge.source === connection.source).length
       this.edges.push({
         ...connection,
@@ -226,6 +269,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.markDirty()
     },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
+      this.recordHistory()
       const node = createNodeFromTemplate(template, position)
       this.nodes.push(node)
       this.markDirty()
@@ -247,6 +291,7 @@ export const useWorkflowStore = defineStore('workflow', {
         position.y += 150
       }
       const node = createNodeFromTemplate(template, position)
+      this.recordHistory()
       this.nodes.push(node)
       this.edges.push({
         id: `edge-${edgeCounter++}`,
@@ -259,6 +304,7 @@ export const useWorkflowStore = defineStore('workflow', {
       return node
     },
     applyMediaSummaryWorkflowDraft() {
+      this.recordHistory()
       const maxX = this.nodes.reduce((value, node) => Math.max(value, node.position.x), 0)
       const graph = buildMediaSummaryDraftGraph(this.templates, {
         idPrefix: `copilot-media-${Date.now()}`,
@@ -282,12 +328,16 @@ export const useWorkflowStore = defineStore('workflow', {
         position: findDuplicateNodePosition(source, this.nodes),
         lastResult: i18n.global.t('workflow.mockResults.newNode'),
       })
+      this.recordHistory()
       this.nodes.push(node)
       this.markDirty()
       return node
     },
     deleteNode(nodeId: string) {
       const beforeLength = this.nodes.length
+      if (this.nodes.some((node) => node.id === nodeId)) {
+        this.recordHistory()
+      }
       this.nodes = this.nodes.filter((node) => node.id !== nodeId)
       this.edges = this.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
       if (this.nodes.length !== beforeLength) {
@@ -313,6 +363,7 @@ export const useWorkflowStore = defineStore('workflow', {
     updateNodeConfig(nodeId: string, key: string, value: unknown) {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
+        this.recordHistory()
         node.data.config[key] = value
         node.data.runtime = {
           ...node.data.runtime,
@@ -335,8 +386,11 @@ export const useWorkflowStore = defineStore('workflow', {
       this.loadingError = null
       this.savingError = null
       this.runError = null
+      this.historyPast = []
+      this.historyFuture = []
     },
     clearCurrentWorkflow() {
+      this.recordHistory()
       this.nodes = cloneNodes()
       this.edges = cloneEdges()
       this.markDirty()
@@ -345,6 +399,32 @@ export const useWorkflowStore = defineStore('workflow', {
       this.dirty = false
       this.savingError = null
       this.runError = null
+    },
+    undo() {
+      const previous = this.historyPast.at(-1)
+      if (!previous) {
+        return false
+      }
+      this.historyPast = this.historyPast.slice(0, -1)
+      this.historyFuture = [...this.historyFuture, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
+      const restored = cloneGraph(previous.nodes, previous.edges)
+      this.nodes = restored.nodes
+      this.edges = restored.edges
+      this.markDirty()
+      return true
+    },
+    redo() {
+      const next = this.historyFuture.at(-1)
+      if (!next) {
+        return false
+      }
+      this.historyFuture = this.historyFuture.slice(0, -1)
+      this.historyPast = [...this.historyPast, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
+      const restored = cloneGraph(next.nodes, next.edges)
+      this.nodes = restored.nodes
+      this.edges = restored.edges
+      this.markDirty()
+      return true
     },
     async loadWorkflow(workflowId: string, options: { initialName?: string } = {}): Promise<boolean> {
       const requestId = ++workflowLoadRequestCounter
@@ -370,6 +450,8 @@ export const useWorkflowStore = defineStore('workflow', {
         this.projectId = workflow.projectId ?? null
         this.nodes = nextNodes
         this.edges = nextEdges
+        this.historyPast = []
+        this.historyFuture = []
         this.editRevision += 1
         this.dirty = Boolean(initialName)
         this.savingError = null

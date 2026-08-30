@@ -344,6 +344,8 @@ export const enUS = {
     returnToProjects: 'Back to projects',
     unsavedChangesConfirm: 'This workflow has unsaved changes. Leave without saving?',
     resetConfirm: 'Resetting clears unsaved nodes and connections in this workflow. Continue?',
+    undo: 'Undo',
+    redo: 'Redo',
     run: 'Run',
     waitingForInput: 'Waiting for external input',
     startingRun: 'Starting',

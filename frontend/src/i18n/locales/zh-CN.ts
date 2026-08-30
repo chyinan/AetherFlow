@@ -344,6 +344,8 @@ export const zhCN = {
     returnToProjects: '返回项目页',
     unsavedChangesConfirm: '当前工作流还有未保存的改动，确定要离开吗？',
     resetConfirm: '重置会清空当前工作流中尚未保存的节点和连线，确定继续吗？',
+    undo: '撤销',
+    redo: '重做',
     run: '运行',
     waitingForInput: '等待外部输入',
     startingRun: '启动中',

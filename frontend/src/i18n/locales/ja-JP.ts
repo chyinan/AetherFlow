@@ -346,6 +346,8 @@ export const jaJP = {
     returnToProjects: 'プロジェクトに戻る',
     unsavedChangesConfirm: 'このワークフローには未保存の変更があります。保存せずに移動しますか？',
     resetConfirm: 'リセットすると未保存のノードと接続が消去されます。続行しますか？',
+    undo: '元に戻す',
+    redo: 'やり直す',
     run: '実行',
     waitingForInput: '外部入力を待機中',
     startingRun: '開始中',

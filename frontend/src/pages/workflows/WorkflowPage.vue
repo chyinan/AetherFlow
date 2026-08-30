@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { FileJson, FolderKanban, LoaderCircle, PauseCircle, Play, Plus, RotateCcw, Save, Upload, Workflow } from 'lucide-vue-next'
+import { FileJson, FolderKanban, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -190,6 +190,26 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
   event.returnValue = ''
 }
 
+function handleEditorKeydown(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) {
+    return
+  }
+  const modifier = event.ctrlKey || event.metaKey
+  if (!modifier) {
+    return
+  }
+  if (event.key.toLowerCase() === 'z' && !event.shiftKey) {
+    if (workflowStore.undo()) {
+      event.preventDefault()
+    }
+  } else if (event.key.toLowerCase() === 'y' || (event.key.toLowerCase() === 'z' && event.shiftKey)) {
+    if (workflowStore.redo()) {
+      event.preventDefault()
+    }
+  }
+}
+
 function resetWorkflow() {
   if (workflowStore.dirty && !window.confirm(t('workflow.resetConfirm'))) {
     return
@@ -217,6 +237,7 @@ const initializingWorkflow = ref(hasWorkflowContext.value)
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('keydown', handleEditorKeydown)
   const projectReady = projectStore.loadProjects()
   const auxiliaryLoads = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
@@ -243,6 +264,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('keydown', handleEditorKeydown)
 })
 
 watch(
@@ -519,6 +541,14 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
           <LoaderCircle v-if="importingComfyUi" class="h-4 w-4 animate-spin" />
           <Upload v-else class="h-4 w-4" />
           {{ importingComfyUi ? t('workflow.importingComfyUi') : t('workflow.importComfyUi') }}
+        </button>
+        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" :title="t('workflow.undo')" :aria-label="t('workflow.undo')" :disabled="!workflowStore.canUndo" @click="workflowStore.undo">
+          <Undo2 class="h-4 w-4" />
+          <span class="hidden xl:inline">{{ t('workflow.undo') }}</span>
+        </button>
+        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" :title="t('workflow.redo')" :aria-label="t('workflow.redo')" :disabled="!workflowStore.canRedo" @click="workflowStore.redo">
+          <Redo2 class="h-4 w-4" />
+          <span class="hidden xl:inline">{{ t('workflow.redo') }}</span>
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary" @click="resetWorkflow">
           <RotateCcw class="h-4 w-4" />
