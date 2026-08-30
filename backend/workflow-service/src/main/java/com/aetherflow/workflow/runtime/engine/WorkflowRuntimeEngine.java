@@ -1278,7 +1278,9 @@ public class WorkflowRuntimeEngine {
         }
 
         List<String> skippedNodeIds() {
-            return List.copyOf(skippedNodeIds);
+            List<String> skipped = new ArrayList<>(skippedNodeIds);
+            skipped.sort(String::compareTo);
+            return List.copyOf(skipped);
         }
 
         boolean isWaiting(String nodeId) {
@@ -1292,6 +1294,7 @@ public class WorkflowRuntimeEngine {
         List<String> currentNodeIds() {
             List<String> current = new ArrayList<>(inFlightNodeIds);
             current.addAll(waitingNodeIds);
+            current.sort(String::compareTo);
             return List.copyOf(current);
         }
 

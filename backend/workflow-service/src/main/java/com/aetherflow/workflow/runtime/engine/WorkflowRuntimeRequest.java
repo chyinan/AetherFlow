@@ -5,6 +5,7 @@ import com.aetherflow.workflow.runtime.api.RetryPolicy;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashMap;
 
 public record WorkflowRuntimeRequest(
         String workflowId,
@@ -16,12 +17,24 @@ public record WorkflowRuntimeRequest(
         RetryPolicy retryPolicy
 ) {
 
+    // pattern: Functional Core
+
     public WorkflowRuntimeRequest {
         workflowId = requireText(workflowId, "workflowId");
         traceId = requireText(traceId, "traceId");
         taskId = requireText(taskId, "taskId");
         definition = Objects.requireNonNull(definition, "definition must not be null");
-        variables = variables == null ? Map.of() : Map.copyOf(variables);
+        if (variables == null || variables.isEmpty()) {
+            variables = Map.of();
+        } else {
+            Map<String, Object> safeVariables = new LinkedHashMap<>();
+            variables.forEach((key, value) -> {
+                if (key != null && value != null) {
+                    safeVariables.put(key, value);
+                }
+            });
+            variables = Map.copyOf(safeVariables);
+        }
         retryPolicy = retryPolicy == null ? RetryPolicy.none() : retryPolicy;
     }
 

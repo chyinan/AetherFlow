@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
 
+// pattern: Imperative Shell
 public class DefaultWorkflowContext implements WorkflowContext {
 
     private final String workflowId;
@@ -30,7 +31,11 @@ public class DefaultWorkflowContext implements WorkflowContext {
         this.traceId = requireText(traceId, "traceId");
         this.taskId = requireText(taskId, "taskId");
         if (initialVariables != null) {
-            variables.putAll(initialVariables);
+            initialVariables.forEach((key, value) -> {
+                if (key != null && value != null) {
+                    variables.put(key, value);
+                }
+            });
         }
     }
 

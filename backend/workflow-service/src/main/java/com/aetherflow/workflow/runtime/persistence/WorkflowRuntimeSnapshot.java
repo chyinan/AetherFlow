@@ -9,7 +9,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.LinkedHashMap;
 
+// pattern: Functional Core
 public record WorkflowRuntimeSnapshot(
         String workflowId,
         String traceId,
@@ -34,8 +36,10 @@ public record WorkflowRuntimeSnapshot(
         currentNodeIds = currentNodeIds == null ? List.of() : List.copyOf(currentNodeIds);
         completedNodeIds = completedNodeIds == null ? List.of() : List.copyOf(completedNodeIds);
         failedNodeIds = failedNodeIds == null ? List.of() : List.copyOf(failedNodeIds);
-        variables = variables == null ? Map.of() : Map.copyOf(variables);
-        nodeOutputs = nodeOutputs == null ? Map.of() : Map.copyOf(nodeOutputs);
+        variables = sanitizeVariables(variables);
+        nodeOutputs = nodeOutputs == null ? Map.of() : nodeOutputs.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
         updatedAt = updatedAt == null ? Instant.now() : updatedAt;
     }
 
@@ -88,5 +92,18 @@ public record WorkflowRuntimeSnapshot(
             throw new IllegalArgumentException(fieldName + " must not be blank");
         }
         return value;
+    }
+
+    private static Map<String, Object> sanitizeVariables(Map<String, Object> value) {
+        if (value == null || value.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> safe = new LinkedHashMap<>();
+        value.forEach((key, item) -> {
+            if (key != null && item != null) {
+                safe.put(key, item);
+            }
+        });
+        return Map.copyOf(safe);
     }
 }
