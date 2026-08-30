@@ -277,8 +277,9 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private void validateDag(WorkflowDefinitionDTO definition) {
         try {
-            WorkflowDag.from(definition);
+            WorkflowDag dag = WorkflowDag.from(definition);
             validateNodeTypes(definition);
+            validateExplicitStartRoots(definition, dag);
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow dag invalid: " + exception.getMessage());
         }
@@ -293,6 +294,22 @@ public class WorkflowServiceImpl implements WorkflowService {
             if (nodeRegistry.get(nodeType).isEmpty()) {
                 throw new IllegalArgumentException("unsupported workflow node type: " + nodeType.value());
             }
+        }
+    }
+
+    private void validateExplicitStartRoots(WorkflowDefinitionDTO definition, WorkflowDag dag) {
+        boolean hasExplicitStart = definition.getNodes().stream()
+                .anyMatch(node -> "START".equalsIgnoreCase(node.getNodeType()));
+        if (!hasExplicitStart) {
+            return;
+        }
+        Map<String, String> types = new LinkedHashMap<>();
+        definition.getNodes().forEach(node -> types.put(node.getNodeId(), node.getNodeType()));
+        boolean disconnectedRoot = dag.startNodeIds().stream()
+                .anyMatch(root -> !"START".equalsIgnoreCase(types.get(root)));
+        if (disconnectedRoot) {
+            throw new IllegalArgumentException(
+                    "workflow dag contains a disconnected root; connect every root to a START node");
         }
     }
 
