@@ -21,6 +21,7 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSumma
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
+import com.aetherflow.workflow.knowledge.KnowledgeDocumentLimits;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeChunkEntity;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeDatasetEntity;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeDocumentEntity;
@@ -30,6 +31,8 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
+import com.aetherflow.workflow.client.FileMetadataClient;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -54,6 +57,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import org.springframework.http.ResponseEntity;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -88,6 +93,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Autowired(required = false)
     private WorkflowDefinitionMapper workflowDefinitionMapper;
+
+    @Autowired(required = false)
+    private FileMetadataClient fileMetadataClient;
+
+    @Autowired(required = false)
+    private WorkflowNodeProperties workflowNodeProperties;
 
     public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
                                 KnowledgeDocumentMapper documentMapper,
@@ -252,8 +263,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             }
         }
         LocalDateTime now = LocalDateTime.now();
+        String rawContent = resolveDocumentContent(request);
         String content = KnowledgeDocumentPreparation.preprocessContent(
-                request.getContent(),
+                rawContent,
                 Boolean.TRUE.equals(request.getCleanSpaces()),
                 Boolean.TRUE.equals(request.getCleanUrls())
         );
@@ -819,6 +831,48 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             return;
         }
         documentMapper.incrementRecall(documentId, LocalDateTime.now());
+    }
+
+    private String resolveDocumentContent(DocumentCreateRequest request) {
+        if (hasText(request.getContent())) {
+            return request.getContent();
+        }
+        if (!hasText(request.getFileId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "knowledge document content or fileId is required");
+        }
+        long fileId;
+        try {
+            fileId = Long.parseLong(request.getFileId().trim());
+            if (fileId <= 0) {
+                throw new NumberFormatException("file id must be positive");
+            }
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document fileId is invalid");
+        }
+        if (fileMetadataClient == null || workflowNodeProperties == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "file content service is unavailable for knowledge ingestion");
+        }
+        Long userId = currentUserId();
+        ResponseEntity<byte[]> response;
+        try {
+            response = fileMetadataClient.downloadFile(
+                    workflowNodeProperties.issueFileInternalToken(), userId, fileId);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge source file download failed");
+        }
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge source file download failed");
+        }
+        byte[] bytes = response.getBody();
+        if (bytes.length > KnowledgeDocumentLimits.MAX_DOCUMENT_CHARS * 4L) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "knowledge document content must not exceed 1000000 characters");
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private boolean isDatasetReferencedByWorkflow(Long datasetId) {

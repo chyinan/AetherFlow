@@ -95,7 +95,7 @@ interface DocumentCreateInput {
   sourceName: string
   sourceType?: string
   fileId?: string
-  content: string
+  content?: string
   mode?: string
   chunkSize?: number
   overlap?: number

@@ -22,6 +22,8 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
+import com.aetherflow.workflow.client.FileMetadataClient;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -38,6 +40,8 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.List;
 import java.util.function.Supplier;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -61,6 +65,9 @@ class KnowledgeServiceImplTest {
 
     @Mock
     private KnowledgeChunkMapper chunkMapper;
+
+    @Mock
+    private FileMetadataClient fileMetadataClient;
 
     private KnowledgeServiceImpl service;
 
@@ -149,6 +156,32 @@ class KnowledgeServiceImplTest {
         assertThat(dataset.getDocumentCount()).isEqualTo(1);
         assertThat(dataset.getChunkCount()).isEqualTo(2);
         assertThat(dataset.getHitRate()).isEqualTo(92);
+    }
+
+    @Test
+    void readsDocumentContentFromOwnedFileWhenBrowserOmitsRawText() {
+        KnowledgeDatasetEntity dataset = dataset();
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        when(fileMetadataClient.downloadFile(any(String.class), any(Long.class), any(Long.class)))
+                .thenReturn(ResponseEntity.ok("content from file".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        ReflectionTestUtils.setField(service, "fileMetadataClient", fileMetadataClient);
+        WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
+        nodeProperties.setFileInternalToken("file-token-012345678901234567890123");
+        ReflectionTestUtils.setField(service, "workflowNodeProperties", nodeProperties);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity entity = invocation.getArgument(0);
+            entity.setId(22L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setFileId("91");
+        request.setSourceName("guide.md");
+        request.setChunkSize(128);
+        asUser(7L, () -> service.createDocument(11L, request));
+
+        verify(fileMetadataClient).downloadFile(any(), eq(7L), eq(91L));
+        verify(chunkMapper).insert(any(KnowledgeChunkEntity.class));
     }
 
     @Test

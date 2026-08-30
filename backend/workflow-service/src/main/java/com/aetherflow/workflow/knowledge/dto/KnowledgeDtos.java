@@ -11,10 +11,50 @@ import lombok.Data;
 
 import java.util.List;
 import java.util.Map;
+import jakarta.validation.Constraint;
+import jakarta.validation.ConstraintValidator;
+import jakarta.validation.ConstraintValidatorContext;
+import jakarta.validation.Payload;
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+
+import static java.lang.annotation.ElementType.ANNOTATION_TYPE;
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.TYPE;
+import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
 public final class KnowledgeDtos {
 
     private KnowledgeDtos() {
+    }
+
+    @Documented
+    @Constraint(validatedBy = DocumentSourcePresentValidator.class)
+    @Target({TYPE, ANNOTATION_TYPE})
+    @Retention(RUNTIME)
+    public @interface DocumentSourcePresent {
+        String message() default "knowledge document content or fileId is required";
+
+        Class<?>[] groups() default {};
+
+        Class<? extends Payload>[] payload() default {};
+    }
+
+    public static class DocumentSourcePresentValidator
+            implements ConstraintValidator<DocumentSourcePresent, DocumentCreateRequest> {
+        @Override
+        public boolean isValid(DocumentCreateRequest request, ConstraintValidatorContext context) {
+            if (request != null && ((request.getContent() != null && !request.getContent().isBlank())
+                    || (request.getFileId() != null && !request.getFileId().isBlank()))) {
+                return true;
+            }
+            context.disableDefaultConstraintViolation();
+            context.buildConstraintViolationWithTemplate(context.getDefaultConstraintMessageTemplate())
+                    .addPropertyNode("content")
+                    .addConstraintViolation();
+            return false;
+        }
     }
 
     @Data
@@ -31,13 +71,13 @@ public final class KnowledgeDtos {
     }
 
     @Data
+    @DocumentSourcePresent
     public static class DocumentCreateRequest {
         @Size(max = 128)
         private String idempotencyKey;
         private String sourceName;
         private String sourceType;
         private String fileId;
-        @NotBlank(message = "knowledge document content is required")
         @Size(max = KnowledgeDocumentLimits.MAX_DOCUMENT_CHARS,
                 message = "knowledge document content must not exceed 1000000 characters")
         private String content;
