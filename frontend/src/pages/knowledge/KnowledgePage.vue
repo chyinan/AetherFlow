@@ -17,7 +17,7 @@ import {
   Workflow,
   Zap,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -467,6 +467,9 @@ async function loadPage() {
 }
 
 onMounted(loadPage)
+onBeforeUnmount(() => {
+  difyStore.cancelIngestionRequests?.()
+})
 
 </script>
 
