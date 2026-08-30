@@ -88,6 +88,7 @@ aetherflow:
       ai-call-timeout: ${WORKFLOW_AI_NODE_CALL_TIMEOUT:10m}
       async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
       code-execution-enabled: ${WORKFLOW_CODE_EXECUTION_ENABLED:false}
+      code-runtime-isolation-confirmed: ${WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED:false}
       code-runtime-url: ${WORKFLOW_CODE_RUNTIME_URL:${PYTHON_AI_BASE_URL:http://python-ai-service:8200}}
       code-runtime-api-key: ${WORKFLOW_CODE_RUNTIME_API_KEY:}
       code-timeout-ms: ${WORKFLOW_CODE_TIMEOUT_MS:2000}

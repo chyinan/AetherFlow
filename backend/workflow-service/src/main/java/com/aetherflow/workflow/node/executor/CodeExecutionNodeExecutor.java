@@ -34,9 +34,9 @@ public class CodeExecutionNodeExecutor extends BaseNodeExecutor {
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
-        if (!properties.isCodeExecutionEnabled()) {
+        if (!properties.isCodeExecutionEnabled() || !properties.isCodeRuntimeIsolationConfirmed()) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    "code execution is disabled; configure an isolated code runtime before enabling this node");
+                    "code execution is unavailable; configure and confirm an isolated code runtime before enabling this node");
         }
         String code = NodeValueSupport.stringValue(config.get("code"), "").trim();
         if (code.isBlank()) {
