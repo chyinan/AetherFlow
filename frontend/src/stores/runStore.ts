@@ -56,6 +56,10 @@ function isTerminalRunStatus(status: WorkflowRun['status']) {
   return status === 'success' || status === 'failed'
 }
 
+function isCancelledRun(run: WorkflowRun | Partial<WorkflowRun>) {
+  return run.backendStatus === 'CANCELLED'
+}
+
 type RunRecoveryOptions = {
   readonly expectedRunId?: string
   readonly selectionRequestId?: number
@@ -283,8 +287,11 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      if (patch.status && isTerminalRunStatus(this.currentRun.status)
-        && (!isTerminalRunStatus(patch.status) || this.currentRun.status !== patch.status)) {
+      const currentTerminal = isTerminalRunStatus(this.currentRun.status) || isCancelledRun(this.currentRun)
+      const incomingTerminal = Boolean(patch.status && isTerminalRunStatus(patch.status)) || isCancelledRun(patch)
+      if (currentTerminal && (!incomingTerminal
+        || (patch.status && this.currentRun.status !== patch.status)
+        || (patch.backendStatus && this.currentRun.backendStatus !== patch.backendStatus))) {
         return
       }
       Object.assign(this.currentRun, patch)

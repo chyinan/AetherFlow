@@ -432,4 +432,14 @@ describe('真实运行初始化', () => {
 
     expect(runStore.currentRun.nodeStates[0]?.status).toBe('success')
   })
+
+  it('把已取消运行视为终态，忽略迟到的运行中事件', () => {
+    const runStore = useRunStore()
+    runStore.currentRun = { ...run('run-a'), status: 'paused', backendStatus: 'CANCELLED' }
+
+    runStore.patchCurrentRun({ status: 'running', backendStatus: 'RUNNING' })
+
+    expect(runStore.currentRun.status).toBe('paused')
+    expect(runStore.currentRun.backendStatus).toBe('CANCELLED')
+  })
 })
