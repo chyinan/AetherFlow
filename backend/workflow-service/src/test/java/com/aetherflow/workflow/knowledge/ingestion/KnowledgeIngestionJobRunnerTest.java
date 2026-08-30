@@ -1,6 +1,6 @@
 package com.aetherflow.workflow.knowledge.ingestion;
 
-import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
+import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +22,7 @@ class KnowledgeIngestionJobRunnerTest {
     @Test
     void claimsDueJobsAndDispatchesThemToWorkerExecutor() {
         KnowledgeIngestionJobMapper mapper = mock(KnowledgeIngestionJobMapper.class);
-        KnowledgeServiceImpl service = mock(KnowledgeServiceImpl.class);
+        KnowledgeService service = mock(KnowledgeService.class);
         KnowledgeIngestionProperties properties = new KnowledgeIngestionProperties();
         properties.setScanLimit(5);
         Executor executor = Runnable::run;

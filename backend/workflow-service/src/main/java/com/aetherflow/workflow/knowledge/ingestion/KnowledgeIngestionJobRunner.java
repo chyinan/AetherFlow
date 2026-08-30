@@ -1,6 +1,6 @@
 package com.aetherflow.workflow.knowledge.ingestion;
 
-import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
+import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +22,7 @@ public class KnowledgeIngestionJobRunner {
 
     private final KnowledgeIngestionJobMapper jobMapper;
     private final KnowledgeIngestionProperties properties;
-    private final KnowledgeServiceImpl knowledgeService;
+    private final KnowledgeService knowledgeService;
     @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
     private final Executor executor;
 
