@@ -34,7 +34,11 @@ public class CodeExecutionNodeExecutor extends BaseNodeExecutor {
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
-        if (!properties.isCodeExecutionEnabled() || !properties.isCodeRuntimeIsolationConfirmed()) {
+        if (!properties.isCodeExecutionEnabled()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "code execution is disabled");
+        }
+        if (!properties.isCodeRuntimeIsolationConfirmed()) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "code execution is unavailable; configure and confirm an isolated code runtime before enabling this node");
         }

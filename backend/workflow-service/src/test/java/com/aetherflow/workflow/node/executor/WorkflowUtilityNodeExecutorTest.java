@@ -204,6 +204,7 @@ class WorkflowUtilityNodeExecutorTest {
     void codeExecutionPassesInputToConfiguredIsolatedRuntime() throws Exception {
         WorkflowNodeProperties properties = new WorkflowNodeProperties();
         properties.setCodeExecutionEnabled(true);
+        properties.setCodeRuntimeIsolationConfirmed(true);
         CodeExecutionNodeExecutor executor = new CodeExecutionNodeExecutor(
                 new WorkflowNodeMetrics(),
                 properties,
