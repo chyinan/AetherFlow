@@ -81,6 +81,21 @@ class AiWorkflowNodeExecutorTest {
     }
 
     @Test
+    void llmNodeAutoWiresDefaultRetrievalContextWhenSelectorIsBlank() throws Exception {
+        AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
+        LlmNodeExecutor executor = new LlmNodeExecutor(new WorkflowNodeMetrics(), aiClient);
+        when(aiClient.execute(argThat(request -> "LLM".equals(request.getNodeType()))))
+                .thenReturn(Result.success(new AiWorkflowNodeResponseDTO("LLM", "SUCCEEDED", Map.of())));
+
+        executor.execute(context("llm", Map.of("promptVariable", "question"), Map.of(
+                "question", "what is RAG?",
+                "retrievalContext", "retrieved answer context")));
+
+        verify(aiClient).execute(argThat(request -> String.valueOf(request.getPayload().get("prompt"))
+                .contains("retrieved answer context")));
+    }
+
+    @Test
     void llmNodeCombinesFixedPromptAndFixedContextInPrompt() throws Exception {
         AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
         LlmNodeExecutor executor = new LlmNodeExecutor(new WorkflowNodeMetrics(), aiClient);

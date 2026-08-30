@@ -54,6 +54,12 @@ public class LlmNodeExecutor extends AbstractAiWorkflowNodeExecutor {
                 config, context, "prompt", "promptVariable", "prompt");
         Object contextValue = NodeValueSupport.valueFromConfigOrVariable(
                 config, context, "context", "contextVariable", "context");
+        if (contextValue == null) {
+            // KnowledgeRetrieval emits retrievalContext as its stable default
+            // output. Auto-wire it when the operator leaves the optional
+            // context selector blank, while still honoring explicit settings.
+            contextValue = context.variables().get("retrievalContext");
+        }
         if (promptValue == null) {
             promptValue = context.variables().get("question");
         }
