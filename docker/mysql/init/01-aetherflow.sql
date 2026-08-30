@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS af_project (
 CREATE TABLE IF NOT EXISTS af_task_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     workflow_instance_id BIGINT NOT NULL,
+    idempotency_key VARCHAR(128),
     user_id BIGINT NOT NULL DEFAULT 0,
     trace_id VARCHAR(64) NOT NULL,
     node_id VARCHAR(128) NOT NULL,
@@ -193,7 +194,8 @@ CREATE TABLE IF NOT EXISTS af_task_record (
     updated_at DATETIME NOT NULL,
     KEY idx_af_task_record_instance (workflow_instance_id),
     KEY idx_af_task_record_user (user_id),
-    KEY idx_af_task_record_status_retry (status, next_retry_at)
+    KEY idx_af_task_record_status_retry (status, next_retry_at),
+    UNIQUE KEY uk_af_task_record_idempotency (idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS af_ai_job (
