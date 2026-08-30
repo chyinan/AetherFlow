@@ -29,7 +29,6 @@ export interface KnowledgeSegment {
   tokens: number
   score: number
   status: SurfaceStatus
-  errorMessage?: string
 }
 
 export interface KnowledgeDocument {
@@ -43,6 +42,7 @@ export interface KnowledgeDocument {
   recallCount: number
   uploadedAt: string
   status: SurfaceStatus
+  errorMessage?: string
 }
 
 export interface MonitorMetric {

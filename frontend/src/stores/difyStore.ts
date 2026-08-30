@@ -476,7 +476,7 @@ export const useDifyStore = defineStore('difySurface', {
           return document
         }
         if (document?.status === 'warning') {
-          throw new Error(i18n.global.t('knowledge.flow.ingestionFailed'))
+          throw new Error(document.errorMessage || i18n.global.t('knowledge.flow.ingestionFailed'))
         }
         await waitForKnowledgePoll()
       }
