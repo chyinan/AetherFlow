@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import signal
+import math
 import tempfile
 import urllib.parse
 import uuid
@@ -515,6 +516,7 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
         cwd=cwd,
         env=env,
         start_new_session=(os.name != "nt"),
+        preexec_fn=(lambda: _set_code_resource_limits(timeout_seconds)) if os.name != "nt" else None,
     )
     try:
         stdout, stderr = process.communicate(timeout=timeout_seconds)
@@ -529,6 +531,22 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
         process.wait(timeout=2)
         raise subprocess.TimeoutExpired(command, timeout_seconds, output=exc.output, stderr=exc.stderr) from exc
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _set_code_resource_limits(timeout_seconds: float) -> None:
+    """Apply OS-level CPU/address-space limits before entering the untrusted runner."""
+    try:
+        import resource
+
+        cpu_seconds = max(1, math.ceil(timeout_seconds) + 1)
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+        memory_bytes = 256 * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, memory_bytes))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (16 * 1024 * 1024, 16 * 1024 * 1024))
+    except (ImportError, OSError, ValueError):
+        # Windows and restricted containers may not expose resource(7). The
+        # process-group kill/timeout guard remains active in those environments.
+        return
 
 
 def _validate_code(code: str) -> None:

@@ -41,6 +41,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
@@ -57,6 +58,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Service
+@Slf4j
 public class KnowledgeServiceImpl implements KnowledgeService {
 
     private static final String STATUS_READY = "ready";
@@ -383,9 +385,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         query = query.trim();
         Map<String, Object> metadataFilter = parseMetadataFilter(request == null ? null : request.getMetadataFilter());
         Set<String> queryTokens = tokenize(query);
-        List<Double> queryVector = semanticModel(dataset.getEmbeddingModel()) && hasText(query)
-                ? embedQuery(query, dataset.getEmbeddingModel())
-                : List.of();
+        List<Double> queryVector = List.of();
+        if (semanticModel(dataset.getEmbeddingModel()) && hasText(query)) {
+            try {
+                queryVector = embedQuery(query, dataset.getEmbeddingModel());
+            } catch (BusinessException exception) {
+                // Semantic retrieval is an enhancement; a provider outage must
+                // degrade to the indexed lexical path instead of taking down RAG.
+                log.warn("knowledge semantic retrieval degraded to lexical, datasetId={}, reason={}",
+                        datasetId, exception.getMessage());
+            }
+        }
         boolean semanticSearch = !queryVector.isEmpty();
         List<KnowledgeChunkEntity> storedChunks = loadRetrievalCandidates(datasetId, query, queryTokens, semanticSearch);
         boolean hasCompatibleSemanticCandidate = semanticSearch && storedChunks.stream()

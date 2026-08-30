@@ -72,7 +72,7 @@ describe('monitoring API mappings', () => {
       sourceName: 'guide.md',
       content: 'guide',
       idempotencyKey: 'document-op-1',
-    }, { source: 'workflow' })
+    }, { source: 'workflow', timeout: 10 * 60 * 1000 })
   })
 
   it('marks cost as unavailable instead of fabricating zero cost', async () => {

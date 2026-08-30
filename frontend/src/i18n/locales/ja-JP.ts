@@ -871,6 +871,7 @@ export const jaJP = {
   },
   knowledge: {
     unsupportedTextFile: 'ナレッジへの取り込みは、読み取り可能なテキスト、Markdown、JSON、XML、CSV、YAML ファイルに対応しています。',
+    documentTooLarge: 'ドキュメントが100万文字の上限を超えています。先に分割してください。',
     emptyTextFile: 'ファイルが空のため、ナレッジドキュメントを作成できません。',
     fileContentUnavailable: 'ファイル本文を読み取れませんでした。再アップロードしてからお試しください。',
     title: 'ナレッジ',

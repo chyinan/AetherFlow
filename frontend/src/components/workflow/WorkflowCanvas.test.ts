@@ -23,3 +23,13 @@ describe('工作流画布拖拽输入', () => {
     expect(dropHandler).toContain('const template = parseNodeTemplate(raw)')
   })
 })
+
+describe('工作流画布移动端布局', () => {
+  it('在窄屏下将节点面板置于画布上方并允许横向浏览', () => {
+    const source = readFileSync(fileURLToPath(new URL('./WorkflowCanvas.vue', import.meta.url)), 'utf8')
+
+    expect(source).toContain('grid-rows-[auto_minmax(0,1fr)]')
+    expect(source).toContain('overflow-x-auto')
+    expect(source).toContain('lg:grid-cols-[260px_minmax(0,1fr)]')
+  })
+})

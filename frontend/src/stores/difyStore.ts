@@ -56,6 +56,7 @@ function knowledgeImportKey(datasetId: string, file: FileAsset, options: Knowled
 }
 
 let operationSequence = 0
+const MAX_KNOWLEDGE_DOCUMENT_CHARS = 1_000_000
 
 function newOperationKey(prefix: string) {
   operationSequence += 1
@@ -407,6 +408,9 @@ export async function knowledgeContentFromFile(file: FileAsset) {
       if (!content.trim()) {
         throw new Error(i18n.global.t('knowledge.emptyTextFile'))
       }
+      if (content.length > MAX_KNOWLEDGE_DOCUMENT_CHARS) {
+        throw new Error(i18n.global.t('knowledge.documentTooLarge'))
+      }
       return content
     } catch (error) {
       if (!runtimeEnv.mockFallback) {
@@ -419,11 +423,15 @@ export async function knowledgeContentFromFile(file: FileAsset) {
     throw new Error(i18n.global.t('knowledge.fileContentUnavailable'))
   }
 
-  return [
+  const fallbackContent = [
     file.name,
     file.result,
     file.workflowName ? `workflow: ${file.workflowName}` : '',
     file.producerNode ? `producer: ${file.producerNode}` : '',
     file.objectKey ? `object: ${file.objectKey}` : '',
   ].filter(Boolean).join('\n')
+  if (fallbackContent.length > MAX_KNOWLEDGE_DOCUMENT_CHARS) {
+    throw new Error(i18n.global.t('knowledge.documentTooLarge'))
+  }
+  return fallbackContent
 }

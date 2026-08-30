@@ -869,6 +869,7 @@ export const zhCN = {
   },
   knowledge: {
     unsupportedTextFile: '当前知识库仅支持可读取正文的文本、Markdown、JSON、XML、CSV 和 YAML 文件。',
+    documentTooLarge: '文档内容超过 100 万字符上限，请先拆分文件。',
     emptyTextFile: '文件内容为空，无法创建知识库文档。',
     fileContentUnavailable: '无法读取文件正文，请重新上传后再试。',
     title: '知识库',

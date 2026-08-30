@@ -869,6 +869,7 @@ export const enUS = {
   },
   knowledge: {
     unsupportedTextFile: 'Knowledge import currently supports readable text, Markdown, JSON, XML, CSV, and YAML files.',
+    documentTooLarge: 'The document exceeds the 1,000,000-character limit. Split it into smaller files first.',
     emptyTextFile: 'The file is empty and cannot be added as a knowledge document.',
     fileContentUnavailable: 'The file content could not be read. Upload the file again and retry.',
     title: 'Knowledge',

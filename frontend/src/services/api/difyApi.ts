@@ -111,6 +111,9 @@ interface RetrievalTestInput {
   metadataFilter?: string
 }
 
+const KNOWLEDGE_DOCUMENT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
+const KNOWLEDGE_RETRIEVAL_REQUEST_TIMEOUT_MS = 60 * 1000
+
 type MetricTone = MonitorMetric['tone']
 type ProviderRuntimeLog = NonNullable<Awaited<ReturnType<typeof getProviderLogs>>['logs']>[number]
 
@@ -262,7 +265,7 @@ export const difyApi = {
     const document = await apiClient.post<KnowledgeDocumentResponse>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
       input,
-      { source: 'workflow' },
+      { source: 'workflow', timeout: KNOWLEDGE_DOCUMENT_REQUEST_TIMEOUT_MS },
     )
     return mapDocument(document)
   },
@@ -275,7 +278,7 @@ export const difyApi = {
     const response = await apiClient.post<{ results?: KnowledgeChunkResponse[] }>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/retrieval-test`,
       input,
-      { source: 'workflow' },
+      { source: 'workflow', timeout: KNOWLEDGE_RETRIEVAL_REQUEST_TIMEOUT_MS },
     )
     return (response.results ?? []).map(mapChunk)
   },
