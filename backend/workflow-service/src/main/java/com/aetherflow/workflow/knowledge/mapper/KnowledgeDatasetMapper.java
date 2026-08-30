@@ -13,9 +13,8 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
 
     @Update("""
             UPDATE af_knowledge_dataset
-            SET document_count = document_count + 1,
-                processing_document_count = 0,
-                chunk_count = chunk_count + #{chunkCount},
+            SET document_count = COALESCE(document_count, 0) + 1,
+                chunk_count = COALESCE(chunk_count, 0) + #{chunkCount},
                 updated_at = #{updatedAt}
             WHERE id = #{datasetId}
             """)
@@ -25,8 +24,8 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
 
     @Update("""
             UPDATE af_knowledge_dataset
-            SET document_count = GREATEST(document_count - 1, 0),
-                chunk_count = GREATEST(chunk_count - #{chunkCount}, 0),
+            SET document_count = GREATEST(COALESCE(document_count, 0) - 1, 0),
+                chunk_count = GREATEST(COALESCE(chunk_count, 0) - #{chunkCount}, 0),
                 updated_at = #{updatedAt}
             WHERE id = #{datasetId}
             """)

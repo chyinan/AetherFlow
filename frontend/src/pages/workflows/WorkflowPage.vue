@@ -93,9 +93,8 @@ function openComfyUiFilePicker() {
 }
 
 function importErrorMessage(error: unknown) {
-  return error instanceof Error && error.message
-    ? error.message
-    : t('workflow.importComfyUiFailed')
+  const normalized = toApiError(error, 'workflow')
+  return normalized.message || t('workflow.importComfyUiFailed')
 }
 
 async function handleComfyUiFileChange(event: Event) {
