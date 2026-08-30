@@ -231,6 +231,9 @@ export const useDifyStore = defineStore('difySurface', {
       this.retrievalResults = []
       await this.refreshDatasetContent(datasetId)
     },
+    cancelIngestionRequests() {
+      this.ingestionRequestId += 1
+    },
     async importFileToSelectedDataset(file: FileAsset, options: KnowledgeImportOptions = {}) {
       const ingestionRequestId = ++this.ingestionRequestId
       const isCurrentIngestion = () => this.ingestionRequestId === ingestionRequestId
