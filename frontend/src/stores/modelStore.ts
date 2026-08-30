@@ -22,6 +22,7 @@ function providerTypeOf(provider: ModelProvider) {
   return (provider.providerType || provider.id.replace(/^provider-/, '').replace(/-/g, '_')).toUpperCase()
 }
 
+// pattern: Imperative Shell
 export const useModelStore = defineStore('model', {
   state: () => ({
     providers: [] as ModelProvider[],
@@ -35,6 +36,7 @@ export const useModelStore = defineStore('model', {
     operationError: null as string | null,
     switchingProviderId: null as string | null,
     recoveringProviderId: null as string | null,
+    refreshRequestId: 0,
   }),
   getters: {
     selectedProvider: (state) =>
@@ -81,19 +83,28 @@ export const useModelStore = defineStore('model', {
       ].slice(0, 30)
     },
     async refreshStatus() {
+      const requestId = ++this.refreshRequestId
+      const isCurrent = () => this.refreshRequestId === requestId
       this.loading = true
       this.error = null
       try {
         const snapshot = await modelApi.refreshSnapshot()
-        this.applySnapshot(snapshot, snapshot.source)
+        if (isCurrent()) {
+          this.applySnapshot(snapshot, snapshot.source)
+        }
       } catch (error) {
         const message = errorMessage(error)
+        if (!isCurrent()) {
+          return
+        }
         this.error = message
         if (this.providers.length > 0) {
           this.appendOperationLog(`AI provider backend refresh failed; retained current snapshot. ${message}`, 'error')
         }
       } finally {
-        this.loading = false
+        if (isCurrent()) {
+          this.loading = false
+        }
       }
     },
     async switchSelectedProviderToPrimary() {

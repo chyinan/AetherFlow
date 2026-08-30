@@ -198,7 +198,15 @@ export const useDifyStore = defineStore('difySurface', {
         return
       }
       const requestId = ++this.datasetSegmentRequestId
-      const segments = await difyApi.listDatasetChunks(activeDatasetId)
+      let segments: KnowledgeSegment[]
+      try {
+        segments = await difyApi.listDatasetChunks(activeDatasetId)
+      } catch (error) {
+        if (this.datasetSegmentRequestId !== requestId) {
+          return
+        }
+        throw error
+      }
       if (this.datasetSegmentRequestId !== requestId) {
         return
       }
@@ -386,10 +394,18 @@ export const useDifyStore = defineStore('difySurface', {
       }
       const requestId = ++this.retrievalRequestId
       const datasetId = this.selectedDatasetId
-      const results = await difyApi.runKnowledgeRetrievalTest(datasetId, {
-        query,
-        topK,
-      })
+      let results: KnowledgeSegment[]
+      try {
+        results = await difyApi.runKnowledgeRetrievalTest(datasetId, {
+          query,
+          topK,
+        })
+      } catch (error) {
+        if (this.retrievalRequestId !== requestId || this.selectedDatasetId !== datasetId) {
+          return
+        }
+        throw error
+      }
       if (this.retrievalRequestId === requestId && this.selectedDatasetId === datasetId) {
         this.retrievalResults = results
       }

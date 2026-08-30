@@ -7,6 +7,7 @@ import type { ProjectSummary } from '@/types/project'
 import type { WorkflowSummary } from '@/types/workflow'
 import { formatDateTime } from '@/utils/localeFormat'
 import { tokenManager } from '@/api/client/tokenManager'
+import { toApiError } from '@/api/client/apiError'
 
 import { useFileStore } from './fileStore'
 import { useRunStore } from './runStore'
@@ -97,6 +98,7 @@ export const useProjectStore = defineStore('project', {
     currentProjectId: 'project-media-ops',
     loading: false,
     loadError: null as string | null,
+    loadRequestId: 0,
   }),
   getters: {
     currentProject: (state) =>
@@ -148,6 +150,8 @@ export const useProjectStore = defineStore('project', {
   },
   actions: {
     async loadProjects() {
+      const requestId = ++this.loadRequestId
+      const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
       try {
@@ -155,8 +159,12 @@ export const useProjectStore = defineStore('project', {
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
+        if (!isCurrent()) {
+          return
+        }
         if (projectsResult.status === 'rejected') {
-          this.loadError = projectsResult.reason instanceof Error ? projectsResult.reason.message : i18n.global.t('common.error')
+          const error = toApiError(projectsResult.reason, 'workflow')
+          this.loadError = error.status ? `HTTP ${error.status} · ${error.message}` : error.message
           throw projectsResult.reason
         }
         this.projects = projectsResult.value
@@ -166,10 +174,14 @@ export const useProjectStore = defineStore('project', {
         }
         this.currentProjectId = this.currentProjectId || this.projects[0]?.id || 'project-media-ops'
       } finally {
-        this.loading = false
+        if (isCurrent()) {
+          this.loading = false
+        }
       }
     },
     async refreshProjects() {
+      const requestId = ++this.loadRequestId
+      const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
       try {
@@ -177,8 +189,12 @@ export const useProjectStore = defineStore('project', {
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
+        if (!isCurrent()) {
+          return
+        }
         if (projectsResult.status === 'rejected') {
-          this.loadError = projectsResult.reason instanceof Error ? projectsResult.reason.message : i18n.global.t('common.error')
+          const error = toApiError(projectsResult.reason, 'workflow')
+          this.loadError = error.status ? `HTTP ${error.status} · ${error.message}` : error.message
           throw projectsResult.reason
         }
         this.projects = projectsResult.value
@@ -188,7 +204,9 @@ export const useProjectStore = defineStore('project', {
         }
         this.currentProjectId = this.projects[0]?.id || ''
       } finally {
-        this.loading = false
+        if (isCurrent()) {
+          this.loading = false
+        }
       }
     },
     selectProject(projectId: string) {

@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 
 import { i18n } from '@/i18n'
+import { toApiError } from '@/api/client/apiError'
 import { fileApi } from '@/services/api/fileApi'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowRun } from '@/types/run'
 import { formatDateTime } from '@/utils/localeFormat'
 
+// pattern: Imperative Shell
 export const useFileStore = defineStore('file', {
   state: () => ({
     files: [] as FileAsset[],
@@ -17,6 +19,7 @@ export const useFileStore = defineStore('file', {
     deletingIds: [] as string[],
     downloadingIds: [] as string[],
     fileActionError: null as string | null,
+    loadRequestId: 0,
   }),
   getters: {
     inputFiles: (state) => state.files.filter((file) => file.source === 'input'),
@@ -30,18 +33,27 @@ export const useFileStore = defineStore('file', {
   },
   actions: {
     async loadFiles() {
+      const requestId = ++this.loadRequestId
+      const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
       try {
         const loadedFiles = await fileApi.listFiles()
-        this.files = loadedFiles
+        if (isCurrent()) {
+          this.files = loadedFiles
+        }
       } catch (error) {
-        this.loadError = error instanceof Error && error.message
-          ? error.message
-          : i18n.global.t('files.loadFailed')
+        if (isCurrent()) {
+          const normalized = toApiError(error, 'file')
+          this.loadError = normalized.status
+            ? `HTTP ${normalized.status} · ${normalized.message}`
+            : normalized.message || i18n.global.t('files.loadFailed')
+        }
         throw error
       } finally {
-        this.loading = false
+        if (isCurrent()) {
+          this.loading = false
+        }
       }
     },
     async refreshArtifactsFromBackend() {
