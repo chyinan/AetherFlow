@@ -82,11 +82,14 @@ export const useDifyStore = defineStore('difySurface', {
     pendingKnowledgeImportKey: '' as string,
     pendingKnowledgeImportIdempotencyKey: '' as string,
     pendingKnowledgeImportPersisted: false,
+    pendingKnowledgeDocumentId: '' as string,
+    pendingWizardDocumentId: '' as string,
     loadedDatasetSegmentIds: [] as string[],
     datasetContentRequestId: 0,
     datasetSegmentRequestId: 0,
     retrievalRequestId: 0,
     surfaceRequestId: 0,
+    ingestionRequestId: 0,
   }),
   getters: {
     selectedDataset: (state) =>
@@ -220,6 +223,7 @@ export const useDifyStore = defineStore('difySurface', {
       ]
     },
     async selectDataset(datasetId: string) {
+      this.ingestionRequestId += 1
       this.datasetContentRequestId += 1
       this.datasetSegmentRequestId += 1
       this.retrievalRequestId += 1
@@ -228,6 +232,8 @@ export const useDifyStore = defineStore('difySurface', {
       await this.refreshDatasetContent(datasetId)
     },
     async importFileToSelectedDataset(file: FileAsset, options: KnowledgeImportOptions = {}) {
+      const ingestionRequestId = ++this.ingestionRequestId
+      const isCurrentIngestion = () => this.ingestionRequestId === ingestionRequestId
       const dataset = this.selectedDataset
       if (!dataset) {
         return
@@ -240,12 +246,14 @@ export const useDifyStore = defineStore('difySurface', {
       const idempotencyKey = hasPendingOperation
         ? this.pendingKnowledgeImportIdempotencyKey
         : newOperationKey('knowledge-document')
+      let documentId = this.pendingKnowledgeDocumentId
+      let documentReady = false
       try {
         if (!resumeAfterPersistence) {
           this.pendingKnowledgeImportKey = importKey
           this.pendingKnowledgeImportIdempotencyKey = idempotencyKey
           this.pendingKnowledgeImportPersisted = false
-          await difyApi.createKnowledgeDocument(dataset.id, {
+          const document = await difyApi.enqueueKnowledgeDocument(dataset.id, {
             idempotencyKey,
             sourceName,
             sourceType: file.source,
@@ -257,7 +265,16 @@ export const useDifyStore = defineStore('difySurface', {
             cleanSpaces: options.cleanSpaces,
             cleanUrls: options.cleanUrls,
           })
+          documentId = document.id
+          this.pendingKnowledgeDocumentId = documentId
+          documentReady = document.status === 'ready'
           this.pendingKnowledgeImportPersisted = true
+        }
+        if (!documentReady) {
+          await this.waitForKnowledgeDocument(dataset.id, documentId)
+        }
+        if (!isCurrentIngestion()) {
+          return
         }
         await this.refreshDatasets()
         await this.refreshDatasetContent(dataset.id)
@@ -265,15 +282,19 @@ export const useDifyStore = defineStore('difySurface', {
         this.pendingKnowledgeImportKey = ''
         this.pendingKnowledgeImportIdempotencyKey = ''
         this.pendingKnowledgeImportPersisted = false
+        this.pendingKnowledgeDocumentId = ''
       } catch (error) {
         if (!resumeAfterPersistence && this.pendingKnowledgeImportKey !== importKey) {
           this.pendingKnowledgeImportKey = ''
           this.pendingKnowledgeImportPersisted = false
+          this.pendingKnowledgeDocumentId = ''
         }
         throw error
       }
     },
     async createDatasetFromWizard(input: CreateKnowledgeDatasetInput = {}) {
+      const ingestionRequestId = ++this.ingestionRequestId
+      const isCurrentIngestion = () => this.ingestionRequestId === ingestionRequestId
       const sourceName = input.sourceName ?? i18n.global.t('knowledge.flow.sampleFileName')
       const existingDataset = input.datasetId
         ? this.datasets.find((item) => item.id === input.datasetId)
@@ -311,19 +332,40 @@ export const useDifyStore = defineStore('difySurface', {
         if (!resumeAfterPersistence && !input.empty) {
           const documentIdempotencyKey = this.pendingWizardDocumentIdempotencyKey || newOperationKey('knowledge-document')
           this.pendingWizardDocumentIdempotencyKey = documentIdempotencyKey
-          await difyApi.createKnowledgeDocument(dataset.id, {
-            idempotencyKey: documentIdempotencyKey,
-            sourceName,
-            sourceType: input.file?.source ?? 'file',
-            fileId: input.file ? input.file.backendFileId ?? input.file.id : undefined,
-            content: input.file ? undefined : input.preview || sourceName,
-            mode: input.segmentMode ?? 'general',
-            chunkSize: input.chunkSize,
-            overlap: input.overlap,
-            delimiter: input.delimiter,
-            cleanSpaces: input.cleanSpaces,
-            cleanUrls: input.cleanUrls,
-          })
+          if (input.file) {
+            const document = await difyApi.enqueueKnowledgeDocument(dataset.id, {
+              idempotencyKey: documentIdempotencyKey,
+              sourceName,
+              sourceType: input.file.source,
+              fileId: input.file.backendFileId ?? input.file.id,
+              mode: input.segmentMode ?? 'general',
+              chunkSize: input.chunkSize,
+              overlap: input.overlap,
+              delimiter: input.delimiter,
+              cleanSpaces: input.cleanSpaces,
+              cleanUrls: input.cleanUrls,
+            })
+            this.pendingWizardDocumentId = document.id
+            if (document.status !== 'ready') {
+              await this.waitForKnowledgeDocument(dataset.id, document.id)
+            }
+            if (!isCurrentIngestion()) {
+              return dataset
+            }
+          } else {
+            await difyApi.createKnowledgeDocument(dataset.id, {
+              idempotencyKey: documentIdempotencyKey,
+              sourceName,
+              sourceType: 'file',
+              content: input.preview || sourceName,
+              mode: input.segmentMode ?? 'general',
+              chunkSize: input.chunkSize,
+              overlap: input.overlap,
+              delimiter: input.delimiter,
+              cleanSpaces: input.cleanSpaces,
+              cleanUrls: input.cleanUrls,
+            })
+          }
         }
       } catch (error) {
         // Never delete a newly persisted dataset after a client timeout or a
@@ -352,11 +394,13 @@ export const useDifyStore = defineStore('difySurface', {
       this.pendingWizardDataset = null
       this.pendingWizardIdempotencyKey = ''
       this.pendingWizardDocumentIdempotencyKey = ''
+      this.pendingWizardDocumentId = ''
       this.retrievalResults = []
 
       return dataset
     },
     async deleteDataset(datasetId: string) {
+      this.ingestionRequestId += 1
       await difyApi.deleteKnowledgeDataset(datasetId)
       this.datasets = this.datasets.filter((dataset) => dataset.id !== datasetId)
       this.documents = this.documents.filter((document) => document.datasetId !== datasetId)
@@ -367,6 +411,7 @@ export const useDifyStore = defineStore('difySurface', {
         this.pendingKnowledgeImportKey = ''
         this.pendingKnowledgeImportIdempotencyKey = ''
         this.pendingKnowledgeImportPersisted = false
+        this.pendingKnowledgeDocumentId = ''
       }
       if (this.selectedDatasetId === datasetId) {
         this.selectedDatasetId = this.datasets[0]?.id ?? ''
@@ -409,6 +454,37 @@ export const useDifyStore = defineStore('difySurface', {
         this.retrievalResults = results
       }
     },
+    async waitForKnowledgeDocument(datasetId: string, documentId: string) {
+      if (!documentId) {
+        throw new Error(i18n.global.t('knowledge.flow.ingestionUnavailable'))
+      }
+      const ingestionRequestId = this.ingestionRequestId
+      let lastError: unknown
+      for (let attempt = 0; attempt < KNOWLEDGE_INGESTION_MAX_POLLS; attempt += 1) {
+        if (this.ingestionRequestId !== ingestionRequestId) {
+          return null
+        }
+        try {
+          await this.refreshDatasetContent(datasetId)
+        } catch (error) {
+          lastError = error
+          await waitForKnowledgePoll()
+          continue
+        }
+        const document = this.documents.find((item) => item.id === documentId)
+        if (document?.status === 'ready') {
+          return document
+        }
+        if (document?.status === 'warning') {
+          throw new Error(i18n.global.t('knowledge.flow.ingestionFailed'))
+        }
+        await waitForKnowledgePoll()
+      }
+      if (lastError instanceof Error && lastError.message) {
+        throw lastError
+      }
+      throw new Error(i18n.global.t('knowledge.flow.ingestionTimedOut'))
+    },
   },
 })
 
@@ -449,4 +525,11 @@ export async function knowledgeContentFromFile(file: FileAsset) {
     throw new Error(i18n.global.t('knowledge.documentTooLarge'))
   }
   return fallbackContent
+}
+
+const KNOWLEDGE_INGESTION_POLL_INTERVAL_MS = 1500
+const KNOWLEDGE_INGESTION_MAX_POLLS = 400
+
+function waitForKnowledgePoll() {
+  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, KNOWLEDGE_INGESTION_POLL_INTERVAL_MS))
 }

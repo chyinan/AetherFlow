@@ -4,6 +4,7 @@ import type { FileAsset } from '@/types/file'
 
 const mocks = vi.hoisted(() => ({
   createKnowledgeDocument: vi.fn(),
+  enqueueKnowledgeDocument: vi.fn(),
   createKnowledgeDataset: vi.fn(),
   listKnowledgeDatasets: vi.fn(),
   listDatasetDocuments: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/services/api/difyApi', () => ({
   difyApi: {
     createKnowledgeDocument: mocks.createKnowledgeDocument,
+    enqueueKnowledgeDocument: mocks.enqueueKnowledgeDocument,
     createKnowledgeDataset: mocks.createKnowledgeDataset,
     listKnowledgeDatasets: mocks.listKnowledgeDatasets,
     listDatasetDocuments: mocks.listDatasetDocuments,
@@ -51,6 +53,7 @@ describe('difyStore knowledge import recovery', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     mocks.createKnowledgeDocument.mockReset().mockResolvedValue({ id: 'document-1' })
+    mocks.enqueueKnowledgeDocument.mockReset().mockResolvedValue({ id: 'document-1', status: 'ready' })
     mocks.createKnowledgeDataset.mockReset().mockResolvedValue({
       id: 'dataset-1',
       name: 'Knowledge',
@@ -113,9 +116,13 @@ describe('difyStore knowledge import recovery', () => {
     }
 
     await expect(store.importFileToSelectedDataset(file)).rejects.toThrow('refresh failed')
+    mocks.listDatasetDocuments.mockResolvedValueOnce([{
+      id: 'document-1', datasetId: 'dataset-1', name: 'guide.md', chars: 7,
+      chunkCount: 1, recallCount: 0, status: 'ready',
+    }])
     await store.importFileToSelectedDataset(file)
 
-    expect(mocks.createKnowledgeDocument).toHaveBeenCalledTimes(1)
+    expect(mocks.enqueueKnowledgeDocument).toHaveBeenCalledTimes(1)
     expect(mocks.listKnowledgeDatasets).toHaveBeenCalledTimes(2)
   })
 
@@ -177,9 +184,9 @@ describe('difyStore knowledge import recovery', () => {
     }]
     store.selectedDatasetId = 'dataset-1'
     mocks.listKnowledgeDatasets.mockResolvedValue(store.datasets)
-    mocks.createKnowledgeDocument
+    mocks.enqueueKnowledgeDocument
       .mockRejectedValueOnce(new Error('request failed'))
-      .mockResolvedValueOnce({ id: 'document-1' })
+      .mockResolvedValueOnce({ id: 'document-1', status: 'ready' })
 
     const file: FileAsset = {
       id: 'file-1',
@@ -197,9 +204,9 @@ describe('difyStore knowledge import recovery', () => {
     await expect(store.importFileToSelectedDataset(file)).rejects.toThrow('request failed')
     await store.importFileToSelectedDataset(file)
 
-    expect(mocks.createKnowledgeDocument).toHaveBeenCalledTimes(2)
-    expect(mocks.createKnowledgeDocument.mock.calls[0][1].idempotencyKey)
-      .toBe(mocks.createKnowledgeDocument.mock.calls[1][1].idempotencyKey)
+    expect(mocks.enqueueKnowledgeDocument).toHaveBeenCalledTimes(2)
+    expect(mocks.enqueueKnowledgeDocument.mock.calls[0][1].idempotencyKey)
+      .toBe(mocks.enqueueKnowledgeDocument.mock.calls[1][1].idempotencyKey)
   })
 
   it('does not create a duplicate dataset when content refresh fails after persistence', async () => {
@@ -235,7 +242,7 @@ describe('difyStore knowledge import recovery', () => {
     })
 
     expect(mocks.createKnowledgeDataset).toHaveBeenCalledTimes(1)
-    expect(mocks.createKnowledgeDocument).toHaveBeenCalledTimes(1)
+    expect(mocks.enqueueKnowledgeDocument).toHaveBeenCalledTimes(1)
   })
 
   it('clears stale segments when refreshing documents without loading chunks', async () => {

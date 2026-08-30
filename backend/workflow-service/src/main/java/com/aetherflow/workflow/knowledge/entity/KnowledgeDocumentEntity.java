@@ -24,6 +24,7 @@ public class KnowledgeDocumentEntity {
     private Integer chunkCount;
     private Integer recallCount;
     private String status;
+    private String errorMessage;
     private LocalDateTime uploadedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

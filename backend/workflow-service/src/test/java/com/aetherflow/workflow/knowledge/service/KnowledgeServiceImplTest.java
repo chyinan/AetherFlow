@@ -24,6 +24,8 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
 import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobMapper;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobEntity;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -68,6 +70,9 @@ class KnowledgeServiceImplTest {
 
     @Mock
     private FileMetadataClient fileMetadataClient;
+
+    @Mock
+    private KnowledgeIngestionJobMapper ingestionJobMapper;
 
     private KnowledgeServiceImpl service;
 
@@ -182,6 +187,35 @@ class KnowledgeServiceImplTest {
 
         verify(fileMetadataClient).downloadFile(any(), eq(7L), eq(91L));
         verify(chunkMapper).insert(any(KnowledgeChunkEntity.class));
+    }
+
+    @Test
+    void enqueuesFileIngestionAndReturnsProcessingDocumentWithoutBrowserContent() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(datasetMapper.startIngestion(eq(11L), any())).thenReturn(1);
+        ReflectionTestUtils.setField(service, "ingestionJobMapper", ingestionJobMapper);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity document = invocation.getArgument(0);
+            document.setId(23L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+        doAnswer(invocation -> {
+            KnowledgeIngestionJobEntity job = invocation.getArgument(0);
+            job.setId(31L);
+            return 1;
+        }).when(ingestionJobMapper).insert(any(KnowledgeIngestionJobEntity.class));
+
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setFileId("91");
+        request.setSourceName("queued.md");
+        request.setIdempotencyKey("queued-op-1");
+
+        KnowledgeDocumentSummary result = asUser(7L, () -> service.enqueueDocument(11L, request));
+
+        assertThat(result.id()).isEqualTo("23");
+        assertThat(result.status()).isEqualTo("processing");
+        verify(ingestionJobMapper).insert(any(KnowledgeIngestionJobEntity.class));
+        verify(datasetMapper).startIngestion(eq(11L), any());
     }
 
     @Test

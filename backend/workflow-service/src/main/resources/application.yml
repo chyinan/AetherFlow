@@ -141,6 +141,14 @@ aetherflow:
         enabled: ${WORKFLOW_RUNTIME_LOCK_ENABLED:true}
         ttl: ${WORKFLOW_RUNTIME_LOCK_TTL:60s}
         key-prefix: ${WORKFLOW_RUNTIME_LOCK_KEY_PREFIX:aetherflow:workflow:runtime:lock:}
+    knowledge:
+      ingestion:
+        enabled: ${WORKFLOW_KNOWLEDGE_INGESTION_ENABLED:true}
+        worker-threads: ${WORKFLOW_KNOWLEDGE_INGESTION_WORKER_THREADS:2}
+        scan-limit: ${WORKFLOW_KNOWLEDGE_INGESTION_SCAN_LIMIT:20}
+        max-attempts: ${WORKFLOW_KNOWLEDGE_INGESTION_MAX_ATTEMPTS:3}
+        retry-delay: ${WORKFLOW_KNOWLEDGE_INGESTION_RETRY_DELAY:1m}
+        poll-interval-millis: ${WORKFLOW_KNOWLEDGE_INGESTION_POLL_INTERVAL_MILLIS:2000}
 
 management:
   endpoints:

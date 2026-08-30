@@ -78,6 +78,7 @@ interface KnowledgeDocumentResponse {
   recallCount?: number
   uploadedAt?: string
   status?: string
+  errorMessage?: string
 }
 
 interface DatasetCreateInput {
@@ -139,14 +140,18 @@ function formatObservedUsd(value: number): string {
 }
 
 function statusOr(value: unknown): KnowledgeDataset['status'] {
-  if (value === 'ready' || value === 'running' || value === 'warning' || value === 'disabled') {
-    return value
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  if (normalized === 'READY' || normalized === 'SUCCEEDED' || normalized === 'SUCCESS') {
+    return 'ready'
   }
-  if (value === 'FAILED') {
+  if (normalized === 'FAILED' || normalized === 'ERROR') {
     return 'warning'
   }
-  if (value === 'RUNNING' || value === 'PROCESSING') {
+  if (normalized === 'RUNNING' || normalized === 'PROCESSING' || normalized === 'PENDING') {
     return 'running'
+  }
+  if (normalized === 'DISABLED') {
+    return 'disabled'
   }
   return 'ready'
 }
@@ -208,6 +213,9 @@ function mapDocument(document: KnowledgeDocumentResponse): KnowledgeDocument {
     recallCount: numberOr(document.recallCount),
     uploadedAt: stringOr(document.uploadedAt, '-'),
     status: statusOr(document.status),
+    ...(typeof document.errorMessage === 'string' && document.errorMessage.trim()
+      ? { errorMessage: document.errorMessage.trim() }
+      : {}),
   }
 }
 
@@ -266,6 +274,14 @@ export const difyApi = {
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents`,
       input,
       { source: 'workflow', timeout: KNOWLEDGE_DOCUMENT_REQUEST_TIMEOUT_MS },
+    )
+    return mapDocument(document)
+  },
+  async enqueueKnowledgeDocument(datasetId: string, input: DocumentCreateInput) {
+    const document = await apiClient.post<KnowledgeDocumentResponse>(
+      `/knowledge/datasets/${encodeURIComponent(datasetId)}/documents/import`,
+      input,
+      { source: 'workflow' },
     )
     return mapDocument(document)
   },

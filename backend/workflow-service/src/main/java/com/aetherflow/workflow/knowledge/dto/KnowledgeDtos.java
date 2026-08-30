@@ -20,7 +20,6 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 import static java.lang.annotation.ElementType.ANNOTATION_TYPE;
-import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.TYPE;
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
@@ -132,8 +131,22 @@ public final class KnowledgeDtos {
             Integer chunkCount,
             Integer recallCount,
             String uploadedAt,
-            String status
+            String status,
+            String errorMessage
     ) {
+        public KnowledgeDocumentSummary(String id,
+                                        String datasetId,
+                                        String name,
+                                        String sourceType,
+                                        String mode,
+                                        Integer chars,
+                                        Integer chunkCount,
+                                        Integer recallCount,
+                                        String uploadedAt,
+                                        String status) {
+            this(id, datasetId, name, sourceType, mode, chars, chunkCount, recallCount,
+                    uploadedAt, status, null);
+        }
     }
 
     public record KnowledgeChunkSummary(

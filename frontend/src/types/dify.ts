@@ -29,6 +29,7 @@ export interface KnowledgeSegment {
   tokens: number
   score: number
   status: SurfaceStatus
+  errorMessage?: string
 }
 
 export interface KnowledgeDocument {

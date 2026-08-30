@@ -22,6 +22,9 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSumm
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.KnowledgeDocumentLimits;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobEntity;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobMapper;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionProperties;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeChunkEntity;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeDatasetEntity;
 import com.aetherflow.workflow.knowledge.entity.KnowledgeDocumentEntity;
@@ -44,9 +47,13 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.core.task.TaskRejectedException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -57,6 +64,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.nio.charset.StandardCharsets;
 import org.springframework.http.ResponseEntity;
 import java.util.regex.Matcher;
@@ -101,6 +109,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Autowired(required = false)
     private WorkflowNodeProperties workflowNodeProperties;
+
+    @Autowired(required = false)
+    private KnowledgeIngestionJobMapper ingestionJobMapper;
+
+    @Autowired(required = false)
+    private KnowledgeIngestionProperties ingestionProperties;
+
+    @Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
+    private Executor ingestionExecutor;
 
     public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
                                 KnowledgeDocumentMapper documentMapper,
@@ -254,7 +272,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 return toDocumentSummary(existing);
             }
         }
-        if (idempotencyKey == null && hasText(request.getFileId())) {
+        if (hasText(request.getFileId())) {
             KnowledgeDocumentEntity existing = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
                     .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
                     .eq(KnowledgeDocumentEntity::getFileId, request.getFileId().trim())
@@ -337,14 +355,148 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public KnowledgeDocumentSummary enqueueDocument(Long datasetId, DocumentCreateRequest request) {
+        if (request == null || !hasText(request.getFileId())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "knowledge ingestion requires a fileId");
+        }
+        KnowledgeDatasetEntity dataset = requireDataset(datasetId);
+        validateFileId(request.getFileId());
+        String idempotencyKey = normalizedIdempotencyKey(request.getIdempotencyKey());
+        KnowledgeDocumentEntity existing = findExistingDocument(datasetId, idempotencyKey, request.getFileId());
+        if (existing != null) {
+            return toDocumentSummary(existing);
+        }
+        if (ingestionJobMapper == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge ingestion service is unavailable");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
+        document.setDatasetId(datasetId);
+        document.setIdempotencyKey(idempotencyKey);
+        document.setName(defaultText(request.getSourceName(), "document-" + datasetId));
+        document.setSourceType(defaultText(request.getSourceType(), DEFAULT_SOURCE_TYPE));
+        document.setFileId(request.getFileId().trim());
+        document.setMode(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
+        document.setCharCount(0);
+        document.setChunkCount(0);
+        document.setRecallCount(0);
+        document.setStatus("processing");
+        document.setErrorMessage(null);
+        document.setUploadedAt(now);
+        document.setCreatedAt(now);
+        document.setUpdatedAt(now);
+        try {
+            documentMapper.insert(document);
+        } catch (DuplicateKeyException exception) {
+            KnowledgeDocumentEntity duplicate = findExistingDocument(datasetId, idempotencyKey, request.getFileId());
+            if (duplicate != null) {
+                return toDocumentSummary(duplicate);
+            }
+            throw exception;
+        }
+
+        KnowledgeIngestionJobEntity job = new KnowledgeIngestionJobEntity();
+        job.setDatasetId(datasetId);
+        job.setDocumentId(document.getId());
+        job.setOwnerUserId(currentUserId());
+        job.setPayloadJson(writeJson(request));
+        job.setStatus(KnowledgeIngestionJobEntity.PENDING);
+        job.setAttemptCount(0);
+        job.setNextAttemptAt(now);
+        job.setCreatedAt(now);
+        job.setUpdatedAt(now);
+        ingestionJobMapper.insert(job);
+        if (datasetMapper.startIngestion(datasetId, now) != 1) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                    "knowledge dataset ingestion counter update failed");
+        }
+        submitIngestionAfterCommit(job.getId());
+        return toDocumentSummary(document);
+    }
+
+    /** 由持久摄取任务执行器调用；作业状态由数据库 claim 保证单消费者语义。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void processQueuedDocument(Long jobId) {
+        if (ingestionJobMapper == null || jobId == null) {
+            return;
+        }
+        KnowledgeIngestionJobEntity job = ingestionJobMapper.selectById(jobId);
+        if (job == null || !KnowledgeIngestionJobEntity.PROCESSING.equals(job.getStatus())) {
+            return;
+        }
+        KnowledgeDocumentEntity document = documentMapper.selectById(job.getDocumentId());
+        if (document == null || !"processing".equalsIgnoreCase(document.getStatus())) {
+            ingestionJobMapper.finishAttempt(jobId, KnowledgeIngestionJobEntity.FAILED,
+                    nvl(job.getAttemptCount()), null, "document is no longer processable", LocalDateTime.now());
+            return;
+        }
+        int attempt = nvl(job.getAttemptCount()) + 1;
+        try {
+            DocumentCreateRequest request = objectMapper.readValue(job.getPayloadJson(), DocumentCreateRequest.class);
+            String content = KnowledgeDocumentPreparation.preprocessContent(
+                    resolveDocumentContent(request, job.getOwnerUserId()),
+                    Boolean.TRUE.equals(request.getCleanSpaces()),
+                    Boolean.TRUE.equals(request.getCleanUrls()));
+            if (!hasText(content)) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document content is required");
+            }
+            KnowledgeDocumentPreparation.ChunkSettings settings = KnowledgeDocumentPreparation.resolveChunkSettings(
+                    request.getChunkSize(), request.getOverlap(), DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP);
+            boolean parentChild = "parentChild".equalsIgnoreCase(defaultText(request.getMode(), DEFAULT_DOCUMENT_MODE));
+            KnowledgeDocumentPreparation.validateProjectedChunkCount(content, settings, request.getDelimiter(), parentChild);
+            List<TextChunk> chunks = textSplitter.split(content, settings.chunkSize(), settings.overlap(), request.getDelimiter());
+            int persistedChunkCount = parentChild ? chunks.size() + (chunks.size() + 1) / 2 : chunks.size();
+            KnowledgeDocumentPreparation.validateChunkCount(persistedChunkCount);
+            String model = defaultText(datasetMapper.selectById(job.getDatasetId()).getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL);
+            List<EmbeddingResult> embeddings = semanticModel(model) ? embedChunks(chunks, model) : List.of();
+            chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                    .eq(KnowledgeChunkEntity::getDocumentId, document.getId()));
+            LocalDateTime now = LocalDateTime.now();
+            if (parentChild) {
+                insertParentChildChunks(job.getDatasetId(), document, chunks, embeddings, request, now);
+            } else {
+                for (TextChunk chunk : chunks) {
+                    insertChunk(job.getDatasetId(), document, chunk, embeddings, null, "general", chunkMetadata(request), now);
+                }
+            }
+            document.setCharCount(content.length());
+            document.setChunkCount(persistedChunkCount);
+            document.setStatus(STATUS_READY);
+            document.setErrorMessage(null);
+            document.setUpdatedAt(now);
+            documentMapper.updateById(document);
+            if (datasetMapper.completeIngestion(job.getDatasetId(), persistedChunkCount, now) != 1) {
+                throw new BusinessException(ResultCode.INTERNAL_ERROR, "knowledge dataset counter update failed");
+            }
+            ingestionJobMapper.finishAttempt(jobId, KnowledgeIngestionJobEntity.SUCCEEDED,
+                    attempt, null, null, now);
+        } catch (RuntimeException exception) {
+            handleIngestionFailure(job, document, attempt, exception);
+        } catch (JsonProcessingException exception) {
+            handleIngestionFailure(job, document, attempt, exception);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteDocument(Long documentId) {
         KnowledgeDocumentEntity document = requireDocument(documentId);
         requireDataset(document.getDatasetId());
         int deletedChunks = nvl(document.getChunkCount());
+        boolean processing = "processing".equalsIgnoreCase(document.getStatus());
+        if (ingestionJobMapper != null) {
+            ingestionJobMapper.deleteByDocumentId(documentId);
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .eq(KnowledgeChunkEntity::getDocumentId, documentId));
         documentMapper.deleteById(documentId);
-        if (datasetMapper.decrementDocumentCounters(document.getDatasetId(), deletedChunks, LocalDateTime.now()) != 1) {
+        LocalDateTime now = LocalDateTime.now();
+        int updated = processing
+                ? datasetMapper.cancelIngestion(document.getDatasetId(), now)
+                : datasetMapper.decrementDocumentCounters(document.getDatasetId(), deletedChunks, now);
+        if (updated != 1) {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "knowledge dataset counter update failed");
         }
     }
@@ -483,7 +635,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 nvl(entity.getChunkCount()),
                 nvl(entity.getRecallCount()),
                 timeString(entity.getUploadedAt()),
-                entity.getStatus()
+                entity.getStatus(),
+                entity.getErrorMessage()
         );
     }
 
@@ -931,6 +1084,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     private String resolveDocumentContent(DocumentCreateRequest request) {
+        return resolveDocumentContent(request, currentUserId());
+    }
+
+    private String resolveDocumentContent(DocumentCreateRequest request, Long userId) {
         if (hasText(request.getContent())) {
             return request.getContent();
         }
@@ -951,7 +1108,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "file content service is unavailable for knowledge ingestion");
         }
-        Long userId = currentUserId();
         ResponseEntity<byte[]> response;
         try {
             response = fileMetadataClient.downloadFile(
@@ -970,6 +1126,121 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     "knowledge document content must not exceed 1000000 characters");
         }
         return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private KnowledgeDocumentEntity findExistingDocument(Long datasetId,
+                                                          String idempotencyKey,
+                                                          String fileId) {
+        if (idempotencyKey != null) {
+            KnowledgeDocumentEntity byKey = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                    .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
+                    .eq(KnowledgeDocumentEntity::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (byKey != null) {
+                return byKey;
+            }
+        }
+        if (!hasText(fileId)) {
+            return null;
+        }
+        return documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
+                .eq(KnowledgeDocumentEntity::getFileId, fileId.trim())
+                .ne(KnowledgeDocumentEntity::getStatus, "deleted")
+                .last("LIMIT 1"));
+    }
+
+    private void validateFileId(String fileId) {
+        try {
+            long parsed = Long.parseLong(fileId.trim());
+            if (parsed <= 0) {
+                throw new NumberFormatException("file id must be positive");
+            }
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document fileId is invalid");
+        }
+    }
+
+    private void submitIngestionAfterCommit(Long jobId) {
+        Runnable submit = () -> {
+            if (ingestionExecutor == null || ingestionProperties == null || !ingestionProperties.isEnabled()) {
+                return;
+            }
+            try {
+                ingestionExecutor.execute(() -> processClaimedJob(jobId));
+            } catch (TaskRejectedException exception) {
+                log.warn("knowledge ingestion executor is saturated, jobId={}", jobId);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            submit.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                submit.run();
+            }
+        });
+    }
+
+    private void processClaimedJob(Long jobId) {
+        try {
+            if (ingestionJobMapper == null
+                    || ingestionJobMapper.claim(jobId, LocalDateTime.now()) != 1) {
+                return;
+            }
+            processQueuedDocument(jobId);
+        } catch (RuntimeException exception) {
+            log.error("knowledge ingestion job crashed outside transaction, jobId={}, reason={}",
+                    jobId, exception.getMessage(), exception);
+        }
+    }
+
+    private void handleIngestionFailure(KnowledgeIngestionJobEntity job,
+                                        KnowledgeDocumentEntity document,
+                                        int attempt,
+                                        Exception exception) {
+        if (ingestionJobMapper == null) {
+            throw new IllegalStateException("knowledge ingestion job mapper unavailable", exception);
+        }
+        String message = safeError(exception);
+        int maxAttempts = ingestionProperties == null ? 3 : Math.max(1, ingestionProperties.getMaxAttempts());
+        LocalDateTime now = LocalDateTime.now();
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDocumentId, document.getId()));
+        if (attempt >= maxAttempts) {
+            document.setStatus("failed");
+            document.setErrorMessage(message);
+            document.setUpdatedAt(now);
+            documentMapper.updateById(document);
+            datasetMapper.failIngestion(job.getDatasetId(), now);
+            ingestionJobMapper.finishAttempt(job.getId(), KnowledgeIngestionJobEntity.FAILED,
+                    attempt, null, message, now);
+            log.error("knowledge ingestion failed permanently, jobId={}, documentId={}, reason={}",
+                    job.getId(), job.getDocumentId(), message);
+            return;
+        }
+        document.setErrorMessage(message);
+        document.setUpdatedAt(now);
+        documentMapper.updateById(document);
+        Duration retryDelay = ingestionProperties == null
+                ? Duration.ofMinutes(1)
+                : ingestionProperties.getRetryDelay();
+        LocalDateTime nextAttempt = now.plus(retryDelay == null ? Duration.ofMinutes(1) : retryDelay);
+        ingestionJobMapper.finishAttempt(job.getId(), KnowledgeIngestionJobEntity.PENDING,
+                attempt, nextAttempt, message, now);
+        log.warn("knowledge ingestion scheduled for retry, jobId={}, attempt={}, reason={}",
+                job.getId(), attempt, message);
+    }
+
+    private String safeError(Exception exception) {
+        if (exception == null) {
+            return "knowledge ingestion failed";
+        }
+        String message = exception.getMessage();
+        String safe = hasText(message) ? message.trim() : exception.getClass().getSimpleName();
+        return safe.length() <= 1_000 ? safe : safe.substring(0, 1_000);
     }
 
     private boolean isDatasetReferencedByWorkflow(Long datasetId) {

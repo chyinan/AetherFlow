@@ -69,6 +69,12 @@ public class KnowledgeController {
         return Result.success(knowledgeService.createDocument(id, request));
     }
 
+    @PostMapping("/datasets/{id}/documents/import")
+    public Result<KnowledgeDocumentSummary> enqueueDocument(@PathVariable Long id,
+                                                             @Valid @RequestBody DocumentCreateRequest request) {
+        return Result.success(knowledgeService.enqueueDocument(id, request));
+    }
+
     @DeleteMapping("/documents/{id}")
     public Result<Void> deleteDocument(@PathVariable Long id) {
         knowledgeService.deleteDocument(id);

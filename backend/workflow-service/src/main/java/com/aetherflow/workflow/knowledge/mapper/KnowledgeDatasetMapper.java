@@ -32,4 +32,46 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
     int decrementDocumentCounters(@Param("datasetId") Long datasetId,
                                   @Param("chunkCount") int chunkCount,
                                   @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Update("""
+            UPDATE af_knowledge_dataset
+            SET document_count = COALESCE(document_count, 0) + 1,
+                processing_document_count = GREATEST(COALESCE(processing_document_count, 0) - 1, 0),
+                chunk_count = COALESCE(chunk_count, 0) + #{chunkCount},
+                status = 'ready',
+                updated_at = #{updatedAt}
+            WHERE id = #{datasetId}
+            """)
+    int completeIngestion(@Param("datasetId") Long datasetId,
+                          @Param("chunkCount") int chunkCount,
+                          @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Update("""
+            UPDATE af_knowledge_dataset
+            SET processing_document_count = GREATEST(COALESCE(processing_document_count, 0) - 1, 0),
+                failed_chunk_count = COALESCE(failed_chunk_count, 0) + 1,
+                updated_at = #{updatedAt}
+            WHERE id = #{datasetId}
+            """)
+    int failIngestion(@Param("datasetId") Long datasetId,
+                      @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Update("""
+            UPDATE af_knowledge_dataset
+            SET processing_document_count = GREATEST(COALESCE(processing_document_count, 0) - 1, 0),
+                updated_at = #{updatedAt}
+            WHERE id = #{datasetId}
+            """)
+    int cancelIngestion(@Param("datasetId") Long datasetId,
+                        @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Update("""
+            UPDATE af_knowledge_dataset
+            SET processing_document_count = COALESCE(processing_document_count, 0) + 1,
+                status = 'processing',
+                updated_at = #{updatedAt}
+            WHERE id = #{datasetId}
+            """)
+    int startIngestion(@Param("datasetId") Long datasetId,
+                       @Param("updatedAt") LocalDateTime updatedAt);
 }
