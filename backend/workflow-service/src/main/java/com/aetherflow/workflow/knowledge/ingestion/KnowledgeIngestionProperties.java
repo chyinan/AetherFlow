@@ -17,5 +17,6 @@ public class KnowledgeIngestionProperties {
     private int scanLimit = 20;
     private int maxAttempts = 3;
     private Duration retryDelay = Duration.ofMinutes(1);
+    private Duration processingLeaseTimeout = Duration.ofHours(2);
     private long pollIntervalMillis = 2_000L;
 }

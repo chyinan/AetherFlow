@@ -242,7 +242,12 @@ export const useDifyStore = defineStore('difySurface', {
       const importKey = knowledgeImportKey(dataset.id, file, options)
       const hasPendingOperation = this.pendingKnowledgeImportKey === importKey
         && Boolean(this.pendingKnowledgeImportIdempotencyKey)
-      const resumeAfterPersistence = hasPendingOperation && this.pendingKnowledgeImportPersisted
+      const pendingDocument = this.pendingKnowledgeDocumentId
+        ? this.documents.find((item) => item.id === this.pendingKnowledgeDocumentId)
+        : undefined
+      const resumeAfterPersistence = hasPendingOperation
+        && this.pendingKnowledgeImportPersisted
+        && pendingDocument?.status !== 'warning'
       const idempotencyKey = hasPendingOperation
         ? this.pendingKnowledgeImportIdempotencyKey
         : newOperationKey('knowledge-document')
@@ -322,7 +327,12 @@ export const useDifyStore = defineStore('difySurface', {
         this.pendingWizardDataset = dataset
       }
       this.selectedDatasetId = dataset.id
-      const canResumePersistedImport = Boolean(existingDataset && this.pendingWizardPersistenceComplete)
+      const pendingWizardDocument = this.pendingWizardDocumentId
+        ? this.documents.find((item) => item.id === this.pendingWizardDocumentId)
+        : undefined
+      const canResumePersistedImport = Boolean(existingDataset
+        && this.pendingWizardPersistenceComplete
+        && pendingWizardDocument?.status !== 'warning')
       this.pendingWizardDatasetId = createdNewDataset ? dataset.id : ''
       const resumeAfterPersistence = Boolean(
         canResumePersistedImport,

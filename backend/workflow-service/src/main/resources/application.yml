@@ -148,6 +148,7 @@ aetherflow:
         scan-limit: ${WORKFLOW_KNOWLEDGE_INGESTION_SCAN_LIMIT:20}
         max-attempts: ${WORKFLOW_KNOWLEDGE_INGESTION_MAX_ATTEMPTS:3}
         retry-delay: ${WORKFLOW_KNOWLEDGE_INGESTION_RETRY_DELAY:1m}
+        processing-lease-timeout: ${WORKFLOW_KNOWLEDGE_INGESTION_PROCESSING_LEASE_TIMEOUT:2h}
         poll-interval-millis: ${WORKFLOW_KNOWLEDGE_INGESTION_POLL_INTERVAL_MILLIS:2000}
 
 management:

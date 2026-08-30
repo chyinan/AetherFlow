@@ -365,11 +365,18 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         String idempotencyKey = normalizedIdempotencyKey(request.getIdempotencyKey());
         KnowledgeDocumentEntity existing = findExistingDocument(datasetId, idempotencyKey, request.getFileId());
         if (existing != null) {
+            if ("failed".equalsIgnoreCase(existing.getStatus())) {
+                return resetFailedIngestion(dataset, existing, request);
+            }
             return toDocumentSummary(existing);
         }
         if (ingestionJobMapper == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "knowledge ingestion service is unavailable");
+        }
+        if (ingestionProperties != null && !ingestionProperties.isEnabled()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge ingestion is temporarily disabled");
         }
         LocalDateTime now = LocalDateTime.now();
         KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
@@ -409,6 +416,42 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         job.setUpdatedAt(now);
         ingestionJobMapper.insert(job);
         if (datasetMapper.startIngestion(datasetId, now) != 1) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                    "knowledge dataset ingestion counter update failed");
+        }
+        submitIngestionAfterCommit(job.getId());
+        return toDocumentSummary(document);
+    }
+
+    private KnowledgeDocumentSummary resetFailedIngestion(KnowledgeDatasetEntity dataset,
+                                                          KnowledgeDocumentEntity document,
+                                                          DocumentCreateRequest request) {
+        if (ingestionJobMapper == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge ingestion service is unavailable");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        KnowledgeIngestionJobEntity job = ingestionJobMapper.selectOne(new LambdaQueryWrapper<KnowledgeIngestionJobEntity>()
+                .eq(KnowledgeIngestionJobEntity::getDocumentId, document.getId())
+                .last("LIMIT 1"));
+        if (job == null) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "failed knowledge ingestion job is missing; delete the document and import again");
+        }
+        document.setStatus("processing");
+        document.setErrorMessage(null);
+        document.setCharCount(0);
+        document.setChunkCount(0);
+        document.setUpdatedAt(now);
+        documentMapper.updateById(document);
+        job.setStatus(KnowledgeIngestionJobEntity.PENDING);
+        job.setAttemptCount(0);
+        job.setPayloadJson(writeJson(request));
+        job.setNextAttemptAt(now);
+        job.setLastError(null);
+        job.setUpdatedAt(now);
+        ingestionJobMapper.updateById(job);
+        if (datasetMapper.startIngestion(dataset.getId(), now) != 1) {
             throw new BusinessException(ResultCode.INTERNAL_ERROR,
                     "knowledge dataset ingestion counter update failed");
         }

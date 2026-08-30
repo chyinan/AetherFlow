@@ -18,8 +18,6 @@ import java.util.concurrent.Executor;
 // pattern: Imperative Shell
 public class KnowledgeIngestionJobRunner {
 
-    private static final java.time.Duration STALE_PROCESSING_AFTER = java.time.Duration.ofMinutes(10);
-
     private final KnowledgeIngestionJobMapper jobMapper;
     private final KnowledgeIngestionProperties properties;
     private final KnowledgeService knowledgeService;
@@ -32,7 +30,9 @@ public class KnowledgeIngestionJobRunner {
             return 0;
         }
         LocalDateTime now = LocalDateTime.now();
-        jobMapper.requeueStale(now.minus(STALE_PROCESSING_AFTER), now);
+        java.time.Duration leaseTimeout = properties.getProcessingLeaseTimeout();
+        jobMapper.requeueStale(now.minus(leaseTimeout == null
+                ? java.time.Duration.ofHours(2) : leaseTimeout), now);
         List<KnowledgeIngestionJobEntity> jobs = jobMapper.selectList(new LambdaQueryWrapper<KnowledgeIngestionJobEntity>()
                 .eq(KnowledgeIngestionJobEntity::getStatus, KnowledgeIngestionJobEntity.PENDING)
                 .and(wrapper -> wrapper.isNull(KnowledgeIngestionJobEntity::getNextAttemptAt)
