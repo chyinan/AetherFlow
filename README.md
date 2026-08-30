@@ -142,7 +142,16 @@ ENABLE_WHISPER=true
 ENABLE_LLM=true
 ```
 
-Code 节点默认关闭（`WORKFLOW_CODE_EXECUTION_ENABLED=false`），且必须同时显式确认 `WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED=true` 才能执行。当前 Python 子进程执行器提供语法、超时、进程组回收、CPU/内存/文件大小限制，并支持通过 `WORKFLOW_CODE_RUNTIME_API_KEY` 与 `CODE_RUNTIME_API_KEY` 做服务间鉴权；但它仍不是多租户安全边界，不能在生产环境对不受信任用户开放。只有部署独立资源隔离运行时并完成安全验收后，才应显式启用该能力。
+Code 节点默认关闭（`WORKFLOW_CODE_EXECUTION_ENABLED=false`），正式 Compose 已提供独立的 `code-runtime-service`。该服务只暴露代码执行接口，使用独立私有网络、只读根文件系统、非 root 用户、禁用 Linux capabilities、禁止新权限、进程/CPU/内存/临时文件限制，并在服务间使用 `CODE_RUNTIME_API_KEY` 鉴权；Python 子进程还会执行语法白名单校验、超时递归回收和输出上限控制。
+
+完成 `scripts/aetherflow-init-env.ps1` 后，如需启用 Code 节点，必须由运维完成隔离验收并设置：
+
+```dotenv
+WORKFLOW_CODE_EXECUTION_ENABLED=true
+WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED=true
+```
+
+初始化脚本会生成并同步 `CODE_RUNTIME_API_KEY` 与 `WORKFLOW_CODE_RUNTIME_API_KEY`。代码运行时不应暴露宿主机端口，也不应与数据库、Redis、MinIO 等基础设施共享网络；对不受信任租户开放前仍需结合容器运行时（例如 gVisor/Firecracker）完成组织级安全评审。
 
 正式工作流中的 AI 节点默认通过 Task Service 和 RabbitMQ 异步执行（`WORKFLOW_AI_ASYNC_ENABLED=true`）。节点派发后工作流进入 `WAITING` 并释放运行线程；AI 成功事件会回填输出并恢复后续 DAG，失败事件会收口任务和工作流状态。仅在隔离调试旧同步调用路径时才临时关闭该开关。
 
@@ -172,6 +181,7 @@ JWT、刷新令牌和 OAuth state 密钥在 Compose 中没有弱默认值；缺�
 | file-service | 8105 |
 | notify-service | 8106 |
 | python-ai-service | 8200 |
+| code-runtime-service | 8300（仅私有运行时网络） |
 | Nacos | 8848 |
 | MySQL | 3307 -> 3306 |
 | Redis | 6379 |

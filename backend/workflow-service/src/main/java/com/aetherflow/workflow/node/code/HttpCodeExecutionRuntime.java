@@ -51,7 +51,12 @@ public class HttpCodeExecutionRuntime implements CodeExecutionRuntime {
             JsonNode body = objectMapper.readTree(response.body());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String message = body.path("detail").asText(body.path("message").asText("isolated code runtime rejected the request"));
-                throw new BusinessException(ResultCode.BAD_REQUEST, message);
+                ResultCode resultCode = response.statusCode() == 429
+                        ? ResultCode.TOO_MANY_REQUESTS
+                        : response.statusCode() >= 500
+                                ? ResultCode.SERVICE_UNAVAILABLE
+                                : ResultCode.BAD_REQUEST;
+                throw new BusinessException(resultCode, message);
             }
             return new CodeExecutionResult(
                     objectMapper.convertValue(body.get("result"), Object.class),

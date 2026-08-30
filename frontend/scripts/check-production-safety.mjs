@@ -15,6 +15,7 @@ const internalTaskController = readFileSync(resolve(root, 'backend', 'task-servi
 const internalFileController = readFileSync(resolve(root, 'backend', 'file-service', 'src', 'main', 'java', 'com', 'aetherflow', 'file', 'controller', 'InternalFileController.java'), 'utf8')
 const aiFileProperties = readFileSync(resolve(root, 'backend', 'ai-service', 'src', 'main', 'java', 'com', 'aetherflow', 'ai', 'config', 'FileClientProperties.java'), 'utf8')
 const workflowNodeProperties = readFileSync(resolve(root, 'backend', 'workflow-service', 'src', 'main', 'java', 'com', 'aetherflow', 'workflow', 'node', 'WorkflowNodeProperties.java'), 'utf8')
+const codeRuntimeDockerfile = readFileSync(resolve(root, 'python-ai-service', 'CodeRuntime.Dockerfile'), 'utf8')
 const productionProfiles = [
   'workflow-service',
   'auth-service',
@@ -78,6 +79,14 @@ assertIncludes(compose, 'ENABLE_LLM: ${ENABLE_LLM:-false}', 'production compose 
 assertIncludes(compose, 'WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}', 'production workflows must use asynchronous AI tasks by default')
 assertIncludes(compose, 'WORKFLOW_CODE_EXECUTION_ENABLED: ${WORKFLOW_CODE_EXECUTION_ENABLED:-false}', 'production compose must keep code execution disabled until a resource-isolated runtime is configured')
 assertIncludes(envExample, 'WORKFLOW_CODE_EXECUTION_ENABLED=false', 'environment template must keep code execution disabled by default')
+assertIncludes(compose, 'code-runtime-service:', 'production compose must provide a dedicated code runtime service')
+assertIncludes(compose, 'CODE_RUNTIME_API_KEY: ${CODE_RUNTIME_API_KEY:?', 'code runtime must fail fast without a strong service credential')
+assertIncludes(compose, 'dockerfile: python-ai-service/CodeRuntime.Dockerfile', 'code runtime must use the minimal runtime image')
+assertIncludes(codeRuntimeDockerfile, 'USER app', 'code runtime image must run as a non-root user')
+assertIncludes(compose, 'read_only: true', 'code runtime container must use a read-only root filesystem')
+assertIncludes(compose, 'aetherflow-code-runtime:', 'workflow and code runtime must use a private network')
+assertIncludes(compose, 'WORKFLOW_CODE_RUNTIME_URL: ${WORKFLOW_CODE_RUNTIME_URL:-http://code-runtime-service:8300}', 'workflow must target the dedicated code runtime by default')
+assertIncludes(initScript, "Set-SecureEnvValue $content 'CODE_RUNTIME_API_KEY'", 'environment initializer must generate a dedicated code runtime credential')
 assertIncludes(compose, 'MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces', 'Java services must export traces through OTLP')
 assertIncludes(compose, 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces', 'Python service must export traces through OTLP')
 assertIncludes(compose, 'SPRING_RABBITMQ_TEMPLATE_OBSERVATION_ENABLED: "true"', 'RabbitMQ producers must emit observations')

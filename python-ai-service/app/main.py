@@ -6,12 +6,15 @@ import ipaddress
 import json
 import logging
 import os
+import secrets
 import shutil
 import socket
 import subprocess
 import signal
 import math
 import tempfile
+import threading
+import time
 import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
@@ -27,6 +30,13 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("aetherflow.python-ai")
 
 _whisper_model = None
+
+# 代码执行必须由独立运行时服务承载；并发闸门避免少量租户耗尽运行时资源。
+try:
+    _code_execution_max_concurrency = max(1, min(32, int(os.getenv("CODE_RUNTIME_MAX_CONCURRENCY", "2"))))
+except ValueError:
+    _code_execution_max_concurrency = 2
+_code_execution_slots = threading.BoundedSemaphore(_code_execution_max_concurrency)
 
 
 @asynccontextmanager
@@ -330,10 +340,12 @@ def _require_code_execution_api_key(x_api_key: Optional[str] = Header(default=No
     """Keep the arbitrary-code endpoint private even on the container network."""
     if _is_dev_env():
         return
+    if os.getenv("ENABLE_CODE_RUNTIME_ENDPOINT", "false").strip().lower() != "true":
+        raise HTTPException(status_code=404, detail="code runtime endpoint is not enabled on this service")
     expected = os.getenv("CODE_RUNTIME_API_KEY", "").strip()
-    if not expected:
+    if len(expected) < 32:
         raise HTTPException(status_code=503, detail="code runtime API key is not configured")
-    if not x_api_key or x_api_key.strip() != expected:
+    if not x_api_key or not secrets.compare_digest(x_api_key.strip(), expected):
         raise HTTPException(status_code=401, detail="missing or invalid code runtime API key")
 
 
@@ -471,11 +483,20 @@ def subtitles(request: SubtitleRequest) -> SubtitleResponse:
 
 @app.post("/v1/code/execute", response_model=CodeExecutionResponse)
 def execute_code(request: CodeExecutionRequest, _: None = Depends(_require_code_execution_api_key)) -> CodeExecutionResponse:
+    if not _code_execution_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="code runtime is busy; retry later")
+    try:
+        return _execute_code(request)
+    finally:
+        _code_execution_slots.release()
+
+
+def _execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
     language = request.language.strip().lower()
     if language not in {"python", "python3"}:
         raise HTTPException(status_code=400, detail="only python3 code execution is supported")
     _validate_code(request.code)
-    started = __import__("time").monotonic()
+    started = time.monotonic()
     encoded_code = base64.b64encode(request.code.encode("utf-8")).decode("ascii")
     encoded_input = base64.b64encode(json.dumps(request.input, ensure_ascii=False).encode("utf-8")).decode("ascii")
     runner = _code_runner_source(encoded_code, encoded_input, request.maxOutputBytes)
@@ -494,7 +515,7 @@ def execute_code(request: CodeExecutionRequest, _: None = Depends(_require_code_
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=408, detail="code execution timed out") from exc
-    duration_ms = round((__import__("time").monotonic() - started) * 1000)
+    duration_ms = round((time.monotonic() - started) * 1000)
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "code execution failed").strip()
         raise HTTPException(status_code=400, detail=detail[-2_000:])
@@ -527,6 +548,7 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
         cwd=cwd,
         env=env,
         start_new_session=(os.name != "nt"),
+        creationflags=(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0),
         preexec_fn=(lambda: _set_code_resource_limits(timeout_seconds)) if os.name != "nt" else None,
     )
     try:
@@ -538,7 +560,15 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
             except ProcessLookupError:
                 pass
         else:
-            process.kill()
+            # Windows 的 process.kill() 不会递归终止子进程，必须同时结束整个进程树。
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if process.poll() is None:
+                process.kill()
         process.wait(timeout=2)
         raise subprocess.TimeoutExpired(command, timeout_seconds, output=exc.output, stderr=exc.stderr) from exc
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
@@ -605,7 +635,10 @@ result_envelope = {{
     "__aetherflow_result__": result,
     "__aetherflow_stdout_truncated": sys.stdout.used > {max_output_bytes},
 }}
-sys.__stdout__.write("\\n__AETHERFLOW_RESULT__" + json.dumps(result_envelope, ensure_ascii=False, default=str) + "\\n")
+encoded_result = json.dumps(result_envelope, ensure_ascii=False, default=str)
+if len(encoded_result.encode("utf-8")) > {max_output_bytes}:
+    raise ValueError("code result exceeds output limit")
+sys.__stdout__.write("\\n__AETHERFLOW_RESULT__" + encoded_result + "\\n")
 '''
 
 

@@ -116,7 +116,7 @@ RAG 摄取从浏览器同步 JSON 往返迁移到后端基于 fileId 的持久�
 ## 当前生产边界
 
 - 知识库 fileId 导入已通过持久摄取作业异步完成，支持重试、失败状态和服务重启恢复；带正文的同步 API 仅保留兼容用途。向量兼容字段仍保存在 MySQL JSON 中，语义检索已改为全量数据库分页扫描加有界 Top-K；超大规模生产仍建议切换到 Qdrant/pgvector 等专用向量索引。
-- Code 节点默认关闭；Python 运行器已增加 API key、进程组回收、CPU/内存/文件大小限制，但不等同于多租户安全沙箱。只有接入独立容器或 microVM 隔离后才应对不受信任用户开放。
+- Code 节点默认关闭；Compose 已提供独立 `code-runtime-service`，代码接口与通用 Python AI 服务分离，并配置私有网络、只读根文件系统、非 root、cap-drop、no-new-privileges、进程/CPU/内存/临时目录限制，运行器具备 API key、语法白名单、进程组回收和输出上限。开启前仍需运维显式确认隔离验收；对不受信任多租户开放时，建议进一步采用 gVisor/Firecracker 等 microVM 级隔离。
 
 ## Additional Considerations
 

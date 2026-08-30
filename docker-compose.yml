@@ -215,7 +215,7 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
-      CODE_RUNTIME_API_KEY: ${CODE_RUNTIME_API_KEY:-}
+      ENABLE_CODE_RUNTIME_ENDPOINT: "false"
       FILE_URL_REWRITE_FROM: ${FILE_URL_REWRITE_FROM:-http://localhost:9000}
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
       OTEL_SERVICE_NAME: python-ai-service
@@ -231,6 +231,40 @@ services:
     restart: unless-stopped
     networks:
       - aetherflow
+
+  # 任意代码不在通用 AI 容器中执行；该服务只能通过私有运行时网络由工作流服务访问。
+  code-runtime-service:
+    build:
+      context: .
+      dockerfile: python-ai-service/CodeRuntime.Dockerfile
+    container_name: aetherflow-code-runtime-service
+    environment:
+      APP_ENV: prod
+      ENABLE_CODE_RUNTIME_ENDPOINT: "true"
+      CODE_RUNTIME_API_KEY: ${CODE_RUNTIME_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      CODE_RUNTIME_MAX_CONCURRENCY: ${CODE_RUNTIME_MAX_CONCURRENCY:-2}
+      CODE_RUNTIME_MAX_REQUEST_BYTES: ${CODE_RUNTIME_MAX_REQUEST_BYTES:-1048576}
+    expose:
+      - "8300"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8300/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+    networks:
+      - aetherflow-code-runtime
 
   nacos-init:
     image: curlimages/curl:8.10.1
@@ -479,7 +513,7 @@ services:
       WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}
       WORKFLOW_CODE_EXECUTION_ENABLED: ${WORKFLOW_CODE_EXECUTION_ENABLED:-false}
       WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED: ${WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED:-false}
-      WORKFLOW_CODE_RUNTIME_URL: ${WORKFLOW_CODE_RUNTIME_URL:-http://python-ai-service:8200}
+      WORKFLOW_CODE_RUNTIME_URL: ${WORKFLOW_CODE_RUNTIME_URL:-http://code-runtime-service:8300}
       WORKFLOW_CODE_RUNTIME_API_KEY: ${WORKFLOW_CODE_RUNTIME_API_KEY:-}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
@@ -500,9 +534,12 @@ services:
         condition: service_started
       task-service:
         condition: service_started
+      code-runtime-service:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - aetherflow
+      - aetherflow-code-runtime
 
   task-service:
     build:
@@ -620,6 +657,10 @@ networks:
   aetherflow:
     name: aetherflow-network
     driver: bridge
+  aetherflow-code-runtime:
+    name: aetherflow-code-runtime-network
+    driver: bridge
+    internal: true
 
 volumes:
   mysql-data:

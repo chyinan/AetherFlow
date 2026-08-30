@@ -37,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -320,11 +321,37 @@ public class WorkflowServiceImpl implements WorkflowService {
         for (WorkflowNodeDTO node : definition.getNodes()) {
             String nodeType = node.getNodeType() == null ? "" : node.getNodeType().trim();
             Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
-            if ("CODE".equalsIgnoreCase(nodeType)
-                    && workflowNodeProperties != null
-                    && !workflowNodeProperties.isCodeExecutionEnabled()) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                        "workflow contains a code node but isolated code execution is disabled");
+            if ("CODE".equalsIgnoreCase(nodeType) && workflowNodeProperties != null) {
+                if (!workflowNodeProperties.isCodeExecutionEnabled()) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "workflow contains a code node but isolated code execution is disabled");
+                }
+                if (!workflowNodeProperties.isCodeRuntimeIsolationConfirmed()) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "workflow contains a code node but runtime isolation is not confirmed");
+                }
+                String runtimeUrl = workflowNodeProperties.getCodeRuntimeUrl() == null
+                        ? ""
+                        : workflowNodeProperties.getCodeRuntimeUrl().trim();
+                if (runtimeUrl.isBlank()) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "workflow contains a code node but isolated code runtime URL is missing");
+                }
+                try {
+                    URI uri = URI.create(runtimeUrl);
+                    if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                            || uri.getHost() == null) {
+                        throw new IllegalArgumentException("runtime URL must be an HTTP(S) URL with a host");
+                    }
+                } catch (IllegalArgumentException exception) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "workflow contains a code node but isolated code runtime URL is invalid");
+                }
+                if (workflowNodeProperties.getCodeRuntimeApiKey() == null
+                        || workflowNodeProperties.getCodeRuntimeApiKey().trim().length() < 32) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                            "workflow contains a code node but isolated code runtime credential is missing");
+                }
             }
             if ("KNOWLEDGE_RETRIEVAL".equalsIgnoreCase(nodeType)) {
                 Object datasetId = config.getOrDefault("datasetId",

@@ -230,6 +230,70 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertTrue(response.json()["truncated"])
         self.assertLessEqual(len(response.json()["stdout"].encode('utf-8')), 1024)
 
+    def test_general_ai_service_does_not_expose_code_runtime_in_production(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "APP_ENV": "prod",
+                "ENABLE_CODE_RUNTIME_ENDPOINT": "false",
+                "CODE_RUNTIME_API_KEY": "k" * 48,
+            },
+            clear=False,
+        ):
+            response = self.client.post(
+                "/v1/code/execute",
+                json={"code": "def main(payload): return payload", "input": {}},
+            )
+
+        self.assertEqual(404, response.status_code)
+        self.assertIn("not enabled on this service", response.json()["detail"])
+
+    def test_dedicated_code_runtime_requires_service_key(self):
+        from app.code_runtime_main import app as code_runtime_app
+
+        client = TestClient(code_runtime_app)
+        with patch.dict(
+            "os.environ",
+            {
+                "APP_ENV": "prod",
+                "ENABLE_CODE_RUNTIME_ENDPOINT": "true",
+                "CODE_RUNTIME_API_KEY": "k" * 48,
+            },
+            clear=False,
+        ):
+            response = client.post(
+                "/v1/code/execute",
+                json={"code": "def main(payload): return {'ok': True}", "input": {}},
+            )
+
+        self.assertEqual(401, response.status_code)
+
+    def test_dedicated_code_runtime_executes_with_service_key(self):
+        from app.code_runtime_main import app as code_runtime_app
+
+        client = TestClient(code_runtime_app)
+        key = "k" * 48
+        with patch.dict(
+            "os.environ",
+            {
+                "APP_ENV": "prod",
+                "ENABLE_CODE_RUNTIME_ENDPOINT": "true",
+                "CODE_RUNTIME_API_KEY": key,
+            },
+            clear=False,
+        ):
+            response = client.post(
+                "/v1/code/execute",
+                headers={"X-API-Key": key},
+                json={
+                    "code": "def main(payload): return {'value': payload['value'] + 1}",
+                    "input": {"value": 4},
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"value": 5}, response.json()["result"])
+
     def test_whisper_materialization_rewrites_before_internal_url_check(self):
         from app.main import _materialize_source
 
