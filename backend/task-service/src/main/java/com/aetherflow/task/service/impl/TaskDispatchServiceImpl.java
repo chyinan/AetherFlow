@@ -43,8 +43,6 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
     @Transactional(rollbackFor = Exception.class)
     public Long dispatch(TaskMessageDTO taskMessage) {
         validate(taskMessage);
-        queueBackpressureGuard.assertTaskCreationAllowed(taskMessage);
-
         String idempotencyKey = normalizeIdempotencyKey(taskMessage.getIdempotencyKey());
         if (idempotencyKey != null) {
             Task existing = taskMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Task>()
@@ -55,6 +53,7 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
                 return existing.getId();
             }
         }
+        queueBackpressureGuard.assertTaskCreationAllowed(taskMessage);
 
         LocalDateTime now = LocalDateTime.now();
         Task task = new Task();
