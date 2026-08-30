@@ -9,6 +9,7 @@ import os
 import shutil
 import socket
 import subprocess
+import signal
 import tempfile
 import urllib.parse
 import uuid
@@ -473,14 +474,11 @@ def execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
             if os.getenv(key, "")
         }
         runner_environment["PYTHONNOUSERSITE"] = "1"
-        completed = subprocess.run(
+        completed = _run_code_process(
             [os.sys.executable, "-I", "-S", "-c", runner],
-            capture_output=True,
-            text=True,
-            timeout=request.timeoutMs / 1000,
-            check=False,
             cwd=tempfile.gettempdir(),
             env=runner_environment,
+            timeout_seconds=request.timeoutMs / 1000,
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(status_code=408, detail="code execution timed out") from exc
@@ -505,6 +503,32 @@ def execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
     if truncated:
         stdout = encoded_stdout[:request.maxOutputBytes].decode("utf-8", errors="ignore")
     return CodeExecutionResponse(result=result, stdout=stdout, durationMs=duration_ms, truncated=truncated)
+
+
+def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], timeout_seconds: float) -> subprocess.CompletedProcess[str]:
+    """Run user code in a killable process group and never leak timed-out workers."""
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=cwd,
+        env=env,
+        start_new_session=(os.name != "nt"),
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        if os.name != "nt":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        process.wait(timeout=2)
+        raise subprocess.TimeoutExpired(command, timeout_seconds, output=exc.output, stderr=exc.stderr) from exc
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def _validate_code(code: str) -> None:

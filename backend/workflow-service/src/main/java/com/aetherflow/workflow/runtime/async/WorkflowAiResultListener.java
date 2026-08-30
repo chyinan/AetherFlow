@@ -31,17 +31,26 @@ public class WorkflowAiResultListener {
             return;
         }
         Long workflowInstanceId = toLong(payload.get("workflowInstanceId"));
+        Long taskId = toLong(payload.get("taskId"));
         String nodeId = payload.get("nodeId") == null ? null : String.valueOf(payload.get("nodeId"));
         if (workflowInstanceId == null || nodeId == null || nodeId.isBlank()) {
             log.warn("AI result event ignored because workflow or node identity is missing");
             return;
         }
         if ("AI_TASK_FAILED".equals(message.getEventType())) {
-            completionService.completeFailure(workflowInstanceId, nodeId,
-                    payload.get("error") == null ? null : String.valueOf(payload.get("error")));
+            String error = payload.get("error") == null ? null : String.valueOf(payload.get("error"));
+            if (taskId == null) {
+                completionService.completeFailure(workflowInstanceId, nodeId, error);
+            } else {
+                completionService.completeFailure(workflowInstanceId, nodeId, taskId, error);
+            }
             return;
         }
-        completionService.completeSuccess(workflowInstanceId, nodeId, output(payload.get("output")));
+        if (taskId == null) {
+            completionService.completeSuccess(workflowInstanceId, nodeId, output(payload.get("output")));
+        } else {
+            completionService.completeSuccess(workflowInstanceId, nodeId, taskId, output(payload.get("output")));
+        }
     }
 
     private Long toLong(Object value) {
@@ -61,7 +70,7 @@ public class WorkflowAiResultListener {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         raw.forEach((key, item) -> {
-            if (key != null) {
+            if (key != null && item != null) {
                 result.put(String.valueOf(key), item);
             }
         });

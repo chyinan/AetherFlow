@@ -49,6 +49,8 @@ public class WorkflowRuntimeProperties {
     public static class Recovery {
         private boolean enabled = true;
         private int scanLimit = 100;
+        private boolean waitingWatchdogEnabled = true;
+        private Duration waitingTimeout = Duration.ofMinutes(30);
     }
 
     @Data

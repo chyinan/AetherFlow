@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class QuestionUnderstandNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public QuestionUnderstandNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -28,13 +29,7 @@ public class QuestionUnderstandNodeExecutor extends AbstractAiWorkflowNodeExecut
         }
         String prompt = "Normalize the user question into intent, entities, and language. Return concise JSON.\nQuestion: " + question;
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", llmPayload(config, prompt));
-        Map<String, Object> variables = new LinkedHashMap<>();
-        if (response.getOutput() != null) {
-            Object intent = response.getOutput().getOrDefault("jsonData", response.getOutput().get("completionText"));
-            variables.put("intent", intent);
-            variables.put("intentJson", intent);
-        }
-        return aiResult(response, variables);
+        return aiResult(response);
     }
 
     private String input(Map<String, Object> config, WorkflowContext context, String defaultVariable) {

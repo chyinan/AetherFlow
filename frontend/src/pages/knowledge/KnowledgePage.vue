@@ -21,6 +21,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { toApiError } from '@/api/client/apiError'
 import { knowledgeContentFromFile, useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import type { SurfaceStatus } from '@/types/dify'
@@ -83,6 +84,7 @@ const cleanUrls = ref(false)
 const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const deletingDatasetId = ref('')
+const deletingDocumentId = ref('')
 const MAX_TOP_K = 50
 
 const selectedDataset = computed(() => difyStore.selectedDataset)
@@ -98,7 +100,9 @@ const finalDatasetName = computed(() => wizardDatasetName.value.trim() || select
 const createdDataset = computed(() => difyStore.datasets.find((dataset) => dataset.id === createdDatasetId.value))
 
 function errorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : t('common.error')
+  const normalized = toApiError(error, 'workflow')
+  const status = normalized.status ? `HTTP ${normalized.status} · ` : ''
+  return `${status}${normalized.message || t('common.error')}`
 }
 
 function setPageError(error: unknown, retry: () => Promise<void>) {
@@ -194,10 +198,10 @@ function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
   return 'success'
 }
 
-function openCreateFlow(preferredSource: SourceType = 'file') {
-  difyStore.pendingWizardDatasetId = ''
+function openCreateFlow(preferredSource: SourceType = 'file', targetDatasetId = '') {
+  difyStore.pendingWizardDatasetId = targetDatasetId
   difyStore.pendingWizardPersistenceComplete = false
-  difyStore.pendingWizardDataset = null
+  difyStore.pendingWizardDataset = targetDatasetId ? selectedDataset.value ?? null : null
   difyStore.pendingWizardIdempotencyKey = ''
   difyStore.pendingWizardDocumentIdempotencyKey = ''
   viewMode.value = 'create'
@@ -275,7 +279,7 @@ async function previewSegments() {
     previewLoaded.value = false
     previewChunks.value = []
     previewChunkCount.value = 0
-    previewError.value = error instanceof Error ? error.message : t('common.error')
+    previewError.value = errorMessage(error)
   } finally {
     previewLoading.value = false
   }
@@ -428,6 +432,20 @@ async function deleteSelectedDataset() {
     setPageError(error, deleteSelectedDataset)
   } finally {
     deletingDatasetId.value = ''
+  }
+}
+
+async function deleteDocument(document: DatasetDocumentRow) {
+  if (deletingDocumentId.value || !window.confirm(t('knowledge.confirmDeleteDocument', { name: document.name }))) {
+    return
+  }
+  deletingDocumentId.value = document.id
+  try {
+    await difyStore.deleteDocument(document.id)
+  } catch (error) {
+    setPageError(error, () => deleteDocument(document))
+  } finally {
+    deletingDocumentId.value = ''
   }
 }
 
@@ -986,7 +1004,7 @@ onMounted(loadPage)
               <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('knowledge.flow.documentsHint') }}</p>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-              <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateFlow()">
+              <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateFlow('file', selectedDataset?.id ?? '')">
                 <Plus class="h-4 w-4" />
                 {{ t('knowledge.flow.addFile') }}
               </button>
@@ -1008,7 +1026,7 @@ onMounted(loadPage)
           </div>
 
           <div class="mt-5 overflow-x-auto rounded-lg border border-app-border bg-white">
-            <div class="grid min-w-[812px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] bg-app-bg2 px-4 py-3 text-xs font-semibold text-text-muted">
+            <div class="grid min-w-[876px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px_64px] bg-app-bg2 px-4 py-3 text-xs font-semibold text-text-muted">
               <span>#</span>
               <span>{{ t('settings.name') }}</span>
               <span>{{ t('knowledge.flow.segmentModeLabel') }}</span>
@@ -1016,11 +1034,12 @@ onMounted(loadPage)
               <span>{{ t('knowledge.flow.recallCount') }}</span>
               <span>{{ t('knowledge.flow.uploadTime') }}</span>
               <span>{{ t('knowledge.state') }}</span>
+              <span aria-hidden="true"></span>
             </div>
             <div
               v-for="(document, index) in datasetDocuments"
               :key="document.id"
-              class="grid min-w-[812px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px] items-center border-t border-app-border px-4 py-3 text-sm"
+              class="grid min-w-[876px] grid-cols-[56px_minmax(0,1.4fr)_160px_140px_120px_150px_140px_64px] items-center border-t border-app-border px-4 py-3 text-sm"
             >
               <span class="text-text-muted">{{ index + 1 }}</span>
               <span class="flex min-w-0 items-center gap-2">
@@ -1032,6 +1051,17 @@ onMounted(loadPage)
               <span class="text-text-secondary">{{ document.recalls }}</span>
               <span class="text-text-secondary">{{ document.uploadedAt }}</span>
               <span><StatusBadge :status="document.status" /></span>
+              <button
+                type="button"
+                class="grid h-8 w-8 place-items-center rounded-md text-text-muted transition hover:bg-red-50 hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
+                :title="t('knowledge.deleteDocument')"
+                :aria-label="t('knowledge.deleteDocument')"
+                :disabled="deletingDocumentId === document.id"
+                @click="deleteDocument(document)"
+              >
+                <Loader2 v-if="deletingDocumentId === document.id" class="h-4 w-4 animate-spin" />
+                <Trash2 v-else class="h-4 w-4" />
+              </button>
             </div>
             <div v-if="datasetDocuments.length === 0" class="min-w-[860px] border-t border-app-border px-4 py-12 text-center text-sm text-text-muted">
               {{ t('knowledge.flow.noDocuments') }}

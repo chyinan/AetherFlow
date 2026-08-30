@@ -38,6 +38,16 @@ vi.mock('@/config/runtimeEnv', () => ({
 import { useDifyStore } from './difyStore'
 
 describe('difyStore knowledge import recovery', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason?: unknown) => void
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise
+      reject = rejectPromise
+    })
+    return { promise, resolve, reject }
+  }
+
   beforeEach(() => {
     setActivePinia(createPinia())
     mocks.createKnowledgeDocument.mockReset().mockResolvedValue({ id: 'document-1' })
@@ -107,6 +117,44 @@ describe('difyStore knowledge import recovery', () => {
 
     expect(mocks.createKnowledgeDocument).toHaveBeenCalledTimes(1)
     expect(mocks.listKnowledgeDatasets).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores stale dataset content after a faster selection wins', async () => {
+    const store = useDifyStore()
+    store.datasets = [
+      { id: 'dataset-a', name: 'A', description: '', status: 'ready', documentCount: 0, processingDocumentCount: 0, chunkCount: 0, failedChunkCount: 0, hitRate: 0, embeddingModel: 'keyword sparse index', retrievalMode: 'inverted index', owner: 'owner', updatedAt: '', tags: [] },
+      { id: 'dataset-b', name: 'B', description: '', status: 'ready', documentCount: 0, processingDocumentCount: 0, chunkCount: 0, failedChunkCount: 0, hitRate: 0, embeddingModel: 'keyword sparse index', retrievalMode: 'inverted index', owner: 'owner', updatedAt: '', tags: [] },
+    ]
+    const first = deferred<unknown[]>()
+    const second = deferred<unknown[]>()
+    mocks.listDatasetDocuments
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    const selectA = store.selectDataset('dataset-a')
+    const selectB = store.selectDataset('dataset-b')
+    second.resolve([{ id: 'doc-b', datasetId: 'dataset-b', name: 'B', chars: 1, chunkCount: 1, recallCount: 0, status: 'ready' }])
+    await selectB
+    first.resolve([{ id: 'doc-a', datasetId: 'dataset-a', name: 'A', chars: 1, chunkCount: 1, recallCount: 0, status: 'ready' }])
+    await selectA
+
+    expect(store.selectedDatasetId).toBe('dataset-b')
+    expect(store.documents.map((document) => document.id)).toEqual(['doc-b'])
+  })
+
+  it('does not let a stale retrieval response replace the active dataset result', async () => {
+    const store = useDifyStore()
+    store.selectedDatasetId = 'dataset-a'
+    const first = deferred<unknown[]>()
+    const second = deferred<unknown[]>()
+    mocks.runKnowledgeRetrievalTest.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const firstSearch = store.runRetrievalTest('first')
+    const secondSearch = store.runRetrievalTest('second')
+    second.resolve([{ id: 'result-b', datasetId: 'dataset-a', source: 'b', preview: 'b', tokens: 1, score: 1, status: 'ready' }])
+    await secondSearch
+    first.resolve([{ id: 'result-a', datasetId: 'dataset-a', source: 'a', preview: 'a', tokens: 1, score: 1, status: 'ready' }])
+    await firstSearch
+
+    expect(store.retrievalResults.map((result) => result.id)).toEqual(['result-b'])
   })
 
   it('retries the document request with the same key when the first request fails', async () => {

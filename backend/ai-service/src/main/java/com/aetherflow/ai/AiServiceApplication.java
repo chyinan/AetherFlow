@@ -10,7 +10,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableDiscoveryClient
 @EnableFeignClients(basePackages = "com.aetherflow.ai.client")
 @EnableScheduling
-@MapperScan({"com.aetherflow.ai.mapper", "com.aetherflow.ai.copilot.mapper"})
+@MapperScan({"com.aetherflow.ai.mapper", "com.aetherflow.ai.copilot.mapper", "com.aetherflow.ai.outbox"})
 @SpringBootApplication(scanBasePackages = "com.aetherflow")
 public class AiServiceApplication {
 

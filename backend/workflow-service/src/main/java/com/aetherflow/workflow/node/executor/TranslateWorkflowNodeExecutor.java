@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class TranslateWorkflowNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public TranslateWorkflowNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -41,10 +42,6 @@ public class TranslateWorkflowNodeExecutor extends AbstractAiWorkflowNodeExecuto
         NodeValueSupport.putIfPresent(payload, "promptVersion", config.get("promptVersion"));
 
         AiWorkflowNodeResponseDTO response = executeAi(context, "TRANSLATE", payload);
-        Map<String, Object> variables = new LinkedHashMap<>();
-        if (response.getOutput() != null && response.getOutput().get("translatedText") != null) {
-            variables.put("translation", response.getOutput().get("translatedText"));
-        }
-        return aiResult(response, variables);
+        return aiResult(response);
     }
 }

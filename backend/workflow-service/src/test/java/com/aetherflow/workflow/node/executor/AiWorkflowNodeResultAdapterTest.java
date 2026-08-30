@@ -1,0 +1,73 @@
+package com.aetherflow.workflow.node.executor;
+
+import com.aetherflow.workflow.runtime.api.NodeResult;
+import org.junit.jupiter.api.Test;
+
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+// pattern: Functional Core
+class AiWorkflowNodeResultAdapterTest {
+
+    @Test
+    void adaptsQuestionClassifierRouteVariablesAndBranchKey() {
+        Map<String, Object> routeJson = Map.of("route", "billing", "confidence", 0.91D);
+
+        NodeResult result = AiWorkflowNodeResultAdapter.adapt(
+                "QUESTION_CLASSIFIER",
+                Map.of("completionText", "billing", "jsonData", routeJson));
+
+        assertThat(result.variables())
+                .containsEntry("route", "billing")
+                .containsEntry("routeJson", routeJson)
+                .containsEntry("completion", "billing");
+        assertThat(result.branchKey()).isEqualTo("billing");
+    }
+
+    @Test
+    void adaptsAgentPlanAndActionLog() {
+        Map<String, Object> plan = Map.of("steps", java.util.List.of("search", "answer"));
+
+        NodeResult result = AiWorkflowNodeResultAdapter.adapt(
+                "AGENT",
+                Map.of("completionText", "planned", "jsonData", plan));
+
+        assertThat(result.variables())
+                .containsEntry("plan", plan)
+                .containsEntry("actionLog", "planned");
+    }
+
+    @Test
+    void adaptsQuestionIntentAndExtractedParameters() {
+        Map<String, Object> intent = Map.of("intent", "refund", "language", "zh-CN");
+        NodeResult understood = AiWorkflowNodeResultAdapter.adapt(
+                "QUESTION_UNDERSTAND", Map.of("jsonData", intent));
+        Map<String, Object> params = Map.of("orderId", "A-100");
+        NodeResult extracted = AiWorkflowNodeResultAdapter.adapt(
+                "PARAMETER_EXTRACTOR", Map.of("jsonData", params));
+
+        assertThat(understood.variables())
+                .containsEntry("intent", intent)
+                .containsEntry("intentJson", intent);
+        assertThat(extracted.variables())
+                .containsEntry("params", params)
+                .containsEntry("paramsJson", params);
+    }
+
+    @Test
+    void adaptsWhisperTranslateAndSummaryOutputs() {
+        NodeResult whisper = AiWorkflowNodeResultAdapter.adapt(
+                "WHISPER", Map.of("text", "hello", "durationSeconds", 3.2D));
+        NodeResult translate = AiWorkflowNodeResultAdapter.adapt(
+                "TRANSLATE", Map.of("translatedText", "你好"));
+        NodeResult summary = AiWorkflowNodeResultAdapter.adapt(
+                "SUMMARY", Map.of("summary", "要点"));
+
+        assertThat(whisper.variables()).containsEntry("transcription", "hello");
+        assertThat(translate.variables())
+                .containsEntry("translation", "你好")
+                .containsEntry("translatedText", "你好");
+        assertThat(summary.variables()).containsEntry("summary", "要点");
+    }
+}

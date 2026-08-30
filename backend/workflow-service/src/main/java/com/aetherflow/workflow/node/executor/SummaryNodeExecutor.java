@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class SummaryNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     private final WorkflowNodeProperties properties;
@@ -40,12 +41,7 @@ public class SummaryNodeExecutor extends AbstractAiWorkflowNodeExecutor {
         putIfPresent(payload, "model", config.get("model"));
         putIfPresent(payload, "promptVersion", config.get("promptVersion"));
         AiWorkflowNodeResponseDTO response = executeAi(context, "SUMMARY", payload);
-        Map<String, Object> output = response.getOutput() == null ? Map.of() : response.getOutput();
-        Map<String, Object> variables = new LinkedHashMap<>();
-        if (output.get("summary") != null) {
-            variables.put("summary", output.get("summary"));
-        }
-        return buildResult(output, variables);
+        return aiResult(response);
     }
 
     private String firstText(Map<String, Object> config, WorkflowContext context) {

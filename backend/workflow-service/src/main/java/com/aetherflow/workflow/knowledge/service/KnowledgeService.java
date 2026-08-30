@@ -25,6 +25,8 @@ public interface KnowledgeService {
 
     KnowledgeDocumentSummary createDocument(Long datasetId, DocumentCreateRequest request);
 
+    void deleteDocument(Long documentId);
+
     List<KnowledgeChunkSummary> listDocumentChunks(Long documentId);
 
     PageResult<KnowledgeChunkSummary> listDatasetChunks(Long datasetId, int page, int pageSize);

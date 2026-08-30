@@ -11,6 +11,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.api.RetryPolicy;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.dag.WorkflowDag;
@@ -44,9 +45,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.function.Function;
 
 @Slf4j
+// pattern: Imperative Shell
 public class WorkflowRuntimeEngine {
 
     private static final int MAX_NESTED_ITERATIONS = 1_000;
@@ -58,6 +62,7 @@ public class WorkflowRuntimeEngine {
     private final RuntimeSleeper runtimeSleeper;
     private final RuntimeSnapshotRepository snapshotRepository;
     private final WorkflowRuntimeLock workflowRuntimeLock;
+    private final InheritableThreadLocal<AtomicBoolean> activeLockLost = new InheritableThreadLocal<>();
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
         this(nodeRegistry, new RuntimeStateMachine(), event -> {
@@ -198,14 +203,20 @@ public class WorkflowRuntimeEngine {
         WorkflowRuntimeLockLease lease = workflowRuntimeLock.acquire(workflowId)
                 .orElseThrow(() -> new IllegalStateException(
                         "workflow runtime lock already held for workflowId " + workflowId));
-        ScheduledExecutorService renewalExecutor = startLockRenewal(lease);
+        AtomicBoolean lockLost = new AtomicBoolean(false);
+        activeLockLost.set(lockLost);
+        ScheduledExecutorService renewalExecutor = startLockRenewal(lease, lockLost);
         try {
-            return execution.get();
+            ensureLockHealthy();
+            WorkflowExecutionSnapshot result = execution.get();
+            ensureLockHealthy();
+            return result;
         } finally {
             if (renewalExecutor != null) {
                 renewalExecutor.shutdownNow();
             }
             releaseLock(lease);
+            activeLockLost.remove();
         }
     }
 
@@ -223,6 +234,50 @@ public class WorkflowRuntimeEngine {
                 request, waitingSnapshot, nodeId, result));
     }
 
+    public WorkflowExecutionSnapshot completeWaitingNode(String workflowId,
+                                                          String nodeId,
+                                                          Function<WorkflowRuntimeSnapshot, NodeResult> resultFactory,
+                                                          RetryPolicy retryPolicy) {
+        return completeWaitingNode(workflowId, nodeId, null, resultFactory, retryPolicy);
+    }
+
+    public WorkflowExecutionSnapshot completeWaitingNode(String workflowId,
+                                                          String nodeId,
+                                                          Long expectedExternalTaskId,
+                                                          Function<WorkflowRuntimeSnapshot, NodeResult> resultFactory,
+                                                          RetryPolicy retryPolicy) {
+        Objects.requireNonNull(resultFactory, "resultFactory must not be null");
+        return withWorkflowLock(workflowId, () -> {
+            WorkflowRuntimeSnapshot stored = requiredSnapshot(workflowId);
+            validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
+            NodeResult result = Objects.requireNonNull(
+                    resultFactory.apply(stored), "external completion result must not be null");
+            if (result.waiting()) {
+                throw new IllegalArgumentException("external completion result must not remain waiting");
+            }
+            WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
+            return runAsSnapshotOwner(stored, () -> completeWaitingNodeLocked(
+                    request, stored.toExecutionSnapshot(), nodeId, result));
+        });
+    }
+
+    private void validateExternalTaskIdentity(WorkflowRuntimeSnapshot snapshot,
+                                              String nodeId,
+                                              Long expectedExternalTaskId) {
+        if (expectedExternalTaskId == null || nodeId == null) {
+            return;
+        }
+        NodeResult waitingResult = snapshot.nodeOutputs().get(nodeId);
+        Object actual = waitingResult == null ? null : waitingResult.output().get("externalTaskId");
+        try {
+            if (actual == null || Long.parseLong(String.valueOf(actual)) != expectedExternalTaskId) {
+                throw new IllegalStateException("stale external AI completion ignored for node " + nodeId);
+            }
+        } catch (NumberFormatException exception) {
+            throw new IllegalStateException("invalid external AI task identity for node " + nodeId, exception);
+        }
+    }
+
     public WorkflowExecutionSnapshot failWaitingNode(WorkflowRuntimeRequest request,
                                                        WorkflowExecutionSnapshot waitingSnapshot,
                                                        String nodeId,
@@ -231,6 +286,79 @@ public class WorkflowRuntimeEngine {
         Objects.requireNonNull(waitingSnapshot, "waitingSnapshot must not be null");
         return withWorkflowLock(request.workflowId(), () -> failWaitingNodeLocked(
                 request, waitingSnapshot, nodeId, error));
+    }
+
+    public WorkflowExecutionSnapshot failWaitingNode(String workflowId,
+                                                      String nodeId,
+                                                      String error,
+                                                      RetryPolicy retryPolicy) {
+        return failWaitingNode(workflowId, nodeId, null, error, retryPolicy);
+    }
+
+    public WorkflowExecutionSnapshot failWaitingNode(String workflowId,
+                                                      String nodeId,
+                                                      Long expectedExternalTaskId,
+                                                      String error,
+                                                      RetryPolicy retryPolicy) {
+        return withWorkflowLock(workflowId, () -> {
+            WorkflowRuntimeSnapshot stored = requiredSnapshot(workflowId);
+            validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
+            WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
+            return runAsSnapshotOwner(stored, () -> failWaitingNodeLocked(
+                    request, stored.toExecutionSnapshot(), nodeId, error));
+        });
+    }
+
+    private WorkflowRuntimeSnapshot requiredSnapshot(String workflowId) {
+        return snapshotRepository.findByWorkflowId(workflowId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "workflow runtime snapshot not found: " + workflowId));
+    }
+
+    private WorkflowRuntimeRequest requestFromSnapshot(WorkflowRuntimeSnapshot stored, RetryPolicy retryPolicy) {
+        return new WorkflowRuntimeRequest(
+                stored.workflowId(),
+                stored.traceId(),
+                stored.taskId(),
+                stored.definitionId(),
+                stored.definition(),
+                stored.variables(),
+                retryPolicy == null ? RetryPolicy.none() : retryPolicy);
+    }
+
+    private WorkflowExecutionSnapshot runAsSnapshotOwner(WorkflowRuntimeSnapshot stored,
+                                                         Supplier<WorkflowExecutionSnapshot> operation) {
+        return AuthenticatedUserContext.runAs(
+                snapshotUserId(stored.variables()),
+                snapshotUsername(stored.variables()),
+                operation);
+    }
+
+    private Long snapshotUserId(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("userId");
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                long parsed = Long.parseLong(String.valueOf(value));
+                if (parsed > 0) {
+                    return parsed;
+                }
+            } catch (NumberFormatException ignored) {
+                // Fall through to the explicit authentication error.
+            }
+        }
+        throw new com.aetherflow.common.exception.BusinessException(
+                com.aetherflow.common.core.ResultCode.UNAUTHORIZED,
+                "authenticated user is required for workflow completion");
+    }
+
+    private String snapshotUsername(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("username");
+        return value == null || String.valueOf(value).isBlank()
+                ? "aether.operator"
+                : String.valueOf(value).trim();
     }
 
     private WorkflowExecutionSnapshot completeWaitingNodeLocked(WorkflowRuntimeRequest request,
@@ -314,7 +442,8 @@ public class WorkflowRuntimeEngine {
                 || snapshot.failedNodeIds().contains(nodeId));
     }
 
-    private ScheduledExecutorService startLockRenewal(WorkflowRuntimeLockLease lease) {
+    private ScheduledExecutorService startLockRenewal(WorkflowRuntimeLockLease lease,
+                                                       AtomicBoolean lockLost) {
         Duration interval = renewalInterval(lease.ttl());
         if (interval.isZero() || interval.isNegative()) {
             return null;
@@ -325,7 +454,7 @@ public class WorkflowRuntimeEngine {
             return thread;
         });
         executor.scheduleAtFixedRate(
-                () -> renewLock(lease),
+                () -> renewLock(lease, lockLost),
                 interval.toMillis(),
                 interval.toMillis(),
                 TimeUnit.MILLISECONDS
@@ -345,14 +474,23 @@ public class WorkflowRuntimeEngine {
         return Duration.ofMillis(Math.min(intervalMillis, ttlMillis - 1L));
     }
 
-    private void renewLock(WorkflowRuntimeLockLease lease) {
+    private void renewLock(WorkflowRuntimeLockLease lease, AtomicBoolean lockLost) {
         try {
             if (!workflowRuntimeLock.renew(lease)) {
+                lockLost.set(true);
                 log.warn("workflow runtime lock renew rejected, workflowId={}", lease.workflowId());
             }
         } catch (RuntimeException exception) {
+            lockLost.set(true);
             log.warn("workflow runtime lock renew failed, workflowId={}, reason={}",
                     lease.workflowId(), exception.getMessage());
+        }
+    }
+
+    private void ensureLockHealthy() {
+        AtomicBoolean lockLost = activeLockLost.get();
+        if (lockLost != null && lockLost.get()) {
+            throw new IllegalStateException("workflow runtime lock was lost during execution");
         }
     }
 
@@ -374,6 +512,8 @@ public class WorkflowRuntimeEngine {
         ExecutorService executorService = Executors.newFixedThreadPool(workerCount(dag.nodeCount()));
         CompletionService<NodeExecution> completionService = new ExecutorCompletionService<>(executorService);
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
+        Map<String, Integer> nodeDepths = dag.topologicalDepths();
+        Map<String, VariableWriter> variableWriters = new HashMap<>();
         Queue<String> readyQueue = initialReadyNodes(dag, tracker, remainingPredecessors);
         Set<String> scheduled = new LinkedHashSet<>(tracker.completedNodeIds());
         scheduled.addAll(tracker.skippedNodeIds());
@@ -388,7 +528,7 @@ public class WorkflowRuntimeEngine {
             while (inFlight > 0) {
                 NodeExecution execution = awaitCompletedNode(completionService);
                 inFlight--;
-                recordCompletedNode(request, context, tracker, execution);
+                recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
 
                 if (!execution.result().waiting()) {
                     markUnselectedBranches(dag, execution, tracker, remainingPredecessors,
@@ -446,7 +586,9 @@ public class WorkflowRuntimeEngine {
                         return executeNode(request, dag, context, nodeId);
                     } catch (RuntimeException exception) {
                         tracker.markFailed(nodeId);
-                        saveSnapshot(request, context, tracker);
+                        // Snapshot persistence is owned by the coordinator thread.
+                        // Writing from worker threads races with a newer completion
+                        // and can roll the durable runtime state backwards.
                         throw new NodeExecutionException(nodeId, exception);
                     }
                 });
@@ -723,7 +865,9 @@ public class WorkflowRuntimeEngine {
     private void recordCompletedNode(WorkflowRuntimeRequest request,
                                      DefaultWorkflowContext context,
                                      ExecutionTracker tracker,
-                                     NodeExecution execution) {
+                                     NodeExecution execution,
+                                     Map<String, Integer> nodeDepths,
+                                     Map<String, VariableWriter> variableWriters) {
         context.recordNodeOutput(execution.nodeId(), execution.result());
         if (execution.result().waiting()) {
             tracker.markWaiting(execution.nodeId());
@@ -731,12 +875,29 @@ public class WorkflowRuntimeEngine {
             saveSnapshot(request, context, tracker);
             return;
         }
-        context.variables().putAll(execution.result().variables());
+        mergeVariables(context, execution.nodeId(), execution.result().variables(), nodeDepths, variableWriters);
         tracker.markCompleted(execution.nodeId());
         RuntimeLogContext.run(context, execution.nodeId(),
                 () -> log.info("workflow node completed, nodeType={}", execution.nodeType()));
         publish(context, RuntimeEventType.NODE_COMPLETED, execution.nodeId(), Map.of("nodeType", execution.nodeType()));
         saveSnapshot(request, context, tracker);
+    }
+
+    private void mergeVariables(DefaultWorkflowContext context,
+                                String nodeId,
+                                Map<String, Object> variables,
+                                Map<String, Integer> nodeDepths,
+                                Map<String, VariableWriter> variableWriters) {
+        int currentDepth = nodeDepths.getOrDefault(nodeId, 0);
+        variables.forEach((name, value) -> {
+            VariableWriter previous = variableWriters.get(name);
+            if (previous == null
+                    || currentDepth > previous.depth()
+                    || (currentDepth == previous.depth() && nodeId.compareTo(previous.nodeId()) < 0)) {
+                context.variables().put(name, value);
+                variableWriters.put(name, new VariableWriter(nodeId, currentDepth));
+            }
+        });
     }
 
     private void markUnselectedBranches(WorkflowDag dag,
@@ -989,6 +1150,7 @@ public class WorkflowRuntimeEngine {
     private void saveSnapshot(WorkflowRuntimeRequest request,
                               DefaultWorkflowContext context,
                               ExecutionTracker tracker) {
+        ensureLockHealthy();
         snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
                 context.workflowId(),
                 context.traceId(),
@@ -1018,6 +1180,9 @@ public class WorkflowRuntimeEngine {
     }
 
     private record NodeExecution(String nodeId, String nodeType, NodeResult result) {
+    }
+
+    private record VariableWriter(String nodeId, int depth) {
     }
 
     private static final class NodeExecutionException extends RuntimeException {

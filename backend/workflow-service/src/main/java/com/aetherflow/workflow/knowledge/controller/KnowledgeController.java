@@ -69,6 +69,12 @@ public class KnowledgeController {
         return Result.success(knowledgeService.createDocument(id, request));
     }
 
+    @DeleteMapping("/documents/{id}")
+    public Result<Void> deleteDocument(@PathVariable Long id) {
+        knowledgeService.deleteDocument(id);
+        return Result.success();
+    }
+
     @GetMapping("/documents/{id}/chunks")
     public Result<List<KnowledgeChunkSummary>> listDocumentChunks(@PathVariable Long id) {
         return Result.success(knowledgeService.listDocumentChunks(id));

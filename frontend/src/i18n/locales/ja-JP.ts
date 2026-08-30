@@ -917,6 +917,8 @@ export const jaJP = {
     retrievalMode: '検索モード',
     deleteDataset: 'ナレッジベースを削除',
     confirmDeleteDataset: 'ナレッジベース「{name}」を削除しますか？ドキュメントとチャンクも削除されます。',
+    deleteDocument: 'ドキュメントを削除',
+    confirmDeleteDocument: 'ドキュメント「{name}」を削除しますか？すべてのチャンクも削除されます。',
     flow: {
       serviceApi: 'サービス API',
       externalApi: '外部ナレッジ API',

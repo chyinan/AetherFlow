@@ -231,19 +231,19 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="workflow-grid-shell grid h-[480px] min-h-0 grid-cols-[260px_minmax(0,1fr)] overflow-hidden bg-app-bg lg:h-full" @click="addMenu = null">
-    <aside class="flex min-h-0 flex-col border-r border-app-border bg-white">
+  <div class="workflow-grid-shell grid h-[620px] min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-app-bg lg:h-full lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1" @click="addMenu = null">
+    <aside class="flex min-h-0 flex-col border-b border-app-border bg-white lg:border-b-0 lg:border-r">
       <div class="border-b border-app-border px-4 py-3">
         <p class="text-sm font-semibold text-text-primary">{{ $t('workflow.currentNodes') }}</p>
         <p class="mt-1 text-xs text-text-muted">{{ $t('workflow.currentNodesHint') }}</p>
       </div>
-      <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div class="flex min-h-0 flex-1 gap-2 overflow-x-auto p-3 lg:block lg:space-y-2 lg:overflow-y-auto">
         <button
           v-for="template in availableTemplates"
           :key="template.kind"
           type="button"
           draggable="true"
-          class="flex w-full items-start gap-3 rounded-lg border p-3 text-left transition"
+          class="flex w-[220px] shrink-0 items-start gap-3 rounded-lg border p-3 text-left transition lg:w-full"
           :class="'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
           @click="addTemplateFromPalette(template)"
           @dragstart="onTemplateDragStart($event, template)"
@@ -258,7 +258,7 @@ onMounted(() => {
             <span class="mt-2 block text-[11px] text-text-muted">{{ template.inputs.join(', ') || $t('common.inputs') }} → {{ template.outputs.join(', ') || $t('common.outputs') }}</span>
           </span>
         </button>
-        <p v-if="availableTemplates.length === 0" class="rounded-lg border border-dashed border-app-border bg-app-bg2 p-3 text-sm text-text-secondary">
+        <p v-if="availableTemplates.length === 0" class="w-[220px] shrink-0 rounded-lg border border-dashed border-app-border bg-app-bg2 p-3 text-sm text-text-secondary lg:w-auto">
           {{ $t('workflow.noCurrentNodes') }}
         </p>
       </div>

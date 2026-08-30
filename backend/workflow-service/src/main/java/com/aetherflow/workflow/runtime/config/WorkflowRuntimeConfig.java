@@ -65,7 +65,9 @@ public class WorkflowRuntimeConfig {
         executor.setCorePoolSize(runtimeCorePoolSize);
         executor.setMaxPoolSize(runtimeMaxPoolSize);
         executor.setQueueCapacity(runtimeQueueCapacity);
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        // 调度线程只负责入队；队列满时快速拒绝，避免 CallerRunsPolicy
+        // 把整条工作流搬回 HTTP 请求线程。
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
         executor.initialize();

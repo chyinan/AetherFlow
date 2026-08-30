@@ -27,6 +27,8 @@ import com.aetherflow.workflow.knowledge.entity.KnowledgeDocumentEntity;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
+import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
+import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -81,6 +83,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final ObjectMapper objectMapper;
     private final EmbeddingProviderRegistry embeddingProviderRegistry;
     private final EmbeddingProperties embeddingProperties;
+
+    @Autowired(required = false)
+    private WorkflowDefinitionMapper workflowDefinitionMapper;
 
     public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
                                 KnowledgeDocumentMapper documentMapper,
@@ -189,6 +194,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteDataset(Long datasetId) {
         requireDataset(datasetId);
+        if (isDatasetReferencedByWorkflow(datasetId)) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "knowledge dataset is still referenced by a workflow; update the workflow first");
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .eq(KnowledgeChunkEntity::getDatasetId, datasetId));
         documentMapper.delete(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
@@ -225,6 +234,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             KnowledgeDocumentEntity existing = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
                     .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
                     .eq(KnowledgeDocumentEntity::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (existing != null) {
+                return toDocumentSummary(existing);
+            }
+        }
+        if (idempotencyKey == null && hasText(request.getFileId())) {
+            KnowledgeDocumentEntity existing = documentMapper.selectOne(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                    .eq(KnowledgeDocumentEntity::getDatasetId, datasetId)
+                    .eq(KnowledgeDocumentEntity::getFileId, request.getFileId().trim())
+                    .ne(KnowledgeDocumentEntity::getStatus, "deleted")
                     .last("LIMIT 1"));
             if (existing != null) {
                 return toDocumentSummary(existing);
@@ -292,9 +311,26 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         dataset.setFailedChunkCount(nvl(dataset.getFailedChunkCount()));
         dataset.setStatus(STATUS_READY);
         dataset.setUpdatedAt(now);
-        datasetMapper.updateById(dataset);
+        if (datasetMapper.incrementDocumentCounters(datasetId, persistedChunkCount, now) != 1) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                    "knowledge dataset counter update failed");
+        }
 
         return toDocumentSummary(document);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteDocument(Long documentId) {
+        KnowledgeDocumentEntity document = requireDocument(documentId);
+        requireDataset(document.getDatasetId());
+        int deletedChunks = nvl(document.getChunkCount());
+        chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDocumentId, documentId));
+        documentMapper.deleteById(documentId);
+        if (datasetMapper.decrementDocumentCounters(document.getDatasetId(), deletedChunks, LocalDateTime.now()) != 1) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "knowledge dataset counter update failed");
+        }
     }
 
     @Override
@@ -771,9 +807,42 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (document == null || !Objects.equals(datasetId, document.getDatasetId())) {
             return;
         }
-        document.setRecallCount(nvl(document.getRecallCount()) + 1);
-        document.setUpdatedAt(LocalDateTime.now());
-        documentMapper.updateById(document);
+        documentMapper.incrementRecall(documentId, LocalDateTime.now());
+    }
+
+    private boolean isDatasetReferencedByWorkflow(Long datasetId) {
+        if (workflowDefinitionMapper == null || datasetId == null) {
+            return false;
+        }
+        List<WorkflowDefinition> definitions = workflowDefinitionMapper.selectList(
+                new LambdaQueryWrapper<WorkflowDefinition>()
+                        .eq(WorkflowDefinition::getOwnerUserId, currentUserId())
+                        .ne(WorkflowDefinition::getStatus, "DELETED"));
+        String needle = String.valueOf(datasetId);
+        return definitions.stream().anyMatch(definition -> definitionJsonContainsDataset(definition.getDefinitionJson(), needle));
+    }
+
+    private boolean definitionJsonContainsDataset(String definitionJson, String datasetId) {
+        if (!hasText(definitionJson)) {
+            return false;
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(definitionJson);
+            java.util.Iterator<com.fasterxml.jackson.databind.JsonNode> nodes = root == null
+                    ? java.util.Collections.emptyIterator()
+                    : root.findValues("datasetId").iterator();
+            while (nodes.hasNext()) {
+                com.fasterxml.jackson.databind.JsonNode value = nodes.next();
+                if (datasetId.equals(value.asText())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (JsonProcessingException ignored) {
+            // Invalid definitions are handled by workflow validation; do not make
+            // deletion unsafe by treating malformed JSON as an unreferenced graph.
+            return true;
+        }
     }
 
     private double chunkQualityScore(String text) {

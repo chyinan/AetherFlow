@@ -2,6 +2,7 @@ package com.aetherflow.workflow.runtime.persistence;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface RuntimeSnapshotRepository {
 
@@ -12,6 +13,10 @@ public interface RuntimeSnapshotRepository {
     List<WorkflowRuntimeSnapshot> findRecoverable(int limit);
 
     default List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
+        return List.of();
+    }
+
+    default List<WorkflowRuntimeSnapshot> findWaiting(int limit, Instant before) {
         return List.of();
     }
 

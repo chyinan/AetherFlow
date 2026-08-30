@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class ParameterExtractorNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public ParameterExtractorNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -37,12 +38,6 @@ public class ParameterExtractorNodeExecutor extends AbstractAiWorkflowNodeExecut
         NodeValueSupport.putIfPresent(payload, "model", config.get("model"));
 
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", payload);
-        Map<String, Object> params = response.getOutput() == null
-                ? Map.of()
-                : NodeValueSupport.objectMap(response.getOutput().get("jsonData"));
-        Map<String, Object> variables = new LinkedHashMap<>();
-        variables.put("params", params);
-        variables.put("paramsJson", params);
-        return aiResult(response, variables);
+        return aiResult(response);
     }
 }

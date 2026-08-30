@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class QuestionClassifierNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public QuestionClassifierNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -39,13 +40,7 @@ public class QuestionClassifierNodeExecutor extends AbstractAiWorkflowNodeExecut
         NodeValueSupport.putIfPresent(payload, "model", config.get("model"));
 
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", payload);
-        Map<String, Object> routeJson = routeJson(response);
-        Object route = routeJson.getOrDefault("route", response.getOutput() == null ? "" : response.getOutput().get("completionText"));
-        Map<String, Object> variables = new LinkedHashMap<>();
-        variables.put("route", route);
-        variables.put("routeJson", routeJson.isEmpty() ? Map.of("route", route) : routeJson);
-        return aiResult(response, variables)
-                .withBranchKey(NodeValueSupport.stringValue(route));
+        return aiResult(response);
     }
 
     private List<String> routes(Map<String, Object> config) {
@@ -59,10 +54,4 @@ public class QuestionClassifierNodeExecutor extends AbstractAiWorkflowNodeExecut
         );
     }
 
-    private Map<String, Object> routeJson(AiWorkflowNodeResponseDTO response) {
-        if (response.getOutput() == null) {
-            return Map.of();
-        }
-        return NodeValueSupport.objectMap(response.getOutput().get("jsonData"));
-    }
 }

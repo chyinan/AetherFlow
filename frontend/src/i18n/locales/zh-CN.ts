@@ -915,6 +915,8 @@ export const zhCN = {
     retrievalMode: '检索模式',
     deleteDataset: '删除知识库',
     confirmDeleteDataset: '确认删除知识库“{name}”？该知识库下的文档和分段也会一起删除。',
+    deleteDocument: '删除文档',
+    confirmDeleteDocument: '确认删除文档“{name}”？该文档的所有分段也会一起删除。',
     flow: {
       serviceApi: '服务 API',
       externalApi: '外部知识库 API',

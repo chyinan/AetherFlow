@@ -8,6 +8,7 @@ import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -17,6 +18,9 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.time.OffsetDateTime;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -28,6 +32,9 @@ public class AiTaskCallbackService {
     private final RestClient callbackRestClient;
     private final TaskStatusClient taskStatusClient;
     private final TaskClientProperties taskClientProperties;
+
+    @org.springframework.beans.factory.annotation.Value("${aetherflow.ai.callback-confirm-timeout:5s}")
+    private Duration callbackConfirmTimeout = Duration.ofSeconds(5);
 
     public AiTaskCallbackService(RabbitTemplate rabbitTemplate,
                                  @Qualifier("aiCallbackRestClient") RestClient callbackRestClient,
@@ -77,7 +84,38 @@ public class AiTaskCallbackService {
         notifyMessage.setChannel("WORKFLOW");
         notifyMessage.setPayload(payload);
         notifyMessage.setOccurredAt(OffsetDateTime.now());
-        rabbitTemplate.convertAndSend(RabbitMqNames.NOTIFY_EXCHANGE, RabbitMqNames.NOTIFY_ROUTING_KEY, notifyMessage);
+        CorrelationData correlationData = new CorrelationData(notifyMessage.getEventId());
+        rabbitTemplate.convertAndSend(
+                RabbitMqNames.NOTIFY_EXCHANGE,
+                RabbitMqNames.NOTIFY_ROUTING_KEY,
+                notifyMessage,
+                correlationData);
+        awaitPublisherConfirm(correlationData, notifyMessage.getEventId());
+    }
+
+    private void awaitPublisherConfirm(CorrelationData correlationData, String eventId) {
+        if (correlationData == null || correlationData.getFuture() == null) {
+            // Unit-test doubles and custom RabbitTemplate implementations may not
+            // expose a confirm future. The broker-backed template is configured
+            // with correlated confirms and always provides one.
+            return;
+        }
+        try {
+            CorrelationData.Confirm confirm = correlationData.getFuture().get(
+                    Math.max(1L, callbackConfirmTimeout.toMillis()), TimeUnit.MILLISECONDS);
+            if (confirm == null || !confirm.isAck()) {
+                String reason = confirm == null ? "missing broker confirmation" : confirm.getReason();
+                throw new IllegalStateException("notification publish was not confirmed: " + reason);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("notification publish confirmation interrupted", exception);
+        } catch (TimeoutException exception) {
+            throw new IllegalStateException("notification publish confirmation timed out: " + eventId, exception);
+        } catch (java.util.concurrent.ExecutionException exception) {
+            throw new IllegalStateException("notification publish confirmation failed: " + eventId,
+                    exception.getCause() == null ? exception : exception.getCause());
+        }
     }
 
     private String eventId(String eventType, Map<String, Object> payload) {

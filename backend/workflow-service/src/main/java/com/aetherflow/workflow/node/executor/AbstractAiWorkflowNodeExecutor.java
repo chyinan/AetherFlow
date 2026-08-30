@@ -14,9 +14,9 @@ import com.aetherflow.workflow.runtime.api.WorkflowContext;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
+// pattern: Imperative Shell
 abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
 
     private final AiWorkflowNodeClient aiClient;
@@ -64,27 +64,8 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
         return aiCallTimeoutGuard.executeWithTimeout(() -> aiClient.execute(request), nodeType);
     }
 
-    protected NodeResult aiResult(AiWorkflowNodeResponseDTO response, Map<String, Object> variables) {
+    protected NodeResult aiResult(AiWorkflowNodeResponseDTO response) {
         Map<String, Object> output = response.getOutput() == null ? Map.of() : response.getOutput();
-        Map<String, Object> mergedVariables = new LinkedHashMap<>();
-        if (variables != null) {
-            mergedVariables.putAll(variables);
-        }
-        copyIfPresent(output, mergedVariables, "completionText", "completionText");
-        copyIfPresent(output, mergedVariables, "completionText", "completion");
-        copyIfPresent(output, mergedVariables, "translatedText", "translatedText");
-        copyIfPresent(output, mergedVariables, "jsonData", "jsonData");
-        copyIfPresent(output, mergedVariables, "provider", "provider");
-        copyIfPresent(output, mergedVariables, "model", "model");
-        return buildResult(output, mergedVariables);
-    }
-
-    protected void copyIfPresent(Map<String, Object> source,
-                                 Map<String, Object> target,
-                                 String sourceKey,
-                                 String targetKey) {
-        if (source.get(sourceKey) != null) {
-            target.put(targetKey, source.get(sourceKey));
-        }
+        return AiWorkflowNodeResultAdapter.adapt(nodeType().value(), output);
     }
 }

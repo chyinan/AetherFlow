@@ -96,6 +96,19 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
                         .last("LIMIT " + maxResults)));
     }
 
+    @Override
+    public List<WorkflowRuntimeSnapshot> findWaiting(int limit, Instant before) {
+        int maxResults = Math.max(1, limit);
+        LocalDateTime cutoff = before == null
+                ? LocalDateTime.now()
+                : LocalDateTime.ofInstant(before, java.time.ZoneId.systemDefault());
+        return readSnapshots(mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                        .eq(WorkflowRuntimeSnapshotEntity::getRuntimeState, RuntimeState.WAITING.name())
+                        .le(WorkflowRuntimeSnapshotEntity::getUpdatedAt, cutoff)
+                        .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
+                        .last("LIMIT " + maxResults)));
+    }
+
     private List<WorkflowRuntimeSnapshot> readSnapshots(List<WorkflowRuntimeSnapshotEntity> entities) {
         List<WorkflowRuntimeSnapshot> snapshots = new ArrayList<>();
         if (entities == null) {

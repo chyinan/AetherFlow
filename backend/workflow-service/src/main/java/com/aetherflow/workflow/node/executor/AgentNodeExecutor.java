@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+// pattern: Imperative Shell
 public class AgentNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     public AgentNodeExecutor(WorkflowNodeMetrics metrics, AiWorkflowNodeClient aiClient) {
@@ -40,12 +41,6 @@ public class AgentNodeExecutor extends AbstractAiWorkflowNodeExecutor {
         NodeValueSupport.putIfPresent(payload, "model", config.get("model"));
 
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", payload);
-        Map<String, Object> variables = new LinkedHashMap<>();
-        if (response.getOutput() != null) {
-            Object plan = response.getOutput().getOrDefault("jsonData", response.getOutput().get("completionText"));
-            variables.put("plan", plan);
-            variables.put("actionLog", response.getOutput().get("completionText"));
-        }
-        return aiResult(response, variables);
+        return aiResult(response);
     }
 }

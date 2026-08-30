@@ -113,6 +113,32 @@ public class WorkflowDag {
         return predecessorNodeIds(nodeId).size();
     }
 
+    /** 返回节点所在的最长 DAG 路径深度，用于并行分支变量合并的确定性排序。 */
+    public Map<String, Integer> topologicalDepths() {
+        Map<String, Integer> depths = new LinkedHashMap<>();
+        Map<String, Integer> indegrees = new LinkedHashMap<>();
+        Queue<String> queue = new ArrayDeque<>();
+        for (String nodeId : orderedNodeIds) {
+            int indegree = predecessorNodeIds(nodeId).size();
+            indegrees.put(nodeId, indegree);
+            depths.put(nodeId, 0);
+            if (indegree == 0) {
+                queue.add(nodeId);
+            }
+        }
+        while (!queue.isEmpty()) {
+            String nodeId = queue.remove();
+            for (String target : declaredNextNodeIds(nodeId)) {
+                depths.put(target, Math.max(depths.getOrDefault(target, 0), depths.get(nodeId) + 1));
+                int remaining = indegrees.compute(target, (ignored, value) -> value == null ? 0 : value - 1);
+                if (remaining == 0) {
+                    queue.add(target);
+                }
+            }
+        }
+        return Map.copyOf(depths);
+    }
+
     public List<String> nextNodeIds(String nodeId, NodeResult result) {
         WorkflowNodeDTO node = node(nodeId);
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();

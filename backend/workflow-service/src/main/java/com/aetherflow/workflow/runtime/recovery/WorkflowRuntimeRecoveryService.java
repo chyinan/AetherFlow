@@ -6,7 +6,6 @@ import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
-import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import lombok.RequiredArgsConstructor;
@@ -108,14 +107,16 @@ public class WorkflowRuntimeRecoveryService {
         for (WorkflowRuntimeSnapshot snapshot : snapshotRepository.findTerminal(limit)) {
             try {
                 Long instanceId = Long.valueOf(snapshot.workflowId());
-                WorkflowInstance update = new WorkflowInstance();
-                update.setId(instanceId);
-                update.setStatus(snapshot.runtimeState().name());
-                update.setCurrentNodeId(snapshot.toExecutionSnapshot().currentNodeId());
-                update.setUpdatedAt(java.time.LocalDateTime.now());
-                update.setCompletedAt(java.time.LocalDateTime.now());
-                instanceMapper.updateById(update);
-                reconciled++;
+                java.time.LocalDateTime now = java.time.LocalDateTime.now();
+                int updated = instanceMapper.transitionRuntimeState(
+                        instanceId,
+                        snapshot.runtimeState().name(),
+                        snapshot.toExecutionSnapshot().currentNodeId(),
+                        now,
+                        now);
+                if (updated == 1) {
+                    reconciled++;
+                }
             } catch (NumberFormatException ignored) {
                 // Non-database workflow ids are used by in-memory and test runtimes.
             }

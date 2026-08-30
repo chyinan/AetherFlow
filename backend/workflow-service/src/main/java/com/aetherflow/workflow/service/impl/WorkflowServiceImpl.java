@@ -10,6 +10,7 @@ import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
@@ -29,7 +30,9 @@ import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +45,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Slf4j
+// pattern: Imperative Shell
 public class WorkflowServiceImpl implements WorkflowService {
 
     private static final String STATUS_ENABLED = "ENABLED";
@@ -57,6 +61,9 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final NodeRegistry nodeRegistry;
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
+
+    @Autowired(required = false)
+    private WorkflowNodeProperties workflowNodeProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -126,6 +133,7 @@ public class WorkflowServiceImpl implements WorkflowService {
 
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
         validateDag(definitionDTO);
+        validateRuntimePreflight(definitionDTO);
         Map<String, Object> input = request == null || request.getInput() == null ? Map.of() : request.getInput();
 
         WorkflowInstance instance = new WorkflowInstance();
@@ -148,34 +156,50 @@ public class WorkflowServiceImpl implements WorkflowService {
         );
 
         String username = currentUsername();
-        workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(userId, username, () -> {
-            executeRuntime(instance.getId(), runtimeRequest);
-            return null;
-        }));
+        try {
+            workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(userId, username, () -> {
+                executeRuntime(instance.getId(), runtimeRequest);
+                return null;
+            }));
+        } catch (TaskRejectedException exception) {
+            log.warn("workflow runtime queue is full, instanceId={}", instance.getId());
+            throw new BusinessException(ResultCode.TOO_MANY_REQUESTS,
+                    "workflow runtime queue is busy; retry shortly");
+        }
         return instance;
     }
 
     private void executeRuntime(Long instanceId, WorkflowRuntimeRequest runtimeRequest) {
-        WorkflowInstance update = new WorkflowInstance();
-        update.setId(instanceId);
         try {
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
-            applySnapshot(update, snapshot);
-            if (snapshot.runtimeState() == RuntimeState.SUCCESS
-                    || snapshot.runtimeState() == RuntimeState.FAILED
-                    || snapshot.runtimeState() == RuntimeState.CANCELLED) {
-                update.setCompletedAt(LocalDateTime.now());
-            }
-            update.setUpdatedAt(LocalDateTime.now());
-            instanceMapper.updateById(update);
+            persistRuntimeProjection(instanceId, snapshot);
         } catch (RuntimeException exception) {
-            update.setStatus(RuntimeState.FAILED.name());
-            update.setCompletedAt(LocalDateTime.now());
-            update.setUpdatedAt(LocalDateTime.now());
-            instanceMapper.updateById(update);
+            LocalDateTime failedAt = LocalDateTime.now();
+            instanceMapper.transitionRuntimeState(
+                    instanceId,
+                    RuntimeState.FAILED.name(),
+                    null,
+                    failedAt,
+                    failedAt);
             log.warn("workflow runtime execution failed, workflowId={}, reason={}",
                     runtimeRequest.workflowId(), exception.getMessage(), exception);
         }
+    }
+
+    private void persistRuntimeProjection(Long instanceId, WorkflowExecutionSnapshot snapshot) {
+        LocalDateTime updatedAt = LocalDateTime.now();
+        instanceMapper.transitionRuntimeState(
+                instanceId,
+                snapshot.runtimeState().name(),
+                snapshot.currentNodeId(),
+                isTerminal(snapshot.runtimeState()) ? updatedAt : null,
+                updatedAt);
+    }
+
+    private boolean isTerminal(RuntimeState state) {
+        return state == RuntimeState.SUCCESS
+                || state == RuntimeState.FAILED
+                || state == RuntimeState.CANCELLED;
     }
 
     private WorkflowDefinition getExistingDefinition(Long definitionId) {
@@ -211,11 +235,6 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private int nextVersion(Integer currentVersion) {
         return (currentVersion == null ? 0 : currentVersion) + 1;
-    }
-
-    private void applySnapshot(WorkflowInstance instance, WorkflowExecutionSnapshot snapshot) {
-        instance.setStatus(snapshot.runtimeState().name());
-        instance.setCurrentNodeId(snapshot.currentNodeId());
     }
 
     private Map<String, Object> runtimeVariables(WorkflowDefinitionDTO definition, Map<String, Object> input, Long userId) {
@@ -273,6 +292,38 @@ public class WorkflowServiceImpl implements WorkflowService {
             NodeType nodeType = NodeType.of(node.getNodeType());
             if (nodeRegistry.get(nodeType).isEmpty()) {
                 throw new IllegalArgumentException("unsupported workflow node type: " + nodeType.value());
+            }
+        }
+    }
+
+    private void validateRuntimePreflight(WorkflowDefinitionDTO definition) {
+        if (definition == null || definition.getNodes() == null) {
+            return;
+        }
+        for (WorkflowNodeDTO node : definition.getNodes()) {
+            String nodeType = node.getNodeType() == null ? "" : node.getNodeType().trim();
+            Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+            if ("CODE".equalsIgnoreCase(nodeType)
+                    && workflowNodeProperties != null
+                    && !workflowNodeProperties.isCodeExecutionEnabled()) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "workflow contains a code node but isolated code execution is disabled");
+            }
+            if ("KNOWLEDGE_RETRIEVAL".equalsIgnoreCase(nodeType)) {
+                Object datasetId = config.getOrDefault("datasetId",
+                        config.getOrDefault("dataset", config.get("vectorCollection")));
+                if (datasetId == null || String.valueOf(datasetId).isBlank()) {
+                    throw new BusinessException(ResultCode.BAD_REQUEST,
+                            "knowledge retrieval node datasetId is required");
+                }
+                try {
+                    if (Long.parseLong(String.valueOf(datasetId).trim()) <= 0) {
+                        throw new NumberFormatException("dataset id must be positive");
+                    }
+                } catch (NumberFormatException exception) {
+                    throw new BusinessException(ResultCode.BAD_REQUEST,
+                            "knowledge retrieval node datasetId is invalid");
+                }
             }
         }
     }

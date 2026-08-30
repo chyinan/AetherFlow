@@ -44,15 +44,7 @@ public class WhisperNodeExecutor extends AbstractAiWorkflowNodeExecutor {
         payload.put("language", stringValue(config.getOrDefault("language", properties.getDefaultWhisperLanguage())));
         payload.put("prompt", stringValue(config.getOrDefault("prompt", "")));
         AiWorkflowNodeResponseDTO response = executeAi(context, "WHISPER", payload);
-        Map<String, Object> output = safeOutput(response);
-        Map<String, Object> variables = new LinkedHashMap<>();
-        Object text = output.get("text");
-        if (text != null) {
-            variables.put("transcription", text);
-        }
-        copyIfPresent(output, variables, "srtObjectKey");
-        copyIfPresent(output, variables, "durationSeconds");
-        return buildResult(output, variables);
+        return aiResult(response);
     }
 
     private String fileUrl(WorkflowContext context, Map<String, Object> config) {
@@ -82,16 +74,6 @@ public class WhisperNodeExecutor extends AbstractAiWorkflowNodeExecutor {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file metadata lookup for whisper failed");
         }
         return stringValue(result.getData().getUrl());
-    }
-
-    private Map<String, Object> safeOutput(AiWorkflowNodeResponseDTO response) {
-        return response.getOutput() == null ? Map.of() : response.getOutput();
-    }
-
-    private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
-        if (source.containsKey(key) && source.get(key) != null) {
-            target.put(key, source.get(key));
-        }
     }
 
     private String stringValue(Object value) {

@@ -1,10 +1,10 @@
 package com.aetherflow.ai.task;
 
 import com.aetherflow.ai.cache.AiTaskCacheService;
-import com.aetherflow.ai.callback.AiTaskCallbackService;
 import com.aetherflow.ai.entity.AiJob;
 import com.aetherflow.ai.file.AiFileRegistrationService;
 import com.aetherflow.ai.mapper.AiJobMapper;
+import com.aetherflow.ai.outbox.AiTaskTerminalCoordinator;
 import com.aetherflow.ai.sentinel.SentinelAiGuard;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
@@ -18,7 +18,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -28,15 +31,19 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+// pattern: Imperative Shell
 public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
 
     private final AiJobMapper aiJobMapper;
     private final DefaultAiNodeExecutorRegistry executorRegistry;
     private final AiTaskCacheService cacheService;
     private final AiFileRegistrationService fileRegistrationService;
-    private final AiTaskCallbackService callbackService;
+    private final AiTaskTerminalCoordinator terminalCoordinator;
     private final SentinelAiGuard sentinelAiGuard;
     private final ObjectMapper objectMapper;
+
+    @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
+    private int listenerRetryMaxAttempts = 3;
 
     @Override
     public void process(TaskMessageDTO taskMessage) {
@@ -48,10 +55,24 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
         Map<String, Object> payload = taskMessage.getPayload() == null ? Map.of() : new LinkedHashMap<>(taskMessage.getPayload());
         String idempotencyKey = idempotencyKey(taskMessage);
         AiJob existingJob = findJob(idempotencyKey);
-        if (existingJob != null && (AiTaskStatus.SUCCEEDED.equals(existingJob.getStatus())
-                || AiTaskStatus.RUNNING.equals(existingJob.getStatus()))) {
+        if (existingJob != null && AiTaskStatus.SUCCEEDED.equals(existingJob.getStatus())) {
+            terminalCoordinator.publishPending(existingJob);
+            log.info("AI task duplicate completed without model rerun taskId={}, nodeId={}",
+                    taskMessage.getTaskId(), taskMessage.getNodeId());
+            return;
+        }
+        if (existingJob != null && AiTaskStatus.RUNNING.equals(existingJob.getStatus())) {
             log.info("AI task duplicate ignored taskId={}, nodeId={}, status={}",
                     taskMessage.getTaskId(), taskMessage.getNodeId(), existingJob.getStatus());
+            return;
+        }
+        if (existingJob != null && AiTaskStatus.FAILED.equals(existingJob.getStatus())) {
+            // FAILED is terminal for this idempotency key. A redelivered message
+            // must not invoke the model again; the durable outbox is the only
+            // allowed side effect to replay.
+            terminalCoordinator.publishPending(existingJob);
+            log.info("AI task duplicate failed task ignored without model rerun taskId={}, nodeId={}",
+                    taskMessage.getTaskId(), taskMessage.getNodeId());
             return;
         }
         boolean firstAttempt = existingJob == null;
@@ -66,25 +87,31 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
         cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.RUNNING);
         log.info("AI task started taskId={}, workflowInstanceId={}, nodeId={}, nodeType={}",
                 taskMessage.getTaskId(), taskMessage.getWorkflowInstanceId(), taskMessage.getNodeId(), taskMessage.getNodeType());
+        AiNodeResult result;
         try {
             AiNodeExecutor executor = executorRegistry.getRequired(taskMessage.getNodeType());
-            AiNodeResult result = executor.execute(new AiNodeExecutionContext(taskMessage, payload));
-            completeJob(job, result);
-            cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.SUCCEEDED);
-            cacheService.cacheResult(taskMessage.getTaskId(), result.output());
-            fileRegistrationService.registerArtifacts(result.artifacts());
-            callbackService.notifySuccess(taskMessage, result);
-            log.info("AI task succeeded taskId={}, jobId={}", taskMessage.getTaskId(), job.getId());
+            result = executor.execute(new AiNodeExecutionContext(taskMessage, payload));
         } catch (RuntimeException exception) {
-            failJob(job, exception);
-            cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.FAILED);
-            cacheService.cacheError(taskMessage.getTaskId(), exception.getMessage());
-            if (firstAttempt) {
-                callbackService.notifyFailure(taskMessage, exception.getMessage());
+            String error = safeError(exception);
+            if (retryExhausted()) {
+                terminalCoordinator.recordFailure(job, taskMessage, error);
+                cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.FAILED);
+                cacheService.cacheError(taskMessage.getTaskId(), error);
+                log.error("AI task failed after retries exhausted taskId={}, jobId={}",
+                        taskMessage.getTaskId(), job.getId(), exception);
+            } else {
+                markRetrying(job, error);
+                cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.RETRYING);
+                log.warn("AI task attempt failed and will retry taskId={}, jobId={}, retryCount={}",
+                        taskMessage.getTaskId(), job.getId(), currentRetryCount(), exception);
             }
-            log.error("AI task failed taskId={}, jobId={}", taskMessage.getTaskId(), job.getId(), exception);
             throw exception;
         }
+        terminalCoordinator.recordSuccess(job, taskMessage, result);
+        cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.SUCCEEDED);
+        cacheService.cacheResult(taskMessage.getTaskId(), result.output());
+        fileRegistrationService.registerArtifacts(result.artifacts());
+        log.info("AI task succeeded taskId={}, jobId={}", taskMessage.getTaskId(), job.getId());
     }
 
     private void validateTask(TaskMessageDTO taskMessage) {
@@ -131,20 +158,36 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
         return job;
     }
 
-    private void completeJob(AiJob job, AiNodeResult result) {
-        job.setOutputJson(writeJson(result.output()));
-        job.setStatus(AiTaskStatus.SUCCEEDED);
-        job.setCompletedAt(LocalDateTime.now());
+    private void markRetrying(AiJob job, String error) {
+        job.setOutputJson(writeJson(Map.of("error", error)));
+        job.setStatus(AiTaskStatus.RETRYING);
+        job.setCompletedAt(null);
         job.setUpdatedAt(LocalDateTime.now());
         aiJobMapper.updateById(job);
     }
 
-    private void failJob(AiJob job, RuntimeException exception) {
-        job.setOutputJson(writeJson(Map.of("error", exception.getMessage())));
-        job.setStatus(AiTaskStatus.FAILED);
-        job.setCompletedAt(LocalDateTime.now());
-        job.setUpdatedAt(LocalDateTime.now());
-        aiJobMapper.updateById(job);
+    private boolean retryExhausted() {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        if (retryContext == null) {
+            return true;
+        }
+        return retryContext.getRetryCount() >= Math.max(1, listenerRetryMaxAttempts) - 1;
+    }
+
+    private int currentRetryCount() {
+        RetryContext retryContext = RetrySynchronizationManager.getContext();
+        return retryContext == null ? 0 : retryContext.getRetryCount();
+    }
+
+    private String safeError(RuntimeException exception) {
+        if (exception == null) {
+            return "AI task failed";
+        }
+        String message = exception.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message.trim();
+        }
+        return "AI task failed: " + exception.getClass().getSimpleName();
     }
 
     private String writeJson(Object value) {

@@ -369,10 +369,9 @@ public class ProjectWorkspaceServiceImpl implements ProjectWorkspaceService {
                 .in(WorkflowInstance::getStatus, "PENDING", "RUNNING", "RETRYING", "WAITING"));
         if (instances != null) {
             instances.forEach(instance -> {
-                instance.setStatus(com.aetherflow.workflow.runtime.api.RuntimeState.CANCELLED.name());
-                instance.setCompletedAt(LocalDateTime.now());
-                instance.setUpdatedAt(LocalDateTime.now());
-                workflowInstanceMapper.updateById(instance);
+                if (instance.getId() != null) {
+                    workflowInstanceMapper.cancelIfActive(instance.getId(), currentUserId(), LocalDateTime.now());
+                }
             });
         }
     }

@@ -915,6 +915,8 @@ export const enUS = {
     retrievalMode: 'Retrieval mode',
     deleteDataset: 'Delete knowledge base',
     confirmDeleteDataset: 'Delete knowledge base "{name}"? Its documents and chunks will also be deleted.',
+    deleteDocument: 'Delete document',
+    confirmDeleteDocument: 'Delete document "{name}"? All of its chunks will also be deleted.',
     flow: {
       serviceApi: 'Service API',
       externalApi: 'External knowledge API',

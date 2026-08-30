@@ -82,6 +82,10 @@ export const useDifyStore = defineStore('difySurface', {
     pendingKnowledgeImportIdempotencyKey: '' as string,
     pendingKnowledgeImportPersisted: false,
     loadedDatasetSegmentIds: [] as string[],
+    datasetContentRequestId: 0,
+    datasetSegmentRequestId: 0,
+    retrievalRequestId: 0,
+    surfaceRequestId: 0,
   }),
   getters: {
     selectedDataset: (state) =>
@@ -100,6 +104,8 @@ export const useDifyStore = defineStore('difySurface', {
   },
   actions: {
     async loadSurface() {
+      const requestId = ++this.surfaceRequestId
+      const isCurrent = () => this.surfaceRequestId === requestId
       this.loading = true
       this.error = null
       try {
@@ -108,6 +114,9 @@ export const useDifyStore = defineStore('difySurface', {
           difyApi.listMonitorMetrics(),
           difyApi.listConversationLogs(),
         ])
+        if (!isCurrent()) {
+          return
+        }
         if (datasetsResult.status === 'rejected') {
           throw datasetsResult.reason
         }
@@ -126,7 +135,9 @@ export const useDifyStore = defineStore('difySurface', {
           await this.refreshDatasetContent(this.selectedDatasetId)
         }
       } finally {
-        this.loading = false
+        if (isCurrent()) {
+          this.loading = false
+        }
       }
     },
     async refreshDatasets() {
@@ -144,16 +155,27 @@ export const useDifyStore = defineStore('difySurface', {
       if (!activeDatasetId) {
         return
       }
+      const requestId = ++this.datasetContentRequestId
+      const isCurrent = () => this.datasetContentRequestId === requestId
       const [documentsResult, segmentsResult] = await Promise.allSettled([
         difyApi.listDatasetDocuments(activeDatasetId),
         options.includeChunks ? difyApi.listDatasetChunks(activeDatasetId) : Promise.resolve([]),
       ])
+      if (!isCurrent()) {
+        return
+      }
       if (documentsResult.status === 'rejected') {
         throw documentsResult.reason
       }
       const documents = documentsResult.value
       if (segmentsResult.status === 'rejected') {
+        if (!isCurrent()) {
+          return
+        }
         throw segmentsResult.reason
+      }
+      if (!isCurrent()) {
+        return
       }
       const segments = segmentsResult.value
       this.documents = [
@@ -174,7 +196,11 @@ export const useDifyStore = defineStore('difySurface', {
       if (!activeDatasetId) {
         return
       }
+      const requestId = ++this.datasetSegmentRequestId
       const segments = await difyApi.listDatasetChunks(activeDatasetId)
+      if (this.datasetSegmentRequestId !== requestId) {
+        return
+      }
       this.segments = [
         ...this.segments.filter((segment) => segment.datasetId !== activeDatasetId),
         ...segments,
@@ -185,6 +211,9 @@ export const useDifyStore = defineStore('difySurface', {
       ]
     },
     async selectDataset(datasetId: string) {
+      this.datasetContentRequestId += 1
+      this.datasetSegmentRequestId += 1
+      this.retrievalRequestId += 1
       this.selectedDatasetId = datasetId
       this.retrievalResults = []
       await this.refreshDatasetContent(datasetId)
@@ -241,7 +270,7 @@ export const useDifyStore = defineStore('difySurface', {
       const existingDataset = input.datasetId
         ? this.datasets.find((item) => item.id === input.datasetId)
           ?? (this.pendingWizardDataset?.id === input.datasetId ? this.pendingWizardDataset : undefined)
-        : this.pendingWizardPersistenceComplete ? this.pendingWizardDataset : undefined
+        : this.pendingWizardDataset
       const createdNewDataset = !existingDataset
       const datasetIdempotencyKey = existingDataset
         ? this.pendingWizardIdempotencyKey || newOperationKey('knowledge-dataset')
@@ -289,21 +318,14 @@ export const useDifyStore = defineStore('difySurface', {
           })
         }
       } catch (error) {
-        try {
-          if (createdNewDataset) {
-            await difyApi.deleteKnowledgeDataset(dataset.id)
-          }
-          this.pendingWizardDatasetId = createdNewDataset ? '' : dataset.id
-        } catch (cleanupError) {
-          this.pendingWizardDatasetId = dataset.id
-          this.error = cleanupError instanceof Error
-            ? `${i18n.global.t('knowledge.flow.cleanupFailed')}: ${cleanupError.message}`
-            : i18n.global.t('knowledge.flow.cleanupFailed')
-        }
-        if (createdNewDataset && !this.pendingWizardDatasetId) {
-          this.datasets = this.datasets.filter((item) => item.id !== dataset.id)
-          this.selectedDatasetId = this.datasets[0]?.id ?? ''
-          this.pendingWizardDataset = null
+        // Never delete a newly persisted dataset after a client timeout or a
+        // lost response. The document idempotency key makes the next click
+        // safe, while retaining the dataset gives the operator a resumable
+        // operation instead of an orphaned/ambiguous state.
+        this.pendingWizardDatasetId = dataset.id
+        this.pendingWizardDataset = dataset
+        if (!this.datasets.some((item) => item.id === dataset.id)) {
+          this.datasets = [dataset, ...this.datasets]
         }
         this.pendingWizardPersistenceComplete = false
         throw error
@@ -342,15 +364,34 @@ export const useDifyStore = defineStore('difySurface', {
         this.selectedDatasetId = this.datasets[0]?.id ?? ''
       }
     },
+    async deleteDocument(documentId: string) {
+      const document = this.documents.find((item) => item.id === documentId)
+      if (!document) {
+        return
+      }
+      await difyApi.deleteKnowledgeDocument(documentId)
+      this.documents = this.documents.filter((item) => item.id !== documentId)
+      this.segments = this.segments.filter((item) => item.documentId !== documentId)
+      const dataset = this.datasets.find((item) => item.id === document.datasetId)
+      if (dataset) {
+        dataset.documentCount = Math.max(0, dataset.documentCount - 1)
+        dataset.chunkCount = Math.max(0, dataset.chunkCount - document.chunkCount)
+      }
+    },
     async runRetrievalTest(query: string, topK = 3) {
       if (!this.selectedDatasetId) {
         this.retrievalResults = []
         return
       }
-      this.retrievalResults = await difyApi.runKnowledgeRetrievalTest(this.selectedDatasetId, {
+      const requestId = ++this.retrievalRequestId
+      const datasetId = this.selectedDatasetId
+      const results = await difyApi.runKnowledgeRetrievalTest(datasetId, {
         query,
         topK,
       })
+      if (this.retrievalRequestId === requestId && this.selectedDatasetId === datasetId) {
+        this.retrievalResults = results
+      }
     },
   },
 })

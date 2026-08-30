@@ -266,6 +266,11 @@ export const difyApi = {
     )
     return mapDocument(document)
   },
+  async deleteKnowledgeDocument(documentId: string) {
+    await apiClient.delete(`/knowledge/documents/${encodeURIComponent(documentId)}`, {
+      source: 'workflow',
+    })
+  },
   async runKnowledgeRetrievalTest(datasetId: string, input: RetrievalTestInput) {
     const response = await apiClient.post<{ results?: KnowledgeChunkResponse[] }>(
       `/knowledge/datasets/${encodeURIComponent(datasetId)}/retrieval-test`,

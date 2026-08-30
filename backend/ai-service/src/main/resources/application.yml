@@ -11,12 +11,22 @@ spring:
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD:mysql}
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    baseline-on-migrate: true
+    baseline-version: 1
+    table: af_ai_flyway_schema_history
+    locations: classpath:db/migration
   rabbitmq:
     host: ${RABBITMQ_HOST:192.168.101.68}
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USERNAME:aetherflow}
     password: ${RABBITMQ_PASSWORD:aetherflow}
     virtual-host: ${RABBITMQ_VHOST:/}
+    publisher-confirm-type: ${RABBITMQ_PUBLISHER_CONFIRM_TYPE:correlated}
+    publisher-returns: ${RABBITMQ_PUBLISHER_RETURNS:true}
+    template:
+      mandatory: ${RABBITMQ_TEMPLATE_MANDATORY:true}
     listener:
       simple:
         retry:
@@ -56,8 +66,6 @@ mybatis-plus:
       id-type: auto
 
 aetherflow:
-  ai:
-    internal-token: ${AI_INTERNAL_TOKEN:aetherflow-ai-internal-dev-token}
   file:
     internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
   task:
@@ -68,11 +76,13 @@ aetherflow:
     connect-timeout-millis: ${PYTHON_AI_CONNECT_TIMEOUT_MILLIS:3000}
     read-timeout-millis: ${PYTHON_AI_READ_TIMEOUT_MILLIS:1800000}
   ai:
+    internal-token: ${AI_INTERNAL_TOKEN:aetherflow-ai-internal-dev-token}
     default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
     default-model: ${AI_DEFAULT_MODEL:llama3}
     task-cache-ttl: ${AI_TASK_CACHE_TTL:6h}
     provider-timeout: ${AI_PROVIDER_TIMEOUT:60s}
     callback-timeout: ${AI_CALLBACK_TIMEOUT:5s}
+    callback-confirm-timeout: ${AI_CALLBACK_CONFIRM_TIMEOUT:5s}
     sentinel-enabled: ${AI_SENTINEL_ENABLED:true}
     task-qps: ${AI_TASK_QPS:5}
     provider-qps: ${AI_PROVIDER_QPS:2}

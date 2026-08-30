@@ -34,16 +34,21 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+// pattern: Imperative Shell
 class WorkflowServiceImplTest {
 
     @Mock
@@ -128,11 +133,8 @@ class WorkflowServiceImplTest {
         assertThat(runtimeRequest.getValue().variables()).containsEntry("userId", 7L);
         assertThat(runtimeRequest.getValue().variables()).containsEntry("username", "aether.operator");
         assertThat(runtimeRequest.getValue().variables()).containsKey(WorkflowNodeContextKeys.NODE_CONFIGS);
-        ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
-        verify(instanceMapper).updateById(instanceCaptor.capture());
-        assertThat(instanceCaptor.getValue().getId()).isEqualTo(99L);
-        assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("SUCCESS");
-        assertThat(instanceCaptor.getValue().getCurrentNodeId()).isEqualTo("node-summary");
+        verify(instanceMapper).transitionRuntimeState(
+                eq(99L), eq("SUCCESS"), eq("node-summary"), any(), any());
     }
 
     @Test
@@ -178,10 +180,8 @@ class WorkflowServiceImplTest {
         assertThat(instance.getId()).isEqualTo(100L);
         assertThat(instance.getStatus()).isEqualTo("RUNNING");
 
-        ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
-        verify(instanceMapper).updateById(instanceCaptor.capture());
-        assertThat(instanceCaptor.getValue().getId()).isEqualTo(100L);
-        assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("FAILED");
+        verify(instanceMapper).transitionRuntimeState(
+                eq(100L), eq("FAILED"), any(), any(), any());
     }
 
     @Test
@@ -202,10 +202,62 @@ class WorkflowServiceImplTest {
 
         asUser(7L, () -> workflowService.startInstance(10L, request));
 
-        ArgumentCaptor<WorkflowInstance> instanceCaptor = ArgumentCaptor.forClass(WorkflowInstance.class);
-        verify(instanceMapper).updateById(instanceCaptor.capture());
-        assertThat(instanceCaptor.getValue().getStatus()).isEqualTo("WAITING");
-        assertThat(instanceCaptor.getValue().getCompletedAt()).isNull();
+        verify(instanceMapper).transitionRuntimeState(
+                eq(101L), eq("WAITING"), eq("node-ai"), any(), any());
+    }
+
+    @Test
+    void lateInitialWaitingProjectionDoesNotDowngradeFastCallbackSuccess() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        StartWorkflowRequest request = request();
+        CountDownLatch runtimeEntered = new CountDownLatch(1);
+        CountDownLatch callbackCompleted = new CountDownLatch(1);
+        CountDownLatch initialProjectionCompleted = new CountDownLatch(1);
+        AtomicReference<String> persistedStatus = new AtomicReference<>(RuntimeState.RUNNING.name());
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(103L);
+            return 1;
+        }).when(instanceMapper).insert(any(WorkflowInstance.class));
+        doAnswer(invocation -> {
+            String current = persistedStatus.get();
+            if (!List.of("SUCCESS", "FAILED", "CANCELLED").contains(current)) {
+                persistedStatus.set(invocation.getArgument(1));
+            }
+            initialProjectionCompleted.countDown();
+            return 1;
+        }).when(instanceMapper).transitionRuntimeState(any(), any(), any(), any(), any());
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenAnswer(invocation -> {
+            runtimeEntered.countDown();
+            assertThat(callbackCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+            return new WorkflowExecutionSnapshot(
+                    "103", "trace", "103", RuntimeState.WAITING, "node-ai",
+                    Map.of(), Map.of("node-ai", NodeResult.waiting(Map.of("externalTaskId", 91L))), List.of());
+        });
+        WorkflowServiceImpl asynchronousService = new WorkflowServiceImpl(
+                definitionMapper,
+                instanceMapper,
+                projectMapper,
+                runtimeEngine,
+                objectMapper,
+                runtimeProperties,
+                nodeRegistry,
+                task -> {
+                    Thread thread = new Thread(task, "workflow-initial-projection-test");
+                    thread.setDaemon(true);
+                    thread.start();
+                });
+
+        asUser(7L, () -> asynchronousService.startInstance(10L, request));
+        assertThat(runtimeEntered.await(2, TimeUnit.SECONDS)).isTrue();
+        persistedStatus.set(RuntimeState.SUCCESS.name());
+        callbackCompleted.countDown();
+        assertThat(initialProjectionCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(persistedStatus.get()).isEqualTo(RuntimeState.SUCCESS.name());
     }
 
     @Test

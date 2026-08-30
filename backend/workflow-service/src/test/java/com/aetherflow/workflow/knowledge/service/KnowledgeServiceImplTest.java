@@ -43,7 +43,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,6 +66,7 @@ class KnowledgeServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(datasetMapper.incrementDocumentCounters(any(), any(Integer.class), any())).thenReturn(1);
         service = new KnowledgeServiceImpl(
                 datasetMapper,
                 documentMapper,
@@ -142,7 +145,7 @@ class KnowledgeServiceImplTest {
         assertThat(chunkCaptor.getAllValues()).extracting(KnowledgeChunkEntity::getPreview)
                 .containsExactly("a".repeat(64), "a" + "b".repeat(63));
         assertThat(chunkCaptor.getAllValues().get(0).getMetadataJson()).contains("\"sourceType\":\"input\"");
-        verify(datasetMapper).updateById(dataset);
+        verify(datasetMapper).incrementDocumentCounters(eq(11L), eq(2), any());
         assertThat(dataset.getDocumentCount()).isEqualTo(1);
         assertThat(dataset.getChunkCount()).isEqualTo(2);
         assertThat(dataset.getHitRate()).isEqualTo(92);

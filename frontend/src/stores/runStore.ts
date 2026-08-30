@@ -48,6 +48,11 @@ function runBelongsToWorkflow(run: WorkflowRun, workflowStore: ReturnType<typeof
   return workflowRunBelongsToWorkflow(run, workflowStore.workflowId, workflowStore.backendDefinitionId)
 }
 
+type RunRecoveryOptions = {
+  readonly expectedRunId?: string
+  readonly selectionRequestId?: number
+}
+
 export const useRunStore = defineStore('run', {
   state: () => ({
     runs: [] as WorkflowRun[],
@@ -58,6 +63,9 @@ export const useRunStore = defineStore('run', {
     logsLoading: false,
     error: null as string | null,
     initialized: false,
+    selectionRequestId: 0,
+    runsLoadRequestId: 0,
+    realtimeSubscriptionId: 0,
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
   getters: {
@@ -74,20 +82,32 @@ export const useRunStore = defineStore('run', {
   actions: {
     async loadRuns(options: { selectDefault?: boolean } = {}) {
       const selectDefault = options.selectDefault ?? true
+      const runsLoadRequestId = ++this.runsLoadRequestId
+      const isCurrentLoad = () => this.runsLoadRequestId === runsLoadRequestId
 
       if (this.initialized) {
         if (selectDefault && !this.currentRun) {
           try {
-            this.currentRun = this.runs[0] ?? null
-            this.logsLoading = Boolean(this.currentRun)
-            this.logs = this.currentRun ? await runApi.getLogs(this.currentRun.id) : []
-            if (this.currentRun) {
-              this.logsByRunId[this.currentRun.id] = this.logs
+            const selectedRun = this.runs[0] ?? null
+            this.currentRun = selectedRun
+            this.logsLoading = Boolean(selectedRun)
+            this.logs = []
+            const selectedLogs = selectedRun ? await runApi.getLogs(selectedRun.id) : []
+            if (!isCurrentLoad() || this.currentRun?.id !== selectedRun?.id) {
+              return
+            }
+            this.logs = selectedLogs
+            if (selectedRun) {
+              this.logsByRunId[selectedRun.id] = selectedLogs
             }
           } catch (error) {
-            this.error = errorMessage(error)
+            if (isCurrentLoad()) {
+              this.error = errorMessage(error)
+            }
           } finally {
-            this.logsLoading = false
+            if (isCurrentLoad()) {
+              this.logsLoading = false
+            }
           }
         }
         return
@@ -95,26 +115,40 @@ export const useRunStore = defineStore('run', {
       this.loading = true
       this.error = null
       try {
-        this.runs = await runApi.listRuns()
+        const loadedRuns = await runApi.listRuns()
+        if (!isCurrentLoad()) {
+          return
+        }
+        this.runs = loadedRuns
         if (selectDefault) {
-          this.currentRun = this.currentRun ?? this.runs[0] ?? null
-          this.logsLoading = Boolean(this.currentRun)
-          this.logs = this.currentRun ? await runApi.getLogs(this.currentRun.id) : []
-          if (this.currentRun) {
-            this.logsByRunId[this.currentRun.id] = this.logs
+          const selectedRun = this.currentRun ?? this.runs[0] ?? null
+          this.currentRun = selectedRun
+          this.logsLoading = Boolean(selectedRun)
+          this.logs = []
+          const selectedLogs = selectedRun ? await runApi.getLogs(selectedRun.id) : []
+          if (!isCurrentLoad() || this.currentRun?.id !== selectedRun?.id) {
+            return
+          }
+          this.logs = selectedLogs
+          if (selectedRun) {
+            this.logsByRunId[selectedRun.id] = selectedLogs
           }
           this.logsLoading = false
         }
         this.initialized = true
       } catch (error) {
-        this.error = errorMessage(error)
-        if (this.runs.length === 0) {
-          this.currentRun = null
-          this.logs = []
+        if (isCurrentLoad()) {
+          this.error = errorMessage(error)
+          if (this.runs.length === 0) {
+            this.currentRun = null
+            this.logs = []
+          }
         }
       } finally {
-        this.loading = false
-        this.logsLoading = false
+        if (isCurrentLoad()) {
+          this.loading = false
+          this.logsLoading = false
+        }
       }
     },
     async refreshRuns() {
@@ -122,22 +156,46 @@ export const useRunStore = defineStore('run', {
       await this.loadRuns()
     },
     async selectRun(runId: string) {
+      const selectionRequestId = ++this.selectionRequestId
+      const isCurrentSelection = () => this.selectionRequestId === selectionRequestId
       this.loading = true
       this.logsLoading = true
       this.error = null
       try {
         await this.loadRuns({ selectDefault: false })
+        if (!isCurrentSelection()) {
+          return
+        }
+        this.loading = true
+        this.logsLoading = true
         const localRun = this.runs.find((run) => run.id === runId)
-        this.currentRun = localRun ?? (await runApi.getRun(runId))
-        this.logs = this.logsByRunId[runId] ?? await runApi.getLogs(runId)
+        const selectedRun = localRun ?? (await runApi.getRun(runId))
+        if (!isCurrentSelection()) {
+          return
+        }
+        this.currentRun = selectedRun
+        const cachedLogs = this.logsByRunId[runId]
+        this.logs = cachedLogs ?? []
+        const selectedLogs = cachedLogs ?? await runApi.getLogs(runId)
+        if (!isCurrentSelection() || this.currentRun?.id !== runId) {
+          return
+        }
+        this.logs = selectedLogs
         this.logsByRunId[runId] = this.logs
-        await this.recoverCurrentRunRuntime()
+        await this.recoverCurrentRunRuntime({ expectedRunId: runId, selectionRequestId })
+        if (!isCurrentSelection() || this.currentRun?.id !== runId) {
+          return
+        }
         this.subscribeCurrentRun()
       } catch (error) {
-        this.error = errorMessage(error)
+        if (isCurrentSelection()) {
+          this.error = errorMessage(error)
+        }
       } finally {
-        this.loading = false
-        this.logsLoading = false
+        if (isCurrentSelection()) {
+          this.loading = false
+          this.logsLoading = false
+        }
       }
     },
     async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
@@ -156,10 +214,14 @@ export const useRunStore = defineStore('run', {
       return this.currentRun
     },
     clearCurrentRun() {
+      this.selectionRequestId += 1
+      this.runsLoadRequestId += 1
       this.stopRealtime()
       this.currentRun = null
       this.logs = []
+      this.loading = false
       this.logsLoading = false
+      this.error = null
     },
     appendLog(entry: RunLogEntry) {
       this.logs = [...this.logs.slice(-80), entry]
@@ -269,6 +331,8 @@ export const useRunStore = defineStore('run', {
       definitionId?: number
       backendStatus?: string
     }) {
+      this.selectionRequestId += 1
+      this.runsLoadRequestId += 1
       const createdAt = new Date()
       const startedRunLink = getStartedRunLink(payload.runId)
       const backendInstanceId =
@@ -308,6 +372,9 @@ export const useRunStore = defineStore('run', {
       this.runs = [run, ...this.runs.filter((item) => item.id !== run.id)]
       this.currentRun = run
       this.initialized = true
+      this.loading = false
+      this.logsLoading = false
+      this.error = null
       this.logs = [
         {
           id: `${run.id}-created`,
@@ -325,23 +392,38 @@ export const useRunStore = defineStore('run', {
       this.subscribeCurrentRun()
       return run
     },
-    async recoverCurrentRunRuntime() {
-      if (!this.currentRun || !runtimeWorkflowIdFromRun(this.currentRun)) {
+    async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {
+      const targetRun = this.currentRun
+      const expectedRunId = options.expectedRunId ?? targetRun?.id
+      const isCurrentTarget = () => Boolean(
+        targetRun
+        && expectedRunId
+        && this.currentRun?.id === expectedRunId
+        && (options.selectionRequestId === undefined || this.selectionRequestId === options.selectionRequestId),
+      )
+      if (!targetRun || !expectedRunId || !runtimeWorkflowIdFromRun(targetRun)) {
         return
       }
 
       let recovery
       try {
-        recovery = await runApi.recoverRuntime(this.currentRun)
+        recovery = await runApi.recoverRuntime(targetRun)
       } catch (error) {
+        if (!isCurrentTarget()) {
+          return
+        }
         const message = errorMessage(error)
         this.error = message
         this.appendLog({
-          id: `${this.currentRun.id}-runtime-recovery-error-${Date.now()}`,
+          id: `${expectedRunId}-runtime-recovery-error-${Date.now()}`,
           time: formatTime(new Date()),
           level: 'warn',
           message: `Runtime recovery unavailable; retained current snapshot. ${message}`,
         })
+        return
+      }
+
+      if (!isCurrentTarget()) {
         return
       }
 
@@ -363,10 +445,12 @@ export const useRunStore = defineStore('run', {
         return
       }
       stopRealtime?.()
+      const realtimeSubscriptionId = ++this.realtimeSubscriptionId
       const subscribedRunId = this.currentRun.id
       const subscribedRuntimeWorkflowId = runtimeWorkflowIdFromRun(this.currentRun)
       const isCurrentSubscription = () =>
-        this.currentRun?.id === subscribedRunId
+        this.realtimeSubscriptionId === realtimeSubscriptionId
+        && this.currentRun?.id === subscribedRunId
         && runtimeWorkflowIdFromRun(this.currentRun) === subscribedRuntimeWorkflowId
       const uiStore = useUiStore()
       const authStore = useAuthStore()
@@ -388,11 +472,12 @@ export const useRunStore = defineStore('run', {
           if (isCurrentSubscription()) this.patchCurrentRun(patch)
         },
         onConnectionChange: (state) => {
-          this.runRealtimeState = state
+          if (isCurrentSubscription()) this.runRealtimeState = state
         },
       })
     },
     stopRealtime() {
+      this.realtimeSubscriptionId += 1
       stopRealtime?.()
       stopRealtime = null
       this.runRealtimeState = 'offline'

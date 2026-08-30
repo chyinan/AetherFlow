@@ -23,6 +23,10 @@ spring:
     username: ${RABBITMQ_USERNAME:aetherflow}
     password: ${RABBITMQ_PASSWORD:aetherflow}
     virtual-host: ${RABBITMQ_VHOST:/}
+    publisher-confirm-type: ${RABBITMQ_PUBLISHER_CONFIRM_TYPE:correlated}
+    publisher-returns: ${RABBITMQ_PUBLISHER_RETURNS:true}
+    template:
+      mandatory: ${RABBITMQ_TEMPLATE_MANDATORY:true}
     listener:
       simple:
         acknowledge-mode: auto
@@ -75,6 +79,7 @@ seata:
 
 aetherflow:
   task:
+    publisher-confirm-timeout: ${TASK_PUBLISHER_CONFIRM_TIMEOUT:5s}
     max-retries: ${TASK_MAX_RETRIES:3}
     scan-limit: ${TASK_SCAN_LIMIT:100}
     redis-ttl: ${TASK_REDIS_TTL:2h}
