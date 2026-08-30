@@ -80,6 +80,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private static final int DEFAULT_TOP_K = 3;
     private static final int MAX_TOP_K = 50;
     private static final int MAX_RETRIEVAL_CANDIDATES = 2_000;
+    private static final int SEMANTIC_PAGE_SIZE = 500;
+    private static final int MAX_SEMANTIC_BUFFER = 1_000;
     private static final double MIN_SEMANTIC_SIMILARITY = 0.35D;
     private static final Pattern RETRIEVAL_TOKEN_PATTERN = Pattern.compile("[\\p{IsHan}]+|[\\p{L}\\p{N}]+");
 
@@ -410,9 +412,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         List<Double> queryVector = List.copyOf(embeddedQueryVector);
         boolean semanticSearch = !queryVector.isEmpty();
-        List<KnowledgeChunkEntity> storedChunks = loadRetrievalCandidates(datasetId, query, queryTokens, semanticSearch);
-        boolean hasCompatibleSemanticCandidate = semanticSearch && storedChunks.stream()
-                .anyMatch(chunk -> hasCompatibleVector(chunk, queryVector));
+        List<KnowledgeChunkEntity> storedChunks = semanticSearch
+                ? loadSemanticRetrievalCandidates(datasetId, queryTokens, queryVector, metadataFilter, topK)
+                : loadRetrievalCandidates(datasetId, query, queryTokens, false);
+        boolean hasCompatibleSemanticCandidate = semanticSearch;
         List<KnowledgeChunkEntity> rankedEntities = storedChunks.stream()
                 .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
                 .filter(chunk -> metadataMatches(chunk, metadataFilter))
@@ -574,6 +577,100 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
                 .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
                 .toList();
+    }
+
+    /**
+     * 分页扫描语义候选并只在 JVM 中保留有界 Top-N。
+     * 这里没有人为截断语义候选：数据库分页会持续读取到末页，缓冲区只
+     * 限制排序阶段的内存，不改变“全量候选可参与比较”的语义。
+     */
+    private List<KnowledgeChunkEntity> loadSemanticRetrievalCandidates(Long datasetId,
+                                                                         Set<String> queryTokens,
+                                                                         List<Double> queryVector,
+                                                                         Map<String, Object> metadataFilter,
+                                                                         int topK) {
+        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = retrievalBaseWrapper(datasetId)
+                .orderByAsc(KnowledgeChunkEntity::getId);
+        int bufferSize = Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20));
+        java.util.PriorityQueue<KnowledgeChunkEntity> buffer = new java.util.PriorityQueue<>(
+                Comparator.comparingDouble(chunk -> retrievalScore(chunk, queryTokens, queryVector)));
+        long pageNo = 1;
+        boolean pagedQuerySupported = true;
+        while (true) {
+            IPage<KnowledgeChunkEntity> page;
+            if (pagedQuerySupported) {
+                page = chunkMapper.selectPage(new Page<>(pageNo, SEMANTIC_PAGE_SIZE, false), wrapper);
+                if (page == null) {
+                    // Unit-test doubles and legacy mappers may not implement
+                    // selectPage; retain a safe compatibility fallback.
+                    pagedQuerySupported = false;
+                    return boundedSemanticCandidates(chunkMapper.selectList(wrapper), queryTokens,
+                            queryVector, metadataFilter, bufferSize);
+                }
+            } else {
+                break;
+            }
+            List<KnowledgeChunkEntity> records = page.getRecords() == null ? List.of() : page.getRecords();
+            for (KnowledgeChunkEntity chunk : records) {
+                if (chunk == null || !metadataMatches(chunk, metadataFilter)
+                        || !matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true)) {
+                    continue;
+                }
+                buffer.offer(chunk);
+                if (buffer.size() > bufferSize) {
+                    buffer.poll();
+                }
+            }
+            if (records.size() < SEMANTIC_PAGE_SIZE) {
+                break;
+            }
+            pageNo++;
+        }
+        return buffer.stream()
+                .sorted(Comparator.comparingDouble((KnowledgeChunkEntity chunk) -> retrievalScore(chunk, queryTokens, queryVector))
+                        .reversed()
+                        .thenComparing(KnowledgeChunkEntity::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private List<KnowledgeChunkEntity> boundedSemanticCandidates(List<KnowledgeChunkEntity> chunks,
+                                                                  Set<String> queryTokens,
+                                                                  List<Double> queryVector,
+                                                                  Map<String, Object> metadataFilter,
+                                                                  int bufferSize) {
+        if (chunks == null || chunks.isEmpty()) {
+            return List.of();
+        }
+        java.util.PriorityQueue<KnowledgeChunkEntity> buffer = new java.util.PriorityQueue<>(
+                Comparator.comparingDouble(chunk -> retrievalScore(chunk, queryTokens, queryVector)));
+        for (KnowledgeChunkEntity chunk : chunks) {
+            if (chunk == null || !metadataMatches(chunk, metadataFilter)
+                    || !matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true)) {
+                continue;
+            }
+            buffer.offer(chunk);
+            if (buffer.size() > bufferSize) {
+                buffer.poll();
+            }
+        }
+        return buffer.stream()
+                .sorted(Comparator.comparingDouble((KnowledgeChunkEntity chunk) -> retrievalScore(chunk, queryTokens, queryVector))
+                        .reversed()
+                        .thenComparing(KnowledgeChunkEntity::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private LambdaQueryWrapper<KnowledgeChunkEntity> retrievalBaseWrapper(Long datasetId) {
+        return new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
+                .eq(KnowledgeChunkEntity::getStatus, STATUS_READY)
+                .and(nested -> nested.ne(KnowledgeChunkEntity::getChunkType, "parent")
+                        .or()
+                        .isNull(KnowledgeChunkEntity::getChunkType))
+                .apply("EXISTS (SELECT 1 FROM af_knowledge_document d "
+                        + "WHERE d.id = af_knowledge_chunk.document_id "
+                        + "AND d.dataset_id = af_knowledge_chunk.dataset_id "
+                        + "AND d.status = {0})", STATUS_READY);
     }
 
     private List<KnowledgeChunkEntity> uniqueRetrievalContexts(List<KnowledgeChunkEntity> rankedEntities, int topK) {
