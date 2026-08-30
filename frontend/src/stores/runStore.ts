@@ -224,6 +224,9 @@ export const useRunStore = defineStore('run', {
       this.error = null
     },
     appendLog(entry: RunLogEntry) {
+      if (!entry || this.logs.some((log) => log.id === entry.id)) {
+        return
+      }
       this.logs = [...this.logs.slice(-80), entry]
       if (this.currentRun) {
         this.logsByRunId[this.currentRun.id] = this.logs

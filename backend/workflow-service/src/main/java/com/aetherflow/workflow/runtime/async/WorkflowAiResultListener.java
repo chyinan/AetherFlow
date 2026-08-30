@@ -39,17 +39,35 @@ public class WorkflowAiResultListener {
         }
         if ("AI_TASK_FAILED".equals(message.getEventType())) {
             String error = payload.get("error") == null ? null : String.valueOf(payload.get("error"));
-            if (taskId == null) {
-                completionService.completeFailure(workflowInstanceId, nodeId, error);
-            } else {
-                completionService.completeFailure(workflowInstanceId, nodeId, taskId, error);
+            try {
+                if (taskId == null) {
+                    completionService.completeFailure(workflowInstanceId, nodeId, error);
+                } else {
+                    completionService.completeFailure(workflowInstanceId, nodeId, taskId, error);
+                }
+            } catch (IllegalStateException exception) {
+                if (isStaleCompletion(exception)) {
+                    log.warn("stale AI failure event ignored, workflowInstanceId={}, nodeId={}, taskId={}",
+                            workflowInstanceId, nodeId, taskId);
+                    return;
+                }
+                throw exception;
             }
             return;
         }
-        if (taskId == null) {
-            completionService.completeSuccess(workflowInstanceId, nodeId, output(payload.get("output")));
-        } else {
-            completionService.completeSuccess(workflowInstanceId, nodeId, taskId, output(payload.get("output")));
+        try {
+            if (taskId == null) {
+                completionService.completeSuccess(workflowInstanceId, nodeId, output(payload.get("output")));
+            } else {
+                completionService.completeSuccess(workflowInstanceId, nodeId, taskId, output(payload.get("output")));
+            }
+        } catch (IllegalStateException exception) {
+            if (isStaleCompletion(exception)) {
+                log.warn("stale AI success event ignored, workflowInstanceId={}, nodeId={}, taskId={}",
+                        workflowInstanceId, nodeId, taskId);
+                return;
+            }
+            throw exception;
         }
     }
 
@@ -75,5 +93,11 @@ public class WorkflowAiResultListener {
             }
         });
         return Map.copyOf(result);
+    }
+
+    private boolean isStaleCompletion(IllegalStateException exception) {
+        String message = exception.getMessage();
+        return message != null && (message.startsWith("stale external AI completion")
+                || message.startsWith("invalid external AI task identity"));
     }
 }

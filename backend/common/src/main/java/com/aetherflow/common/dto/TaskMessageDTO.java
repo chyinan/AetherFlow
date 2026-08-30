@@ -9,6 +9,8 @@ import java.util.Map;
 public class TaskMessageDTO {
 
     private Long taskId;
+    /** 客户端重试同一异步操作时复用的幂等键。 */
+    private String idempotencyKey;
     private Long workflowInstanceId;
     private Long userId;
     private String traceId;

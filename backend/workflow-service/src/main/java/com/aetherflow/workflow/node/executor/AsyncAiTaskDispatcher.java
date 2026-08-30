@@ -46,6 +46,7 @@ public class AsyncAiTaskDispatcher {
         message.setTraceId(context.traceId());
         message.setNodeId(context.currentNodeId());
         message.setNodeType(nodeType);
+        message.setIdempotencyKey(idempotencyKey(context, nodeType));
         message.setPayload(payload == null ? Map.of() : Map.copyOf(payload));
         message.setEnqueue(true);
         Result<Long> result = taskClient.dispatch(credentials.issueInternalToken(), message);
@@ -53,5 +54,12 @@ public class AsyncAiTaskDispatcher {
             throw new IllegalStateException("task-service async AI dispatch failed");
         }
         return result.getData();
+    }
+
+    private String idempotencyKey(WorkflowContext context, String nodeType) {
+        Object iteration = context.variables().get("iterationIndex");
+        String iterationPart = iteration == null ? "root" : String.valueOf(iteration);
+        return String.join(":", "workflow-ai", context.workflowId(), context.traceId(),
+                context.currentNodeId(), nodeType == null ? "" : nodeType, iterationPart);
     }
 }

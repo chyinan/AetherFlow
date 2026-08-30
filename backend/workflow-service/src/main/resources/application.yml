@@ -130,16 +130,16 @@ aetherflow:
           routing-key: ${WORKFLOW_RUNTIME_EVENT_MQ_ROUTING_KEY:}
       observability:
         max-events-per-workflow: ${WORKFLOW_RUNTIME_OBSERVABILITY_MAX_EVENTS:200}
-    recovery:
-      enabled: ${WORKFLOW_RUNTIME_RECOVERY_ENABLED:true}
-      scan-limit: ${WORKFLOW_RUNTIME_RECOVERY_SCAN_LIMIT:100}
-      waiting-watchdog-enabled: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_ENABLED:true}
-      waiting-timeout: ${WORKFLOW_RUNTIME_WAITING_TIMEOUT:30m}
-      waiting-watchdog-interval: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_INTERVAL:60000}
-    lock:
-      enabled: ${WORKFLOW_RUNTIME_LOCK_ENABLED:true}
-      ttl: ${WORKFLOW_RUNTIME_LOCK_TTL:60s}
-      key-prefix: ${WORKFLOW_RUNTIME_LOCK_KEY_PREFIX:aetherflow:workflow:runtime:lock:}
+      recovery:
+        enabled: ${WORKFLOW_RUNTIME_RECOVERY_ENABLED:true}
+        scan-limit: ${WORKFLOW_RUNTIME_RECOVERY_SCAN_LIMIT:100}
+        waiting-watchdog-enabled: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_ENABLED:true}
+        waiting-timeout: ${WORKFLOW_RUNTIME_WAITING_TIMEOUT:30m}
+        waiting-watchdog-interval: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_INTERVAL:60000}
+      lock:
+        enabled: ${WORKFLOW_RUNTIME_LOCK_ENABLED:true}
+        ttl: ${WORKFLOW_RUNTIME_LOCK_TTL:60s}
+        key-prefix: ${WORKFLOW_RUNTIME_LOCK_KEY_PREFIX:aetherflow:workflow:runtime:lock:}
 
 management:
   endpoints:

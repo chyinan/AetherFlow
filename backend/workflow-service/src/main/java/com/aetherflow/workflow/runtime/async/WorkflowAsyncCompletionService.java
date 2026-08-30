@@ -1,6 +1,5 @@
 package com.aetherflow.workflow.runtime.async;
 
-import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.executor.AiWorkflowNodeResultAdapter;
@@ -11,10 +10,8 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
-import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
-import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +41,9 @@ public class WorkflowAsyncCompletionService {
             throw new IllegalArgumentException("approval decision is required");
         }
         WorkflowRuntimeSnapshot stored = storedSnapshot(workflowInstanceId);
+        if (isTerminal(stored.runtimeState())) {
+            return stored.toExecutionSnapshot();
+        }
         if (!isHumanNode(stored, nodeId)) {
             throw new IllegalArgumentException("node is not a waiting human approval node: " + nodeId);
         }
@@ -192,28 +192,4 @@ public class WorkflowAsyncCompletionService {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
 
-    private Long userId(Map<String, Object> variables) {
-        Object value = variables == null ? null : variables.get("userId");
-        if (value instanceof Number number && number.longValue() > 0) {
-            return number.longValue();
-        }
-        if (value != null) {
-            try {
-                long parsed = Long.parseLong(String.valueOf(value));
-                if (parsed > 0) {
-                    return parsed;
-                }
-            } catch (NumberFormatException ignored) {
-                // Fall through to the explicit authentication error.
-            }
-        }
-        throw new com.aetherflow.common.exception.BusinessException(
-                com.aetherflow.common.core.ResultCode.UNAUTHORIZED,
-                "authenticated user is required for workflow completion");
-    }
-
-    private String username(Map<String, Object> variables) {
-        Object value = variables == null ? null : variables.get("username");
-        return value == null || String.valueOf(value).isBlank() ? "aether.operator" : String.valueOf(value).trim();
-    }
 }

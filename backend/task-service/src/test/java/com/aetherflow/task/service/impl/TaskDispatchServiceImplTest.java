@@ -101,6 +101,23 @@ class TaskDispatchServiceImplTest {
     }
 
     @Test
+    void returnsExistingTaskForRepeatedIdempotencyKeyWithoutRepublishing() {
+        TaskMessageDTO message = validMessage();
+        message.setIdempotencyKey("workflow-ai:10:trace-10:node-1:AI_TRANSCRIPTION:root");
+        Task existing = new Task();
+        existing.setId(77L);
+        existing.setIdempotencyKey(message.getIdempotencyKey());
+        when(taskMapper.selectOne(any())).thenReturn(existing);
+
+        Long taskId = taskDispatchService.dispatch(message);
+
+        assertThat(taskId).isEqualTo(77L);
+        assertThat(message.getTaskId()).isEqualTo(77L);
+        verify(taskMapper, never()).insert(any(Task.class));
+        verify(taskQueueProducer, never()).publishForDispatch(any(TaskMessageDTO.class));
+    }
+
+    @Test
     void publishesDispatchMessageOnlyAfterTransactionCommit() {
         TransactionSynchronizationManager.initSynchronization();
         TaskMessageDTO message = validMessage();

@@ -17,6 +17,7 @@ import com.aetherflow.task.support.TaskMessageFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -44,9 +45,21 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         validate(taskMessage);
         queueBackpressureGuard.assertTaskCreationAllowed(taskMessage);
 
+        String idempotencyKey = normalizeIdempotencyKey(taskMessage.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            Task existing = taskMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Task>()
+                    .eq(Task::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (existing != null) {
+                taskMessage.setTaskId(existing.getId());
+                return existing.getId();
+            }
+        }
+
         LocalDateTime now = LocalDateTime.now();
         Task task = new Task();
         task.setWorkflowInstanceId(taskMessage.getWorkflowInstanceId());
+        task.setIdempotencyKey(idempotencyKey);
         task.setUserId(taskMessage.getUserId() == null ? 0L : taskMessage.getUserId());
         task.setTraceId(taskMessage.getTraceId());
         task.setNodeId(taskMessage.getNodeId());
@@ -57,7 +70,21 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         task.setNextRetryAt(now.plus(properties.getDispatchTimeout()));
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
-        taskMapper.insert(task);
+        try {
+            taskMapper.insert(task);
+        } catch (DuplicateKeyException exception) {
+            if (idempotencyKey == null) {
+                throw exception;
+            }
+            Task existing = taskMapper.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Task>()
+                    .eq(Task::getIdempotencyKey, idempotencyKey)
+                    .last("LIMIT 1"));
+            if (existing == null) {
+                throw exception;
+            }
+            taskMessage.setTaskId(existing.getId());
+            return existing.getId();
+        }
 
         taskMessage.setTaskId(task.getId());
         taskMessage.setRetryCount(task.getRetryCount());
@@ -166,5 +193,16 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         if (taskMessage.getNodeType() == null || taskMessage.getNodeType().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "node type is required");
         }
+    }
+
+    private String normalizeIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 128) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "task idempotency key must not exceed 128 characters");
+        }
+        return normalized;
     }
 }

@@ -407,4 +407,19 @@ describe('真实运行初始化', () => {
 
     expect(runStore.runRealtimeState).toBe('online')
   })
+
+  it('忽略 SSE 重连带来的重复日志事件', () => {
+    const runStore = useRunStore()
+    const entry: RunLogEntry = {
+      id: 'event-1',
+      time: '12:00:00',
+      level: 'info',
+      message: 'node completed',
+    }
+
+    runStore.appendLog(entry)
+    runStore.appendLog(entry)
+
+    expect(runStore.logs).toHaveLength(1)
+  })
 })

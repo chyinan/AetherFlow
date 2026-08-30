@@ -212,6 +212,7 @@ public class WorkflowRuntimeEngine {
             ensureLockHealthy();
             return result;
         } finally {
+            lockLost.set(true);
             if (renewalExecutor != null) {
                 renewalExecutor.shutdownNow();
             }

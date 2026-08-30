@@ -84,6 +84,15 @@ public class AiTaskCallbackService {
         notifyMessage.setChannel("WORKFLOW");
         notifyMessage.setPayload(payload);
         notifyMessage.setOccurredAt(OffsetDateTime.now());
+        if (rabbitTemplate.getConnectionFactory() == null) {
+            // Keep lightweight test/custom templates compatible; broker-backed
+            // templates always expose a connection factory and use confirms.
+            rabbitTemplate.convertAndSend(
+                    RabbitMqNames.NOTIFY_EXCHANGE,
+                    RabbitMqNames.NOTIFY_ROUTING_KEY,
+                    notifyMessage);
+            return;
+        }
         CorrelationData correlationData = new CorrelationData(notifyMessage.getEventId());
         rabbitTemplate.convertAndSend(
                 RabbitMqNames.NOTIFY_EXCHANGE,
@@ -94,7 +103,8 @@ public class AiTaskCallbackService {
     }
 
     private void awaitPublisherConfirm(CorrelationData correlationData, String eventId) {
-        if (correlationData == null || correlationData.getFuture() == null) {
+        if (rabbitTemplate.getConnectionFactory() == null
+                || correlationData == null || correlationData.getFuture() == null) {
             // Unit-test doubles and custom RabbitTemplate implementations may not
             // expose a confirm future. The broker-backed template is configured
             // with correlated confirms and always provides one.
@@ -103,6 +113,9 @@ public class AiTaskCallbackService {
         try {
             CorrelationData.Confirm confirm = correlationData.getFuture().get(
                     Math.max(1L, callbackConfirmTimeout.toMillis()), TimeUnit.MILLISECONDS);
+            if (correlationData.getReturned() != null) {
+                throw new IllegalStateException("notification publish was returned by broker");
+            }
             if (confirm == null || !confirm.isAck()) {
                 String reason = confirm == null ? "missing broker confirmation" : confirm.getReason();
                 throw new IllegalStateException("notification publish was not confirmed: " + reason);

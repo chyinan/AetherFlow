@@ -12,7 +12,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Configuration
 public class AiRabbitConfig {
 
@@ -61,6 +63,9 @@ public class AiRabbitConfig {
         RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
         rabbitTemplate.setMessageConverter(messageConverter);
         rabbitTemplate.setMandatory(true);
+        rabbitTemplate.setReturnsCallback(returned -> log.error(
+                "rabbitmq returned AI notification, exchange={}, routingKey={}, replyCode={}, replyText={}",
+                returned.getExchange(), returned.getRoutingKey(), returned.getReplyCode(), returned.getReplyText()));
         rabbitTemplate.setObservationEnabled(true);
         return rabbitTemplate;
     }

@@ -68,12 +68,16 @@ public class TaskQueueProducer {
     }
 
     private void awaitConfirm(CorrelationData correlationData) {
-        if (correlationData == null || correlationData.getFuture() == null) {
+        if (rabbitTemplate.getConnectionFactory() == null
+                || correlationData == null || correlationData.getFuture() == null) {
             return;
         }
         try {
             CorrelationData.Confirm confirm = correlationData.getFuture().get(
                     Math.max(1L, publisherConfirmTimeout.toMillis()), TimeUnit.MILLISECONDS);
+            if (correlationData.getReturned() != null) {
+                throw new IllegalStateException("task message was returned by broker");
+            }
             if (confirm == null || !confirm.isAck()) {
                 throw new IllegalStateException("task message broker confirmation was negative");
             }

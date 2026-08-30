@@ -13,7 +13,8 @@ class TaskSchemaMigrationTest {
     @Test
     void existingMysqlVolumesReceiveTaskTraceIdMigrationBeforeTaskServiceStarts() throws IOException {
         Path root = repositoryRoot();
-        String compose = Files.readString(root.resolve("docker-compose.yml"));
+        String compose = Files.readString(root.resolve("docker-compose.yml"))
+                .replace("\r\n", "\n");
         String migration = Files.readString(root.resolve(
                 "docker/mysql/migrations/V1__add_task_trace_id.sql"));
         String userMigration = Files.readString(root.resolve(
