@@ -48,6 +48,14 @@ function runBelongsToWorkflow(run: WorkflowRun, workflowStore: ReturnType<typeof
   return workflowRunBelongsToWorkflow(run, workflowStore.workflowId, workflowStore.backendDefinitionId)
 }
 
+function isTerminalNodeStatus(status: RunNodeState['status']) {
+  return status === 'success' || status === 'failed' || status === 'skipped'
+}
+
+function isTerminalRunStatus(status: WorkflowRun['status']) {
+  return status === 'success' || status === 'failed'
+}
+
 type RunRecoveryOptions = {
   readonly expectedRunId?: string
   readonly selectionRequestId?: number
@@ -237,6 +245,10 @@ export const useRunStore = defineStore('run', {
         return
       }
       const state = this.currentRun.nodeStates.find((node) => node.nodeId === patch.nodeId)
+      if (state && isTerminalNodeStatus(state.status)
+        && (!isTerminalNodeStatus(patch.status) || state.status !== patch.status)) {
+        return
+      }
       const normalizedPatch = patch.approval || patch.status === 'paused'
         ? patch
         : { ...patch, approval: undefined }
@@ -271,6 +283,10 @@ export const useRunStore = defineStore('run', {
         return
       }
 
+      if (patch.status && isTerminalRunStatus(this.currentRun.status)
+        && (!isTerminalRunStatus(patch.status) || this.currentRun.status !== patch.status)) {
+        return
+      }
       Object.assign(this.currentRun, patch)
       const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
       if (runInList) {

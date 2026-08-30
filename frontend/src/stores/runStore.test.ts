@@ -422,4 +422,14 @@ describe('真实运行初始化', () => {
 
     expect(runStore.logs).toHaveLength(1)
   })
+
+  it('忽略迟到的节点运行事件，避免终态回退', () => {
+    const runStore = useRunStore()
+    runStore.currentRun = run('run-a')
+    runStore.currentRun.nodeStates = [{ nodeId: 'node-a', label: 'A', status: 'success', retryCount: 0 }]
+
+    runStore.patchNodeState({ nodeId: 'node-a', label: 'A', status: 'running', retryCount: 0 })
+
+    expect(runStore.currentRun.nodeStates[0]?.status).toBe('success')
+  })
 })
