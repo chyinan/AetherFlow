@@ -1,0 +1,11 @@
+timeStamp,elapsed,label,responseCode,responseMessage,threadName,dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,URL,Latency,IdleTime,Connect
+1,40,Gateway - status,200,OK,t,text,true,,10,10,1,1,http://localhost/gateway/status,30,0,5
+2,45,Gateway - health,200,OK,t,text,true,,10,10,1,1,http://localhost/health,35,0,4
+3,80,Auth - register,200,OK,t,text,true,,10,10,1,1,http://localhost/auth/register,70,0,3
+4,65,Auth - login,200,OK,t,text,true,,10,10,1,1,http://localhost/auth/login,55,0,2
+5,30,Auth - me,200,OK,t,text,true,,10,10,1,1,http://localhost/auth/me,25,0,1
+6,55,AI - status,200,OK,t,text,true,,10,10,1,1,http://localhost/ai/status,45,0,1
+7,60,AI Provider - status,200,OK,t,text,true,,10,10,1,1,http://localhost/ai/provider/status,50,0,1
+8,70,AI Provider - metrics,200,OK,t,text,true,,10,10,1,1,http://localhost/ai/provider/metrics,60,0,1
+9,95,Workflow - create,200,OK,t,text,true,,10,10,1,1,http://localhost/workflows/definitions,85,0,1
+10,110,Workflow - start,200,OK,t,text,true,,10,10,1,1,http://localhost/workflows/definitions/1/instances,100,0,1

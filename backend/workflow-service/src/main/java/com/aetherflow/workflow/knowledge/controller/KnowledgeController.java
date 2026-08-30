@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.knowledge.controller;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.PageResult;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
@@ -7,6 +8,7 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeSourcePreview;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
@@ -73,6 +75,11 @@ public class KnowledgeController {
     public Result<KnowledgeDocumentSummary> enqueueDocument(@PathVariable Long id,
                                                              @Valid @RequestBody DocumentCreateRequest request) {
         return Result.success(knowledgeService.enqueueDocument(id, request));
+    }
+
+    @GetMapping("/documents/source-preview")
+    public Result<KnowledgeSourcePreview> previewSource(@RequestParam String fileId) {
+        return Result.success(knowledgeService.previewSource(fileId));
     }
 
     @DeleteMapping("/documents/{id}")

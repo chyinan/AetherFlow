@@ -109,6 +109,23 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void permitsWorkflowRuntimeWebSocketHandshakeForScopedStreamTokenValidation() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/workflow/runtime/ws/1001?streamToken=short-lived").build()
+        );
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.filter(exchange, chain(exchange1 -> {
+            called.set(true);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        assertThat(called).isTrue();
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
     void stillRejectsNotifySseWithoutBearerToken() throws Exception {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
         MockServerWebExchange exchange = MockServerWebExchange.from(

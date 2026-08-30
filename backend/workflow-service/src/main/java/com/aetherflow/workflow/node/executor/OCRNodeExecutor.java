@@ -1,12 +1,16 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.core.Result;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.ocr.OCRInputFile;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
 import com.aetherflow.workflow.ocr.OCRNodeConfig;
 import com.aetherflow.workflow.ocr.OCRRequest;
 import com.aetherflow.workflow.ocr.OCRResult;
@@ -42,6 +46,7 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
     private final OCRMetrics ocrMetrics;
     private final OCRProperties ocrProperties;
     private final Executor executor;
+    private final DocumentExtractionProperties extractionProperties;
 
     public OCRNodeExecutor(WorkflowNodeMetrics metrics,
                            FileMetadataClient fileClient,
@@ -49,6 +54,7 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
                            OCRProviderRegistry providerRegistry,
                            OCRMetrics ocrMetrics,
                            OCRProperties ocrProperties,
+                           DocumentExtractionProperties extractionProperties,
                            @Qualifier("ocrTaskExecutor") Executor executor) {
         super(WorkflowNodeTypes.OCR, metrics);
         this.fileClient = fileClient;
@@ -56,6 +62,7 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
         this.providerRegistry = providerRegistry;
         this.ocrMetrics = ocrMetrics;
         this.ocrProperties = ocrProperties;
+        this.extractionProperties = extractionProperties;
         this.executor = executor;
     }
 
@@ -112,7 +119,9 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "ocr node userId is required");
         }
-        ResponseEntity<byte[]> response = fileClient.downloadFile(nodeProperties.issueFileInternalToken(), userId, fileId);
+        String internalToken = nodeProperties.issueFileInternalToken();
+        validateDeclaredFileSize(internalToken, userId, fileId);
+        ResponseEntity<byte[]> response = fileClient.downloadFile(internalToken, userId, fileId);
         if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file download for OCR failed");
         }
@@ -121,6 +130,23 @@ public class OCRNodeExecutor extends BaseNodeExecutor {
                 contentType(response),
                 response.getBody()
         );
+    }
+
+    private void validateDeclaredFileSize(String internalToken, Long userId, Long fileId) {
+        Result<FileMetadataDTO> metadataResult;
+        try {
+            metadataResult = fileClient.getMetadata(internalToken, userId, fileId);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file metadata for OCR failed");
+        }
+        if (metadataResult == null || !metadataResult.isSuccess() || metadataResult.getData() == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "file metadata for OCR failed");
+        }
+        Long size = metadataResult.getData().getSize();
+        if (size != null && size > extractionProperties.getMaxFileBytes()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "document file size exceeds " + extractionProperties.getMaxFileBytes() + " bytes");
+        }
     }
 
     private Object fileIdValue(WorkflowContext context, Map<String, Object> config) {

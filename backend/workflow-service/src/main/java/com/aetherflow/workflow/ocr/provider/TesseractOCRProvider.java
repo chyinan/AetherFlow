@@ -1,7 +1,10 @@
 package com.aetherflow.workflow.ocr.provider;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.workflow.document.DocumentFormatPolicy;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
 import com.aetherflow.workflow.ocr.OCRInputFile;
 import com.aetherflow.workflow.ocr.OCRNodeConfig;
 import com.aetherflow.workflow.ocr.OCRRequest;
@@ -14,6 +17,7 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -25,12 +29,22 @@ import java.util.Set;
 @Component
 public class TesseractOCRProvider implements OCRProvider {
 
-    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("png", "jpg", "jpeg", "pdf");
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(
+            "bmp", "jpeg", "jpg", "pdf", "png", "tif", "tiff"
+    );
 
     private final OCRProperties properties;
+    private final DocumentExtractionProperties extractionProperties;
 
     public TesseractOCRProvider(OCRProperties properties) {
+        this(properties, new DocumentExtractionProperties());
+    }
+
+    @Autowired
+    public TesseractOCRProvider(OCRProperties properties,
+                                DocumentExtractionProperties extractionProperties) {
         this.properties = properties;
+        this.extractionProperties = extractionProperties;
     }
 
     @Override
@@ -38,12 +52,23 @@ public class TesseractOCRProvider implements OCRProvider {
         return "tesseract";
     }
 
+    public boolean supports(OCRInputFile file) {
+        return SUPPORTED_EXTENSIONS.contains(extension(file));
+    }
+
     @Override
     public OCRResult recognize(OCRRequest request) throws IOException {
         OCRInputFile file = request.file();
         OCRNodeConfig config = request.config();
+        if (file.size() == 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "document file is empty");
+        }
+        if (file.size() > extractionProperties.getMaxFileBytes()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "document file size exceeds " + extractionProperties.getMaxFileBytes() + " bytes");
+        }
         String extension = extension(file);
-        if (!SUPPORTED_EXTENSIONS.contains(extension)) {
+        if (!supports(file)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported OCR file type");
         }
         if ("pdf".equals(extension)) {
@@ -126,13 +151,6 @@ public class TesseractOCRProvider implements OCRProvider {
     }
 
     private String extensionFromName(String fileName) {
-        if (fileName == null) {
-            return "";
-        }
-        int index = fileName.lastIndexOf('.');
-        if (index < 0 || index == fileName.length() - 1) {
-            return "";
-        }
-        return fileName.substring(index + 1).toLowerCase(Locale.ROOT);
+        return DocumentFormatPolicy.extension(fileName);
     }
 }

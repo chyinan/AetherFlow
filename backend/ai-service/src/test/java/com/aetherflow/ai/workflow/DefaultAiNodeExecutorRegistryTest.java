@@ -30,6 +30,17 @@ class DefaultAiNodeExecutorRegistryTest {
                 .hasMessageContaining("unsupported ai node type");
     }
 
+    @Test
+    void exposesRegisteredNodeTypesInStableOrder() {
+        DefaultAiNodeExecutorRegistry registry = new DefaultAiNodeExecutorRegistry(List.of(
+                new StubExecutor("SUMMARY"),
+                new StubExecutor("ASR"),
+                new StubExecutor("LLM")
+        ));
+
+        assertThat(registry.availableNodeTypes()).containsExactly("ASR", "LLM", "SUMMARY");
+    }
+
     private record StubExecutor(String nodeType) implements AiNodeExecutor {
         @Override
         public AiNodeResult execute(AiNodeExecutionContext context) {

@@ -192,6 +192,15 @@ class GatewayRouteConfigurationTest {
     }
 
     @Test
+    void workflowRuntimeWebSocketPathRoutesToWorkflowService() {
+        Route route = firstMatchingRoute("/workflow/runtime/ws/1001?streamToken=short-lived");
+
+        assertThat(route).isNotNull();
+        assertThat(route.getId()).isEqualTo("workflow-service");
+        assertThat(route.getUri().toString()).isEqualTo("lb://workflow-service");
+    }
+
+    @Test
     void settingsPathsRouteToAuthService() {
         RouteDefinition authServiceRoute = routeDefinitionLocator.getRouteDefinitions()
                 .filter(routeDefinition -> "auth-service".equals(routeDefinition.getId()))

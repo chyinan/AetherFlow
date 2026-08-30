@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.ocr.config;
 
+// pattern: Imperative Shell
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -9,7 +10,7 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "aetherflow.workflow.ocr")
 public class OCRProperties {
 
-    private String defaultProvider = "tesseract";
+    private String defaultProvider = "auto";
     private String defaultLanguage = "auto";
     private boolean mock = false;
     private String mockText = "Mock OCR text for AetherFlow demo.";

@@ -47,6 +47,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
 import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
+import { SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS } from '@/utils/knowledgeFileSupport'
 
 type ConfigValue = unknown
 type ConfigRecord = Record<string, ConfigValue>
@@ -110,6 +111,16 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
 
 const nodeIcon = computed(() => (selectedNode.value ? iconMap[selectedNode.value.data.kind] : SlidersHorizontal))
 const selectedKind = computed(() => selectedNode.value?.data.kind ?? '')
+const selectedUnavailableReason = computed(() => {
+  const kind = selectedNode.value?.data.kind
+  if (!kind) {
+    return null
+  }
+  const template = workflowStore.templates.find((item) => item.kind === kind)
+  return template?.availability?.available === false
+    ? template.availability.reason
+    : null
+})
 const workflowNeedsFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 const imageSchemaKinds = new Set<WorkflowNodeKind>(['prompt', 'image-generation', 'upscale', 'save-image'])
 const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
@@ -160,7 +171,13 @@ function selectClassifierVariable(variable: string) {
   updateConfig('inputVariable', variable)
 }
 
-const fileTypes = ['msg', 'pdf', 'xls', 'pptx', 'eml', 'htm', 'docx', 'epub', 'xlsx', 'doc', 'markdown', 'vtt', 'mdx', 'html', 'xml', 'md', 'csv', 'txt', 'properties', 'ppt']
+const fileTypes = computed(() => {
+  const template = workflowStore.templates.find((item) => item.kind === 'document-extractor')
+  const supported = template?.capabilities?.supportedFileExtensions
+  return Array.isArray(supported) && supported.every((item) => typeof item === 'string')
+    ? supported
+    : [...SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS]
+})
 const defaultPythonCode = 'def main(arg1: str, arg2: str):\n    return {\n        "result": arg1 + arg2,\n    }'
 const defaultJinjaTemplate = '{{ arg1 }}'
 const conditionOperators = [
@@ -599,6 +616,10 @@ onMounted(() => {
           </button>
         </div>
       </header>
+
+      <div v-if="selectedUnavailableReason" class="mx-5 mt-4 rounded-lg border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm leading-6 text-status-warning">
+        {{ t('workflow.capabilityUnavailable') }}：{{ selectedUnavailableReason }}
+      </div>
 
       <div v-if="activeTab === 'settings'" class="min-h-0 flex-1 overflow-y-auto">
         <section v-if="selectedKind === 'start'" class="space-y-5 p-5">

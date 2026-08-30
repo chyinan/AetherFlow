@@ -43,6 +43,19 @@ class ComfyUiProviderTest {
     }
 
     @Test
+    void reportsAvailableOnlyWhenComfySystemStatsResponds() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+        server.expect(once(), requestTo("http://comfy/system_stats"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        assertThat(provider.isAvailable()).isTrue();
+        server.verify();
+    }
+
+    @Test
     void queuesWorkflowPollsQueueReadsHistoryAndDownloadsImages() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

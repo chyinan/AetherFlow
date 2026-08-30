@@ -20,7 +20,7 @@ export function duplicateWorkflowNode(source: WorkflowGraphNode, options: Duplic
 export function createWorkflowNodeDataFromTemplate(template: NodeTemplate, lastResult: string): WorkflowNodeData {
   return {
     ...template,
-    config: structuredClone(template.config),
+    config: cloneConfig(template.config),
     inputs: [...template.inputs],
     outputs: [...template.outputs],
     status: 'idle',
@@ -33,10 +33,26 @@ function duplicateWorkflowNodeData(source: WorkflowNodeData, lastResult: string)
     label: source.label,
     description: source.description,
     kind: source.kind,
-    config: structuredClone(source.config),
+    config: cloneConfig(source.config),
     inputs: [...source.inputs],
     outputs: [...source.outputs],
     status: 'idle',
     runtime: { lastResult },
   }
+}
+
+function cloneConfig(source: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(source).map(([key, value]) => [key, cloneConfigValue(value)]))
+}
+
+function cloneConfigValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(cloneConfigValue)
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [key, cloneConfigValue(nestedValue)]),
+    )
+  }
+  return value
 }

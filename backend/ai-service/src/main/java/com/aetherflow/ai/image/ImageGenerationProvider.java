@@ -1,5 +1,6 @@
 package com.aetherflow.ai.image;
 
+// pattern: Imperative Shell
 public interface ImageGenerationProvider {
 
     ImageProviderType type();
@@ -8,5 +9,9 @@ public interface ImageGenerationProvider {
 
     default ImageGenerationResponse upscale(ImageGenerationRequest request) {
         return generate(request);
+    }
+
+    default boolean isAvailable() {
+        return true;
     }
 }

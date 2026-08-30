@@ -1,6 +1,8 @@
 package com.aetherflow.workflow.node.executor;
 
 import com.aetherflow.workflow.client.FileMetadataClient;
+import com.aetherflow.common.core.Result;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
@@ -9,6 +11,7 @@ import com.aetherflow.workflow.ocr.OCRNodeConfig;
 import com.aetherflow.workflow.ocr.OCRRequest;
 import com.aetherflow.workflow.ocr.OCRResult;
 import com.aetherflow.workflow.ocr.config.OCRProperties;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
 import com.aetherflow.workflow.ocr.metrics.OCRMetrics;
 import com.aetherflow.workflow.ocr.provider.OCRProvider;
 import com.aetherflow.workflow.ocr.provider.OCRProviderRegistry;
@@ -37,6 +40,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 class OCRNodeExecutorTest {
 
@@ -142,6 +146,23 @@ class OCRNodeExecutorTest {
         }
     }
 
+    @Test
+    void rejectsOversizedDeclaredFileBeforeDownloadingItsBody() {
+        FileMetadataClient fileClient = mock(FileMetadataClient.class);
+        OCRProperties ocrProperties = ocrProperties();
+        OCRNodeExecutor executor = executor(
+                fileClient, List.of(provider("tesseract")), ocrProperties, new OCRMetrics());
+        when(fileClient.getMetadata(any(String.class), eq(7L), eq(9L))).thenReturn(Result.success(
+                new FileMetadataDTO(9L, "aetherflow", "uploads/large.png", "large.png", "image/png",
+                        25L * 1024L * 1024L + 1L, null)
+        ));
+
+        assertThatThrownBy(() -> executor.execute(context(Map.of("fileId", 9L), Map.of())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("document file size exceeds");
+        verify(fileClient, never()).downloadFile(any(String.class), eq(7L), eq(9L));
+    }
+
     private static OCRNodeExecutor executor(FileMetadataClient fileClient,
                                             List<OCRProvider> providers,
                                             OCRProperties ocrProperties,
@@ -156,6 +177,13 @@ class OCRNodeExecutorTest {
                                             Executor directExecutor) {
         WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
         nodeProperties.setFileInternalToken("0123456789abcdef0123456789abcdef");
+        lenient().when(fileClient.getMetadata(any(String.class), any(Long.class), any(Long.class)))
+                .thenAnswer(invocation -> {
+                    Long fileId = invocation.getArgument(2);
+                    return Result.success(new FileMetadataDTO(
+                            fileId, "aetherflow", "uploads/file", "file", "application/octet-stream",
+                            1024L, null));
+                });
         return new OCRNodeExecutor(
                 new WorkflowNodeMetrics(),
                 fileClient,
@@ -163,6 +191,7 @@ class OCRNodeExecutorTest {
                 new OCRProviderRegistry(providers, ocrProperties),
                 ocrMetrics,
                 ocrProperties,
+                new DocumentExtractionProperties(),
                 directExecutor
         );
     }

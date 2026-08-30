@@ -26,6 +26,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.http.HttpMethod.POST;
+import static org.springframework.http.HttpMethod.GET;
 
 class StableDiffusionWebUiProviderTest {
 
@@ -37,6 +38,22 @@ class StableDiffusionWebUiProviderTest {
             httpServer.stop(0);
             httpServer = null;
         }
+    }
+
+    @Test
+    void reportsAvailableOnlyWhenTheWebUiHealthEndpointResponds() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        RestClient restClient = builder.baseUrl("http://sd").build();
+        ImageProviderProperties properties = new ImageProviderProperties();
+        properties.getStableDiffusion().setBaseUrl("http://sd");
+        StableDiffusionWebUiProvider provider = new StableDiffusionWebUiProvider(restClient, properties);
+        server.expect(once(), requestTo("http://sd/sdapi/v1/options"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        assertThat(provider.isAvailable()).isTrue();
+        server.verify();
     }
 
     @Test

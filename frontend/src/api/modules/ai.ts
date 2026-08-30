@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { apiClient } from '@/api/client/apiClient'
 
 export type AiProviderType = 'OPENAI' | 'OLLAMA' | 'LOCAL_MODEL' | string
@@ -178,6 +179,17 @@ export interface ProviderConfigUpdatePayload {
   defaultModel?: string | null
 }
 
+export type AiWorkflowCapabilities = {
+  runtimeReachable: boolean
+  llmExecutable: boolean
+  whisperExecutable: boolean
+  llmProviders: Array<string>
+  imageProviders: Array<string>
+  supportedNodeTypes: Array<string>
+  executableNodeTypes: Array<string>
+  unavailableReasons: Record<string, string>
+}
+
 export function getAiStatus() {
   return apiClient.get<AiServiceStatusResponse>('/ai/status', { source: 'ai' })
 }
@@ -229,6 +241,10 @@ export function updateProviderConfig(providerId: string, payload: ProviderConfig
   )
 }
 
+export function getWorkflowCapabilities() {
+  return apiClient.get<AiWorkflowCapabilities>('/ai/workflow/capabilities', { source: 'ai' })
+}
+
 export const aiModuleApi = {
   getAiStatus,
   getProviderStatus,
@@ -240,4 +256,5 @@ export const aiModuleApi = {
   getProviderLogs,
   getProviderConfigCatalog,
   updateProviderConfig,
+  getWorkflowCapabilities,
 }

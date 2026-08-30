@@ -113,6 +113,10 @@ async function addNodeAfter(template: NodeTemplate) {
 }
 
 function onTemplateDragStart(event: DragEvent, template: NodeTemplate) {
+  if (template.availability?.available === false) {
+    event.preventDefault()
+    return
+  }
   suppressNextPaletteClick.value = true
   event.dataTransfer?.setData('application/aetherflow-node', JSON.stringify(template))
   event.dataTransfer?.setData('text/plain', template.kind)
@@ -128,7 +132,7 @@ function onTemplateDragEnd() {
 }
 
 async function addTemplateFromPalette(template: NodeTemplate) {
-  if (suppressNextPaletteClick.value) {
+  if (suppressNextPaletteClick.value || template.availability?.available === false) {
     return
   }
   const offset = workflowStore.nodes.length * 28
@@ -136,6 +140,9 @@ async function addTemplateFromPalette(template: NodeTemplate) {
     x: 160 + (offset % 280),
     y: 120 + (offset % 200),
   })
+  if (!node) {
+    return
+  }
   selectNode(node.id)
   await nextTick()
   ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2, duration: 220 })
@@ -196,6 +203,9 @@ async function onCanvasDrop(event: DragEvent) {
     return
   }
   const node = workflowStore.addNodeFromTemplate(template, flowDropPosition(event))
+  if (!node) {
+    return
+  }
   selectNode(node.id)
   await nextTick()
 }
@@ -242,9 +252,13 @@ onMounted(() => {
           v-for="template in availableTemplates"
           :key="template.kind"
           type="button"
-          draggable="true"
+          :disabled="template.availability?.available === false"
+          :draggable="template.availability?.available !== false"
+          :title="template.availability?.reason ?? undefined"
           class="flex w-[220px] shrink-0 items-start gap-3 rounded-lg border p-3 text-left transition lg:w-full"
-          :class="'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
+          :class="template.availability?.available === false
+            ? 'cursor-not-allowed border-app-border bg-app-muted opacity-55'
+            : 'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
           @click="addTemplateFromPalette(template)"
           @dragstart="onTemplateDragStart($event, template)"
           @dragend="onTemplateDragEnd"
@@ -255,6 +269,9 @@ onMounted(() => {
           <span class="min-w-0 flex-1">
             <span class="block truncate text-sm font-semibold text-text-primary">{{ templateLabel(template) }}</span>
             <span class="mt-1 block line-clamp-2 text-xs leading-5 text-text-secondary">{{ templateDescription(template) }}</span>
+            <span v-if="template.availability?.reason" class="mt-1 block text-xs font-medium leading-5 text-status-warning">
+              {{ t('workflow.capabilityUnavailable') }}：{{ template.availability.reason }}
+            </span>
             <span class="mt-2 block text-[11px] text-text-muted">{{ template.inputs.join(', ') || $t('common.inputs') }} → {{ template.outputs.join(', ') || $t('common.outputs') }}</span>
           </span>
         </button>

@@ -42,6 +42,13 @@ describe('迭代与循环节点契约', () => {
 })
 
 describe('节点配置与后端执行语义一致', () => {
+  it('为已保存但当前不可执行的节点展示能力告警', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+
+    expect(source).toContain('selectedUnavailableReason')
+    expect(source).toContain('workflow.capabilityUnavailable')
+  })
+
   it('不展示输出节点当前不支持的响应模式和产物开关', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
     const outputPanel = source.slice(source.indexOf("selectedKind === 'output'"), source.indexOf("selectedKind === 'agent'"))

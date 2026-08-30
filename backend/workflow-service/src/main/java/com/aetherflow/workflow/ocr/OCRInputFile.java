@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.ocr;
 
+// pattern: Functional Core
 import java.util.Arrays;
 
 public record OCRInputFile(
@@ -17,5 +18,9 @@ public record OCRInputFile(
     @Override
     public byte[] content() {
         return Arrays.copyOf(content, content.length);
+    }
+
+    public int size() {
+        return content.length;
     }
 }

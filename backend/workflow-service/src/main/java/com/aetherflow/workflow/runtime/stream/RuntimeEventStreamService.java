@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.runtime.stream;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
@@ -31,6 +32,7 @@ public class RuntimeEventStreamService {
     private static final long STREAM_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(5);
     private static final long POLL_INTERVAL_MS = 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 15000L;
+    private static final int MAX_EVENTS_PER_POLL = 500;
 
     private final RuntimeEventStore runtimeEventStore;
     private final ScheduledExecutorService executor;
@@ -77,31 +79,31 @@ public class RuntimeEventStreamService {
         return emitter;
     }
 
-    List<RuntimeEvent> eventsAfterCursor(String workflowId, String cursor) {
+    public List<RuntimeEvent> eventsAfterCursor(String workflowId, String cursor) {
         if (!hasText(cursor)) {
-            return safeEvents(workflowId);
+            return boundedEvents(safeEvents(workflowId));
         }
         if (!runtimeEventStore.supportsIncrementalQuery()) {
             List<RuntimeEvent> events = safeEvents(workflowId);
             for (int index = 0; index < events.size(); index++) {
                 if (cursor.equals(events.get(index).eventId())) {
-                    return List.copyOf(events.subList(index + 1, events.size()));
+                    return boundedEvents(events.subList(index + 1, events.size()));
                 }
             }
-            return events;
+            return boundedEvents(events);
         }
         List<RuntimeEvent> events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim());
         if (events == null) {
-            return safeEvents(workflowId);
+            return boundedEvents(safeEvents(workflowId));
         }
-        return List.copyOf(events);
+        return boundedEvents(events);
     }
 
-    String effectiveCursor(String lastEventId, String cursor) {
+    public String effectiveCursor(String lastEventId, String cursor) {
         return hasText(cursor) ? cursor.trim() : trimToNull(lastEventId);
     }
 
-    Map<String, Object> heartbeatPayload(String workflowId, String cursor, Instant now) {
+    public Map<String, Object> heartbeatPayload(String workflowId, String cursor, Instant now) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("workflowId", workflowId);
         payload.put("cursor", cursor == null ? "" : cursor);
@@ -171,7 +173,14 @@ public class RuntimeEventStreamService {
         return events == null ? List.of() : List.copyOf(events);
     }
 
-    private boolean isTerminal(RuntimeEvent event) {
+    private List<RuntimeEvent> boundedEvents(List<RuntimeEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(events.subList(0, Math.min(events.size(), MAX_EVENTS_PER_POLL)));
+    }
+
+    public boolean isTerminal(RuntimeEvent event) {
         return event.eventType() == RuntimeEventType.WORKFLOW_COMPLETED
                 || event.eventType() == RuntimeEventType.WORKFLOW_FAILED
                 || event.eventType() == RuntimeEventType.WORKFLOW_CANCELLED;

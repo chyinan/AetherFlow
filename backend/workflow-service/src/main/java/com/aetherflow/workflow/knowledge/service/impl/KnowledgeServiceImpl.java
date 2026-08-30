@@ -4,7 +4,9 @@ package com.aetherflow.workflow.knowledge.service.impl;
 // 说明：历史实现同时包含持久化编排与检索排序；新增文档预处理逻辑已提取到 Functional Core。
 
 import com.aetherflow.common.core.PageResult;
+import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.SimpleTextSplitter;
 import com.aetherflow.workflow.embedding.TextChunk;
@@ -14,11 +16,16 @@ import com.aetherflow.workflow.embedding.EmbeddingResult;
 import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
+import com.aetherflow.workflow.document.DocumentContentExtractionService;
+import com.aetherflow.workflow.document.DocumentExtractionResult;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
+import com.aetherflow.workflow.document.DocumentInput;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeSourcePreview;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.KnowledgeDocumentLimits;
@@ -50,6 +57,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
@@ -65,7 +74,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
-import java.nio.charset.StandardCharsets;
 import org.springframework.http.ResponseEntity;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -100,6 +108,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private final ObjectMapper objectMapper;
     private final EmbeddingProviderRegistry embeddingProviderRegistry;
     private final EmbeddingProperties embeddingProperties;
+    private final DocumentContentExtractionService documentContentExtractionService;
+    private final DocumentExtractionProperties documentExtractionProperties;
 
     @Autowired(required = false)
     private WorkflowDefinitionMapper workflowDefinitionMapper;
@@ -120,14 +130,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
     private Executor ingestionExecutor;
 
-    public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
-                                KnowledgeDocumentMapper documentMapper,
-                                KnowledgeChunkMapper chunkMapper,
-                                SimpleTextSplitter textSplitter,
-                                ObjectMapper objectMapper) {
-        this(datasetMapper, documentMapper, chunkMapper, textSplitter, objectMapper, null, new EmbeddingProperties());
-    }
-
     @Autowired
     public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
                                 KnowledgeDocumentMapper documentMapper,
@@ -135,7 +137,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                                 SimpleTextSplitter textSplitter,
                                 ObjectMapper objectMapper,
                                 EmbeddingProviderRegistry embeddingProviderRegistry,
-                                EmbeddingProperties embeddingProperties) {
+                                EmbeddingProperties embeddingProperties,
+                                DocumentContentExtractionService documentContentExtractionService,
+                                DocumentExtractionProperties documentExtractionProperties) {
         this.datasetMapper = datasetMapper;
         this.documentMapper = documentMapper;
         this.chunkMapper = chunkMapper;
@@ -143,6 +147,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         this.objectMapper = objectMapper;
         this.embeddingProviderRegistry = embeddingProviderRegistry;
         this.embeddingProperties = embeddingProperties;
+        this.documentContentExtractionService = documentContentExtractionService;
+        this.documentExtractionProperties = documentExtractionProperties;
     }
 
     @Override
@@ -421,6 +427,19 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         submitIngestionAfterCommit(job.getId());
         return toDocumentSummary(document);
+    }
+
+    @Override
+    public KnowledgeSourcePreview previewSource(String fileId) {
+        DocumentInput input = downloadDocumentInput(fileId, currentUserId(), "document");
+        DocumentExtractionResult result = extractDocument(input);
+        return new KnowledgeSourcePreview(
+                input.fileName(),
+                result.text(),
+                result.detectedContentType(),
+                result.text().length(),
+                result.pageCount()
+        );
     }
 
     private KnowledgeDocumentSummary resetFailedIngestion(KnowledgeDatasetEntity dataset,
@@ -1138,23 +1157,22 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(ResultCode.BAD_REQUEST,
                     "knowledge document content or fileId is required");
         }
-        long fileId;
-        try {
-            fileId = Long.parseLong(request.getFileId().trim());
-            if (fileId <= 0) {
-                throw new NumberFormatException("file id must be positive");
-            }
-        } catch (NumberFormatException exception) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document fileId is invalid");
-        }
+        DocumentInput input = downloadDocumentInput(
+                request.getFileId(), userId, defaultText(request.getSourceName(), "document"));
+        return extractDocument(input).text();
+    }
+
+    private DocumentInput downloadDocumentInput(String rawFileId, Long userId, String fallbackFileName) {
+        long fileId = validatedFileId(rawFileId);
         if (fileMetadataClient == null || workflowNodeProperties == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "file content service is unavailable for knowledge ingestion");
         }
+        String internalToken = workflowNodeProperties.issueFileInternalToken();
+        validateDeclaredFileSize(internalToken, userId, fileId);
         ResponseEntity<byte[]> response;
         try {
-            response = fileMetadataClient.downloadFile(
-                    workflowNodeProperties.issueFileInternalToken(), userId, fileId);
+            response = fileMetadataClient.downloadFile(internalToken, userId, fileId);
         } catch (RuntimeException exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "knowledge source file download failed");
@@ -1163,12 +1181,65 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "knowledge source file download failed");
         }
-        byte[] bytes = response.getBody();
-        if (bytes.length > KnowledgeDocumentLimits.MAX_DOCUMENT_CHARS * 4L) {
+        ContentDisposition disposition = response.getHeaders().getContentDisposition();
+        String responseFileName = disposition == null ? null : disposition.getFilename();
+        MediaType mediaType = response.getHeaders().getContentType();
+        return new DocumentInput(
+                hasText(responseFileName) ? responseFileName : fallbackFileName,
+                mediaType == null ? "application/octet-stream" : mediaType.toString(),
+                response.getBody()
+        );
+    }
+
+    private void validateDeclaredFileSize(String internalToken, Long userId, long fileId) {
+        Result<FileMetadataDTO> metadataResult;
+        try {
+            metadataResult = fileMetadataClient.getMetadata(internalToken, userId, fileId);
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge source file metadata lookup failed");
+        }
+        if (metadataResult == null || !metadataResult.isSuccess() || metadataResult.getData() == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge source file metadata lookup failed");
+        }
+        Long size = metadataResult.getData().getSize();
+        if (size != null && size > documentExtractionProperties.getMaxFileBytes()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "document file size exceeds " + documentExtractionProperties.getMaxFileBytes() + " bytes");
+        }
+    }
+
+    private long validatedFileId(String rawFileId) {
+        try {
+            long fileId = Long.parseLong(rawFileId == null ? "" : rawFileId.trim());
+            if (fileId <= 0) {
+                throw new NumberFormatException("file id must be positive");
+            }
+            return fileId;
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge document fileId is invalid");
+        }
+    }
+
+    private DocumentExtractionResult extractDocument(DocumentInput input) {
+        DocumentExtractionResult result;
+        try {
+            result = documentContentExtractionService.extract(input, "auto");
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "knowledge document extraction failed");
+        }
+        if (result == null || !hasText(result.text())) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "knowledge source file does not contain extractable text");
+        }
+        if (result.text().length() > KnowledgeDocumentLimits.MAX_DOCUMENT_CHARS) {
             throw new BusinessException(ResultCode.BAD_REQUEST,
                     "knowledge document content must not exceed 1000000 characters");
         }
-        return new String(bytes, StandardCharsets.UTF_8);
+        return result;
     }
 
     private KnowledgeDocumentEntity findExistingDocument(Long datasetId,

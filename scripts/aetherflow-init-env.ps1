@@ -1,12 +1,18 @@
 # pattern: Imperative Shell
 
 [CmdletBinding()]
-param()
+param(
+    [string]$OutputPath = ""
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $examplePath = Join-Path $repoRoot '.env.example'
-$envPath = Join-Path $repoRoot '.env'
+$envPath = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+    Join-Path $repoRoot '.env'
+} else {
+    [IO.Path]::GetFullPath($OutputPath)
+}
 
 function New-SecureSecret {
     param([int]$ByteLength = 48)
@@ -96,10 +102,22 @@ $content = Set-SecureEnvValue $content 'AI_SERVICE_API_KEY' @('aetherflow-ai-ser
 $content = Set-SecureEnvValue $content 'CODE_RUNTIME_API_KEY' @()
 $content = Set-EnvValue $content 'WORKFLOW_CODE_RUNTIME_API_KEY' (Get-EnvValue $content 'CODE_RUNTIME_API_KEY')
 $content = Set-EnvValue $content 'VITE_MOCK_FALLBACK' 'false'
+$content = Set-EnvValue $content 'VITE_RUNTIME_WS_FALLBACK' 'true'
 $content = Set-EnvValue $content 'WORKFLOW_OCR_MOCK' 'false'
-$content = Set-EnvValue $content 'WORKFLOW_OCR_PROVIDER' 'tesseract'
+$content = Set-EnvValue $content 'WORKFLOW_OCR_PROVIDER' 'auto'
+$allowedOrigins = Get-EnvValue $content 'AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS'
+if (-not $allowedOrigins) {
+    $frontendBaseUrl = Get-EnvValue $content 'FRONTEND_BASE_URL'
+    $content = Set-EnvValue $content 'AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS' $(
+        if ($frontendBaseUrl) { $frontendBaseUrl } else { 'http://localhost' }
+    )
+}
 
 $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+$envDirectory = Split-Path -Parent $envPath
+if ($envDirectory) {
+    New-Item -ItemType Directory -Force -Path $envDirectory | Out-Null
+}
 [System.IO.File]::WriteAllText($envPath, $content, $utf8WithoutBom)
 Write-Output "Environment initialized: $envPath"
 Write-Output 'Secrets were not printed. Existing strong secrets were preserved; missing or weak defaults were replaced.'

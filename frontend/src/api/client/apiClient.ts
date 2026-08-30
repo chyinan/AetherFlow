@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import axios from 'axios'
 import type {
   AxiosError,
@@ -189,25 +190,27 @@ export function setUnauthorizedSessionRefresher(refresher: UnauthorizedSessionRe
   unauthorizedSessionRefresher = refresher
 }
 
+// The response interceptor unwraps AxiosResponse/Result envelopes at runtime. Axios 1.20's
+// conditional response generic cannot reduce an arbitrary T, so this boundary owns the cast.
 export const apiClient = {
   instance: axiosInstance,
   request<T = unknown>(config: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.request<unknown, T>(config)
+    return axiosInstance.request<unknown, T>(config) as Promise<T>
   },
   get<T = unknown>(url: string, config?: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.get<unknown, T>(url, config)
+    return axiosInstance.get<unknown, T>(url, config) as Promise<T>
   },
   post<T = unknown>(url: string, data?: unknown, config?: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.post<unknown, T>(url, data, config)
+    return axiosInstance.post<unknown, T>(url, data, config) as Promise<T>
   },
   put<T = unknown>(url: string, data?: unknown, config?: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.put<unknown, T>(url, data, config)
+    return axiosInstance.put<unknown, T>(url, data, config) as Promise<T>
   },
   patch<T = unknown>(url: string, data?: unknown, config?: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.patch<unknown, T>(url, data, config)
+    return axiosInstance.patch<unknown, T>(url, data, config) as Promise<T>
   },
   delete<T = unknown>(url: string, config?: ApiClientRequestConfig): Promise<T> {
-    return axiosInstance.delete<unknown, T>(url, config)
+    return axiosInstance.delete<unknown, T>(url, config) as Promise<T>
   },
 }
 
@@ -222,7 +225,7 @@ export function orvalMutator<T>(
       ...config.headers,
       ...options?.headers,
     },
-  })
+  }) as Promise<T>
 }
 
 export default orvalMutator

@@ -1,6 +1,6 @@
 # AetherFlow 架构审查状态
 
-> 更新日期：2026-07-23。本文件记录当前状态；历史问题以 Git 历史为准。
+> 更新日期：2026-08-30。本文件记录当前状态；历史问题以 Git 历史为准。
 
 ## 已关闭的高风险问题
 
@@ -8,7 +8,11 @@
 - 运行任务提交具有拒绝兜底与终态收口，不会因执行器拒绝而永久停留在 `RUNNING`。
 - Docker Compose 中 JWT、刷新令牌和 OAuth state 密钥缺失时拒绝启动；初始化脚本生成安全随机值且保持幂等。
 - 正式环境默认关闭前端 mock fallback 与 OCR mock，后端不可用时不伪装成功。
-- 正式 OCR provider 默认使用 Tesseract；前端模板和节点目录不允许在未显式启用的环境选择 mock OCR。
+- 正式文档提取默认使用 `auto`：Office、邮件、EPUB、PDF 文本层和文本格式走 Tika，图片与扫描 PDF 走 Tesseract 回退；前端格式目录来自后端能力元数据。
+- AI Service 输出真实工作流能力快照；Workflow Service 在实例落库前校验 LLM、Whisper 和图像 Provider，前端同步禁用当前环境不可执行的节点。
+- Stable Diffusion WebUI 与 ComfyUI 已补齐 YAML/Compose 配置，但保持默认关闭；只有真实 Provider 注册成功时才进入可执行能力目录。
+- 工作流运行事件以 SSE 为主，并提供绑定单一工作流的 60 秒令牌 WebSocket 备用通道；两种通道共享持久事件游标、心跳和终态语义。
+- JMeter 核心计划已移除启用的空白采样器和 GUI 监听器，改用本地节点工作流；错误率、P95、P99 和最小样本数由 PowerShell 门禁自动判定。
 - Run API、实时事件和知识库导入在正式模式下不再回退到演示数据。
 - Compose 的 MySQL、Redis、RabbitMQ、MinIO、Elasticsearch、Nacos identity 和服务间 token 均由初始化脚本生成，缺失时拒绝启动；RabbitMQ definitions 不再写死公开密码。
 - Whisper 与本地 LLM 改为显式启用，普通开发机启动 Compose 或 Python 服务时不会默认加载高负载模型。
@@ -35,12 +39,16 @@
 
 ## 验证证据
 
-- `mvn test`：10 个 Maven 模块全部通过。
-- `frontend/npm test`：15 个测试文件、34 个测试通过。
+- `mvn test`：10 个 Maven 模块、646 项测试全部通过。
+- `frontend/npm test`：46 个测试文件、164 项测试通过。
 - `frontend/npm run build`：类型检查和生产构建通过。
-- 前端全部 `check:*` 脚本通过，其中包含生产安全、工作流映射、通知和数据接入契约。
-- `python-ai-service`：7 个轻量测试通过；`ai-runtime`：4 个轻量测试通过。
+- 前端 14 个 `check:*` 脚本全部通过，其中包含生产安全、工作流映射、通知和数据接入契约。
+- `python-ai-service`：17 项测试通过；`ai-runtime`：4 项测试通过。
+- npm 官方 Registry 全依赖审计：0 个已知漏洞；Axios、PostCSS、Vite 及受影响的传递依赖已升级到修复版本。
+- 6 个新增/更新 PowerShell 门禁脚本通过语法解析；JMeter XML 可解析。
 - `git diff --check`：通过。
+- JMeter 契约回归：确定性 Mock Gateway 下 11 个样本、0 个错误；性能门禁正反例自测通过。
+- Docker Compose 配置门禁：使用临时强密钥环境成功展开 23 个服务；当前设备的 Docker Desktop Service 无启动权限，因此真实容器健康与负载烟测仍需在可用 daemon 上执行。
 
 受当前设备散热限制，本机没有启动 Whisper、Ollama、FFmpeg 转码或本地模型。视频到文档的高负载链路以用户在另一台台式机上的实机验证为依据，本轮只验证其代码和轻量测试。
 

@@ -110,6 +110,8 @@ python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
+Windows 上建议分别使用各目录的 `.venv\Scripts\python.exe -m pytest -q`，避免全局 pytest 插件或依赖版本污染测试结果。
+
 轻量 Python 测试通过不等于本地模型或视频链路已经在当前机器完成实机验收。
 
 ## Docker 启动
@@ -224,6 +226,25 @@ aetherflow:
 ```
 
 同一模型可以配置多个生效时间不同的快照。系统按推理发生时间选择最近且已经生效的一条；字段缺失、价格为负或缺少来源时服务拒绝启动。没有可靠快照或 token usage 时，界面保持 `--`，不会推测成本。本地模型的算力和电力成本没有计量时也不会伪装为零。
+
+## 投产与性能门禁
+
+生成强随机本地配置后，可先验证 Compose，再验证运行中的容器、公开健康入口和性能烟测：
+
+```powershell
+.\scripts\aetherflow-init-env.ps1
+.\scripts\aetherflow-verify-deployment.ps1 -ConfigOnly
+.\scripts\aetherflow-verify-deployment.ps1 -RunPerformanceSmoke
+```
+
+JMeter 计划本身和阈值判定可在不启动 Docker 的情况下独立回归：
+
+```powershell
+.\scripts\aetherflow-performance-gate-self-test.ps1
+.\scripts\aetherflow-performance-contract-test.ps1
+```
+
+真实性能运行默认按错误率、HTTP P95、P99 和最小样本数失败门禁，并将每次结果写入独立时间戳目录。详见 [性能与投产门禁](performance-test/README.md)。
 
 ## 进一步文档
 

@@ -10,7 +10,7 @@ vi.mock('@/api/client/apiClient', () => ({
   },
 }))
 
-import { approveHumanNode } from './runtime'
+import { approveHumanNode, buildRuntimeWebSocketUrl, issueRuntimeStreamToken } from './runtime'
 
 describe('runtime approval API', () => {
   beforeEach(() => {
@@ -33,5 +33,21 @@ describe('runtime approval API', () => {
       request,
       { source: 'runtime' },
     )
+  })
+
+  it('issues a workflow-scoped stream token and builds a resumable websocket URL', async () => {
+    post.mockResolvedValueOnce({ token: 'scoped-token', workflowId: '1001', queryParam: 'streamToken' })
+
+    await issueRuntimeStreamToken('1001')
+    const url = buildRuntimeWebSocketUrl('1001', 'scoped-token', 'streamToken', 'event-9')
+
+    expect(post).toHaveBeenLastCalledWith(
+      '/workflow/runtime/stream-token/1001',
+      undefined,
+      { source: 'runtime' },
+    )
+    expect(url).toContain('/workflow/runtime/ws/1001?')
+    expect(url).toContain('streamToken=scoped-token')
+    expect(url).toContain('cursor=event-9')
   })
 })

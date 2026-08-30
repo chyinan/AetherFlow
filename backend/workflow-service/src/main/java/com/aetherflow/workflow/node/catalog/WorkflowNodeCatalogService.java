@@ -1,6 +1,7 @@
 package com.aetherflow.workflow.node.catalog;
 
 import com.aetherflow.common.dto.WorkflowNodeConfigUiSchema;
+import com.aetherflow.workflow.document.DocumentFormatPolicy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -125,14 +126,14 @@ public class WorkflowNodeCatalogService {
                 "OCR",
                 "OCR",
                 "File",
-                "Recognizes text from document images or PDFs through the configured OCR provider and exposes OCR variables.",
+                "Extracts text from Office, PDF, email, EPUB, text, and image files through automatic document parsing with OCR fallback.",
                 List.of(
                         field("fileId", "NUMBER", false, "Fixed file id. Prefer fileIdVariable when binding from workflow input.", 1001),
                         field("fileIdVariable", "STRING", false, "Workflow variable name that contains the file id.", "fileId"),
                         field("language", "STRING", false, "OCR language hint. Use auto when unknown.", "auto"),
                         field("enableTable", "BOOLEAN", false, "Whether table extraction should be enabled by providers that support it.", true),
                         field("enableLayout", "BOOLEAN", false, "Whether layout analysis should be enabled by providers that support it.", false),
-                        field("provider", "STRING", false, "OCR provider.", "tesseract", List.of("tesseract"))
+                        field("provider", "STRING", false, "Document extraction provider.", "auto", List.of("auto", "tesseract"))
                 ),
                 List.of(variable("fileId", "NUMBER", "Uploaded file id from workflow input or UPLOAD node.", 1001)),
                 List.of(
@@ -141,7 +142,9 @@ public class WorkflowNodeCatalogService {
                         variable("ocrConfidence", "NUMBER", "OCR confidence from 0 to 1 when available.", 0.91),
                         variable("ocrPageCount", "NUMBER", "Recognized page count.", 1)
                 ),
-                mapOf("fileIdVariable", "fileId", "language", "auto", "enableTable", true, "enableLayout", false)
+                mapOf("fileIdVariable", "fileId", "language", "auto", "enableTable", true, "enableLayout", false,
+                        "provider", "auto"),
+                mapOf("supportedFileExtensions", DocumentFormatPolicy.OCR_EXTENSIONS)
         );
     }
 
@@ -274,7 +277,7 @@ public class WorkflowNodeCatalogService {
                 "Splits text into overlapping chunks, embeds each chunk through a provider, and writes vector records to memory or an external Qdrant store for RAG preprocessing.",
                 List.of(
                         field("provider", "STRING", false, "Embedding provider name.", "ollama",
-                                List.of("ollama", "openai", "huggingface")),
+                                List.of("ollama")),
                         field("model", "STRING", false, "Embedding model name.", "nomic-embed-text",
                                 List.of("nomic-embed-text", "bge-m3")),
                         field("text", "STRING", false, "Fixed text to embed. Usually omitted in favor of textVariable.", "Document text"),
@@ -778,8 +781,22 @@ public class WorkflowNodeCatalogService {
                                          List<WorkflowNodeVariableSchema> inputVariables,
                                          List<WorkflowNodeVariableSchema> outputVariables,
                                          Map<String, Object> exampleConfig) {
+        return item(type, displayName, category, description, configSchema, inputVariables, outputVariables,
+                exampleConfig, Map.of());
+    }
+
+    private WorkflowNodeCatalogItem item(String type,
+                                         String displayName,
+                                         String category,
+                                         String description,
+                                         List<WorkflowNodeConfigSchema> configSchema,
+                                         List<WorkflowNodeVariableSchema> inputVariables,
+                                         List<WorkflowNodeVariableSchema> outputVariables,
+                                         Map<String, Object> exampleConfig,
+                                         Map<String, Object> capabilities) {
         return new WorkflowNodeCatalogItem(type, displayName, category, description,
-                List.copyOf(configSchema), List.copyOf(inputVariables), List.copyOf(outputVariables), Map.copyOf(exampleConfig));
+                List.copyOf(configSchema), List.copyOf(inputVariables), List.copyOf(outputVariables),
+                Map.copyOf(exampleConfig), Map.copyOf(capabilities));
     }
 
     private WorkflowNodeConfigSchema field(String name, String type, boolean required, String description, Object example) {

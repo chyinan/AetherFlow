@@ -219,7 +219,7 @@ function normalizeOcrConfig(config: Record<string, unknown>, nextNodes: string[]
     enableTable: booleanValue(config.enableTable, true),
     enableLayout: booleanValue(config.enableLayout, false),
     mock,
-    provider: stringValue(config.provider, mock ? 'mock' : 'tesseract'),
+    provider: stringValue(config.provider, mock ? 'mock' : 'auto'),
   }, nextNodes)
 }
 

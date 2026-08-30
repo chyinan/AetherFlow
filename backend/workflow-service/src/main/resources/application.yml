@@ -65,6 +65,10 @@ feign:
     enabled: true
 
 aetherflow:
+  security:
+    jwt:
+      issuer: aetherflow
+      secret: ${JWT_SECRET:aetherflow-dev-secret-key-change-me-32bytes-minimum}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://192.168.101.68:9000}
     public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}
@@ -80,6 +84,13 @@ aetherflow:
   notify:
     internal-token: ${NOTIFY_INTERNAL_TOKEN:aetherflow-notify-internal-dev-token}
   workflow:
+    websocket:
+      allowed-origins: ${AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+      stream-timeout: ${WORKFLOW_RUNTIME_WS_STREAM_TIMEOUT:5m}
+      poll-interval: ${WORKFLOW_RUNTIME_WS_POLL_INTERVAL:1s}
+      heartbeat-interval: ${WORKFLOW_RUNTIME_WS_HEARTBEAT_INTERVAL:15s}
+      thread-pool-size: ${WORKFLOW_RUNTIME_WS_THREAD_POOL_SIZE:8}
+      max-connections: ${WORKFLOW_RUNTIME_WS_MAX_CONNECTIONS:2000}
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
@@ -105,7 +116,7 @@ aetherflow:
       thread-pool-size: ${WORKFLOW_EMBEDDING_THREAD_POOL_SIZE:2}
       queue-capacity: ${WORKFLOW_EMBEDDING_QUEUE_CAPACITY:20}
     ocr:
-      default-provider: ${WORKFLOW_OCR_PROVIDER:tesseract}
+      default-provider: ${WORKFLOW_OCR_PROVIDER:auto}
       default-language: ${WORKFLOW_OCR_LANGUAGE:auto}
       mock: ${WORKFLOW_OCR_MOCK:false}
       mock-text: ${WORKFLOW_OCR_MOCK_TEXT:Mock OCR text for AetherFlow demo.}
@@ -115,6 +126,9 @@ aetherflow:
       tesseract:
         data-path: ${TESSDATA_PREFIX:}
         fallback-language: ${WORKFLOW_OCR_TESSERACT_LANGUAGE:eng}
+    document:
+      max-file-bytes: ${WORKFLOW_DOCUMENT_MAX_FILE_BYTES:26214400}
+      max-extracted-characters: ${WORKFLOW_DOCUMENT_MAX_EXTRACTED_CHARACTERS:1000000}
     runtime:
       task-executor:
         core-pool-size: ${WORKFLOW_RUNTIME_CORE_POOL_SIZE:10}

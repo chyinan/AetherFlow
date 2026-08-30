@@ -47,6 +47,9 @@ seata:
       default: ${SEATA_ADDR:seata:8091}
 
 aetherflow:
+  security:
+    jwt:
+      secret: ${JWT_SECRET}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://minio:9000}
     public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9000}
@@ -59,6 +62,8 @@ aetherflow:
   notify:
     internal-token: ${NOTIFY_INTERNAL_TOKEN}
   workflow:
+    websocket:
+      allowed-origins: ${AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS:http://localhost}
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN}
       async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
@@ -66,7 +71,7 @@ aetherflow:
       ollama-base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
     ocr:
       mock: ${WORKFLOW_OCR_MOCK:false}
-      default-provider: ${WORKFLOW_OCR_PROVIDER:tesseract}
+      default-provider: ${WORKFLOW_OCR_PROVIDER:auto}
 
 springdoc:
   api-docs:

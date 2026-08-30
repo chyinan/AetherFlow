@@ -11,6 +11,7 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
+import com.aetherflow.workflow.preflight.WorkflowAiCapabilityPreflightService;
 import com.aetherflow.workflow.runtime.api.NodeExecutor;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeResult;
@@ -66,6 +67,9 @@ class WorkflowServiceImplTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private WorkflowAiCapabilityPreflightService aiCapabilityPreflightService;
+
     private WorkflowRuntimeProperties runtimeProperties;
     private NodeRegistry nodeRegistry;
     private WorkflowServiceImpl workflowService;
@@ -82,6 +86,7 @@ class WorkflowServiceImplTest {
                 objectMapper,
                 runtimeProperties,
                 nodeRegistry,
+                aiCapabilityPreflightService,
                 Runnable::run
         );
     }
@@ -245,6 +250,7 @@ class WorkflowServiceImplTest {
                 objectMapper,
                 runtimeProperties,
                 nodeRegistry,
+                aiCapabilityPreflightService,
                 task -> {
                     Thread thread = new Thread(task, "workflow-initial-projection-test");
                     thread.setDaemon(true);
@@ -258,6 +264,24 @@ class WorkflowServiceImplTest {
         assertThat(initialProjectionCompleted.await(2, TimeUnit.SECONDS)).isTrue();
 
         assertThat(persistedStatus.get()).isEqualTo(RuntimeState.SUCCESS.name());
+    }
+
+    @Test
+    void validatesAiCapabilitiesBeforePersistingWorkflowInstance() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        WorkflowDefinitionDTO definitionDTO = definitionDTO();
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO);
+        org.mockito.Mockito.doThrow(new BusinessException(
+                        com.aetherflow.common.core.ResultCode.SERVICE_UNAVAILABLE,
+                        "llm runtime is disabled"))
+                .when(aiCapabilityPreflightService).validate(definitionDTO);
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.startInstance(10L, request())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("llm runtime is disabled");
+
+        verify(instanceMapper, org.mockito.Mockito.never()).insert(any(WorkflowInstance.class));
     }
 
     @Test

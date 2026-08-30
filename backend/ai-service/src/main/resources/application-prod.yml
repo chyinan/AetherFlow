@@ -38,8 +38,21 @@ aetherflow:
   python-ai:
     base-url: ${PYTHON_AI_BASE_URL:http://python-ai-service:8200}
     api-key: ${AI_SERVICE_API_KEY}
+    status-timeout-millis: ${PYTHON_AI_STATUS_TIMEOUT_MILLIS:3000}
   ai:
     internal-token: ${AI_INTERNAL_TOKEN}
+    image:
+      default-timeout: ${AI_IMAGE_DEFAULT_TIMEOUT:5m}
+      health-timeout: ${AI_IMAGE_HEALTH_TIMEOUT:2s}
+      health-cache-ttl: ${AI_IMAGE_HEALTH_CACHE_TTL:10s}
+      stable-diffusion:
+        enabled: ${SD_WEBUI_ENABLED:false}
+        base-url: ${SD_WEBUI_BASE_URL:http://host.docker.internal:7860}
+      comfy:
+        enabled: ${COMFYUI_ENABLED:false}
+        base-url: ${COMFYUI_BASE_URL:http://host.docker.internal:8188}
+        poll-interval: ${COMFYUI_POLL_INTERVAL:1s}
+        max-wait: ${COMFYUI_MAX_WAIT:10m}
     default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
     default-model: ${AI_DEFAULT_MODEL:qwen3:8b}
     provider-priority:

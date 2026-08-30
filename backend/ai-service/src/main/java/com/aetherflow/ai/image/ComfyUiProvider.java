@@ -1,5 +1,6 @@
 package com.aetherflow.ai.image;
 
+// pattern: Imperative Shell
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -32,21 +33,27 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     private static final String DEFAULT_SCHEDULER = "normal";
 
     private final RestClient restClient;
+    private final RestClient healthRestClient;
     private final ImageProviderProperties properties;
     private final String baseUrl;
     private final boolean perRequestTimeoutEnabled;
 
     public ComfyUiProvider(RestClient.Builder builder, ImageProviderProperties properties) {
         this(createRestClient(builder, properties.getComfy().getBaseUrl(), properties.getDefaultTimeout()),
+                createRestClient(RestClient.builder(), properties.getComfy().getBaseUrl(), properties.getHealthTimeout()),
                 properties, true);
     }
 
     ComfyUiProvider(RestClient restClient, ImageProviderProperties properties) {
-        this(restClient, properties, false);
+        this(restClient, restClient, properties, false);
     }
 
-    private ComfyUiProvider(RestClient restClient, ImageProviderProperties properties, boolean perRequestTimeoutEnabled) {
+    private ComfyUiProvider(RestClient restClient,
+                            RestClient healthRestClient,
+                            ImageProviderProperties properties,
+                            boolean perRequestTimeoutEnabled) {
         this.restClient = restClient;
+        this.healthRestClient = healthRestClient;
         this.properties = properties;
         this.baseUrl = properties.getComfy().getBaseUrl();
         this.perRequestTimeoutEnabled = perRequestTimeoutEnabled;
@@ -55,6 +62,16 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     @Override
     public ImageProviderType type() {
         return ImageProviderType.COMFYUI;
+    }
+
+    @Override
+    public boolean isAvailable() {
+        try {
+            healthRestClient.get().uri("/system_stats").retrieve().toBodilessEntity();
+            return true;
+        } catch (RestClientException exception) {
+            return false;
+        }
     }
 
     @Override

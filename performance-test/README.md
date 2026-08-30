@@ -1,76 +1,85 @@
-# AetherFlow JMeter Performance Tests
+# AetherFlow 性能与投产门禁
 
-This directory contains JMeter plans for the main AetherFlow runtime path:
+本目录的 JMeter 计划覆盖 Gateway 核心用户旅程：网关状态、注册/登录、当前用户、可选文件治理、AI 服务观测接口，以及工作流定义创建和实例启动。
 
-1. Gateway health and status.
-2. User registration, login and current-user lookup.
-3. Optional file upload, download and delete through MinIO.
-4. AI provider status and metrics.
-5. Workflow definition creation and workflow instance start.
+基线工作流只使用 `START -> TEMPLATE_TRANSFORM -> END`，用于稳定测量平台本身，不依赖 GPU、Whisper、LLM 或外部图像 Provider。AI 能力是否可执行由工作流启动前能力预检单独保证。
 
-## Run
+## 三层验证
 
-Start the project first:
+先验证阈值门禁能正确接受/拒绝固定结果：
 
 ```powershell
-docker compose up -d --build
+.\scripts\aetherflow-performance-gate-self-test.ps1
 ```
 
-Run the core gateway scenario from the repository root:
+再用确定性 Mock Gateway 运行真实 JMeter CLI，验证 JMX、Groovy、JSON 提取、条件控制器和结果门禁：
 
 ```powershell
-jmeter -n `
-  -t performance-test/aetherflow-core-api.jmx `
-  -l performance-test/results/aetherflow-core-api.jtl `
-  -e -o performance-test/results/aetherflow-core-api-report `
-  -Jhost=localhost `
-  -Jport=8080 `
-  -Jthreads=10 `
-  -Jramp_up=20 `
-  -Jloops=3
+.\scripts\aetherflow-performance-contract-test.ps1
 ```
 
-If JMeter is not on `PATH` on this machine, use:
+最后，在完整环境健康后运行真实基线：
 
 ```powershell
-& 'D:\Tools\apache-jmeter-5.6.3\bin\jmeter.bat' -n `
-  -t performance-test/aetherflow-core-api.jmx `
-  -l performance-test/results/aetherflow-core-api.jtl `
-  -e -o performance-test/results/aetherflow-core-api-report `
-  -Jhost=localhost `
-  -Jport=8080 `
-  -Jthreads=10 `
-  -Jramp_up=20 `
-  -Jloops=3
+.\scripts\aetherflow-run-performance.ps1 `
+  -HostName localhost `
+  -Port 80 `
+  -Threads 10 `
+  -RampUpSeconds 20 `
+  -Loops 3
 ```
 
-## Useful Properties
+如果只验证 Gateway/Auth/Workflow，可添加 `-SkipUpload`。脚本会先检查 `/health` 和 `/gateway/status`，为本次运行创建带时间戳的独立目录，生成 JTL、HTML 报告和 `performance-gate-summary.json`，不会覆盖历史结果。
 
-| Property | Default | Description |
+## 默认门禁
+
+| 指标 | 默认阈值 |
+| --- | ---: |
+| 总错误率 | `<= 1%` |
+| HTTP P95 | `<= 2000 ms` |
+| HTTP P99 | `<= 5000 ms` |
+| 最小样本数 | `max(10, threads * loops * 10)` |
+
+任何 JSR223、断言或 HTTP 失败都会计入错误率；延迟百分位只统计真实 HTTP 样本，不把测试数据准备脚本的首次 Groovy 编译耗时混入 API 延迟。
+
+可直接对已有 JTL 执行门禁：
+
+```powershell
+.\scripts\aetherflow-performance-gate.ps1 `
+  -JtlPath .\performance-test\results\run-YYYYMMDD-HHMMSS\aetherflow-core-api.jtl `
+  -MaxErrorRatePercent 1 `
+  -MaxP95Milliseconds 2000 `
+  -MaxP99Milliseconds 5000 `
+  -MinSamples 300
+```
+
+## 部署闭环
+
+只验证 Compose 展开结果和关键服务定义：
+
+```powershell
+.\scripts\aetherflow-verify-deployment.ps1 -ConfigOnly
+```
+
+验证 Docker 守护进程、关键容器和公开健康入口，并追加双用户性能烟测：
+
+```powershell
+.\scripts\aetherflow-verify-deployment.ps1 -RunPerformanceSmoke
+```
+
+首次部署前必须先运行 `.\scripts\aetherflow-init-env.ps1`。`.env.example` 故意保留空白密钥，不能直接作为可部署环境文件。
+
+## 常用参数
+
+| 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `protocol` | `http` | Gateway protocol. |
-| `host` | `localhost` | Gateway host. |
-| `port` | `8080` | Gateway port. |
-| `threads` | `10` | Concurrent virtual users. |
-| `ramp_up` | `20` | Ramp-up seconds. |
-| `loops` | `3` | Iterations per virtual user. |
-| `think_time_ms` | `300` | Delay between requests. |
-| `test_user_prefix` | `perf_user` | Prefix for generated test users. |
-| `test_password` | `PerfPass123!` | Password for generated users. |
-| `skip_upload` | `false` | Set to `true` to skip file upload/download/delete. |
-| `upload_file_path` | `performance-test/data/sample-upload.txt` | File used by multipart upload. |
-| `ai_model` | `llama3` | Model value passed in workflow input. |
-| `sample_text` | short built-in text | Text payload used by workflow input. |
-| `response_timeout` | `30000` | HTTP response timeout in milliseconds. |
+| `Protocol` | `http` | Gateway 协议 |
+| `HostName` | `localhost` | Gateway 主机 |
+| `Port` | `8080` | Gateway 端口；经 Nginx 时通常为 `80` |
+| `Threads` | `10` | 并发虚拟用户 |
+| `RampUpSeconds` | `20` | 加压时间 |
+| `Loops` | `3` | 每个虚拟用户循环次数 |
+| `SkipUpload` | `false` | 跳过 MinIO 上传/下载/删除 |
+| `JMeterPath` | 自动发现 | 可显式指定 `jmeter.bat` |
 
-Example without file upload:
-
-```powershell
-jmeter -n -t performance-test/aetherflow-core-api.jmx -l performance-test/results/no-upload.jtl -Jskip_upload=true
-```
-
-## Notes
-
-- The scenario creates new users and workflow definitions. Use a test database or clean generated `perf_user_*` data after large runs.
-- The workflow start step requires the downstream task-service, RabbitMQ and related infrastructure to be healthy.
-- The upload step requires MinIO to be reachable. Disable it with `-Jskip_upload=true` when testing only gateway/auth/workflow routing.
+该场景会创建随机测试用户和工作流定义。正式压测必须使用隔离数据库，并为 `perf_user_*` 数据设置测试后清理策略。仓库中旧的 JTL 只作为历史诊断证据，不能替代当前代码版本的新鲜门禁结果。

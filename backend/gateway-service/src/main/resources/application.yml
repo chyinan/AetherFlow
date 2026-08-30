@@ -145,6 +145,7 @@ aetherflow:
         - /health
         - /gateway/status
         - /notify/ws
+        - /workflow/runtime/ws/**
         - /swagger-ui/**
         - /webjars/**
         - /v3/api-docs/**

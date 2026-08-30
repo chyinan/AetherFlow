@@ -1,5 +1,7 @@
 # 项目开发约定
 
+Last verified: 2026-08-30
+
 ## 语言和环境
 
 - 始终使用简体中文回复，包括代码注释和提交信息。
@@ -21,3 +23,16 @@
 - 知识库检索只使用 ready 数据集、文档和分片，并保持租户隔离；语义检索不得被固定词法候选上限截断。
 - parent-child 分片中 parent 只用于上下文，检索结果返回 child 关联的 parent 上下文；元数据过滤必须是合法 JSON 对象。
 - 工作流编辑器中的知识检索节点必须保留数据集选择、`topK`、输出变量和元数据过滤配置，并与后端节点契约一致。
+- AI 节点可执行性以 AI Service 的运行时能力快照为准；Workflow Service 在实例落库前执行预检，前端只做提前反馈，不得绕过服务端 fail-closed 门禁。
+- 图像 Provider 默认关闭；只有真实注册且运行时可用的 Stable Diffusion WebUI/ComfyUI Provider 才能出现在可执行能力中。
+- 文档提取默认使用 `auto`：Office、邮件、EPUB、PDF 文本层和文本格式走 Tika，图片及扫描 PDF 走 Tesseract 回退；格式目录、25 MiB 输入限制和 100 万字符输出限制必须前后端一致。
+- Embedding 节点当前只承诺 Ollama。目录不能列出尚无执行实现的 OpenAI 或 HuggingFace Provider。
+- 工作流运行事件以 SSE 为主、WebSocket 为备用；WebSocket 使用绑定单一工作流的 60 秒流令牌、实例归属校验和持久事件游标续传。
+
+## 投产验证
+
+- `mvn test`：Java 全量回归。
+- `cd frontend; npm test; npm run build`：前端测试与生产构建。
+- `./scripts/aetherflow-performance-gate-self-test.ps1`：性能阈值门禁正反例。
+- `./scripts/aetherflow-performance-contract-test.ps1`：不依赖 Docker 的 JMeter 计划契约回归。
+- `./scripts/aetherflow-verify-deployment.ps1 -ConfigOnly`：Compose 和关键服务配置门禁；去掉 `-ConfigOnly` 后检查真实容器与公开健康入口。

@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 import { apiClient } from '@/api/client/apiClient'
 
 export interface WorkflowNodeCatalogItem {
@@ -10,6 +11,7 @@ export interface WorkflowNodeCatalogItem {
   inputVariables?: WorkflowNodeVariableSchema[]
   outputVariables?: WorkflowNodeVariableSchema[]
   exampleConfig?: Record<string, unknown>
+  capabilities?: Record<string, unknown>
   [key: string]: unknown
 }
 

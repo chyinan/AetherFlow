@@ -5,6 +5,8 @@ import com.aetherflow.workflow.ocr.OCRNodeConfig;
 import com.aetherflow.workflow.ocr.OCRRequest;
 import com.aetherflow.workflow.ocr.OCRResult;
 import com.aetherflow.workflow.ocr.config.OCRProperties;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
+import com.aetherflow.common.exception.BusinessException;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -16,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TesseractOCRProviderTest {
 
@@ -34,6 +37,20 @@ class TesseractOCRProviderTest {
         assertThat(result.language()).isEqualTo("eng");
         assertThat(result.confidence()).isEqualTo(1.0);
         assertThat(result.pageCount()).isEqualTo(1);
+    }
+
+    @Test
+    void rejectsOversizedInputWhenTesseractIsSelectedExplicitly() {
+        OCRProperties ocrProperties = new OCRProperties();
+        DocumentExtractionProperties extractionProperties = new DocumentExtractionProperties();
+        extractionProperties.setMaxFileBytes(4);
+        TesseractOCRProvider provider = new TesseractOCRProvider(ocrProperties, extractionProperties);
+
+        assertThatThrownBy(() -> provider.recognize(new OCRRequest(
+                new OCRInputFile("receipt.png", "image/png", new byte[5]),
+                OCRNodeConfig.from(Map.of("language", "eng"), ocrProperties)
+        ))).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("document file size exceeds");
     }
 
     private byte[] pdfWithText(String text) throws Exception {

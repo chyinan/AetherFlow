@@ -1,5 +1,6 @@
 package com.aetherflow.ai.image;
 
+// pattern: Imperative Shell
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -21,21 +22,26 @@ import java.util.Map;
 public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
     private final RestClient restClient;
+    private final RestClient healthRestClient;
     private final String baseUrl;
     private final boolean perRequestTimeoutEnabled;
 
     public StableDiffusionWebUiProvider(RestClient.Builder builder, ImageProviderProperties properties) {
         this(createRestClient(builder, properties.getStableDiffusion().getBaseUrl(), properties.getDefaultTimeout()),
+                createRestClient(RestClient.builder(), properties.getStableDiffusion().getBaseUrl(), properties.getHealthTimeout()),
                 properties, true);
     }
 
     StableDiffusionWebUiProvider(RestClient restClient, ImageProviderProperties properties) {
-        this(restClient, properties, false);
+        this(restClient, restClient, properties, false);
     }
 
-    private StableDiffusionWebUiProvider(RestClient restClient, ImageProviderProperties properties,
+    private StableDiffusionWebUiProvider(RestClient restClient,
+                                        RestClient healthRestClient,
+                                        ImageProviderProperties properties,
                                         boolean perRequestTimeoutEnabled) {
         this.restClient = restClient;
+        this.healthRestClient = healthRestClient;
         this.baseUrl = properties.getStableDiffusion().getBaseUrl();
         this.perRequestTimeoutEnabled = perRequestTimeoutEnabled;
     }
@@ -43,6 +49,16 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
     @Override
     public ImageProviderType type() {
         return ImageProviderType.STABLE_DIFFUSION_WEBUI;
+    }
+
+    @Override
+    public boolean isAvailable() {
+        try {
+            healthRestClient.get().uri("/sdapi/v1/options").retrieve().toBodilessEntity();
+            return true;
+        } catch (RestClientException exception) {
+            return false;
+        }
     }
 
     @Override

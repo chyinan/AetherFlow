@@ -13,6 +13,7 @@ import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
+import com.aetherflow.workflow.preflight.WorkflowAiCapabilityPreflightService;
 import com.aetherflow.workflow.runtime.api.NodeRegistry;
 import com.aetherflow.workflow.runtime.api.NodeType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
@@ -60,6 +61,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final ObjectMapper objectMapper;
     private final WorkflowRuntimeProperties runtimeProperties;
     private final NodeRegistry nodeRegistry;
+    private final WorkflowAiCapabilityPreflightService aiCapabilityPreflightService;
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
 
@@ -370,6 +372,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                 }
             }
         }
+        aiCapabilityPreflightService.validate(definition);
     }
 
     private String newTraceId() {

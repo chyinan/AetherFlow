@@ -25,6 +25,10 @@ const filteredTemplates = computed(() => {
 })
 
 function onDragStart(event: DragEvent, template: NodeTemplate) {
+  if (template.availability?.available === false) {
+    event.preventDefault()
+    return
+  }
   suppressNextClick.value = true
   event.dataTransfer?.setData('application/aetherflow-node', JSON.stringify(template))
   event.dataTransfer?.setData('text/plain', template.label)
@@ -40,7 +44,7 @@ function onDragEnd() {
 }
 
 function addTemplate(template: NodeTemplate) {
-  if (suppressNextClick.value) {
+  if (suppressNextClick.value || template.availability?.available === false) {
     return
   }
   const offset = workflowStore.nodes.length * 24
@@ -48,7 +52,9 @@ function addTemplate(template: NodeTemplate) {
     x: 120 + (offset % 240),
     y: 100 + (offset % 180),
   })
-  uiStore.setSelectedNode(node.id)
+  if (node) {
+    uiStore.setSelectedNode(node.id)
+  }
 }
 </script>
 
@@ -68,8 +74,11 @@ function addTemplate(template: NodeTemplate) {
         v-for="template in filteredTemplates"
         :key="template.kind"
         type="button"
-        draggable="true"
+        :disabled="template.availability?.available === false"
+        :draggable="template.availability?.available !== false"
+        :title="template.availability?.reason ?? undefined"
         class="w-full rounded-lg border border-app-border bg-white p-3 text-left shadow-sm transition hover:border-primary/30 hover:shadow-node"
+        :class="template.availability?.available === false ? 'cursor-not-allowed opacity-55 hover:border-app-border hover:shadow-sm' : ''"
         @click="addTemplate(template)"
         @dragstart="onDragStart($event, template)"
         @dragend="onDragEnd"
@@ -79,6 +88,9 @@ function addTemplate(template: NodeTemplate) {
           <span class="rounded bg-app-muted px-2 py-0.5 text-[11px] text-text-secondary">{{ template.category }}</span>
         </div>
         <p class="mt-2 text-xs leading-5 text-text-secondary">{{ template.description }}</p>
+        <p v-if="template.availability?.reason" class="mt-2 text-xs font-medium leading-5 text-status-warning">
+          {{ t('workflow.capabilityUnavailable') }}：{{ template.availability.reason }}
+        </p>
         <p class="mt-2 text-[11px] text-text-muted">{{ template.outputs.join(', ') }}</p>
       </button>
     </div>

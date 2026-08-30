@@ -1,6 +1,6 @@
 # AetherFlow 项目架构
 
-> 架构快照日期：2026-07-23
+> 架构快照日期：2026-08-30
 
 本文档描述 AetherFlow 当前代码库的系统结构、模块边界和主要运行链路。内容以仓库中的 Maven 聚合配置、Docker Compose、服务代码和前端实现为准。
 
@@ -143,9 +143,11 @@ AetherFlow/
 - 节点目录、节点指标和工作流导入。
 - 节点执行器注册及结构、AI、OCR、Embedding、导出等节点执行。
 - 运行状态机、DAG 调度、分布式锁、事件流和恢复机制。
-- 运行快照、事件持久化、SSE 运行日志和可观测数据重建。
+- 运行快照、事件持久化、SSE 主通道、工作流范围短期令牌 WebSocket 备用通道和可观测数据重建。
 - 项目空间、知识数据集、知识条目和租户隔离。
-- OCR Provider、Embedding Provider 和向量存储适配。
+- 统一文档提取编排：Tika 处理 Office/邮件/EPUB/文本层，Tesseract 处理图片和扫描 PDF；同一链路供 OCR 节点与知识库导入复用。
+- OCR Provider、Ollama Embedding Provider 和向量存储适配。
+- AI Service 能力快照及实例落库前 LLM、Whisper、图像 Provider 可执行性预检。
 
 工作流定义中的节点配置由前端 mapper 转成后端 DTO；运行时再次校验节点类型和图结构，不把前端图对象直接作为执行模型。
 
@@ -202,7 +204,7 @@ Java 侧 AI 编排服务：
 - Vue Router 组织登录、工作流、文件、知识库、模型、监控和设置页面。
 - Vue Flow 渲染 DAG 画布、节点和连线。
 - Axios 与生成的 OpenAPI 客户端访问后端。
-- WebSocket 与 SSE 接收通知和工作流运行事件。
+- SSE 优先、WebSocket 游标续传接收工作流运行事件；通知使用独立 SSE/WebSocket 链路。
 
 ### 5.2 代码分层
 

@@ -56,10 +56,43 @@ class ImageProviderRegistryTest {
                 .hasMessageContaining("unsupported image provider");
     }
 
+    @Test
+    void exposesEnabledProvidersInStableOrder() {
+        ImageProviderRegistry registry = new ImageProviderRegistry(List.of(
+                new StubProvider(ImageProviderType.STABLE_DIFFUSION_WEBUI),
+                new StubProvider(ImageProviderType.COMFYUI)
+        ));
+
+        assertThat(registry.availableProviderNames())
+                .containsExactly("COMFYUI", "STABLE_DIFFUSION_WEBUI");
+    }
+
+    @Test
+    void excludesConfiguredProvidersWhoseRuntimeHealthProbeFails() {
+        ImageProviderRegistry registry = new ImageProviderRegistry(List.of(
+                new StubProvider(ImageProviderType.STABLE_DIFFUSION_WEBUI),
+                new UnavailableProvider(ImageProviderType.COMFYUI)
+        ));
+
+        assertThat(registry.availableProviderNames()).containsExactly("STABLE_DIFFUSION_WEBUI");
+    }
+
     private record StubProvider(ImageProviderType type) implements ImageGenerationProvider {
         @Override
         public ImageGenerationResponse generate(ImageGenerationRequest request) {
             return new ImageGenerationResponse(type.name(), "txt2img", List.of(), null);
+        }
+    }
+
+    private record UnavailableProvider(ImageProviderType type) implements ImageGenerationProvider {
+        @Override
+        public ImageGenerationResponse generate(ImageGenerationRequest request) {
+            return new ImageGenerationResponse(type.name(), "txt2img", List.of(), null);
+        }
+
+        @Override
+        public boolean isAvailable() {
+            return false;
         }
     }
 }

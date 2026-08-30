@@ -1,5 +1,6 @@
 // pattern: Functional Core
 import type { NodeTemplate, WorkflowDefinition, WorkflowSummary } from '@/types/workflow'
+import { SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS } from '@/utils/knowledgeFileSupport'
 
 export const nodeTemplates: NodeTemplate[] = [
   {
@@ -312,9 +313,10 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Transform',
     catalog: 'tool',
     group: 'allTools',
-    config: { fileIdVariable: 'fileId', language: 'auto', enableTable: true, enableLayout: false, provider: 'tesseract' },
+    config: { fileIdVariable: 'fileId', language: 'auto', enableTable: true, enableLayout: false, provider: 'auto' },
     inputs: ['fileId'],
     outputs: ['ocrText', 'ocrLanguage', 'ocrConfidence', 'ocrPageCount'],
+    capabilities: { supportedFileExtensions: [...SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS] },
   },
   {
     kind: 'variable-assigner',

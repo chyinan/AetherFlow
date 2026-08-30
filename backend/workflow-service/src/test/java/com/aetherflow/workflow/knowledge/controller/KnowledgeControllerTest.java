@@ -6,6 +6,7 @@ import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeSourcePreview;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
@@ -102,6 +103,21 @@ class KnowledgeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.datasetId").value("11"))
                 .andExpect(jsonPath("$.data.results[0].score").value(0.93D));
+    }
+
+    @Test
+    void previewsBinaryKnowledgeSourcesThroughBackendExtraction() throws Exception {
+        KnowledgeService service = mock(KnowledgeService.class);
+        when(service.previewSource("91")).thenReturn(new KnowledgeSourcePreview(
+                "runbook.docx", "Production checklist", "application/docx", 20, 1));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new KnowledgeController(service)).build();
+
+        mockMvc.perform(get("/knowledge/documents/source-preview").param("fileId", "91"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fileName").value("runbook.docx"))
+                .andExpect(jsonPath("$.data.text").value("Production checklist"));
+
+        verify(service).previewSource("91");
     }
 
     @Test

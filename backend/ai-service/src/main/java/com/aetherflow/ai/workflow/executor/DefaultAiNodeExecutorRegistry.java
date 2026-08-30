@@ -11,6 +11,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Component
+// pattern: Functional Core
 public class DefaultAiNodeExecutorRegistry {
 
     private final Map<String, AiNodeExecutor> executors;
@@ -26,6 +27,10 @@ public class DefaultAiNodeExecutorRegistry {
             throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported ai node type: " + nodeType);
         }
         return executor;
+    }
+
+    public List<String> availableNodeTypes() {
+        return executors.keySet().stream().sorted().toList();
     }
 
     private String normalize(String value) {

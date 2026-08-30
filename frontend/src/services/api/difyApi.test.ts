@@ -75,6 +75,19 @@ describe('monitoring API mappings', () => {
     }, { source: 'workflow', timeout: 10 * 60 * 1000 })
   })
 
+  it('loads a backend-extracted source preview for binary documents', async () => {
+    mocks.apiGet.mockResolvedValue({ text: 'docx body', detectedContentType: 'application/docx', chars: 9 })
+
+    const preview = await difyApi.previewKnowledgeSource('91')
+
+    expect(preview.text).toBe('docx body')
+    expect(mocks.apiGet).toHaveBeenCalledWith('/knowledge/documents/source-preview', {
+      params: { fileId: '91' },
+      source: 'workflow',
+      timeout: 60_000,
+    })
+  })
+
   it('marks cost as unavailable instead of fabricating zero cost', async () => {
     const metrics = await difyApi.listMonitorMetrics()
     expect(metrics.find((metric) => metric.id === 'provider-cost')).toMatchObject({ value: '--', tone: 'degraded' })

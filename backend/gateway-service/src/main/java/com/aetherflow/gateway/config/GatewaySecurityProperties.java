@@ -1,5 +1,6 @@
 package com.aetherflow.gateway.config;
 
+// pattern: Imperative Shell
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -23,6 +24,7 @@ public class GatewaySecurityProperties {
             "/health",
             "/gateway/status",
             "/notify/ws",
+            "/workflow/runtime/ws/**",
             "/swagger-ui/**",
             "/webjars/**",
             "/v3/api-docs/**"

@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { Connection } from '@vue-flow/core'
 import { toRaw } from 'vue'
 
+import { getWorkflowCapabilities } from '@/api/modules/ai'
 import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node'
 import { i18n } from '@/i18n'
 import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotActions'
@@ -10,6 +11,7 @@ import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
+import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 
 function cloneNodes() {
@@ -177,6 +179,7 @@ export function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemp
     config: structuredClone(fallback?.config ?? {}),
     inputs: variableNames(item.inputVariables).length > 0 ? variableNames(item.inputVariables) : fallback?.inputs ?? [],
     outputs: variableNames(item.outputVariables).length > 0 ? variableNames(item.outputVariables) : fallback?.outputs ?? [],
+    capabilities: item.capabilities ?? fallback?.capabilities,
   }
 }
 
@@ -185,6 +188,14 @@ function mergeTemplates(fallbackTemplates: NodeTemplate[], catalogTemplates: Nod
   fallbackTemplates.forEach((template) => templatesByKind.set(template.kind, template))
   catalogTemplates.forEach((template) => templatesByKind.set(template.kind, template))
   return Array.from(templatesByKind.values())
+}
+
+function templateUnavailableReason(templates: ReadonlyArray<NodeTemplate>, template: Readonly<NodeTemplate>) {
+  const currentTemplate = templates.find((item) => item.kind === template.kind)
+  const availability = currentTemplate?.availability ?? template.availability
+  return availability?.available === false
+    ? availability.reason ?? 'Node capability is unavailable'
+    : null
 }
 
 export const useWorkflowStore = defineStore('workflow', {
@@ -226,17 +237,19 @@ export const useWorkflowStore = defineStore('workflow', {
       this.runError = message
     },
     async loadNodeTemplates() {
-      try {
-        const catalog = await getNodeCatalog()
-        const catalogTemplates = catalog
+      const [catalogResult, capabilityResult] = await Promise.allSettled([
+        getNodeCatalog(),
+        getWorkflowCapabilities(),
+      ])
+      const templates = catalogResult.status === 'fulfilled'
+        ? mergeTemplates(nodeTemplates, catalogResult.value
           .map(templateFromCatalogItem)
-          .filter((template): template is NodeTemplate => template !== null)
-        if (catalogTemplates.length > 0) {
-          this.templates = mergeTemplates(nodeTemplates, catalogTemplates)
-        }
-      } catch {
-        this.templates = nodeTemplates
-      }
+          .filter((template): template is NodeTemplate => template !== null))
+        : nodeTemplates
+      const capabilities = capabilityResult.status === 'fulfilled'
+        ? capabilityResult.value
+        : unavailableWorkflowCapabilities('AI capability service unavailable')
+      this.templates = applyWorkflowCapabilities(templates, capabilities)
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
@@ -269,6 +282,11 @@ export const useWorkflowStore = defineStore('workflow', {
       this.markDirty()
     },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
+      const unavailableReason = templateUnavailableReason(this.templates, template)
+      if (unavailableReason) {
+        this.runError = `${i18n.global.t('workflow.capabilityUnavailable')}：${unavailableReason}`
+        return null
+      }
       this.recordHistory()
       const node = createNodeFromTemplate(template, position)
       this.nodes.push(node)
@@ -276,6 +294,11 @@ export const useWorkflowStore = defineStore('workflow', {
       return node
     },
     addNodeAfter(sourceNodeId: string, template: NodeTemplate) {
+      const unavailableReason = templateUnavailableReason(this.templates, template)
+      if (unavailableReason) {
+        this.runError = `${i18n.global.t('workflow.capabilityUnavailable')}：${unavailableReason}`
+        return null
+      }
       const source = this.nodes.find((node) => node.id === sourceNodeId)
       if (!source) {
         return null
@@ -304,6 +327,13 @@ export const useWorkflowStore = defineStore('workflow', {
       return node
     },
     applyMediaSummaryWorkflowDraft() {
+      const unavailableTemplate = this.templates.find((template) =>
+        ['whisper', 'summary'].includes(template.kind)
+        && template.availability?.available === false)
+      if (unavailableTemplate) {
+        this.runError = `${i18n.global.t('workflow.capabilityUnavailable')}：${unavailableTemplate.availability?.reason ?? unavailableTemplate.kind}`
+        return null
+      }
       this.recordHistory()
       const maxX = this.nodes.reduce((value, node) => Math.max(value, node.position.x), 0)
       const graph = buildMediaSummaryDraftGraph(this.templates, {
@@ -321,6 +351,14 @@ export const useWorkflowStore = defineStore('workflow', {
     duplicateNode(nodeId: string) {
       const source = this.nodes.find((node) => node.id === nodeId)
       if (!source) {
+        return null
+      }
+      const template = this.templates.find((item) => item.kind === source.data.kind)
+      const unavailableReason = template
+        ? templateUnavailableReason(this.templates, template)
+        : null
+      if (unavailableReason) {
+        this.runError = `${i18n.global.t('workflow.capabilityUnavailable')}：${unavailableReason}`
         return null
       }
       const node = duplicateWorkflowNode(source, {

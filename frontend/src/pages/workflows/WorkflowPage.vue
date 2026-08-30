@@ -396,7 +396,9 @@ function templateByKind(kind: WorkflowNodeKind) {
 function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
   if (action.type === 'apply-media-summary-draft') {
     const graph = workflowStore.applyMediaSummaryWorkflowDraft()
-    uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
+    if (graph) {
+      uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
+    }
     return
   }
 

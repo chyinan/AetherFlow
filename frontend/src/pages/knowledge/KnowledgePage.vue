@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Mixed (needs refactoring)
 import {
   ArrowLeft,
   BookOpen,
@@ -26,7 +27,7 @@ import { knowledgeContentFromFile, useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import type { SurfaceStatus } from '@/types/dify'
 import { splitTextForPreview } from '@/utils/textChunkPreview'
-import { isSupportedKnowledgeFile } from '@/utils/knowledgeFileSupport'
+import { isSupportedKnowledgeFile, SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS } from '@/utils/knowledgeFileSupport'
 
 type ViewMode = 'datasets' | 'create' | 'documents'
 type CreateStep = 1 | 2 | 3
@@ -86,6 +87,10 @@ const uploadInput = ref<HTMLInputElement | null>(null)
 const deletingDatasetId = ref('')
 const deletingDocumentId = ref('')
 const MAX_TOP_K = 50
+const knowledgeFileAccept = [
+  ...SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS.map((extension) => `.${extension}`),
+  'text/*',
+].join(',')
 
 const selectedDataset = computed(() => difyStore.selectedDataset)
 const selectedDatasetDocuments = computed(() => difyStore.selectedDatasetDocuments)
@@ -654,7 +659,7 @@ onBeforeUnmount(() => {
               <Upload class="mx-auto h-8 w-8 text-primary" />
               <p class="mt-3 text-sm font-semibold text-text-primary">{{ t('knowledge.flow.uploadTextFile') }}</p>
               <p class="mt-1 text-xs text-text-muted">{{ t('knowledge.flow.dragOrChoose') }}</p>
-               <input ref="uploadInput" type="file" accept=".csv,.json,.md,.mdx,.text,.txt,.xml,.yaml,.yml,text/*" class="hidden" @change="handleSourceUpload" />
+               <input ref="uploadInput" type="file" :accept="knowledgeFileAccept" class="hidden" @change="handleSourceUpload" />
                <button type="button" class="mt-4 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary disabled:cursor-not-allowed disabled:opacity-60" :disabled="fileStore.uploading || retrying" @click="uploadInput?.click()">
                 {{ t('knowledge.flow.chooseFile') }}
               </button>

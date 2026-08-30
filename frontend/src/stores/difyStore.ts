@@ -1,9 +1,9 @@
+// pattern: Mixed (needs refactoring)
 import { defineStore } from 'pinia'
 
 import { i18n } from '@/i18n'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import { difyApi } from '@/services/api/difyApi'
-import { fileApi } from '@/services/api/fileApi'
 import type { FileAsset } from '@/types/file'
 import type {
   ConversationLog,
@@ -508,7 +508,7 @@ export async function knowledgeContentFromFile(file: FileAsset) {
 
   if (file.backendFileId) {
     try {
-      const content = await (await fileApi.downloadFile(file.backendFileId)).text()
+      const content = (await difyApi.previewKnowledgeSource(file.backendFileId)).text
       if (!content.trim()) {
         throw new Error(i18n.global.t('knowledge.emptyTextFile'))
       }

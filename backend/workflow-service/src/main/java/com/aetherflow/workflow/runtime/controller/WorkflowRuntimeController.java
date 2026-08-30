@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.runtime.controller;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.entity.WorkflowInstance;
@@ -15,6 +16,8 @@ import com.aetherflow.workflow.runtime.observability.RuntimeObservationRebuilder
 import com.aetherflow.workflow.runtime.observability.WorkflowRuntimeObservation;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
+import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
+import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -49,6 +52,7 @@ public class WorkflowRuntimeController {
     private final RuntimeEventStreamService streamService;
     private final WorkflowInstanceMapper workflowInstanceMapper;
     private final WorkflowAsyncCompletionService completionService;
+    private final WorkflowRuntimeStreamTokenService streamTokenService;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -56,13 +60,25 @@ public class WorkflowRuntimeController {
                                      RuntimeEventStore runtimeEventStore,
                                      RuntimeEventStreamService streamService,
                                      WorkflowInstanceMapper workflowInstanceMapper,
-                                     WorkflowAsyncCompletionService completionService) {
+                                     WorkflowAsyncCompletionService completionService,
+                                     WorkflowRuntimeStreamTokenService streamTokenService) {
         this.metrics = metrics;
         this.observationStore = observationStore;
         this.runtimeEventStore = runtimeEventStore;
         this.streamService = streamService;
         this.workflowInstanceMapper = workflowInstanceMapper;
         this.completionService = completionService;
+        this.streamTokenService = streamTokenService;
+    }
+
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     RuntimeEventStreamService streamService,
+                                     WorkflowInstanceMapper workflowInstanceMapper,
+                                     WorkflowAsyncCompletionService completionService) {
+        this(metrics, observationStore, runtimeEventStore, streamService, workflowInstanceMapper,
+                completionService, null);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -170,6 +186,20 @@ public class WorkflowRuntimeController {
                              @RequestParam(required = false) String cursor) {
         assertWorkflowOwner(workflowId, userId);
         return streamService.stream(workflowId, lastEventId, cursor);
+    }
+
+    @Operation(summary = "Issue a workflow runtime stream token",
+            description = "Issues a one-minute WebSocket token scoped to one owned workflow instance.")
+    @PostMapping("/stream-token/{workflowId}")
+    public Result<WorkflowStreamTokenResponse> streamToken(
+            @PathVariable String workflowId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @RequestHeader(value = "X-Username", required = false) String username) {
+        assertWorkflowOwner(workflowId, userId);
+        if (streamTokenService == null) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow stream token service is unavailable");
+        }
+        return Result.success(streamTokenService.issue(userId, username, workflowId));
     }
 
     @Operation(summary = "Complete a human approval node",

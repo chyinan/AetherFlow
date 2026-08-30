@@ -4,6 +4,7 @@ import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
+import com.aetherflow.ai.capability.AiWorkflowCapabilityService;
 import com.aetherflow.ai.config.AiInternalProperties;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
@@ -19,6 +20,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 class AiWorkflowNodeControllerTest {
 
@@ -26,7 +28,7 @@ class AiWorkflowNodeControllerTest {
     void routesWhisperToAsrExecutor() {
         AiNodeExecutor asrExecutor = new StubExecutor("ASR", "hello world");
         AiWorkflowNodeController controller = new AiWorkflowNodeController(
-                new DefaultAiNodeExecutorRegistry(List.of(asrExecutor)), properties()
+                new DefaultAiNodeExecutorRegistry(List.of(asrExecutor)), mock(AiWorkflowCapabilityService.class), properties()
         );
 
         AiWorkflowNodeRequestDTO request = request("WHISPER", Map.of(
@@ -46,7 +48,7 @@ class AiWorkflowNodeControllerTest {
     void routesSummaryThroughSummaryExecutor() {
         AiNodeExecutor summaryExecutor = new StubExecutor("SUMMARY", "short summary");
         AiWorkflowNodeController controller = new AiWorkflowNodeController(
-                new DefaultAiNodeExecutorRegistry(List.of(summaryExecutor)), properties()
+                new DefaultAiNodeExecutorRegistry(List.of(summaryExecutor)), mock(AiWorkflowCapabilityService.class), properties()
         );
 
         AiWorkflowNodeRequestDTO request = request("SUMMARY", Map.of(
@@ -65,7 +67,7 @@ class AiWorkflowNodeControllerTest {
     @Test
     void rejectsMissingInternalToken() {
         AiWorkflowNodeController controller = new AiWorkflowNodeController(
-                new DefaultAiNodeExecutorRegistry(List.of(new StubExecutor("ASR", "hello"))), properties()
+                new DefaultAiNodeExecutorRegistry(List.of(new StubExecutor("ASR", "hello"))), mock(AiWorkflowCapabilityService.class), properties()
         );
 
         try {

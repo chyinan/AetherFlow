@@ -1,11 +1,13 @@
 package com.aetherflow.workflow.knowledge.service;
 
+// pattern: Imperative Shell
 import com.aetherflow.common.core.PageResult;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDocumentSummary;
+import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeSourcePreview;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.RetrievalTestResponse;
 
@@ -26,6 +28,8 @@ public interface KnowledgeService {
     KnowledgeDocumentSummary createDocument(Long datasetId, DocumentCreateRequest request);
 
     KnowledgeDocumentSummary enqueueDocument(Long datasetId, DocumentCreateRequest request);
+
+    KnowledgeSourcePreview previewSource(String fileId);
 
     void processQueuedDocument(Long jobId);
 

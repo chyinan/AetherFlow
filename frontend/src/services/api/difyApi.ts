@@ -112,6 +112,14 @@ interface RetrievalTestInput {
   metadataFilter?: string
 }
 
+type KnowledgeSourcePreviewResponse = {
+  fileName?: string
+  text?: string
+  detectedContentType?: string
+  chars?: number
+  pageCount?: number
+}
+
 const KNOWLEDGE_DOCUMENT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 const KNOWLEDGE_RETRIEVAL_REQUEST_TIMEOUT_MS = 60 * 1000
 
@@ -284,6 +292,20 @@ export const difyApi = {
       { source: 'workflow' },
     )
     return mapDocument(document)
+  },
+  async previewKnowledgeSource(fileId: string) {
+    const response = await apiClient.get<KnowledgeSourcePreviewResponse>('/knowledge/documents/source-preview', {
+      params: { fileId },
+      source: 'workflow',
+      timeout: 60_000,
+    })
+    return {
+      fileName: stringOr(response.fileName, ''),
+      text: stringOr(response.text, ''),
+      detectedContentType: stringOr(response.detectedContentType, 'application/octet-stream'),
+      chars: numberOr(response.chars),
+      pageCount: numberOr(response.pageCount),
+    }
   },
   async deleteKnowledgeDocument(documentId: string) {
     await apiClient.delete(`/knowledge/documents/${encodeURIComponent(documentId)}`, {

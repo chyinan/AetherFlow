@@ -14,6 +14,7 @@ import { buildRuntimeSseUrl, type RuntimeEvent } from '@/api/modules/runtime'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 import { formatTime } from '@/utils/localeFormat'
 import { createNotificationSocket, type NotificationSocketConnection } from './notificationSocket'
+import { createRuntimeSocket, type RuntimeSocketConnection } from './runtimeSocket'
 import { createSseClient, SseHttpError, type SseConnection } from './sseClient'
 
 type RunHandlers = {
@@ -180,21 +181,99 @@ export const realtimeClient = {
     }
 
     let sse: SseConnection | null = null
+    let socket: RuntimeSocketConnection | null = null
     let fallbackStop: (() => void) | null = null
     let fallbackActive = false
+    let socketActive = false
+    let lastCursor: string | undefined
+    let socketErrorLogged = false
+    let terminalReached = false
+    let subscriptionClosed = false
 
-    const activateFallback = () => {
-      if (fallbackActive || !runtimeEnv.mockFallback) {
+    const applyRuntimeEvent = (value: unknown) => {
+      const event = safeParseRuntimeEvent(value)
+      if (!event) {
+        return
+      }
+      if (event.eventId) {
+        lastCursor = event.eventId
+      }
+      handlers.onRunPatch?.(runPatchFromRuntimeEvent(event))
+      handlers.onLog?.(mapRuntimeEventToLogEntry(event))
+
+      const nodePatch = mapRuntimeEventToNodePatch(event)
+      if (nodePatch) {
+        handlers.onNodePatch?.(nodePatch)
+      }
+
+      if (isTerminalRuntimeEvent(event)) {
+        terminalReached = true
+        sse?.close()
+        socket?.close()
+      }
+    }
+
+    const activateMockFallback = () => {
+      if (subscriptionClosed || terminalReached || fallbackActive || !runtimeEnv.mockFallback) {
         return
       }
 
       fallbackActive = true
       sse?.close()
+      socket?.close()
       fallbackStop = subscribeMockRun(
         runId,
         handlers,
-        'Runtime SSE unavailable; using explicit demo fallback stream.',
+        'Runtime SSE and WebSocket unavailable; using explicit demo fallback stream.',
       )
+    }
+
+    const activateWebSocket = () => {
+      if (subscriptionClosed || terminalReached || socketActive || fallbackActive || !runtimeEnv.runtimeWebSocketFallback) {
+        return false
+      }
+      socketActive = true
+      sse?.close()
+      socket = createRuntimeSocket({
+        workflowId: runtimeWorkflowId,
+        cursor: lastCursor,
+        maxReconnectAttempts: 5,
+        onMessage: (frame) => {
+          if (frame.event !== 'heartbeat') {
+            applyRuntimeEvent(frame.data)
+          }
+        },
+        onConnectionChange: (state) => {
+          if (!fallbackActive) {
+            handlers.onConnectionChange?.(state)
+          }
+          if (state === 'offline' && !terminalReached && !subscriptionClosed) {
+            activateMockFallback()
+          }
+        },
+        onError: (error) => {
+          if (socketErrorLogged) {
+            return
+          }
+          socketErrorLogged = true
+          handlers.onLog?.({
+            id: `${runId}-runtime-websocket-error-${Date.now()}`,
+            time: formatTime(new Date()),
+            level: 'warn',
+            message: error instanceof Error
+              ? `Runtime WebSocket unavailable: ${error.message}`
+              : 'Runtime WebSocket unavailable.',
+          })
+        },
+      })
+      socket.connect()
+      return true
+    }
+
+    const activatePreferredFallback = () => {
+      if (!activateWebSocket()) {
+        activateMockFallback()
+      }
     }
 
     sse = createSseClient({
@@ -206,22 +285,7 @@ export const realtimeClient = {
           return
         }
 
-        const event = safeParseRuntimeEvent(message.data)
-        if (!event) {
-          return
-        }
-
-        handlers.onRunPatch?.(runPatchFromRuntimeEvent(event))
-        handlers.onLog?.(mapRuntimeEventToLogEntry(event))
-
-        const nodePatch = mapRuntimeEventToNodePatch(event)
-        if (nodePatch) {
-          handlers.onNodePatch?.(nodePatch)
-        }
-
-        if (isTerminalRuntimeEvent(event)) {
-          sse?.close()
-        }
+        applyRuntimeEvent(message.data)
       },
       onConnectionChange: (state) => {
         if (!fallbackActive) {
@@ -230,12 +294,12 @@ export const realtimeClient = {
       },
       onError: (error) => {
         if (error instanceof SseHttpError && !error.retryable) {
-          activateFallback()
+          activatePreferredFallback()
         }
       },
       onReconnect: (attempt) => {
         if (attempt >= 2) {
-          activateFallback()
+          activatePreferredFallback()
         }
       },
     })
@@ -243,7 +307,9 @@ export const realtimeClient = {
     sse.connect()
 
     return () => {
+      subscriptionClosed = true
       sse?.close()
+      socket?.close()
       fallbackStop?.()
       handlers.onConnectionChange?.('offline')
     }

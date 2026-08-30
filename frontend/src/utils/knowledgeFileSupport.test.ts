@@ -23,8 +23,15 @@ describe('知识库文件支持', () => {
     expect(isSupportedKnowledgeFile(file('data.json', 'application/json'))).toBe(true)
   })
 
-  it('拒绝当前没有正文提取链路的二进制文件', () => {
-    expect(isSupportedKnowledgeFile(file('manual.pdf', 'application/pdf'))).toBe(false)
+  it('接受后端统一解析链真实支持的二进制文档', () => {
+    expect(isSupportedKnowledgeFile(file('manual.pdf', 'application/pdf'))).toBe(true)
+    expect(isSupportedKnowledgeFile(file('runbook.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))).toBe(true)
+    expect(isSupportedKnowledgeFile(file('mail.msg', 'application/vnd.ms-outlook'))).toBe(true)
+    expect(isSupportedKnowledgeFile(file('book.epub', 'application/epub+zip'))).toBe(true)
+  })
+
+  it('拒绝媒体和可执行文件', () => {
     expect(isSupportedKnowledgeFile(file('meeting.mp4', 'video/mp4'))).toBe(false)
+    expect(isSupportedKnowledgeFile(file('payload.exe', 'application/octet-stream'))).toBe(false)
   })
 })

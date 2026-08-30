@@ -8,6 +8,12 @@ import com.aetherflow.workflow.embedding.EmbeddingResult;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProvider;
 import com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistry;
 import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
+import com.aetherflow.workflow.document.DocumentContentExtractionService;
+import com.aetherflow.workflow.document.DocumentExtractionResult;
+import com.aetherflow.workflow.document.DocumentInput;
+import com.aetherflow.workflow.document.DocumentExtractionProperties;
+import com.aetherflow.common.core.Result;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DatasetCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.DocumentCreateRequest;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeDatasetSummary;
@@ -74,17 +80,31 @@ class KnowledgeServiceImplTest {
     @Mock
     private KnowledgeIngestionJobMapper ingestionJobMapper;
 
+    @Mock
+    private DocumentContentExtractionService documentContentExtractionService;
+
     private KnowledgeServiceImpl service;
 
     @BeforeEach
     void setUp() {
         lenient().when(datasetMapper.incrementDocumentCounters(any(), any(Integer.class), any())).thenReturn(1);
+        lenient().when(fileMetadataClient.getMetadata(any(String.class), any(Long.class), any(Long.class)))
+                .thenAnswer(invocation -> {
+                    Long fileId = invocation.getArgument(2);
+                    return Result.success(new FileMetadataDTO(
+                            fileId, "aetherflow", "uploads/file", "file", "application/octet-stream",
+                            1024L, null));
+                });
         service = new KnowledgeServiceImpl(
                 datasetMapper,
                 documentMapper,
                 chunkMapper,
                 new SimpleTextSplitter(),
-                new ObjectMapper().findAndRegisterModules()
+                new ObjectMapper().findAndRegisterModules(),
+                null,
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
         );
     }
 
@@ -164,11 +184,13 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
-    void readsDocumentContentFromOwnedFileWhenBrowserOmitsRawText() {
+    void readsDocumentContentFromOwnedFileWhenBrowserOmitsRawText() throws Exception {
         KnowledgeDatasetEntity dataset = dataset();
         when(datasetMapper.selectById(11L)).thenReturn(dataset);
         when(fileMetadataClient.downloadFile(any(String.class), any(Long.class), any(Long.class)))
-                .thenReturn(ResponseEntity.ok("content from file".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                .thenReturn(ResponseEntity.ok(new byte[]{1, 2, 3}));
+        when(documentContentExtractionService.extract(any(DocumentInput.class), eq("auto")))
+                .thenReturn(new DocumentExtractionResult("content from docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 1));
         ReflectionTestUtils.setField(service, "fileMetadataClient", fileMetadataClient);
         WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
         nodeProperties.setFileInternalToken("file-token-012345678901234567890123");
@@ -181,12 +203,37 @@ class KnowledgeServiceImplTest {
 
         DocumentCreateRequest request = new DocumentCreateRequest();
         request.setFileId("91");
-        request.setSourceName("guide.md");
+        request.setSourceName("guide.docx");
         request.setChunkSize(128);
         asUser(7L, () -> service.createDocument(11L, request));
 
         verify(fileMetadataClient).downloadFile(any(), eq(7L), eq(91L));
+        ArgumentCaptor<DocumentInput> inputCaptor = ArgumentCaptor.forClass(DocumentInput.class);
+        verify(documentContentExtractionService).extract(inputCaptor.capture(), eq("auto"));
+        assertThat(inputCaptor.getValue().fileName()).isEqualTo("guide.docx");
         verify(chunkMapper).insert(any(KnowledgeChunkEntity.class));
+    }
+
+    @Test
+    void rejectsOversizedKnowledgeSourceBeforeDownloadingItsBody() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(fileMetadataClient.getMetadata(any(String.class), eq(7L), eq(91L))).thenReturn(Result.success(
+                new FileMetadataDTO(91L, "aetherflow", "uploads/large.docx", "large.docx",
+                        "application/docx", 25L * 1024L * 1024L + 1L, null)
+        ));
+        ReflectionTestUtils.setField(service, "fileMetadataClient", fileMetadataClient);
+        WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
+        nodeProperties.setFileInternalToken("file-token-012345678901234567890123");
+        ReflectionTestUtils.setField(service, "workflowNodeProperties", nodeProperties);
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setFileId("91");
+        request.setSourceName("large.docx");
+
+        assertThatThrownBy(() -> asUser(7L, () -> service.createDocument(11L, request)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("document file size exceeds");
+        verify(fileMetadataClient, org.mockito.Mockito.never())
+                .downloadFile(any(String.class), eq(7L), eq(91L));
     }
 
     @Test
@@ -566,7 +613,9 @@ class KnowledgeServiceImplTest {
                 new SimpleTextSplitter(),
                 new ObjectMapper().findAndRegisterModules(),
                 new EmbeddingProviderRegistry(List.of(provider)),
-                new EmbeddingProperties()
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
         );
 
         asUser(7L, () -> semanticService.createDocument(11L, request));
@@ -607,7 +656,9 @@ class KnowledgeServiceImplTest {
                 new SimpleTextSplitter(),
                 new ObjectMapper().findAndRegisterModules(),
                 new EmbeddingProviderRegistry(List.of(provider)),
-                new EmbeddingProperties()
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
         );
         RetrievalTestRequest request = new RetrievalTestRequest();
         request.setQuery("workflow");
@@ -646,7 +697,9 @@ class KnowledgeServiceImplTest {
                 new SimpleTextSplitter(),
                 new ObjectMapper().findAndRegisterModules(),
                 new EmbeddingProviderRegistry(List.of(provider)),
-                new EmbeddingProperties()
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
         );
         RetrievalTestRequest request = new RetrievalTestRequest();
         request.setQuery("cat");
@@ -682,7 +735,9 @@ class KnowledgeServiceImplTest {
                 new SimpleTextSplitter(),
                 new ObjectMapper().findAndRegisterModules(),
                 new EmbeddingProviderRegistry(List.of(provider)),
-                new EmbeddingProperties()
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
         );
         RetrievalTestRequest request = new RetrievalTestRequest();
         request.setQuery("semantic");

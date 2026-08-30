@@ -1,5 +1,6 @@
 package com.aetherflow.ai.config;
 
+// pattern: Imperative Shell
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,14 +21,20 @@ public class AiClientConfig {
      */
     @Bean
     public RestClient pythonAiRestClient(RestClient.Builder restClientBuilder, PythonAiProperties properties) {
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
-                HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMillis()))
-                        .build());
-        requestFactory.setReadTimeout(Duration.ofMillis(properties.getReadTimeoutMillis()));
+        JdkClientHttpRequestFactory requestFactory = requestFactory(
+                properties.getConnectTimeoutMillis(), properties.getReadTimeoutMillis());
         return restClientBuilder.clone()
                 .baseUrl(properties.getBaseUrl())
                 .requestFactory(requestFactory)
+                .build();
+    }
+
+    @Bean
+    public RestClient pythonAiStatusRestClient(RestClient.Builder restClientBuilder, PythonAiProperties properties) {
+        int timeoutMillis = Math.max(100, properties.getStatusTimeoutMillis());
+        return restClientBuilder.clone()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(requestFactory(Math.min(properties.getConnectTimeoutMillis(), timeoutMillis), timeoutMillis))
                 .build();
     }
 
@@ -42,6 +49,15 @@ public class AiClientConfig {
         return restClientBuilder.clone()
                 .requestFactory(requestFactory)
                 .build();
+    }
+
+    private JdkClientHttpRequestFactory requestFactory(int connectTimeoutMillis, int readTimeoutMillis) {
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofMillis(Math.max(100, connectTimeoutMillis)))
+                        .build());
+        requestFactory.setReadTimeout(Duration.ofMillis(Math.max(100, readTimeoutMillis)));
+        return requestFactory;
     }
 }
 

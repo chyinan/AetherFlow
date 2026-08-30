@@ -149,6 +149,15 @@ public final class KnowledgeDtos {
         }
     }
 
+    public record KnowledgeSourcePreview(
+            String fileName,
+            String text,
+            String detectedContentType,
+            Integer chars,
+            Integer pageCount
+    ) {
+    }
+
     public record KnowledgeChunkSummary(
             String id,
             String datasetId,

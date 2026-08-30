@@ -12,6 +12,8 @@ import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetrics;
 import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStore;
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
+import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
+import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,6 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -187,6 +190,31 @@ class WorkflowRuntimeControllerTest {
                         .content("{\"approved\":false,\"comment\":\"needs revision\",\"reviewer\":\"ops\",\"method\":\"webapp\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
+    }
+
+    @Test
+    void issuesScopedWebSocketTokenOnlyForOwnedWorkflow() {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        RuntimeEventStreamService streamService = mock(RuntimeEventStreamService.class);
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowRuntimeStreamTokenService tokenService = mock(WorkflowRuntimeStreamTokenService.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(7L);
+        when(instanceMapper.selectById(1001L)).thenReturn(instance);
+        WorkflowStreamTokenResponse token = new WorkflowStreamTokenResponse(
+                "token", "stream", 7L, "1001", Instant.now().plus(1, ChronoUnit.MINUTES),
+                60L, List.of("workflow-runtime-websocket"), "streamToken");
+        when(tokenService.issue(7L, "alice", "1001")).thenReturn(token);
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                metrics, store, eventStore, streamService, instanceMapper, null, tokenService);
+
+        WorkflowStreamTokenResponse response = controller.streamToken("1001", 7L, "alice").getData();
+
+        assertThat(response.workflowId()).isEqualTo("1001");
+        verify(tokenService).issue(7L, "alice", "1001");
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

@@ -75,6 +75,14 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("ocrText", "ocrLanguage", "ocrConfidence", "ocrPageCount");
         assertThat(ocr.exampleConfig()).containsEntry("language", "auto");
+        assertThat(ocr.exampleConfig()).containsEntry("provider", "auto");
+        assertThat(ocr.configSchema().stream()
+                .filter(field -> "provider".equals(field.name()))
+                .findFirst().orElseThrow().options()).containsExactly("auto", "tesseract");
+        List<String> supportedFileExtensions = ((List<?>) ocr.capabilities().get("supportedFileExtensions"))
+                .stream().map(String::valueOf).toList();
+        assertThat(supportedFileExtensions)
+                .contains("docx", "xlsx", "pptx", "pdf", "msg", "eml", "epub", "png", "jpeg");
 
         WorkflowNodeCatalogItem urlFetch = item(result.getData(), "URL_FETCH");
         assertThat(urlFetch.configSchema())
@@ -95,6 +103,10 @@ class WorkflowNodeCatalogControllerTest {
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
         assertThat(embedding.exampleConfig()).containsEntry("vectorStoreProvider", "memory");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
+        assertThat(embedding.configSchema())
+                .filteredOn(schema -> "provider".equals(schema.name()))
+                .singleElement()
+                .satisfies(schema -> assertThat(schema.options()).containsExactly("ollama"));
 
         WorkflowNodeCatalogItem knowledgeRetrieval = item(result.getData(), "KNOWLEDGE_RETRIEVAL");
         assertThat(knowledgeRetrieval.exampleConfig()).doesNotContainEntry("datasetId", "42");

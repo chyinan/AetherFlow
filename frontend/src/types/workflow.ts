@@ -1,3 +1,4 @@
+// pattern: Functional Core
 export type WorkflowNodeKind =
   | 'start'
   | 'prompt'
@@ -53,6 +54,11 @@ export interface WorkflowNodeData {
   }
 }
 
+export type NodeTemplateAvailability = {
+  readonly available: boolean
+  readonly reason: string | null
+}
+
 export interface NodeTemplate {
   kind: WorkflowNodeKind
   label: string
@@ -64,6 +70,8 @@ export interface NodeTemplate {
   config: Record<string, unknown>
   inputs: string[]
   outputs: string[]
+  availability?: NodeTemplateAvailability
+  capabilities?: Record<string, unknown>
 }
 
 export interface WorkflowSummary {

@@ -1,5 +1,7 @@
 # AetherFlow Final Production-like Deployment Stabilization
 
+> 复核日期：2026-08-30。实际部署以根目录 `docker-compose.yml`、`.env` 和 fail-closed 验证脚本为准；本文中的历史演示值不能作为生产密钥。
+
 ## 1. 当前环境分析
 
 - Windows 11 本机是开发、AI Runtime、Ollama、FFmpeg 验证入口。
@@ -62,8 +64,8 @@
 - Nginx 容器：`aetherflow-nginx`，默认 VM 端口 `80`。
 - Vue3 dist：由 `frontend/nginx/Dockerfile` 构建。
 - `/api/` 转发到 Gateway 并去掉 `/api` 前缀。
-- `/ws/` 转发到 Gateway，保留 `Upgrade` 和 `Connection`。
-- `/sse/` 转发到 Gateway，关闭 proxy buffering、cache、request buffering，并设置 `X-Accel-Buffering: no`。
+- `/ws/` 转发到 Gateway，保留 `Upgrade` 和 `Connection`；访问日志不记录 query string，避免短期流令牌落盘。
+- `/sse/` 转发到 Gateway，关闭 proxy buffering、cache、request buffering，并设置 `X-Accel-Buffering: no`；访问日志同样隐藏 query string。
 
 ## 10. AI Runtime 检查
 
@@ -72,7 +74,7 @@
 - Whisper 与 FFmpeg 在容器内运行；compose 默认 `WHISPER_DEVICE=cpu`，演示稳定优先。
 - 若 AI Runtime 跑在 Windows 本机，通过 `scripts/aetherflow-start-python-ai-service.ps1 -StopExisting -InstallRequirements` 启动真实 Whisper，并用反向 SSH tunnel 暴露给 VM 的 `192.168.101.68:8200`。
 - Windows 本机模式下 `FILE_URL_REWRITE_FROM=http://localhost:9000`、`FILE_URL_REWRITE_TO=http://192.168.101.68:9000`，避免 Python 服务把 MinIO public URL 解析到本机 localhost。
-- OCR 当前由 workflow-service mock provider 保障演示稳定；真实 Tesseract 不作为本轮阻塞项。
+- 文档提取默认使用 `auto`：Tika 处理 Office、邮件、EPUB、PDF 文本层和文本格式，Tesseract 处理图片及扫描 PDF；正式环境关闭 OCR mock。
 - Embedding 走 Ollama `nomic-embed-text`，容器内通过 `host.docker.internal:11434` 访问 Windows Ollama。
 
 ## 11. RabbitMQ 检查
@@ -132,7 +134,8 @@
 12. 启动后端服务：`docker compose up -d auth-service file-service task-service notify-service ai-service workflow-service`。
 13. 启动 Gateway：`docker compose up -d gateway-service`。
 14. 构建并启动前端/Nginx：`docker compose up -d nginx`。
-15. 运行最终检查：`powershell -File scripts/aetherflow-final-check.ps1`。
+15. 运行 fail-closed 配置门禁：`powershell -File scripts/aetherflow-verify-deployment.ps1 -ConfigOnly`。
+16. 容器启动后运行健康与性能烟测：`powershell -File scripts/aetherflow-verify-deployment.ps1 -RunPerformanceSmoke`。
 
 ## 18. 风险分析
 
@@ -143,4 +146,4 @@
 - 已有 MySQL 数据卷不会重复执行 `/docker-entrypoint-initdb.d`；老数据卷需手动导入 `docker/mysql/init/01-aetherflow.sql`。
 - Nacos 开启鉴权时，需要补充 `NACOS_USERNAME/NACOS_PASSWORD` 并同步 Java、Seata 配置；Compose 会先运行一次性 `nacos-init` 完成默认账号密码轮换，后端服务依赖该初始化成功后再启动。
 - Seata 使用 Nacos 配置中心时，`seataServer.properties` 必须存在，否则 DB store 可能不生效。
-- SSE/WebSocket 必须通过 Nginx 实测，浏览器代理、中间防火墙或超时配置都可能中断长连接。
+- SSE/工作流 WebSocket 必须通过 Nginx 实测；WebSocket 令牌应绑定单一工作流并从最后事件游标续传，浏览器代理、中间防火墙或超时配置都可能中断长连接。

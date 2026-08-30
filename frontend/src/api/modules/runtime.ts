@@ -64,6 +64,17 @@ export interface RuntimeExecutionSnapshot {
   variables?: Record<string, unknown>
 }
 
+export type WorkflowRuntimeStreamTokenResponse = {
+  token: string
+  tokenType?: string
+  userId?: number | string
+  workflowId: string
+  expiresAt?: string
+  expiresInSeconds?: number
+  transports?: Array<string>
+  queryParam?: string
+}
+
 function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, '')
 }
@@ -71,6 +82,20 @@ function trimSlashes(value: string) {
 function resolveUrl(base: string, path: string) {
   const normalizedPath = `/${trimSlashes(path)}`
   return `${base.replace(/\/+$/, '')}${normalizedPath}`
+}
+
+function toWebSocketUrl(url: string) {
+  if (/^wss?:\/\//i.test(url)) {
+    return url
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return url.replace(/^http/i, 'ws')
+  }
+  if (typeof window === 'undefined') {
+    return url
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}${url.startsWith('/') ? url : `/${url}`}`
 }
 
 export function getRuntimeMetrics() {
@@ -108,4 +133,29 @@ export function buildRuntimeSseUrl(workflowId: string) {
     runtimeEnv.sseBase,
     `/workflow/runtime/stream/${encodeURIComponent(workflowId)}`,
   )
+}
+
+export function issueRuntimeStreamToken(workflowId: string) {
+  return apiClient.post<WorkflowRuntimeStreamTokenResponse>(
+    `/workflow/runtime/stream-token/${encodeURIComponent(workflowId)}`,
+    undefined,
+    { source: 'runtime' },
+  )
+}
+
+export function buildRuntimeWebSocketUrl(
+  workflowId: string,
+  streamToken: string,
+  queryParam = 'streamToken',
+  cursor?: string,
+) {
+  const baseUrl = resolveUrl(
+    runtimeEnv.wsBase,
+    `/workflow/runtime/ws/${encodeURIComponent(workflowId)}`,
+  )
+  const params = [
+    `${encodeURIComponent(queryParam)}=${encodeURIComponent(streamToken)}`,
+    ...(cursor ? [`cursor=${encodeURIComponent(cursor)}`] : []),
+  ]
+  return toWebSocketUrl(`${baseUrl}?${params.join('&')}`)
 }

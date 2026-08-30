@@ -1,3 +1,4 @@
+// pattern: Imperative Shell
 type EnvValue = string | boolean | number | undefined
 
 function normalizeBase(value: EnvValue, fallback: string) {
@@ -44,5 +45,6 @@ export const runtimeEnv = {
   openApiBase: normalizeBase(import.meta.env.VITE_OPENAPI_BASE, '/api'),
   mockFallback: normalizeBoolean(import.meta.env.VITE_MOCK_FALLBACK, false),
   notifyWebSocketFallback: normalizeBoolean(import.meta.env.VITE_NOTIFY_WS_FALLBACK, false),
+  runtimeWebSocketFallback: normalizeBoolean(import.meta.env.VITE_RUNTIME_WS_FALLBACK, false),
   requestTimeoutMs: normalizeNumber(import.meta.env.VITE_API_TIMEOUT_MS, 15000),
 } as const

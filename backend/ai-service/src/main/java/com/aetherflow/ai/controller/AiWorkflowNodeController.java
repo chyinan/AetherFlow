@@ -4,6 +4,7 @@ import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
+import com.aetherflow.ai.capability.AiWorkflowCapabilityService;
 import com.aetherflow.ai.config.AiInternalProperties;
 import com.aetherflow.common.core.InternalHeaders;
 import com.aetherflow.common.core.ResultCode;
@@ -12,6 +13,7 @@ import com.aetherflow.common.security.InternalServiceTokenService;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
+import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -22,6 +24,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,13 +44,24 @@ import java.time.Instant;
 public class AiWorkflowNodeController {
 
     private final DefaultAiNodeExecutorRegistry executorRegistry;
+    private final AiWorkflowCapabilityService capabilityService;
     private final InternalServiceTokenService internalTokenService;
 
     public AiWorkflowNodeController(DefaultAiNodeExecutorRegistry executorRegistry,
+                                    AiWorkflowCapabilityService capabilityService,
                                     AiInternalProperties properties) {
         this.executorRegistry = executorRegistry;
+        this.capabilityService = capabilityService;
         this.internalTokenService = new InternalServiceTokenService(
                 properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1));
+    }
+
+    @Operation(summary = "Get executable AI workflow capabilities internally")
+    @GetMapping("/capabilities")
+    public Result<AiWorkflowCapabilitiesDTO> capabilities(
+            @RequestHeader(value = InternalHeaders.AI_SERVICE_TOKEN, required = false) String internalToken) {
+        validateInternalToken(internalToken);
+        return Result.success(capabilityService.current());
     }
 
     @Operation(summary = "Execute AI workflow node internally",
@@ -63,9 +77,7 @@ public class AiWorkflowNodeController {
     public Result<AiWorkflowNodeResponseDTO> execute(
             @RequestHeader(value = InternalHeaders.AI_SERVICE_TOKEN, required = false) String internalToken,
             @Valid @RequestBody AiWorkflowNodeRequestDTO request) {
-        if (!internalTokenService.isValid(internalToken, "ai-service", Instant.now())) {
-            throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal ai token");
-        }
+        validateInternalToken(internalToken);
         String executorType = executorType(request.getNodeType());
         Map<String, Object> payload = request.getPayload() == null
                 ? Map.of()
@@ -81,6 +93,12 @@ public class AiWorkflowNodeController {
                 result.status(),
                 result.output()
         ));
+    }
+
+    private void validateInternalToken(String internalToken) {
+        if (!internalTokenService.isValid(internalToken, "ai-service", Instant.now())) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal ai token");
+        }
     }
 
     private TaskMessageDTO taskMessage(AiWorkflowNodeRequestDTO request, String executorType) {

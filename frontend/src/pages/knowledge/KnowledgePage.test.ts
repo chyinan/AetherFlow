@@ -214,4 +214,21 @@ describe('KnowledgePage', () => {
     expect(wrapper.find('[data-status="processing-error"]').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  it('allows selecting every binary document family supported by backend extraction', async () => {
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.get('[data-action="create-knowledge"]').trigger('click')
+    await flushPromises()
+
+    const accept = wrapper.get('input[type="file"]').attributes('accept')
+    expect(accept).toContain('.docx')
+    expect(accept).toContain('.pdf')
+    expect(accept).toContain('.msg')
+    expect(accept).toContain('.epub')
+    expect(accept).toContain('.png')
+    wrapper.unmount()
+  })
 })

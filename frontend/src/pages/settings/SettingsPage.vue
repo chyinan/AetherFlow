@@ -450,6 +450,13 @@ const developerEndpointCards = computed(() => [
     hintKey: 'settings.developerEndpointWebSocketHint',
   },
   {
+    labelKey: 'settings.developerEndpointRuntimeWebSocket',
+    method: 'WS',
+    endpoint: `${runtimeEnv.wsBase}/workflow/runtime/ws/{runId}`,
+    status: 'configured',
+    hintKey: 'settings.developerEndpointRuntimeWebSocketHint',
+  },
+  {
     labelKey: 'settings.developerEndpointWebhook',
     method: 'POST',
     endpoint: `${runtimeEnv.apiBase}/notify/webhook`,

@@ -1,5 +1,6 @@
 package com.aetherflow.ai.config;
 
+// pattern: Imperative Shell
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -11,5 +12,6 @@ public class PythonAiProperties {
     private String apiKey = "";
     private int connectTimeoutMillis = 3000;
     private int readTimeoutMillis = 120000;
+    private int statusTimeoutMillis = 3000;
 }
 

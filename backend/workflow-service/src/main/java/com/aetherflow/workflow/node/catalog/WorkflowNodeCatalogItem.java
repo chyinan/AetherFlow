@@ -1,5 +1,6 @@
 package com.aetherflow.workflow.node.catalog;
 
+// pattern: Functional Core
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
@@ -30,6 +31,9 @@ public record WorkflowNodeCatalogItem(
         List<WorkflowNodeVariableSchema> outputVariables,
 
         @Schema(description = "Example config object stored in WorkflowNodeDTO.config.")
-        Map<String, Object> exampleConfig
+        Map<String, Object> exampleConfig,
+
+        @Schema(description = "Machine-readable runtime-neutral node capabilities for frontend validation.")
+        Map<String, Object> capabilities
 ) {
 }
