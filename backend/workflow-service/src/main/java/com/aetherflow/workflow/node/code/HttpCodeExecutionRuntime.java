@@ -38,12 +38,15 @@ public class HttpCodeExecutionRuntime implements CodeExecutionRuntime {
         payload.put("timeoutMs", timeoutMs);
         payload.put("maxOutputBytes", maxOutputBytes);
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(properties.getCodeRuntimeUrl().replaceAll("/+$", "") + "/v1/code/execute"))
                     .timeout(Duration.ofMillis(timeoutMs + 2_000L))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)));
+            if (properties.getCodeRuntimeApiKey() != null && !properties.getCodeRuntimeApiKey().isBlank()) {
+                requestBuilder.header("X-API-Key", properties.getCodeRuntimeApiKey().trim());
+            }
+            HttpRequest request = requestBuilder.build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             JsonNode body = objectMapper.readTree(response.body());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {

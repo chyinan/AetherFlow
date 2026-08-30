@@ -326,6 +326,17 @@ def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias
         raise HTTPException(status_code=401, detail="missing or invalid X-API-Key")
 
 
+def _require_code_execution_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
+    """Keep the arbitrary-code endpoint private even on the container network."""
+    if _is_dev_env():
+        return
+    expected = os.getenv("CODE_RUNTIME_API_KEY", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="code runtime API key is not configured")
+    if not x_api_key or x_api_key.strip() != expected:
+        raise HTTPException(status_code=401, detail="missing or invalid code runtime API key")
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled python ai runtime error path=%s", request.url.path)
@@ -459,7 +470,7 @@ def subtitles(request: SubtitleRequest) -> SubtitleResponse:
 
 
 @app.post("/v1/code/execute", response_model=CodeExecutionResponse)
-def execute_code(request: CodeExecutionRequest) -> CodeExecutionResponse:
+def execute_code(request: CodeExecutionRequest, _: None = Depends(_require_code_execution_api_key)) -> CodeExecutionResponse:
     language = request.language.strip().lower()
     if language not in {"python", "python3"}:
         raise HTTPException(status_code=400, detail="only python3 code execution is supported")

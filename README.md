@@ -142,7 +142,7 @@ ENABLE_WHISPER=true
 ENABLE_LLM=true
 ```
 
-Code 节点默认关闭（`WORKFLOW_CODE_EXECUTION_ENABLED=false`）。当前 Python 子进程执行器提供语法、超时和输出大小限制，但不具备独立容器级 CPU、内存、文件系统与网络隔离，因此不能在生产环境对不受信任用户开放。只有部署独立资源隔离运行时并完成安全验收后，才应显式启用该能力。
+Code 节点默认关闭（`WORKFLOW_CODE_EXECUTION_ENABLED=false`）。当前 Python 子进程执行器提供语法、超时、进程组回收、CPU/内存/文件大小限制，并支持通过 `WORKFLOW_CODE_RUNTIME_API_KEY` 与 `CODE_RUNTIME_API_KEY` 做服务间鉴权；但它仍不是多租户安全边界，不能在生产环境对不受信任用户开放。只有部署独立资源隔离运行时并完成安全验收后，才应显式启用该能力。
 
 正式工作流中的 AI 节点默认通过 Task Service 和 RabbitMQ 异步执行（`WORKFLOW_AI_ASYNC_ENABLED=true`）。节点派发后工作流进入 `WAITING` 并释放运行线程；AI 成功事件会回填输出并恢复后续 DAG，失败事件会收口任务和工作流状态。仅在隔离调试旧同步调用路径时才临时关闭该开关。
 
