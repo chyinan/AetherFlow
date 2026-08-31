@@ -53,7 +53,7 @@ class JwtAuthenticationFilterTest {
     void removesGatewayIdentityHeadersOnPermitAllPaths() {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
         MockServerWebExchange exchange = MockServerWebExchange.from(
-                MockServerHttpRequest.get("/auth/me")
+                MockServerHttpRequest.post("/auth/login")
                         .header("X-User-Id", "999")
                         .header("X-Username", "mallory")
                         .header("X-Roles", "ADMIN")

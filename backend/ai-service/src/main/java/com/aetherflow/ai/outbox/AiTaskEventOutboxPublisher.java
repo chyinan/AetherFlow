@@ -1,13 +1,14 @@
 package com.aetherflow.ai.outbox;
 
 import com.aetherflow.ai.callback.AiTaskCallbackService;
+import com.aetherflow.ai.file.AiArtifactBatchCoordinator;
 import com.aetherflow.ai.entity.AiJob;
+import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -19,7 +20,6 @@ import java.util.List;
 // pattern: Imperative Shell
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiTaskEventOutboxPublisher {
 
     private static final int BATCH_SIZE = 100;
@@ -29,6 +29,24 @@ public class AiTaskEventOutboxPublisher {
     private final AiTaskEventOutboxMapper mapper;
     private final AiTaskCallbackService callbackService;
     private final ObjectMapper objectMapper;
+    private final AiArtifactBatchCoordinator artifactBatchCoordinator;
+
+    public AiTaskEventOutboxPublisher(AiTaskEventOutboxMapper mapper,
+                                      AiTaskCallbackService callbackService,
+                                      ObjectMapper objectMapper) {
+        this(mapper, callbackService, objectMapper, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AiTaskEventOutboxPublisher(AiTaskEventOutboxMapper mapper,
+                                      AiTaskCallbackService callbackService,
+                                      ObjectMapper objectMapper,
+                                      AiArtifactBatchCoordinator artifactBatchCoordinator) {
+        this.mapper = mapper;
+        this.callbackService = callbackService;
+        this.objectMapper = objectMapper;
+        this.artifactBatchCoordinator = artifactBatchCoordinator;
+    }
 
     public boolean publish(AiTaskEventOutbox event) {
         if (event == null || event.getId() == null || AiTaskEventOutbox.PUBLISHED.equals(event.getStatus())) {
@@ -103,12 +121,24 @@ public class AiTaskEventOutboxPublisher {
             if (payload.taskMessage() == null || payload.result() == null) {
                 throw new BusinessException(ResultCode.INTERNAL_ERROR, "ai task success outbox payload is incomplete");
             }
-            callbackService.notifySuccess(payload.taskMessage(), payload.result());
+            AiNodeResult callbackResult = payload.result();
+            if (artifactBatchCoordinator != null) {
+                var committed = artifactBatchCoordinator.commit(event, payload);
+                if (!committed.isEmpty()) {
+                    callbackResult = callbackResult.withStoredArtifactFiles(
+                            new com.aetherflow.ai.file.ArtifactRegistrationResult(
+                                    callbackResult.artifactBatchId(), callbackResult.artifactCount(), committed));
+                }
+            }
+            callbackService.notifySuccess(payload.taskMessage(), callbackResult);
             return;
         }
         if ("AI_TASK_FAILED".equals(event.getEventType())) {
             if (payload.taskMessage() == null) {
                 throw new BusinessException(ResultCode.INTERNAL_ERROR, "ai task failure outbox payload is incomplete");
+            }
+            if (artifactBatchCoordinator != null) {
+                artifactBatchCoordinator.abort(event, payload);
             }
             callbackService.notifyFailure(payload.taskMessage(), safeError(payload.error(), null));
             return;

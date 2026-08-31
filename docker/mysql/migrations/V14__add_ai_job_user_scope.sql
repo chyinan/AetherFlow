@@ -1,0 +1,16 @@
+SET @col_exists = (SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'af_ai_job' AND column_name = 'user_id');
+SET @sql = IF(@col_exists = 0, 'ALTER TABLE af_ai_job ADD COLUMN user_id BIGINT NULL AFTER task_id', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+UPDATE af_ai_job SET user_id = 0 WHERE user_id IS NULL;
+SET @not_null_exists = (SELECT COUNT(1) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'af_ai_job' AND column_name = 'user_id' AND is_nullable = 'YES');
+SET @sql = IF(@not_null_exists > 0, 'ALTER TABLE af_ai_job MODIFY COLUMN user_id BIGINT NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @idx_exists = (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'af_ai_job' AND index_name = 'idx_af_ai_job_user');
+SET @sql = IF(@idx_exists = 0, 'ALTER TABLE af_ai_job ADD INDEX idx_af_ai_job_user (user_id)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @old_unique_exists = (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'af_ai_job' AND index_name = 'uk_af_ai_job_idempotency');
+SET @sql = IF(@old_unique_exists > 0, 'ALTER TABLE af_ai_job DROP INDEX uk_af_ai_job_idempotency', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @new_unique_exists = (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'af_ai_job' AND index_name = 'uk_af_ai_job_user_idempotency');
+SET @sql = IF(@new_unique_exists = 0, 'ALTER TABLE af_ai_job ADD UNIQUE INDEX uk_af_ai_job_user_idempotency (user_id, idempotency_key)', 'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

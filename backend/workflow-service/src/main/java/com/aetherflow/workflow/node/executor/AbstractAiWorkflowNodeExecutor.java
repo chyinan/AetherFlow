@@ -45,6 +45,16 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
         request.setWorkflowId(context.workflowId());
         request.setTraceId(context.traceId());
         request.setTaskId(context.taskId());
+        Object userId = context.variables().get("userId");
+        if (userId instanceof Number number) {
+            request.setUserId(number.longValue());
+        } else if (userId != null && !String.valueOf(userId).isBlank()) {
+            try {
+                request.setUserId(Long.parseLong(String.valueOf(userId)));
+            } catch (NumberFormatException exception) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "ai node userId is invalid");
+            }
+        }
         request.setNodeId(context.currentNodeId());
         request.setNodeType(nodeType);
         request.setPayload(payload == null ? Map.of() : Map.copyOf(payload));

@@ -4,12 +4,15 @@ import {
   login as authLogin,
   logout as authLogout,
   me as authMe,
+  profile as authProfile,
+  updateProfile as authUpdateProfile,
   oauthProviders as authOAuthProviders,
   refresh as authRefresh,
   register as authRegister,
   status as authStatus,
   type FrontendRole,
   type OAuthProviderAvailability,
+  type UserProfileUpdateRequest,
 } from '@/api/modules/auth'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import type { ServiceStatus } from '@/types/api'
@@ -37,6 +40,7 @@ export interface AuthUser {
   role: FrontendRole
   workspace: string
   username?: string
+  email?: string
   roles?: FrontendRole[]
   rawRoles?: string[]
   userId?: number
@@ -76,6 +80,7 @@ function toAuthUser(user: AuthSessionUserSnapshot | null | undefined): AuthUser 
     workspace:
       typeof user?.workspace === 'string' && user.workspace ? user.workspace : DEFAULT_WORKSPACE,
     username: typeof user?.username === 'string' ? user.username : undefined,
+    email: typeof user?.email === 'string' ? user.email : undefined,
     roles,
     rawRoles: readStringArray(userRecord?.rawRoles),
     userId: readNumber(userRecord?.userId),
@@ -218,6 +223,12 @@ export const authApi = {
       }
       throw error
     }
+  },
+  async profile() {
+    return toAuthUser(await authProfile())
+  },
+  async updateProfile(payload: UserProfileUpdateRequest) {
+    return toAuthUser(await authUpdateProfile(payload))
   },
   async logout(session = tokenManager.readSession()) {
     if (!session?.accessToken) {

@@ -7,6 +7,7 @@ export type WorkflowNodeKind =
   | 'save-image'
   | 'url-fetch'
   | 'whisper'
+  | 'upload'
   | 'llm'
   | 'ffmpeg'
   | 'translate'

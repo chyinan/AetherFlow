@@ -1,6 +1,7 @@
 package com.aetherflow.ai.outbox;
 
 import com.aetherflow.ai.callback.AiTaskCallbackService;
+import com.aetherflow.ai.file.AiArtifactBatchCoordinator;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.inOrder;
 
 // pattern: Imperative Shell
 class AiTaskEventOutboxPublisherTest {
@@ -71,6 +73,30 @@ class AiTaskEventOutboxPublisherTest {
         assertThat(event.getLastError()).isEqualTo(
                 "AI task outbox publish failed: IllegalStateException");
         verify(mapper).updateById(event);
+    }
+
+    @Test
+    void commitsArtifactBatchBeforePublishingSuccessCallback() throws Exception {
+        AiTaskEventOutboxMapper mapper = mock(AiTaskEventOutboxMapper.class);
+        AiTaskCallbackService callbackService = mock(AiTaskCallbackService.class);
+        AiArtifactBatchCoordinator coordinator = mock(AiArtifactBatchCoordinator.class);
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        AiTaskEventOutboxPublisher publisher = new AiTaskEventOutboxPublisher(
+                mapper, callbackService, objectMapper, coordinator);
+        TaskMessageDTO message = taskMessage();
+        message.setUserId(1001L);
+        AiNodeResult result = new AiNodeResult("ASR", "SUCCEEDED", Map.of(), List.of(),
+                "ai-task:59:node-1:artifacts", 1);
+        AiTaskEventOutbox event = event(objectMapper.writeValueAsString(
+                new AiTaskEventPayload(message, result, null)));
+        when(mapper.claimForPublishing(eq(501L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(1);
+
+        publisher.publish(event);
+
+        var ordered = inOrder(coordinator, callbackService);
+        ordered.verify(coordinator).commit(event, new AiTaskEventPayload(message, result, null));
+        ordered.verify(callbackService).notifySuccess(eq(message), eq(result));
     }
 
     private AiTaskEventOutbox event(String payloadJson) {

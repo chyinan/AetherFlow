@@ -19,7 +19,15 @@ export interface AuthTokenResponse {
 export interface AuthUserResponse {
   userId: number
   username: string
+  email?: string | null
   roles: string[]
+}
+
+export interface UserProfileUpdateRequest {
+  username?: string
+  email?: string
+  currentPassword?: string
+  newPassword?: string
 }
 
 export interface AuthStatusResponse {
@@ -167,6 +175,7 @@ export function mapAuthUser(response: AuthUserResponse): AuthSessionUser {
     role: toPrimaryRole(roles),
     roles,
     rawRoles,
+    email: typeof response.email === 'string' ? response.email : undefined,
     workspace: DEFAULT_WORKSPACE,
   }
 }
@@ -216,6 +225,16 @@ export function logout(payload: AuthLogoutRequest): Promise<void> {
 
 export async function me(): Promise<AuthSessionUser> {
   const response = await apiClient.get<AuthUserResponse>('/auth/me', { source: 'auth' })
+  return mapAuthUser(response)
+}
+
+export async function profile(): Promise<AuthSessionUser> {
+  const response = await apiClient.get<AuthUserResponse>('/auth/profile', { source: 'auth' })
+  return mapAuthUser(response)
+}
+
+export async function updateProfile(payload: UserProfileUpdateRequest): Promise<AuthSessionUser> {
+  const response = await apiClient.patch<AuthUserResponse>('/auth/profile', payload, { source: 'auth' })
   return mapAuthUser(response)
 }
 

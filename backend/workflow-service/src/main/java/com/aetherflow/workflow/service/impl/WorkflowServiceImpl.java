@@ -5,10 +5,13 @@ import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
+import com.aetherflow.workflow.controller.WorkflowCopyRequest;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.mapper.WorkflowStartOutboxMapper;
+import com.aetherflow.workflow.entity.WorkflowStartOutbox;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
@@ -22,10 +25,12 @@ import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
+import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.aetherflow.workflow.service.WorkflowService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
@@ -64,6 +69,11 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final WorkflowAiCapabilityPreflightService aiCapabilityPreflightService;
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
+    @Autowired(required = false)
+    private WorkflowStartOutboxMapper workflowStartOutboxMapper;
+
+    @Autowired(required = false)
+    private RuntimeSnapshotRepository runtimeSnapshotRepository;
 
     @Autowired(required = false)
     private WorkflowNodeProperties workflowNodeProperties;
@@ -148,6 +158,8 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setUpdatedAt(LocalDateTime.now());
         instanceMapper.insert(instance);
 
+        createStartOutbox(instance);
+
         WorkflowRuntimeRequest runtimeRequest = new WorkflowRuntimeRequest(
                 String.valueOf(instance.getId()),
                 newTraceId(),
@@ -174,6 +186,9 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private void executeRuntime(Long instanceId, WorkflowRuntimeRequest runtimeRequest) {
         try {
+            if (workflowStartOutboxMapper != null) {
+                workflowStartOutboxMapper.markDispatched(instanceId, LocalDateTime.now());
+            }
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
             persistRuntimeProjection(instanceId, snapshot);
         } catch (RuntimeException exception) {
@@ -187,6 +202,134 @@ public class WorkflowServiceImpl implements WorkflowService {
             log.warn("workflow runtime execution failed, workflowId={}, reason={}",
                     runtimeRequest.workflowId(), exception.getMessage(), exception);
         }
+    }
+
+    public int dispatchPendingStarts() {
+        if (workflowStartOutboxMapper == null) {
+            return 0;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        int dispatched = 0;
+        for (WorkflowStartOutbox outbox : workflowStartOutboxMapper.selectDue(now, now.minusMinutes(30), 50)) {
+            if (workflowStartOutboxMapper.claim(outbox.getId(), now, now.minusMinutes(30)) != 1) {
+                continue;
+            }
+            try {
+                WorkflowInstance instance = instanceMapper.selectById(outbox.getWorkflowInstanceId());
+                if (instance == null || "CANCELLED".equals(instance.getStatus())) {
+                    workflowStartOutboxMapper.markDispatched(outbox.getWorkflowInstanceId(), LocalDateTime.now());
+                    continue;
+                }
+                if ("DISPATCHED".equals(outbox.getStatus()) && runtimeSnapshotRepository != null
+                        && runtimeSnapshotRepository.findByWorkflowId(String.valueOf(instance.getId())).isPresent()) {
+                    workflowStartOutboxMapper.markDispatched(instance.getId(), LocalDateTime.now());
+                    continue;
+                }
+                WorkflowDefinition definition = getExistingDefinitionForRecovery(instance.getDefinitionId());
+                WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
+                Map<String, Object> input = readInput(instance.getInputJson());
+                WorkflowRuntimeRequest runtimeRequest = new WorkflowRuntimeRequest(
+                        String.valueOf(instance.getId()), newTraceId(), String.valueOf(instance.getId()),
+                        definition.getId(), definitionDTO,
+                        runtimeVariables(definitionDTO, input, instance.getUserId()),
+                        runtimeProperties.getRetry().toRetryPolicy());
+                workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(
+                        instance.getUserId(), definition.getOwnerName(), () -> {
+                            executeRuntime(instance.getId(), runtimeRequest);
+                            return null;
+                        }));
+                dispatched++;
+            } catch (RuntimeException exception) {
+                workflowStartOutboxMapper.markRetry(outbox.getId(), now.plusSeconds(5),
+                        exception.getMessage(), LocalDateTime.now());
+            }
+        }
+        return dispatched;
+    }
+
+    private void createStartOutbox(WorkflowInstance instance) {
+        if (workflowStartOutboxMapper == null) {
+            return;
+        }
+        WorkflowStartOutbox outbox = new WorkflowStartOutbox();
+        outbox.setWorkflowInstanceId(instance.getId());
+        outbox.setStatus(WorkflowStartOutbox.PENDING);
+        outbox.setAttemptCount(0);
+        outbox.setNextAttemptAt(LocalDateTime.now());
+        outbox.setCreatedAt(LocalDateTime.now());
+        outbox.setUpdatedAt(LocalDateTime.now());
+        workflowStartOutboxMapper.insert(outbox);
+    }
+
+    private WorkflowDefinition getExistingDefinitionForRecovery(Long definitionId) {
+        WorkflowDefinition definition = definitionMapper.selectById(definitionId);
+        if (definition == null || STATUS_DELETED.equals(definition.getStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "workflow definition not found");
+        }
+        return definition;
+    }
+
+    private Map<String, Object> readInput(String inputJson) {
+        if (inputJson == null || inputJson.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(inputJson, new TypeReference<Map<String, Object>>() { });
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow input json invalid");
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public WorkflowDefinition copyDefinition(Long definitionId, WorkflowCopyRequest request) {
+        WorkflowDefinition source = getExistingDefinition(definitionId);
+        WorkflowDefinitionDTO copy = readDefinition(source.getDefinitionJson());
+        String requestedName = request == null ? null : request.getName();
+        copy.setName(requestedName == null || requestedName.isBlank()
+                ? source.getName() + " Copy" : requestedName.trim());
+        copy.setProjectId(source.getProjectId());
+        return createDefinition(copy);
+    }
+
+    @Override
+    public List<WorkflowDefinitionDTO> listTemplates() {
+        return List.of(mediaDigestTemplate(), textSummaryTemplate());
+    }
+
+    private WorkflowDefinitionDTO mediaDigestTemplate() {
+        return template("Media digest", "Upload media, transcribe and summarize the content.", List.of(
+                templateNode("start", "START", "Start", Map.of("nextNodes", List.of("upload"))),
+                templateNode("upload", "UPLOAD", "Input media", Map.of("nextNodes", List.of("whisper"), "fileIdVariable", "fileId")),
+                templateNode("whisper", "WHISPER", "Transcribe media", Map.of("nextNodes", List.of("summary"), "fileUrlVariable", "fileUrl", "language", "auto")),
+                templateNode("summary", "SUMMARY", "Summarize transcript", Map.of("nextNodes", List.of("end"), "textVariable", "text")),
+                templateNode("end", "END", "Complete", Map.of())
+        ));
+    }
+
+    private WorkflowDefinitionDTO textSummaryTemplate() {
+        return template("Text summary", "Generate a concise summary from a prompt.", List.of(
+                templateNode("start", "START", "Start", Map.of("nextNodes", List.of("llm"))),
+                templateNode("llm", "LLM", "Generate summary", Map.of("nextNodes", List.of("end"), "prompt", "{{ prompt }}")),
+                templateNode("end", "END", "Complete", Map.of())
+        ));
+    }
+
+    private WorkflowDefinitionDTO template(String name, String description, List<WorkflowNodeDTO> nodes) {
+        WorkflowDefinitionDTO template = new WorkflowDefinitionDTO();
+        template.setName(name);
+        template.setDescription(description);
+        template.setNodes(nodes);
+        return template;
+    }
+
+    private WorkflowNodeDTO templateNode(String id, String type, String label, Map<String, Object> config) {
+        WorkflowNodeDTO node = new WorkflowNodeDTO();
+        node.setNodeId(id);
+        node.setNodeType(type);
+        node.setDisplayName(label);
+        node.setConfig(config);
+        return node;
     }
 
     private void persistRuntimeProjection(Long instanceId, WorkflowExecutionSnapshot snapshot) {

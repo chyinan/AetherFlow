@@ -11,6 +11,7 @@ import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.config.WorkflowNodeConfig;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -52,7 +53,12 @@ public class ImageArtifactStorage {
         String contentType = contentType(image);
         String objectKey = objectKey(workflowId, nodeId, fileName);
         upload(objectKey, contentType, bytes);
-        return createMetadata(userId, objectKey, fileName, contentType, bytes.length);
+        try {
+            return createMetadata(userId, objectKey, fileName, contentType, bytes.length);
+        } catch (RuntimeException exception) {
+            removeUploadedObject(objectKey);
+            throw exception;
+        }
     }
 
     private byte[] decode(String base64) {
@@ -91,6 +97,17 @@ public class ImageArtifactStorage {
                     .build());
         } catch (Exception exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow image upload failed");
+        }
+    }
+
+    private void removeUploadedObject(String objectKey) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            // Preserve the metadata failure while recording that reconciliation must clean the object later.
         }
     }
 

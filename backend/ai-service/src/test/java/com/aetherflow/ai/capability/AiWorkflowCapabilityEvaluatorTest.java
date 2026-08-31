@@ -54,4 +54,15 @@ class AiWorkflowCapabilityEvaluatorTest {
         assertThat(capabilities.unavailableReasons())
                 .containsKeys("WHISPER", "LLM", "IMAGE_GENERATION");
     }
+
+    @Test
+    void exposesFfmpegWhenRuntimeHasFfmpegEvenIfWhisperIsDisabled() {
+        AiWorkflowCapabilitiesDTO capabilities = AiWorkflowCapabilityEvaluator.evaluate(
+                ProviderRuntimeCatalog.status(List.of(), List.of(), true, false, false, false, true),
+                List.of("FFMPEG", "WHISPER"), List.of());
+
+        assertThat(capabilities.executableNodeTypes()).containsExactly("FFMPEG");
+        assertThat(capabilities.unavailableReasons()).containsKey("WHISPER");
+        assertThat(capabilities.unavailableReasons()).doesNotContainKey("FFMPEG");
+    }
 }

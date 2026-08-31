@@ -110,7 +110,13 @@ describe('workflowMapper', () => {
       edges: [],
     })
 
-    expect(result.nodes[0]?.config).toEqual({ fileIdVariable: 'fileId', nextNodes: [] })
+    expect(result.nodes[0]?.config).toEqual({
+      fileUrlVariable: 'fileUrl',
+      operation: 'extract-audio',
+      outputFormat: 'wav',
+      timeoutSeconds: 120,
+      nextNodes: [],
+    })
   })
 
   it('persists the Whisper file id fallback binding', () => {

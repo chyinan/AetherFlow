@@ -16,6 +16,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
@@ -60,7 +61,13 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         String fileName = fileName(config, format);
         String objectKey = objectKey(context, config, fileName);
         upload(objectKey, format, bytes);
-        FileMetadataDTO metadata = createMetadata(context, objectKey, fileName, format, bytes.length);
+        FileMetadataDTO metadata;
+        try {
+            metadata = createMetadata(context, objectKey, fileName, format, bytes.length);
+        } catch (RuntimeException exception) {
+            removeUploadedObject(objectKey);
+            throw exception;
+        }
         Map<String, Object> output = output(format, metadata, bytes.length);
         Map<String, Object> variables = variables(format, metadata);
         return buildResult(output, variables);
@@ -105,6 +112,17 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
                     .build());
         } catch (Exception exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow export upload failed");
+        }
+    }
+
+    private void removeUploadedObject(String objectKey) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(minioProperties.getBucket())
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            // Preserve the registration failure; the file-service reconciler owns final orphan cleanup.
         }
     }
 

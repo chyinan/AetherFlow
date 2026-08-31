@@ -20,6 +20,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.dto.UserProfileUpdateRequest;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.common.security.JwtUserClaims;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -181,7 +182,65 @@ public class UserServiceImpl implements UserService {
                 .map(String::trim)
                 .filter(role -> !role.isBlank())
                 .toList();
-        return new UserPrincipalDTO(userId, username, roleList);
+        User user = userId == null ? null : userMapper.selectById(userId);
+        return new UserPrincipalDTO(userId, username, user == null ? null : user.getEmail(), roleList);
+    }
+
+    @Override
+    public UserPrincipalDTO profile(Long userId) {
+        User user = requireUser(userId);
+        return new UserPrincipalDTO(user.getId(), user.getUsername(), user.getEmail(), rolesFor(user));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserPrincipalDTO updateProfile(Long userId, UserProfileUpdateRequest request, String currentAccessToken) {
+        User user = requireUser(userId);
+        if (request == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "profile update payload is required");
+        }
+        String username = StringUtils.hasText(request.getUsername())
+                ? normalizeUsername(request.getUsername()) : (user.getUsername() == null ? "" : user.getUsername());
+        String email = StringUtils.hasText(request.getEmail())
+                ? normalizeEmail(request.getEmail()) : (user.getEmail() == null ? "" : user.getEmail());
+        if (!username.equals(user.getUsername()) && userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, username).ne(User::getId, userId).last("limit 1")) != null) {
+            throw new BusinessException(ResultCode.CONFLICT, "username already exists");
+        }
+        if (!email.equals(user.getEmail()) && userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getEmail, email).ne(User::getId, userId).last("limit 1")) != null) {
+            throw new BusinessException(ResultCode.CONFLICT, "email already exists");
+        }
+        boolean passwordChanged = StringUtils.hasText(request.getNewPassword());
+        if (passwordChanged) {
+            if (!StringUtils.hasText(request.getCurrentPassword())
+                    || !passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+                throw new BusinessException(ResultCode.UNAUTHORIZED, "current password is invalid");
+            }
+            user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        }
+        user.setUsername(username);
+        user.setEmail(email);
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+        if (passwordChanged) {
+            authSessionService.deleteSession(userId);
+            if (StringUtils.hasText(currentAccessToken)) {
+                blacklistAccessToken(currentAccessToken);
+            }
+        }
+        return new UserPrincipalDTO(user.getId(), user.getUsername(), user.getEmail(), rolesFor(user));
+    }
+
+    private User requireUser(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
+        }
+        User user = userMapper.selectById(userId);
+        if (user == null || !ENABLED.equals(user.getStatus())) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "user account not found");
+        }
+        return user;
     }
 
     private AuthTokenResponse issueAndStoreTokenPair(User user, boolean invalidatePreviousAccessToken) {

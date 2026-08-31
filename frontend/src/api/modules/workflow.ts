@@ -16,6 +16,10 @@ export interface WorkflowDefinitionDTO {
   nodes: WorkflowDefinitionNodeDTO[]
 }
 
+export interface WorkflowCopyRequest {
+  name?: string
+}
+
 export interface ComfyUiWorkflowImportRequest {
   name?: string
   description?: string
@@ -141,12 +145,26 @@ export function getDefinition(definitionId: number | string) {
   )
 }
 
+export function copyDefinition(definitionId: number | string, payload: WorkflowCopyRequest = {}) {
+  return apiClient.post<WorkflowDefinitionEntity>(
+    `/workflows/definitions/${encodeURIComponent(String(definitionId))}/copy`, payload, { source: 'workflow' },
+  )
+}
+
+export function listWorkflowTemplates() {
+  return apiClient.get<WorkflowDefinitionDTO[]>('/workflows/templates', { source: 'workflow' })
+}
+
 export function startInstance(definitionId: number, payload: StartWorkflowRequest = {}) {
   return apiClient.post<WorkflowInstanceEntity>(
     `/workflows/definitions/${definitionId}/instances`,
     payload,
     { source: 'workflow' },
   )
+}
+
+export function cancelWorkflowInstance(instanceId: number | string) {
+  return apiClient.post<void>(`/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/cancel`, {}, { source: 'workflow' })
 }
 
 export interface ListWorkflowInstancesParams {

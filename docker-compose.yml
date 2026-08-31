@@ -1,11 +1,43 @@
 name: aetherflow
 
+x-java-service-deploy: &java-service-deploy
+  replicas: 1
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+  resources:
+    limits:
+      cpus: "2.0"
+      memory: 1G
+      pids: 512
+    reservations:
+      cpus: "0.25"
+      memory: 256M
+
+x-python-ai-deploy: &python-ai-deploy
+  replicas: 1
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+  resources:
+    limits:
+      cpus: "4.0"
+      memory: 4G
+      pids: 1024
+    reservations:
+      cpus: "0.5"
+      memory: 512M
+
 services:
   mysql:
     image: mysql:8.0.26
     container_name: aetherflow-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      MYSQL_USER: ${MYSQL_USERNAME:-aetherflow_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
       TZ: Asia/Shanghai
     command:
@@ -77,7 +109,7 @@ services:
       - aetherflow
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
     container_name: aetherflow-minio
     command: server /data --console-address ":9001"
     environment:
@@ -208,10 +240,14 @@ services:
       context: .
       dockerfile: python-ai-service/Dockerfile
     container_name: aetherflow-python-ai-service
+    deploy: *python-ai-deploy
     environment:
       ENABLE_WHISPER: ${ENABLE_WHISPER:-false}
       ENABLE_LLM: ${ENABLE_LLM:-false}
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_MAX_CONCURRENCY: ${WHISPER_MAX_CONCURRENCY:-2}
+      FFMPEG_MAX_CONCURRENCY: ${FFMPEG_MAX_CONCURRENCY:-2}
+      LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-8}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
@@ -379,6 +415,7 @@ services:
         VITE_RUNTIME_WS_FALLBACK: ${VITE_RUNTIME_WS_FALLBACK:-true}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
     container_name: aetherflow-nginx
+    deploy: *java-service-deploy
     ports:
       - "${NGINX_HTTP_PORT:-80}:8080"
     depends_on:
@@ -401,7 +438,7 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: gateway-service
-    container_name: aetherflow-gateway-service
+    deploy: *java-service-deploy
     environment:
       NACOS_ADDR: nacos:8848
       REDIS_HOST: redis
@@ -446,7 +483,7 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: auth-service
-    container_name: aetherflow-auth-service
+    deploy: *java-service-deploy
     environment: &java-service-env
       SPRING_PROFILES_ACTIVE: prod
       NACOS_ADDR: nacos:8848
@@ -455,7 +492,7 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
-      MYSQL_USERNAME: ${MYSQL_USERNAME:-root}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-aetherflow_app}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       REDIS_HOST: redis
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
@@ -517,7 +554,7 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: workflow-service
-    container_name: aetherflow-workflow-service
+    deploy: *java-service-deploy
     environment:
       <<: *java-service-env
       WORKFLOW_AI_ASYNC_ENABLED: ${WORKFLOW_AI_ASYNC_ENABLED:-true}
@@ -557,7 +594,7 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: task-service
-    container_name: aetherflow-task-service
+    deploy: *java-service-deploy
     environment:
       <<: *java-service-env
       XXL_JOB_ENABLED: "false"
@@ -588,12 +625,14 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: ai-service
-    container_name: aetherflow-ai-service
+    deploy: *java-service-deploy
     environment:
       <<: *java-service-env
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       PYTHON_AI_STATUS_TIMEOUT_MILLIS: ${PYTHON_AI_STATUS_TIMEOUT_MILLIS:-3000}
+      AI_JOB_LEASE_DURATION: ${AI_JOB_LEASE_DURATION:-2m}
+      AI_JOB_LEASE_HEARTBEAT_INTERVAL: ${AI_JOB_LEASE_HEARTBEAT_INTERVAL:-30s}
       AI_IMAGE_DEFAULT_TIMEOUT: ${AI_IMAGE_DEFAULT_TIMEOUT:-5m}
       AI_IMAGE_HEALTH_TIMEOUT: ${AI_IMAGE_HEALTH_TIMEOUT:-2s}
       AI_IMAGE_HEALTH_CACHE_TTL: ${AI_IMAGE_HEALTH_CACHE_TTL:-10s}
@@ -608,6 +647,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      mysql-migrate:
+        condition: service_completed_successfully
       rabbitmq:
         condition: service_healthy
       nacos:
@@ -628,14 +669,17 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: file-service
-    container_name: aetherflow-file-service
+    deploy: *java-service-deploy
     environment:
       <<: *java-service-env
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
       - "8105"
     depends_on:
       mysql:
         condition: service_healthy
+      mysql-migrate:
+        condition: service_completed_successfully
       minio:
         condition: service_healthy
       nacos:
@@ -654,9 +698,11 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: notify-service
-    container_name: aetherflow-notify-service
+    deploy: *java-service-deploy
     environment:
       <<: *java-service-env
+      NOTIFY_REDIS_FANOUT_ENABLED: ${NOTIFY_REDIS_FANOUT_ENABLED:-true}
+      NOTIFY_MAX_SSE_CONNECTIONS: ${NOTIFY_MAX_SSE_CONNECTIONS:-10000}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
       - "8106"

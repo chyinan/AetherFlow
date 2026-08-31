@@ -138,7 +138,9 @@ aetherflow:
     security:
       auth-enabled: true
       permit-all:
-        - /auth/**
+        - /auth/login
+        - /auth/register
+        - /auth/refresh
         - /oauth2/**
         - /login/oauth2/**
         - /actuator/**

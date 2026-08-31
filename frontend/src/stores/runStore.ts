@@ -7,7 +7,7 @@ import { mapRuntimeStateToRunStatus } from '@/api/mappers/runtimeMapper'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import { i18n } from '@/i18n'
 import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun } from '@/services/api/runApi'
-import { getStartedRunLink } from '@/services/api/workflowApi'
+import { cancelWorkflowInstance, getStartedRunLink } from '@/services/api/workflowApi'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 import type { WorkflowGraphNode } from '@/types/workflow'
@@ -417,6 +417,18 @@ export const useRunStore = defineStore('run', {
       }
       this.subscribeCurrentRun()
       return run
+    },
+    async cancelCurrentRun() {
+      const run = this.currentRun
+      const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
+      if (!run || !instanceId || !Number.isInteger(instanceId) || instanceId <= 0) {
+        return false
+      }
+      await cancelWorkflowInstance(instanceId)
+      this.patchCurrentRun({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
+      stopRealtime?.()
+      stopRealtime = null
+      return true
     },
     async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {
       const targetRun = this.currentRun

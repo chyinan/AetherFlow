@@ -27,4 +27,18 @@ class ProviderRoutingPolicyTest {
 
         assertThat(copy.getRequestTimeout()).isEqualTo(Duration.ofSeconds(15));
     }
+
+    @Test
+    void normalizesUnsafeRequestTimeoutBounds() {
+        ProviderRoutingPolicy zero = new ProviderRoutingPolicy();
+        zero.setRequestTimeout(Duration.ZERO);
+        ProviderRoutingPolicy tooShort = new ProviderRoutingPolicy();
+        tooShort.setRequestTimeout(Duration.ofMillis(1));
+        ProviderRoutingPolicy tooLong = new ProviderRoutingPolicy();
+        tooLong.setRequestTimeout(Duration.ofHours(2));
+
+        assertThat(zero.normalized().getRequestTimeout()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(tooShort.normalized().getRequestTimeout()).isEqualTo(Duration.ofMillis(100));
+        assertThat(tooLong.normalized().getRequestTimeout()).isEqualTo(Duration.ofMinutes(30));
+    }
 }

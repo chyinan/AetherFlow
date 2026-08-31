@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, AlertTriangle, ArrowRight, Boxes, Clock3, ListChecks, RadioTower, RefreshCw } from 'lucide-vue-next'
+import { Activity, AlertTriangle, ArrowRight, Boxes, CircleStop, Clock3, ListChecks, RadioTower, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -16,10 +16,25 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const dismissedApprovalKey = ref<string | null>(null)
+const cancelling = ref(false)
 
 type HumanApprovalCompletion = {
   approved: boolean
   snapshot: RuntimeExecutionSnapshot
+}
+
+const canCancelCurrentRun = computed(() => ['queued', 'running', 'waiting'].includes(runStore.currentRun?.status ?? ''))
+
+async function cancelCurrentRun() {
+  if (cancelling.value || !canCancelCurrentRun.value) {
+    return
+  }
+  cancelling.value = true
+  try {
+    await runStore.cancelCurrentRun()
+  } finally {
+    cancelling.value = false
+  }
 }
 
 const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
@@ -217,10 +232,16 @@ watch(
                   </div>
                   <p class="mt-1 text-xs text-text-muted">{{ runStore.currentRun.id }} · {{ runStore.currentRun.durationMs }}ms · {{ runStore.currentRun.owner }}</p>
                 </div>
-                <button class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="openRunWorkflow">
-                  {{ t('runs.openWorkflow') }}
-                  <ArrowRight class="h-4 w-4" />
-                </button>
+                <div class="flex flex-wrap gap-2">
+                  <button class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="openRunWorkflow">
+                    {{ t('runs.openWorkflow') }}
+                    <ArrowRight class="h-4 w-4" />
+                  </button>
+                  <button v-if="canCancelCurrentRun" type="button" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-status-error/30 px-3 py-2 text-sm text-status-error disabled:opacity-60" :disabled="cancelling" @click="cancelCurrentRun">
+                    <CircleStop class="h-4 w-4" />
+                    {{ cancelling ? t('runs.cancelling') : t('runs.cancel') }}
+                  </button>
+                </div>
               </div>
 
               <div class="mt-4 grid gap-3 md:grid-cols-4">

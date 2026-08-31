@@ -44,6 +44,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -55,6 +56,17 @@ public class WorkflowRuntimeEngine {
 
     private static final int MAX_NESTED_ITERATIONS = 1_000;
     private static final int MAX_NESTED_BODY_NODES = 100;
+    private static final ExecutorService SHARED_NODE_EXECUTOR = Executors.newFixedThreadPool(
+            Math.max(8, Runtime.getRuntime().availableProcessors() * 4), runnable -> {
+                Thread thread = new Thread(runnable, "workflow-node-worker");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final ScheduledExecutorService SHARED_RENEWAL_EXECUTOR = Executors.newScheduledThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "workflow-runtime-lock-renewal");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final NodeRegistry nodeRegistry;
     private final RuntimeStateMachine stateMachine;
@@ -62,6 +74,7 @@ public class WorkflowRuntimeEngine {
     private final RuntimeSleeper runtimeSleeper;
     private final RuntimeSnapshotRepository snapshotRepository;
     private final WorkflowRuntimeLock workflowRuntimeLock;
+    private final WorkflowCancellationProbe cancellationProbe;
     private final InheritableThreadLocal<AtomicBoolean> activeLockLost = new InheritableThreadLocal<>();
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
@@ -95,12 +108,24 @@ public class WorkflowRuntimeEngine {
                                  RuntimeSleeper runtimeSleeper,
                                  RuntimeSnapshotRepository snapshotRepository,
                                  WorkflowRuntimeLock workflowRuntimeLock) {
+        this(nodeRegistry, stateMachine, eventPublisher, runtimeSleeper, snapshotRepository,
+                workflowRuntimeLock, WorkflowCancellationProbe.noop());
+    }
+
+    public WorkflowRuntimeEngine(NodeRegistry nodeRegistry,
+                                 RuntimeStateMachine stateMachine,
+                                 RuntimeEventPublisher eventPublisher,
+                                 RuntimeSleeper runtimeSleeper,
+                                 RuntimeSnapshotRepository snapshotRepository,
+                                 WorkflowRuntimeLock workflowRuntimeLock,
+                                 WorkflowCancellationProbe cancellationProbe) {
         this.nodeRegistry = Objects.requireNonNull(nodeRegistry, "nodeRegistry must not be null");
         this.stateMachine = Objects.requireNonNull(stateMachine, "stateMachine must not be null");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
         this.runtimeSleeper = Objects.requireNonNull(runtimeSleeper, "runtimeSleeper must not be null");
         this.snapshotRepository = Objects.requireNonNull(snapshotRepository, "snapshotRepository must not be null");
         this.workflowRuntimeLock = Objects.requireNonNull(workflowRuntimeLock, "workflowRuntimeLock must not be null");
+        this.cancellationProbe = Objects.requireNonNull(cancellationProbe, "cancellationProbe must not be null");
     }
 
     public WorkflowExecutionSnapshot execute(WorkflowRuntimeRequest request) {
@@ -124,6 +149,7 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
 
         try {
+            ensureNotCancelled(request);
             if (executeDag(request, dag, context, tracker)) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
                 publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
@@ -134,6 +160,13 @@ public class WorkflowRuntimeEngine {
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime completed, completedNodes={}", tracker.completedNodeIds().size()));
             publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of());
+            saveSnapshot(request, context, tracker);
+            return snapshot(context, tracker);
+        } catch (WorkflowCancellationException exception) {
+            if (!stateMachine.isTerminal(context.runtimeState())) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.CANCELLED));
+            }
+            publish(context, RuntimeEventType.WORKFLOW_CANCELLED, context.currentNodeId(), Map.of("reason", "user_cancelled"));
             saveSnapshot(request, context, tracker);
             return snapshot(context, tracker);
         } catch (RuntimeException exception) {
@@ -172,6 +205,7 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
 
         try {
+            ensureNotCancelled(request);
             if (executeDag(request, dag, context, tracker)) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
                 publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of("recovered", true));
@@ -182,6 +216,13 @@ public class WorkflowRuntimeEngine {
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime recovered, completedNodes={}", tracker.completedNodeIds().size()));
             publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("recovered", true));
+            saveSnapshot(request, context, tracker);
+            return snapshot(context, tracker);
+        } catch (WorkflowCancellationException exception) {
+            if (!stateMachine.isTerminal(context.runtimeState())) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.CANCELLED));
+            }
+            publish(context, RuntimeEventType.WORKFLOW_CANCELLED, context.currentNodeId(), Map.of("reason", "user_cancelled", "recovered", true));
             saveSnapshot(request, context, tracker);
             return snapshot(context, tracker);
         } catch (RuntimeException exception) {
@@ -205,7 +246,7 @@ public class WorkflowRuntimeEngine {
                         "workflow runtime lock already held for workflowId " + workflowId));
         AtomicBoolean lockLost = new AtomicBoolean(false);
         activeLockLost.set(lockLost);
-        ScheduledExecutorService renewalExecutor = startLockRenewal(lease, lockLost);
+        ScheduledFuture<?> renewalFuture = startLockRenewal(lease, lockLost);
         try {
             ensureLockHealthy();
             WorkflowExecutionSnapshot result = execution.get();
@@ -213,8 +254,8 @@ public class WorkflowRuntimeEngine {
             return result;
         } finally {
             lockLost.set(true);
-            if (renewalExecutor != null) {
-                renewalExecutor.shutdownNow();
+            if (renewalFuture != null) {
+                renewalFuture.cancel(false);
             }
             releaseLock(lease);
             activeLockLost.remove();
@@ -231,8 +272,16 @@ public class WorkflowRuntimeEngine {
         if (result.waiting()) {
             throw new IllegalArgumentException("external completion result must not remain waiting");
         }
-        return withWorkflowLock(request.workflowId(), () -> completeWaitingNodeLocked(
-                request, waitingSnapshot, nodeId, result));
+        return withWorkflowLock(request.workflowId(), () -> {
+            if (cancellationProbe.isCancelled(request.workflowId())) {
+                return cancelledSnapshot(request, latestSnapshot(request, waitingSnapshot));
+            }
+            try {
+                return completeWaitingNodeLocked(request, waitingSnapshot, nodeId, result);
+            } catch (WorkflowCancellationException cancelled) {
+                return cancelledSnapshot(request, latestSnapshot(request, waitingSnapshot));
+            }
+        });
     }
 
     public WorkflowExecutionSnapshot completeWaitingNode(String workflowId,
@@ -258,14 +307,21 @@ public class WorkflowRuntimeEngine {
                         + workflowId + " state=" + stored.runtimeState());
             }
             validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
+            WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
+            if (cancellationProbe.isCancelled(workflowId)) {
+                return cancelledSnapshot(request, stored.toExecutionSnapshot());
+            }
             NodeResult result = Objects.requireNonNull(
                     resultFactory.apply(stored), "external completion result must not be null");
             if (result.waiting()) {
                 throw new IllegalArgumentException("external completion result must not remain waiting");
             }
-            WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
-            return runAsSnapshotOwner(stored, () -> completeWaitingNodeLocked(
-                    request, stored.toExecutionSnapshot(), nodeId, result));
+            try {
+                return runAsSnapshotOwner(stored, () -> completeWaitingNodeLocked(
+                        request, stored.toExecutionSnapshot(), nodeId, result));
+            } catch (WorkflowCancellationException cancelled) {
+                return cancelledSnapshot(request, latestSnapshot(request, stored.toExecutionSnapshot()));
+            }
         });
     }
 
@@ -292,8 +348,16 @@ public class WorkflowRuntimeEngine {
                                                        String error) {
         Objects.requireNonNull(request, "request must not be null");
         Objects.requireNonNull(waitingSnapshot, "waitingSnapshot must not be null");
-        return withWorkflowLock(request.workflowId(), () -> failWaitingNodeLocked(
-                request, waitingSnapshot, nodeId, error));
+        return withWorkflowLock(request.workflowId(), () -> {
+            if (cancellationProbe.isCancelled(request.workflowId())) {
+                return cancelledSnapshot(request, latestSnapshot(request, waitingSnapshot));
+            }
+            try {
+                return failWaitingNodeLocked(request, waitingSnapshot, nodeId, error);
+            } catch (WorkflowCancellationException cancelled) {
+                return cancelledSnapshot(request, latestSnapshot(request, waitingSnapshot));
+            }
+        });
     }
 
     public WorkflowExecutionSnapshot failWaitingNode(String workflowId,
@@ -312,8 +376,15 @@ public class WorkflowRuntimeEngine {
             WorkflowRuntimeSnapshot stored = requiredSnapshot(workflowId);
             validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
             WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
-            return runAsSnapshotOwner(stored, () -> failWaitingNodeLocked(
-                    request, stored.toExecutionSnapshot(), nodeId, error));
+            if (cancellationProbe.isCancelled(workflowId)) {
+                return cancelledSnapshot(request, stored.toExecutionSnapshot());
+            }
+            try {
+                return runAsSnapshotOwner(stored, () -> failWaitingNodeLocked(
+                        request, stored.toExecutionSnapshot(), nodeId, error));
+            } catch (WorkflowCancellationException cancelled) {
+                return cancelledSnapshot(request, latestSnapshot(request, stored.toExecutionSnapshot()));
+            }
         });
     }
 
@@ -373,6 +444,7 @@ public class WorkflowRuntimeEngine {
                                                                  WorkflowExecutionSnapshot waitingSnapshot,
                                                                  String nodeId,
                                                                  NodeResult result) {
+        ensureNotCancelled(request);
         WorkflowExecutionSnapshot currentSnapshot = latestSnapshot(request, waitingSnapshot);
         if (stateMachine.isTerminal(currentSnapshot.runtimeState())) {
             return currentSnapshot;
@@ -394,8 +466,10 @@ public class WorkflowRuntimeEngine {
         context.recordNodeOutput(nodeId, result);
         context.variables().putAll(result.variables());
         tracker.markCompleted(nodeId);
+        ensureNotCancelled(request);
         publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("external", true));
         saveSnapshot(request, context, tracker);
+        ensureNotCancelled(request);
         if (executeDag(request, dag, context, tracker)) {
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
             publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
@@ -403,6 +477,7 @@ public class WorkflowRuntimeEngine {
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("resumed", true));
         }
+        ensureNotCancelled(request);
         saveSnapshot(request, context, tracker);
         return snapshot(context, tracker);
     }
@@ -411,6 +486,7 @@ public class WorkflowRuntimeEngine {
                                                                WorkflowExecutionSnapshot waitingSnapshot,
                                                                String nodeId,
                                                                String error) {
+        ensureNotCancelled(request);
         WorkflowExecutionSnapshot currentSnapshot = latestSnapshot(request, waitingSnapshot);
         if (stateMachine.isTerminal(currentSnapshot.runtimeState())) {
             return currentSnapshot;
@@ -432,8 +508,22 @@ public class WorkflowRuntimeEngine {
         context.recordNodeOutput(nodeId, new NodeResult(false, Map.of("error", safeError), Map.of(), null, null));
         tracker.markFailed(nodeId);
         context.updateRuntimeState(stateMachine.transition(RuntimeState.WAITING, RuntimeState.FAILED));
+        ensureNotCancelled(request);
         publish(context, RuntimeEventType.WORKFLOW_FAILED, nodeId,
                 Map.of("error", safeError, "external", true));
+        ensureNotCancelled(request);
+        saveSnapshot(request, context, tracker);
+        return snapshot(context, tracker);
+    }
+
+    private WorkflowExecutionSnapshot cancelledSnapshot(WorkflowRuntimeRequest request, WorkflowExecutionSnapshot current) {
+        if (stateMachine.isTerminal(current.runtimeState())) {
+            return current;
+        }
+        DefaultWorkflowContext context = contextFromSnapshot(current);
+        context.updateRuntimeState(stateMachine.transition(current.runtimeState(), RuntimeState.CANCELLED));
+        ExecutionTracker tracker = ExecutionTracker.from(current);
+        publish(context, RuntimeEventType.WORKFLOW_CANCELLED, context.currentNodeId(), Map.of("reason", "user_cancelled"));
         saveSnapshot(request, context, tracker);
         return snapshot(context, tracker);
     }
@@ -450,24 +540,18 @@ public class WorkflowRuntimeEngine {
                 || snapshot.failedNodeIds().contains(nodeId));
     }
 
-    private ScheduledExecutorService startLockRenewal(WorkflowRuntimeLockLease lease,
-                                                       AtomicBoolean lockLost) {
+    private ScheduledFuture<?> startLockRenewal(WorkflowRuntimeLockLease lease,
+                                                AtomicBoolean lockLost) {
         Duration interval = renewalInterval(lease.ttl());
         if (interval.isZero() || interval.isNegative()) {
             return null;
         }
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(task -> {
-            Thread thread = new Thread(task, "workflow-runtime-lock-renewal-" + lease.workflowId());
-            thread.setDaemon(true);
-            return thread;
-        });
-        executor.scheduleAtFixedRate(
+        return SHARED_RENEWAL_EXECUTOR.scheduleAtFixedRate(
                 () -> renewLock(lease, lockLost),
                 interval.toMillis(),
                 interval.toMillis(),
                 TimeUnit.MILLISECONDS
         );
-        return executor;
     }
 
     private Duration renewalInterval(Duration ttl) {
@@ -517,7 +601,7 @@ public class WorkflowRuntimeEngine {
                             WorkflowDag dag,
                             DefaultWorkflowContext context,
                             ExecutionTracker tracker) {
-        ExecutorService executorService = Executors.newFixedThreadPool(workerCount(dag.nodeCount()));
+        ExecutorService executorService = SHARED_NODE_EXECUTOR;
         CompletionService<NodeExecution> completionService = new ExecutorCompletionService<>(executorService);
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Map<String, Integer> nodeDepths = dag.topologicalDepths();
@@ -530,10 +614,10 @@ public class WorkflowRuntimeEngine {
         Long userId = AuthenticatedUserContext.userIdOrNull();
         String username = AuthenticatedUserContext.usernameOrNull();
 
-        try {
-            inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
+        inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
             saveSnapshot(request, context, tracker);
             while (inFlight > 0) {
+                ensureNotCancelled(request);
                 NodeExecution execution = awaitCompletedNode(completionService);
                 inFlight--;
                 recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
@@ -553,9 +637,12 @@ public class WorkflowRuntimeEngine {
                 saveSnapshot(request, context, tracker);
             }
             assertExpectedNodesCompleted(expectedNodeIds, tracker);
-            return tracker.hasWaitingNodes();
-        } finally {
-            executorService.shutdownNow();
+        return tracker.hasWaitingNodes();
+    }
+
+    private void ensureNotCancelled(WorkflowRuntimeRequest request) {
+        if (cancellationProbe.isCancelled(request.workflowId())) {
+            throw new WorkflowCancellationException(request.workflowId());
         }
     }
 
@@ -1158,6 +1245,10 @@ public class WorkflowRuntimeEngine {
     private void saveSnapshot(WorkflowRuntimeRequest request,
                               DefaultWorkflowContext context,
                               ExecutionTracker tracker) {
+        if (cancellationProbe.isCancelled(request.workflowId())
+                && context.runtimeState() != RuntimeState.CANCELLED) {
+            return;
+        }
         ensureLockHealthy();
         snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
                 context.workflowId(),

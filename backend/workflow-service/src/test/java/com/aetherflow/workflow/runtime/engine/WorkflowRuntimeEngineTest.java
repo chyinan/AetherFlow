@@ -14,6 +14,8 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -71,6 +73,27 @@ class WorkflowRuntimeEngineTest {
         assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
         assertThat(completed.completedNodeIds()).containsExactly("node-ai", "node-export");
         assertThat(asyncDispatches).hasValue(1);
+    }
+
+    @Test
+    void durableCancellationProbeStopsExecutionBeforeAnyNodeDispatch() {
+        AtomicInteger executions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(executor("MOCK", context -> {
+            executions.incrementAndGet();
+            return NodeResult.success(Map.of("ok", true));
+        })));
+        List<RuntimeEvent> events = new ArrayList<>();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), events::add, RuntimeSleeper.threadSleep(),
+                RuntimeSnapshotRepository.noop(), WorkflowRuntimeLock.noop(), workflowId -> true);
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "1001", "trace-cancel", "task-cancel",
+                definition(node("node", "MOCK", Map.of())), Map.of(), RetryPolicy.none()));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.CANCELLED);
+        assertThat(executions).hasValue(0);
+        assertThat(events).anyMatch(event -> event.eventType() == RuntimeEventType.WORKFLOW_CANCELLED);
     }
 
     @Test

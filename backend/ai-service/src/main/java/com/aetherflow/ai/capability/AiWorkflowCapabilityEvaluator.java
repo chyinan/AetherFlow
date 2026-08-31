@@ -31,15 +31,17 @@ public final class AiWorkflowCapabilityEvaluator {
                 && safeRuntime.whisperEnabled()
                 && safeRuntime.whisperRuntimeReady()
                 && safeRuntime.ffmpegAvailable();
+        boolean ffmpegExecutable = safeRuntime.runtimeReachable() && safeRuntime.ffmpegAvailable();
 
         List<String> executableNodeTypes = supportedNodeTypes.stream()
-                .filter(type -> executable(type, llmExecutable, whisperExecutable, normalizedImageProviders))
+                .filter(type -> executable(type, llmExecutable, whisperExecutable, ffmpegExecutable, normalizedImageProviders))
                 .toList();
         Map<String, String> unavailableReasons = unavailableReasons(
                 supportedNodeTypes,
                 safeRuntime,
                 llmExecutable,
                 whisperExecutable,
+                ffmpegExecutable,
                 normalizedImageProviders
         );
         return new AiWorkflowCapabilitiesDTO(
@@ -55,14 +57,18 @@ public final class AiWorkflowCapabilityEvaluator {
     }
 
     private static boolean executable(String nodeType,
-                                      boolean llmExecutable,
-                                      boolean whisperExecutable,
-                                      List<String> imageProviders) {
+                                       boolean llmExecutable,
+                                       boolean whisperExecutable,
+                                       boolean ffmpegExecutable,
+                                       List<String> imageProviders) {
         if (LLM_NODE_TYPES.contains(nodeType)) {
             return llmExecutable;
         }
         if ("WHISPER".equals(nodeType)) {
             return whisperExecutable;
+        }
+        if ("FFMPEG".equals(nodeType)) {
+            return ffmpegExecutable;
         }
         if (IMAGE_NODE_TYPES.contains(nodeType)) {
             return !imageProviders.isEmpty();
@@ -74,6 +80,7 @@ public final class AiWorkflowCapabilityEvaluator {
                                                            ProviderRuntimeCatalog runtime,
                                                            boolean llmExecutable,
                                                            boolean whisperExecutable,
+                                                           boolean ffmpegExecutable,
                                                            List<String> imageProviders) {
         Map<String, String> reasons = new LinkedHashMap<>();
         if (!llmExecutable) {
@@ -84,7 +91,7 @@ public final class AiWorkflowCapabilityEvaluator {
                     : "no configured chat model is available";
             LLM_NODE_TYPES.stream().filter(supportedNodeTypes::contains).forEach(type -> reasons.put(type, reason));
         }
-        if (supportedNodeTypes.contains("WHISPER") && !whisperExecutable) {
+        if ((supportedNodeTypes.contains("WHISPER") || supportedNodeTypes.contains("FFMPEG")) && !whisperExecutable) {
             String reason = !runtime.runtimeReachable()
                     ? "python ai runtime is unavailable"
                     : !runtime.whisperEnabled()
@@ -93,6 +100,10 @@ public final class AiWorkflowCapabilityEvaluator {
                     ? "whisper runtime is not ready"
                     : "ffmpeg is unavailable";
             reasons.put("WHISPER", reason);
+        }
+        if (supportedNodeTypes.contains("FFMPEG") && !ffmpegExecutable) {
+            reasons.put("FFMPEG", !runtime.runtimeReachable()
+                    ? "python ai runtime is unavailable" : "ffmpeg is unavailable");
         }
         if (imageProviders.isEmpty()) {
             IMAGE_NODE_TYPES.stream()

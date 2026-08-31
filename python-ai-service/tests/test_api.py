@@ -91,6 +91,7 @@ class PythonAiServiceApiTest(unittest.TestCase):
         with (
             patch.dict("os.environ", {}, clear=False),
             patch("app.main._runtime_config_file", return_value=None),
+            patch("app.main._ollama_model_names", return_value=[]),
         ):
             response = self.client.put(
                 "/ai/provider/config/openrouter",
@@ -158,6 +159,44 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertEqual("srt", body["format"])
         self.assertIn("00:00:00,000 --> 00:00:02,000", body["content"])
         self.assertIn("hello world", body["content"])
+        self.assertNotIn("objectKey", body)
+
+    def test_transcription_returns_subtitle_content_for_durable_storage(self):
+        class FakeWhisperModel:
+            def transcribe(self, *_args, **_kwargs):
+                return (
+                    [SimpleNamespace(start=0.0, end=1.0, text="hello")],
+                    SimpleNamespace(duration=1.0),
+                )
+
+        source = Path("audio.wav")
+        with (
+            patch.dict("os.environ", {"ENABLE_WHISPER": "true"}, clear=False),
+            patch("app.main._whisper_model", FakeWhisperModel()),
+            patch("app.main._materialize_source", return_value=source),
+            patch("app.main._ensure_audio_source", return_value=source),
+            patch("app.main._cleanup_materialized"),
+        ):
+            response = self.client.post(
+                "/v1/transcriptions",
+                json={"fileUrl": "http://minio/aetherflow/audio.wav", "language": "auto"},
+            )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        self.assertEqual("transcription.srt", body["srtFileName"])
+        self.assertIn("00:00:00,000 --> 00:00:01,000", body["srtContent"])
+        self.assertNotIn("srtObjectKey", body)
+
+    def test_ffmpeg_endpoint_rejects_unsupported_operation_before_process_spawn(self):
+        with patch("app.main.subprocess.run") as run:
+            response = self.client.post(
+                "/v1/media/ffmpeg",
+                json={"fileUrl": "http://minio/audio.mp4", "operation": "shell"},
+            )
+
+        self.assertEqual(400, response.status_code)
+        run.assert_not_called()
 
     def test_provider_usage_metadata_preserves_real_token_counts(self):
         from app.main import _ollama_usage_metadata, _openai_usage_metadata
@@ -171,6 +210,40 @@ class PythonAiServiceApiTest(unittest.TestCase):
 
         self.assertEqual({"promptTokens": 12, "completionTokens": 7, "totalTokens": 19}, openai_metadata)
         self.assertEqual({"promptTokens": 9, "completionTokens": 4, "totalTokens": 13}, ollama_metadata)
+
+    def test_provider_deadline_never_exceeds_java_effective_timeout(self):
+        from app.main import _effective_timeout_seconds
+
+        with patch.dict("os.environ", {"AI_PROVIDER_MAX_TIMEOUT_SECONDS": "60"}, clear=False):
+            timeout = _effective_timeout_seconds(SimpleNamespace(timeoutSeconds=3.0))
+
+        self.assertEqual(3.0, timeout)
+
+    def test_openai_sdk_internal_retries_are_disabled(self):
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **_kwargs):
+                return SimpleNamespace(
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")],
+                    usage=None,
+                )
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        with (
+            patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}, clear=False),
+            patch.dict(sys.modules, {"openai": SimpleNamespace(OpenAI=FakeOpenAI)}),
+        ):
+            from app.main import LlmRequest, _call_openai
+
+            response = _call_openai(LlmRequest(provider="openai", model="test", prompt="hello"))
+
+        self.assertEqual("ok", response.text)
+        self.assertEqual(0, captured["max_retries"])
 
     def test_code_execution_runs_main_with_json_input(self):
         response = self.client.post(

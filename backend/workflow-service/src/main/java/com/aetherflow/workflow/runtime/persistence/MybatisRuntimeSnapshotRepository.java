@@ -49,7 +49,10 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
             if (existing == null) {
                 mapper.insert(entity);
             } else {
-                mapper.updateById(entity);
+                if ("CANCELLED".equals(existing.getRuntimeState()) && !"CANCELLED".equals(snapshot.runtimeState().name())) {
+                    return;
+                }
+                mapper.updateIfNotCancelled(entity);
             }
         }
     }

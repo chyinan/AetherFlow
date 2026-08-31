@@ -1,5 +1,7 @@
 package com.aetherflow.ai.workflow.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.service.PythonAsrClient;
 import com.aetherflow.ai.workflow.AiArtifact;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
@@ -9,6 +11,7 @@ import com.aetherflow.common.dto.AiTranscriptionResponseDTO;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,11 +39,14 @@ public class AsrNodeExecutor implements AiNodeExecutor {
         AiTranscriptionResponseDTO response = pythonAsrClient.transcribe(request);
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("text", response.getText());
-        output.put("srtObjectKey", response.getSrtObjectKey());
         output.put("durationSeconds", response.getDurationSeconds());
         List<AiArtifact> artifacts = new ArrayList<>();
-        if (response.getSrtObjectKey() != null && !response.getSrtObjectKey().isBlank()) {
-            artifacts.add(new AiArtifact("SRT", response.getSrtObjectKey(), "text/plain"));
+        if (response.getSrtContent() != null && !response.getSrtContent().isBlank()) {
+            String fileName = response.getSrtFileName() == null || response.getSrtFileName().isBlank()
+                    ? "transcription.srt"
+                    : response.getSrtFileName().trim();
+            artifacts.add(new AiArtifact(
+                    "SRT", fileName, "text/plain", response.getSrtContent().getBytes(StandardCharsets.UTF_8)));
         }
         return new AiNodeResult(nodeType(), "SUCCEEDED", output, artifacts);
     }

@@ -1,5 +1,7 @@
 package com.aetherflow.ai.provider;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.sentinel.SentinelAiGuard;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -22,14 +24,17 @@ import java.util.function.Consumer;
 @Slf4j
 public abstract class PythonRuntimeAiProvider implements AiProvider {
 
-    private final RestClient pythonAiRestClient;
+    private final RestClient pythonAiStatusRestClient;
+    private final PythonAiInferenceClientFactory inferenceClientFactory;
     private final SentinelAiGuard sentinelAiGuard;
     private final ObjectMapper objectMapper;
 
-    protected PythonRuntimeAiProvider(RestClient pythonAiRestClient,
+    protected PythonRuntimeAiProvider(RestClient pythonAiStatusRestClient,
+                                      PythonAiInferenceClientFactory inferenceClientFactory,
                                       SentinelAiGuard sentinelAiGuard,
                                       ObjectMapper objectMapper) {
-        this.pythonAiRestClient = pythonAiRestClient;
+        this.pythonAiStatusRestClient = pythonAiStatusRestClient;
+        this.inferenceClientFactory = inferenceClientFactory;
         this.sentinelAiGuard = sentinelAiGuard;
         this.objectMapper = objectMapper;
     }
@@ -51,7 +56,7 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
             long startedAt = System.currentTimeMillis();
             try {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> status = pythonAiRestClient.get()
+                Map<String, Object> status = pythonAiStatusRestClient.get()
                         .uri("/ai/status")
                         .retrieve()
                         .body(Map.class);
@@ -78,13 +83,14 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
     @Override
     public void stream(AiProviderRequest request, Consumer<AiProviderResponse> consumer) {
         sentinelAiGuard.run("ai-provider-" + type().name().toLowerCase(Locale.ROOT), () ->
-                pythonAiRestClient.post()
+                inferenceClientFactory.forTimeout(request.timeout()).post()
                         .uri("/v1/llm/chat/stream")
                         .body(new PythonLlmRequest(
                                 type().name().toLowerCase(Locale.ROOT),
                                 request.model(),
                                 request.prompt(),
-                                request.options()))
+                                request.options(),
+                                timeoutSeconds(request)))
                         .exchange((clientRequest, clientResponse) -> {
                             if (clientResponse.getStatusCode().isError()) {
                                 throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
@@ -128,10 +134,11 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
                 type().name().toLowerCase(Locale.ROOT),
                 request.model(),
                 request.prompt(),
-                request.options()
+                request.options(),
+                timeoutSeconds(request)
         );
         log.info("Calling python ai provider={}, model={}", type(), request.model());
-        PythonLlmResponse response = pythonAiRestClient.post()
+        PythonLlmResponse response = inferenceClientFactory.forTimeout(request.timeout()).post()
                 .uri("/v1/llm/chat")
                 .body(pythonRequest)
                 .retrieve()
@@ -148,5 +155,12 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
         }
         String expected = type().name().toLowerCase(Locale.ROOT);
         return providerList.stream().anyMatch(provider -> expected.equals(String.valueOf(provider).toLowerCase(Locale.ROOT)));
+    }
+
+    private double timeoutSeconds(AiProviderRequest request) {
+        if (request.timeout() == null || request.timeout().isZero() || request.timeout().isNegative()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "AI provider timeout must be positive");
+        }
+        return Math.max(0.1D, request.timeout().toMillis() / 1000.0D);
     }
 }

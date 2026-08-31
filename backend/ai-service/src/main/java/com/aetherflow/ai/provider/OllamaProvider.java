@@ -9,10 +9,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Component
 public class OllamaProvider extends PythonRuntimeAiProvider {
 
-    public OllamaProvider(@Qualifier("pythonAiRestClient") RestClient pythonAiRestClient,
+    public OllamaProvider(@Qualifier("pythonAiStatusRestClient") RestClient pythonAiStatusRestClient,
+                          PythonAiInferenceClientFactory inferenceClientFactory,
                           SentinelAiGuard sentinelAiGuard,
                           ObjectMapper objectMapper) {
-        super(pythonAiRestClient, sentinelAiGuard, objectMapper);
+        super(pythonAiStatusRestClient, inferenceClientFactory, sentinelAiGuard, objectMapper);
     }
 
     @Override

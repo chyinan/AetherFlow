@@ -123,6 +123,20 @@ public class WorkflowController {
         return Result.success();
     }
 
+    @PostMapping("/definitions/{definitionId}/copy")
+    @Operation(summary = "Copy workflow definition", description = "Creates an independent owner-scoped copy including all graph configuration.")
+    public Result<WorkflowDefinition> copyDefinition(@PathVariable Long definitionId,
+                                                      @Valid @RequestBody(required = false) WorkflowCopyRequest request) {
+        return Result.success(workflowService.copyDefinition(definitionId,
+                request == null ? new WorkflowCopyRequest() : request));
+    }
+
+    @GetMapping("/templates")
+    @Operation(summary = "List preset workflow templates", description = "Returns executable, validated workflow graph templates that can be copied into the current workspace.")
+    public Result<List<WorkflowDefinitionDTO>> listTemplates() {
+        return Result.success(workflowService.listTemplates());
+    }
+
     @Operation(summary = "Start workflow instance",
             description = "Starts a workflow instance with user id and initial input variables.")
     @ApiResponses({

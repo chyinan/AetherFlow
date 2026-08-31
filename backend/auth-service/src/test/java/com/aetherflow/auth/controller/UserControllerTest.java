@@ -11,6 +11,7 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.dto.UserProfileUpdateRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -121,6 +122,21 @@ class UserControllerTest {
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(principal);
+    }
+
+    @Test
+    void profileRoutesUseAuthenticatedGatewayUser() {
+        UserService userService = mock(UserService.class);
+        UserPrincipalDTO profile = new UserPrincipalDTO(7L, "alice", List.of("USER"));
+        UserPrincipalDTO updated = new UserPrincipalDTO(7L, "alice2", List.of("USER"));
+        when(userService.profile(7L)).thenReturn(profile);
+        when(userService.updateProfile(eq(7L), any(UserProfileUpdateRequest.class))).thenReturn(updated);
+        UserController controller = controller(userService);
+
+        assertThat(controller.profile(7L).getData()).isSameAs(profile);
+        assertThat(controller.updateProfile(7L, new UserProfileUpdateRequest()).getData()).isSameAs(updated);
+        verify(userService).profile(7L);
+        verify(userService).updateProfile(eq(7L), any(UserProfileUpdateRequest.class));
     }
 
     private MockHttpServletRequest servletRequest() {

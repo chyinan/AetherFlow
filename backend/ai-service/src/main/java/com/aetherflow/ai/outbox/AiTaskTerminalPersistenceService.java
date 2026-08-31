@@ -2,6 +2,7 @@ package com.aetherflow.ai.outbox;
 
 import com.aetherflow.ai.entity.AiJob;
 import com.aetherflow.ai.mapper.AiJobMapper;
+import com.aetherflow.ai.task.AiJobLease;
 import com.aetherflow.ai.task.AiTaskStatus;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.ResultCode;
@@ -29,30 +30,61 @@ public class AiTaskTerminalPersistenceService {
 
     @Transactional(rollbackFor = Exception.class)
     public AiTaskEventOutbox recordSuccess(AiJob job,
+                                           AiJobLease lease,
                                            TaskMessageDTO taskMessage,
                                            AiNodeResult result) {
         LocalDateTime now = LocalDateTime.now();
-        job.setOutputJson(writeJson(result.output()));
+        String outputJson = writeJson(result.output());
+        requireLeaseCompletion(job, lease, AiTaskStatus.SUCCEEDED, outputJson, now);
+        job.setOutputJson(outputJson);
         job.setStatus(AiTaskStatus.SUCCEEDED);
         job.setCompletedAt(now);
         job.setUpdatedAt(now);
-        jobMapper.updateById(job);
         return insertOrRead(event(job, taskMessage, "AI_TASK_SUCCEEDED",
                 new AiTaskEventPayload(taskMessage, result, null), now));
     }
 
     @Transactional(rollbackFor = Exception.class)
     public AiTaskEventOutbox recordFailure(AiJob job,
+                                           AiJobLease lease,
                                            TaskMessageDTO taskMessage,
                                            String error) {
+        return recordFailure(job, lease, taskMessage, null, error);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public AiTaskEventOutbox recordFailure(AiJob job,
+                                           AiJobLease lease,
+                                           TaskMessageDTO taskMessage,
+                                           AiNodeResult result,
+                                           String error) {
         LocalDateTime now = LocalDateTime.now();
-        job.setOutputJson(writeJson(Map.of("error", safeError(error))));
+        String outputJson = writeJson(Map.of("error", safeError(error)));
+        requireLeaseCompletion(job, lease, AiTaskStatus.FAILED, outputJson, now);
+        job.setOutputJson(outputJson);
         job.setStatus(AiTaskStatus.FAILED);
         job.setCompletedAt(now);
         job.setUpdatedAt(now);
-        jobMapper.updateById(job);
         return insertOrRead(event(job, taskMessage, "AI_TASK_FAILED",
-                new AiTaskEventPayload(taskMessage, null, safeError(error)), now));
+                new AiTaskEventPayload(taskMessage, result, safeError(error)), now));
+    }
+
+    private void requireLeaseCompletion(AiJob job,
+                                        AiJobLease lease,
+                                        String status,
+                                        String outputJson,
+                                        LocalDateTime completedAt) {
+        if (job == null || job.getId() == null || lease == null
+                || !job.getId().equals(lease.jobId()) || lease.token() == null || lease.token().isBlank()) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "ai job lease ownership lost before terminal transition");
+        }
+        int updated = jobMapper.completeAiJobWithLease(
+                job.getId(), lease.token(), status, outputJson);
+        if (updated != 1) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "ai job lease ownership lost before terminal transition");
+        }
     }
 
     private AiTaskEventOutbox event(AiJob job,

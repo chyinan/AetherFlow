@@ -9,6 +9,7 @@ type BackendNodeType =
   | 'UPSCALE'
   | 'SAVE_IMAGE'
   | 'UPLOAD'
+  | 'FFMPEG'
   | 'OCR'
   | 'URL_FETCH'
   | 'WHISPER'
@@ -41,6 +42,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'save-image': 'SAVE_IMAGE',
   'url-fetch': 'URL_FETCH',
   whisper: 'WHISPER',
+  upload: 'UPLOAD',
   llm: 'LLM',
   translate: 'TRANSLATE',
   summary: 'SUMMARY',
@@ -62,7 +64,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   'parameter-extractor': 'PARAMETER_EXTRACTOR',
   'knowledge-retrieval': 'KNOWLEDGE_RETRIEVAL',
   notify: 'NOTIFY',
-  ffmpeg: 'UPLOAD',
+  ffmpeg: 'FFMPEG',
 }
 
 const UNSUPPORTED_NODE_HINTS: Record<string, string> = {
@@ -187,6 +189,16 @@ function normalizeUploadConfig(config: Record<string, unknown>, nextNodes: strin
   return withNextNodes({
     ...(fileId === undefined ? {} : { fileId }),
     fileIdVariable: stringValue(config.fileIdVariable, 'fileId'),
+  }, nextNodes)
+}
+
+function normalizeFfmpegConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  return withNextNodes({
+    ...(optionalString(config.fileUrl) ? { fileUrl: optionalString(config.fileUrl) } : {}),
+    fileUrlVariable: stringValue(config.fileUrlVariable, 'fileUrl'),
+    operation: stringValue(config.operation, 'extract-audio'),
+    outputFormat: stringValue(config.outputFormat, 'wav'),
+    timeoutSeconds: Math.min(1800, Math.max(1, Math.floor(numberValue(config.timeoutSeconds, 120)))),
   }, nextNodes)
 }
 
@@ -600,6 +612,8 @@ function normalizeNodeConfig(
       return normalizeStartConfig(config, nextNodes)
     case 'UPLOAD':
       return normalizeUploadConfig(config, nextNodes)
+    case 'FFMPEG':
+      return normalizeFfmpegConfig(config, nextNodes)
     case 'OCR':
       return normalizeOcrConfig(config, nextNodes)
     case 'URL_FETCH':

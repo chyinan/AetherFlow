@@ -19,6 +19,7 @@ import com.aetherflow.auth.web.AuthRequestContext;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.dto.UserProfileUpdateRequest;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.common.security.JwtProperties;
 import com.aetherflow.common.security.JwtTokenProvider;
@@ -264,6 +265,45 @@ class UserServiceImplTest {
         assertThat(principal.getUserId()).isEqualTo(7L);
         assertThat(principal.getUsername()).isEqualTo("alice");
         assertThat(principal.getRoles()).containsExactly("USER", "ADMIN");
+    }
+
+    @Test
+    void profileReadsAuthoritativeAccountAndPasswordChangeRevokesSession() {
+        User user = existingUser(7L, "alice", "old-hash", "ENABLED");
+        user.setEmail("alice@example.com");
+        when(userMapper.selectById(7L)).thenReturn(user);
+        when(passwordEncoder.matches("old-password", "old-hash")).thenReturn(true);
+        when(passwordEncoder.encode("new-password")).thenReturn("new-hash");
+        UserProfileUpdateRequest request = new UserProfileUpdateRequest();
+        request.setEmail("new@example.com");
+        request.setCurrentPassword("old-password");
+        request.setNewPassword("new-password");
+
+        UserPrincipalDTO profile = userService.profile(7L);
+        UserPrincipalDTO updated = userService.updateProfile(7L, request);
+
+        assertThat(profile.getUsername()).isEqualTo("alice");
+        assertThat(updated.getUsername()).isEqualTo("alice");
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        assertThat(user.getEmail()).isEqualTo("new@example.com");
+        verify(userMapper).updateById(user);
+        verify(authSessionService).deleteSession(7L);
+    }
+
+    @Test
+    void passwordChangeRejectsInvalidCurrentPasswordBeforeWriting() {
+        User user = existingUser(7L, "alice", "old-hash", "ENABLED");
+        when(userMapper.selectById(7L)).thenReturn(user);
+        when(passwordEncoder.matches("wrong", "old-hash")).thenReturn(false);
+        UserProfileUpdateRequest request = new UserProfileUpdateRequest();
+        request.setCurrentPassword("wrong");
+        request.setNewPassword("new-password");
+
+        assertThatThrownBy(() -> userService.updateProfile(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("current password is invalid");
+        verify(userMapper, never()).updateById(any(User.class));
+        verify(authSessionService, never()).deleteSession(7L);
     }
 
     private AuthRequestContext requestContext() {

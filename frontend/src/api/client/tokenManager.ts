@@ -10,6 +10,7 @@ export interface AuthSessionUserSnapshot {
   id?: string
   name?: string
   username?: string
+  email?: string
   role?: string
   roles?: string[]
   workspace?: string

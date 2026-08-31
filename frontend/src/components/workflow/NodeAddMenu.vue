@@ -53,6 +53,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   upscale: Film,
   'save-image': FileText,
   'url-fetch': Link,
+  upload: Upload,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,

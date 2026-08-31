@@ -37,6 +37,7 @@ public class WorkflowNodeCatalogService {
                 start(),
                 end(),
                 upload(),
+                ffmpeg(),
                 ocr(),
                 urlFetch(),
                 whisper(),
@@ -118,6 +119,28 @@ public class WorkflowNodeCatalogService {
                         variable("fileSize", "NUMBER", "File size in bytes.", 1048576)
                 ),
                 mapOf("fileIdVariable", "fileId")
+        );
+    }
+
+    private WorkflowNodeCatalogItem ffmpeg() {
+        return item(
+                "FFMPEG",
+                "FFmpeg Media Transform",
+                "File",
+                "Extracts an audio track or converts media through the isolated FFmpeg runtime, then persists the result as a tenant-owned artifact.",
+                List.of(
+                        field("fileUrl", "STRING", false, "Fixed source URL. Prefer fileUrlVariable when binding from workflow context.", "http://minio/aetherflow/video.mp4"),
+                        field("fileUrlVariable", "STRING", false, "Workflow variable containing the source URL.", "fileUrl"),
+                        field("operation", "STRING", false, "Media operation.", "extract-audio", List.of("extract-audio", "convert")),
+                        field("outputFormat", "STRING", false, "Output format.", "wav", List.of("wav", "mp3", "m4a", "aac", "mp4"))
+                ),
+                List.of(variable("fileUrl", "STRING", "Source media URL.", "http://minio/aetherflow/video.mp4")),
+                List.of(
+                        variable("mediaFileName", "STRING", "Generated media file name.", "transformed.wav"),
+                        variable("mediaContentType", "STRING", "Generated media MIME type.", "audio/wav"),
+                        variable("mediaSize", "NUMBER", "Generated media size in bytes.", 1048576)
+                ),
+                mapOf("fileUrlVariable", "fileUrl", "operation", "extract-audio", "outputFormat", "wav")
         );
     }
 

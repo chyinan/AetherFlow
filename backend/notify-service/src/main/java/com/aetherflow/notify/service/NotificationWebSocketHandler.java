@@ -40,8 +40,7 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
     }
 
     public void send(Long userId, Object payload) {
-        if (userId == null) {
-            sessions.values().forEach(list -> list.forEach(session -> sendOne(session, payload)));
+        if (userId == null || userId <= 0) {
             return;
         }
         sessions.getOrDefault(userId, List.of()).forEach(session -> sendOne(session, payload));

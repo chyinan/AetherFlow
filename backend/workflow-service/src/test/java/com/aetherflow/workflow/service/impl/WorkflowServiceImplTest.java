@@ -8,6 +8,7 @@ import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.mapper.WorkflowStartOutboxMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
@@ -209,6 +210,18 @@ class WorkflowServiceImplTest {
 
         verify(instanceMapper).transitionRuntimeState(
                 eq(101L), eq("WAITING"), eq("node-ai"), any(), any());
+    }
+
+    @Test
+    void workflowStartOutboxContractIsPresentForCrashRecovery() throws Exception {
+        java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
+        if (!java.nio.file.Files.exists(root.resolve("docker/mysql/migrations/V15__add_workflow_start_outbox.sql"))) {
+            root = root.getParent().getParent();
+        }
+        String sql = java.nio.file.Files.readString(root.resolve("docker/mysql/migrations/V15__add_workflow_start_outbox.sql"));
+        assertThat(sql).contains("af_workflow_start_outbox")
+                .contains("uk_af_workflow_start_outbox_instance")
+                .contains("idx_af_workflow_start_outbox_due");
     }
 
     @Test

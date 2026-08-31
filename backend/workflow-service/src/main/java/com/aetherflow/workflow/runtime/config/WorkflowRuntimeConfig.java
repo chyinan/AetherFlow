@@ -6,6 +6,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.engine.RuntimeSleeper;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
+import com.aetherflow.workflow.runtime.engine.WorkflowCancellationProbe;
 import com.aetherflow.workflow.runtime.event.CompositeRuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.event.PersistentRuntimeEventPublisher;
 import com.aetherflow.workflow.runtime.event.RabbitRuntimeEventPublisher;
@@ -127,14 +128,16 @@ public class WorkflowRuntimeConfig {
                                                        RuntimeEventPublisher runtimeEventPublisher,
                                                        RuntimeSleeper runtimeSleeper,
                                                        RuntimeSnapshotRepository snapshotRepository,
-                                                       WorkflowRuntimeLock workflowRuntimeLock) {
+                                                       WorkflowRuntimeLock workflowRuntimeLock,
+                                                       WorkflowCancellationProbe cancellationProbe) {
         return new WorkflowRuntimeEngine(
                 nodeRegistry,
                 runtimeStateMachine,
                 runtimeEventPublisher,
                 runtimeSleeper,
                 snapshotRepository,
-                workflowRuntimeLock
+                workflowRuntimeLock,
+                cancellationProbe
         );
     }
 }

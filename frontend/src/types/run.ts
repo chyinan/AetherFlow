@@ -1,6 +1,6 @@
 import type { WorkflowNodeStatus } from './workflow'
 
-export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'paused'
+export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'paused' | 'cancelled'
 
 export interface HumanApprovalDetails {
   approved: boolean

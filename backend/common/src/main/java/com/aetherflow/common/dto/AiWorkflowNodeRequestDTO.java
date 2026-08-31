@@ -1,7 +1,11 @@
 package com.aetherflow.common.dto;
 
+// pattern: Functional Core
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import lombok.Data;
 
 import java.util.Map;
@@ -20,6 +24,11 @@ public class AiWorkflowNodeRequestDTO {
 
     @Schema(description = "Task id that started the workflow execution.", example = "task-1001")
     private String taskId;
+
+    @NotNull
+    @Positive
+    @Schema(description = "Authenticated owner user id.", example = "1001")
+    private Long userId;
 
     @NotBlank
     @Schema(description = "Current workflow node id.", example = "node-summary-1")

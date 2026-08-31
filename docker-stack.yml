@@ -1,0 +1,193 @@
+version: "3.9"
+
+# Swarm production topology. Images are built and pushed by CI; stateful
+# dependencies (MySQL/Redis/RabbitMQ/MinIO/Nacos/Seata) are managed as HA
+# external services and addressed through the *_HOST variables.
+services:
+  gateway-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-gateway-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+    networks: [aetherflow]
+    deploy:
+      replicas: 3
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback }
+      rollback_config: { order: stop-first }
+      restart_policy: { condition: on-failure }
+
+  nginx:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-nginx:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    ports: ["80:8080", "443:8443"]
+    networks: [aetherflow]
+    configs:
+      - source: aetherflow-nginx-tls
+        target: /etc/nginx/nginx.conf
+    secrets:
+      - source: aetherflow_tls_fullchain
+        target: /etc/nginx/tls/fullchain.pem
+      - source: aetherflow_tls_privkey
+        target: /etc/nginx/tls/privkey.pem
+    deploy:
+      replicas: 2
+      update_config: { parallelism: 1, order: start-first, failure_action: rollback }
+      restart_policy: { condition: on-failure }
+
+  auth-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-auth-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      GITHUB_OAUTH_STATE_SECRET: ${GITHUB_OAUTH_STATE_SECRET:?set GITHUB_OAUTH_STATE_SECRET}
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  workflow-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-workflow-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      SEATA_ADDR: ${SEATA_ADDR:?set SEATA_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:?set RABBITMQ_HOST}
+      RABBITMQ_SSL_PORT: ${RABBITMQ_SSL_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?set FILE_INTERNAL_TOKEN}
+      TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN}
+      NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?set NOTIFY_INTERNAL_TOKEN}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  task-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-task-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      SEATA_ADDR: ${SEATA_ADDR:?set SEATA_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:?set RABBITMQ_HOST}
+      RABBITMQ_SSL_PORT: ${RABBITMQ_SSL_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  ai-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-ai-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      SEATA_ADDR: ${SEATA_ADDR:?set SEATA_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:?set RABBITMQ_HOST}
+      RABBITMQ_SSL_PORT: ${RABBITMQ_SSL_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?set AI_SERVICE_API_KEY}
+      FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?set FILE_INTERNAL_TOKEN}
+      TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  file-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-file-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:?set MINIO_ENDPOINT}
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT:?set MINIO_PUBLIC_ENDPOINT}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?set MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY}
+      FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?set FILE_INTERNAL_TOKEN}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  notify-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-notify-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:?set MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST:?set REDIS_HOST}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:?set RABBITMQ_HOST}
+      RABBITMQ_SSL_PORT: ${RABBITMQ_SSL_PORT:-5671}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
+      NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?set NOTIFY_INTERNAL_TOKEN}
+      NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
+      SEATA_ADDR: ${SEATA_ADDR:?set SEATA_ADDR}
+      NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
+      NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
+    networks: [aetherflow]
+    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+
+  python-ai-service:
+    image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-python-ai-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
+    environment:
+      APP_ENV: prod
+      AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?set AI_SERVICE_API_KEY}
+      WHISPER_MAX_CONCURRENCY: ${WHISPER_MAX_CONCURRENCY:-2}
+      FFMPEG_MAX_CONCURRENCY: ${FFMPEG_MAX_CONCURRENCY:-2}
+      LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-8}
+    networks: [aetherflow]
+    deploy: { replicas: 2, restart_policy: { condition: on-failure } }
+
+networks:
+  aetherflow:
+    external: true
+
+configs:
+  aetherflow-nginx-tls:
+    external: true
+secrets:
+  aetherflow_tls_fullchain:
+    external: true
+  aetherflow_tls_privkey:
+    external: true

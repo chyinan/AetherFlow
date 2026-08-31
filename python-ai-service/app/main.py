@@ -1,6 +1,7 @@
 # pattern: Mixed (needs refactoring)
 # Reason: the existing FastAPI entrypoint still combines HTTP orchestration with runtime adapters.
 import ast
+import asyncio
 import base64
 import ipaddress
 import json
@@ -30,6 +31,17 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("aetherflow.python-ai")
 
 _whisper_model = None
+
+def _bounded_slots(name: str, default: int):
+    try:
+        count = max(1, min(32, int(os.getenv(name, str(default)))))
+    except ValueError:
+        count = default
+    return threading.BoundedSemaphore(count)
+
+_whisper_slots = _bounded_slots("WHISPER_MAX_CONCURRENCY", 2)
+_ffmpeg_slots = _bounded_slots("FFMPEG_MAX_CONCURRENCY", 2)
+_llm_slots = _bounded_slots("LLM_MAX_CONCURRENCY", 8)
 
 # 代码执行必须由独立运行时服务承载；并发闸门避免少量租户耗尽运行时资源。
 try:
@@ -64,6 +76,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0", lifespan=lifespan)
 
 
+def _require_runtime_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+    expected = os.getenv("AI_SERVICE_API_KEY", "").strip()
+    environment = os.getenv("APP_ENV", "dev").strip().lower()
+    if not expected:
+        if environment in {"dev", "test", "local"}:
+            return
+        raise HTTPException(status_code=503, detail="AI_SERVICE_API_KEY is not configured")
+    if not x_api_key or not secrets.compare_digest(x_api_key, expected):
+        raise HTTPException(status_code=401, detail="invalid runtime api key")
+
+
 def _configure_telemetry() -> None:
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "").strip()
     if not endpoint:
@@ -95,14 +118,15 @@ _configure_telemetry()
 
 
 class TranscriptionRequest(BaseModel):
-    fileUrl: str = Field(..., min_length=1)
-    language: Optional[str] = None
-    prompt: Optional[str] = None
+    fileUrl: str = Field(..., min_length=1, max_length=2048)
+    language: Optional[str] = Field(default=None, max_length=32)
+    prompt: Optional[str] = Field(default=None, max_length=8_000)
 
 
 class TranscriptionResponse(BaseModel):
     text: str
-    srtObjectKey: Optional[str] = None
+    srtContent: Optional[str] = None
+    srtFileName: Optional[str] = None
     durationSeconds: Optional[float] = None
 
 
@@ -111,6 +135,7 @@ class LlmRequest(BaseModel):
     model: str = Field(default="llama3")
     prompt: str = Field(..., min_length=1)
     options: dict[str, Any] = Field(default_factory=dict)
+    timeoutSeconds: float = Field(default=60.0, gt=0.0, le=1800.0)
 
 
 class LlmResponse(BaseModel):
@@ -121,7 +146,7 @@ class LlmResponse(BaseModel):
 
 
 class SubtitleRequest(BaseModel):
-    text: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=1_000_000)
     format: str = Field(default="srt")
     lineSeconds: float = Field(default=3.0, ge=0.5, le=30.0)
 
@@ -129,7 +154,21 @@ class SubtitleRequest(BaseModel):
 class SubtitleResponse(BaseModel):
     content: str
     format: str
-    objectKey: Optional[str] = None
+
+
+class MediaTransformRequest(BaseModel):
+    fileUrl: str = Field(..., min_length=1)
+    operation: str = Field(default="extract-audio")
+    outputFormat: str = Field(default="wav")
+    timeoutSeconds: float = Field(default=120.0, gt=0.1, le=600.0)
+
+
+class MediaTransformResponse(BaseModel):
+    fileName: str
+    contentType: str
+    contentBase64: str
+    size: int
+    durationSeconds: Optional[float] = None
 
 
 class CodeExecutionRequest(BaseModel):
@@ -412,57 +451,120 @@ def update_provider_config(provider_id: str, update: ProviderConfigUpdate, _: No
     return _provider_config_entry(normalized_id)
 
 
-@app.post("/v1/transcriptions", response_model=TranscriptionResponse)
-def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
+@app.post("/v1/transcriptions", response_model=TranscriptionResponse, dependencies=[Depends(_require_runtime_api_key)])
+async def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
     logger.info("ASR request fileUrl=%s language=%s", request.fileUrl, request.language)
     if not _enabled("ENABLE_WHISPER"):
         raise HTTPException(status_code=503, detail="Whisper service disabled. Set ENABLE_WHISPER=true to enable.")
 
     if _whisper_model is None:
         raise HTTPException(status_code=503, detail="whisper model is not loaded")
-    source = _materialize_source(request.fileUrl)
-    audio_source = _ensure_audio_source(source)
+    if not _whisper_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="whisper runtime is busy; retry later")
     try:
-        segments, info = _whisper_model.transcribe(
-            str(audio_source),
-            language=None if request.language in (None, "", "auto") else request.language,
-            initial_prompt=request.prompt,
-        )
-        srt_content = _segments_to_srt(segments)
-        object_key = _write_generated_subtitle(srt_content, "srt")
-        text = "\n".join(line for line in srt_content.splitlines() if "-->" not in line and not line.isdigit()).strip()
-        return TranscriptionResponse(text=text, srtObjectKey=object_key, durationSeconds=info.duration)
+        source = _materialize_source(request.fileUrl)
+        audio_source = _ensure_audio_source(source)
+    except Exception:
+        _whisper_slots.release()
+        raise
+    cleaned = False
+
+    def cleanup(_task=None):
+        nonlocal cleaned
+        if not cleaned:
+            cleaned = True
+            _cleanup_materialized(source, audio_source)
+            _whisper_slots.release()
+
+    task = asyncio.create_task(asyncio.to_thread(_transcribe_blocking, request, audio_source))
+    try:
+        timeout = max(1.0, min(3600.0, float(os.getenv("WHISPER_TIMEOUT_SECONDS", "1800"))))
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except TimeoutError as exc:
+        task.add_done_callback(cleanup)
+        raise HTTPException(status_code=504, detail="whisper transcription deadline exceeded") from exc
+    except asyncio.CancelledError:
+        task.add_done_callback(cleanup)
+        raise
     finally:
-        _cleanup_materialized(source, audio_source)
+        if task.done():
+            cleanup()
 
 
-@app.post("/v1/llm/chat", response_model=LlmResponse)
-def llm_chat(request: LlmRequest) -> LlmResponse:
+def _transcribe_blocking(request: TranscriptionRequest, audio_source: Path) -> TranscriptionResponse:
+    segments, info = _whisper_model.transcribe(
+        str(audio_source),
+        language=None if request.language in (None, "", "auto") else request.language,
+        initial_prompt=request.prompt,
+    )
+    srt_content = _segments_to_srt(segments)
+    text = "\n".join(line for line in srt_content.splitlines() if "-->" not in line and not line.isdigit()).strip()
+    return TranscriptionResponse(
+        text=text,
+        srtContent=srt_content,
+        srtFileName="transcription.srt",
+        durationSeconds=info.duration,
+    )
+
+
+@app.post("/v1/llm/chat", response_model=LlmResponse, dependencies=[Depends(_require_runtime_api_key)])
+async def llm_chat(request: LlmRequest) -> LlmResponse:
     provider = request.provider.lower().strip()
     logger.info("LLM request provider=%s model=%s", provider, request.model)
     if not _enabled("ENABLE_LLM"):
         raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
-    if provider == "openai":
-        return _call_openai(request)
-    if provider == "ollama":
-        return _call_ollama(request)
-    raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
+    if not _llm_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="llm runtime is busy; retry later")
+    timeout = _effective_timeout_seconds(request)
+    try:
+        async with asyncio.timeout(timeout):
+            if provider == "openai":
+                return await _call_openai_async(request)
+            if provider == "ollama":
+                return await _call_ollama_async(request)
+            raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="LLM provider deadline exceeded") from exc
+    finally:
+        _llm_slots.release()
 
 
-@app.post("/v1/llm/chat/stream")
-def llm_chat_stream(request: LlmRequest) -> StreamingResponse:
+@app.post("/v1/llm/chat/stream", dependencies=[Depends(_require_runtime_api_key)])
+def llm_chat_stream(request: LlmRequest, http_request: Request) -> StreamingResponse:
     provider = request.provider.lower().strip()
     logger.info("LLM stream request provider=%s model=%s", provider, request.model)
     if not _enabled("ENABLE_LLM"):
         raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
     if provider not in {"openai", "ollama"}:
         raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
+    if not _llm_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="llm runtime is busy; retry later")
 
-    def events():
-        chunks = _stream_openai(request) if provider == "openai" else _stream_ollama(request)
-        for chunk in chunks:
-            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
+    async def events():
+        deadline = asyncio.get_running_loop().time() + _effective_timeout_seconds(request)
+        chunks = _stream_openai_async(request) if provider == "openai" else _stream_ollama_async(request)
+        iterator = chunks.__aiter__()
+        try:
+            while True:
+                if await http_request.is_disconnected():
+                    break
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    break
+                yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+            if not await http_request.is_disconnected():
+                yield "data: [DONE]\n\n"
+        finally:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                await close()
+            _llm_slots.release()
 
     return StreamingResponse(
         events(),
@@ -471,14 +573,64 @@ def llm_chat_stream(request: LlmRequest) -> StreamingResponse:
     )
 
 
-@app.post("/v1/subtitles", response_model=SubtitleResponse)
+@app.post("/v1/subtitles", response_model=SubtitleResponse, dependencies=[Depends(_require_runtime_api_key)])
 def subtitles(request: SubtitleRequest) -> SubtitleResponse:
     fmt = request.format.lower().strip()
     if fmt not in {"srt", "vtt"}:
         raise HTTPException(status_code=400, detail="subtitle format must be srt or vtt")
     content = _text_to_subtitle(request.text, fmt, request.lineSeconds)
-    object_key = _write_generated_subtitle(content, fmt)
-    return SubtitleResponse(content=content, format=fmt, objectKey=object_key)
+    return SubtitleResponse(content=content, format=fmt)
+
+
+@app.post("/v1/media/ffmpeg", response_model=MediaTransformResponse, dependencies=[Depends(_require_runtime_api_key)])
+def ffmpeg_transform(request: MediaTransformRequest) -> MediaTransformResponse:
+    operation = request.operation.strip().lower()
+    output_format = request.outputFormat.strip().lower()
+    supported_formats = {"wav", "mp3", "m4a", "aac", "mp4"}
+    if operation not in {"extract-audio", "convert"}:
+        raise HTTPException(status_code=400, detail="media operation must be extract-audio or convert")
+    if output_format not in supported_formats:
+        raise HTTPException(status_code=400, detail="unsupported media output format")
+    if shutil.which("ffmpeg") is None:
+        raise HTTPException(status_code=503, detail="ffmpeg is not installed")
+    if not _ffmpeg_slots.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="ffmpeg runtime is busy; retry later")
+
+    try:
+        source = _materialize_source(request.fileUrl)
+    except Exception:
+        _ffmpeg_slots.release()
+        raise
+    output = Path(tempfile.gettempdir()) / f"aetherflow-media-{uuid.uuid4().hex}.{output_format}"
+    try:
+        command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source)]
+        if operation == "extract-audio":
+            command.extend(["-vn", "-ac", "1", "-ar", "16000"])
+        command.extend(["-f", output_format, str(output)])
+        try:
+            subprocess.run(command, check=True, capture_output=True, timeout=request.timeoutSeconds)
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="ffmpeg transform deadline exceeded") from exc
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(status_code=502, detail="ffmpeg transform failed") from exc
+        max_bytes = 50 * 1024 * 1024
+        size = output.stat().st_size
+        if size <= 0 or size > max_bytes:
+            raise HTTPException(status_code=413, detail="transformed media exceeds 50 MiB limit")
+        content_type = {
+            "wav": "audio/wav", "mp3": "audio/mpeg", "m4a": "audio/mp4",
+            "aac": "audio/aac", "mp4": "video/mp4",
+        }[output_format]
+        return MediaTransformResponse(
+            fileName=f"transformed.{output_format}",
+            contentType=content_type,
+            contentBase64=base64.b64encode(output.read_bytes()).decode("ascii"),
+            size=size,
+        )
+    finally:
+        output.unlink(missing_ok=True)
+        _cleanup_materialized(source, source)
+        _ffmpeg_slots.release()
 
 
 @app.post("/v1/code/execute", response_model=CodeExecutionResponse)
@@ -652,7 +804,8 @@ def _call_openai(request: LlmRequest) -> LlmResponse:
     from openai import OpenAI
 
     base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
+    client = OpenAI(api_key=api_key, base_url=base_url,
+                    timeout=_effective_timeout_seconds(request), max_retries=0)
     completion = client.chat.completions.create(
         model=request.model,
         messages=[{"role": "user", "content": request.prompt}],
@@ -664,10 +817,36 @@ def _call_openai(request: LlmRequest) -> LlmResponse:
     return LlmResponse(provider="openai", model=request.model, text=text, metadata=metadata)
 
 
+async def _call_openai_async(request: LlmRequest) -> LlmResponse:
+    _ensure_runtime_env_loaded()
+    route_provider = _openai_route_provider_id()
+    route_prefix = PROVIDER_PRESETS[route_provider]["envPrefix"] if route_provider else "OPENAI"
+    api_key = os.getenv(f"{route_prefix}_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI-compatible provider API key is not configured")
+    from openai import AsyncOpenAI
+
+    base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url,
+                         timeout=_effective_timeout_seconds(request), max_retries=0)
+    try:
+        completion = await client.chat.completions.create(
+            model=request.model,
+            messages=[{"role": "user", "content": request.prompt}],
+            temperature=float(request.options.get("temperature", 0.2)),
+        )
+        text = completion.choices[0].message.content or ""
+        metadata = {"finishReason": completion.choices[0].finish_reason}
+        metadata.update(_openai_usage_metadata(completion))
+        return LlmResponse(provider="openai", model=request.model, text=text, metadata=metadata)
+    finally:
+        await client.close()
+
+
 def _call_ollama(request: LlmRequest) -> LlmResponse:
     _ensure_runtime_env_loaded()
 
-    client = _ollama_client()
+    client = _ollama_client(_effective_timeout_seconds(request))
     response = client.generate(
         model=request.model,
         prompt=request.prompt,
@@ -676,6 +855,32 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
     metadata = {"done": response.get("done", False)}
     metadata.update(_ollama_usage_metadata(response))
     return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata=metadata)
+
+
+async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
+    _ensure_runtime_env_loaded()
+    import ollama
+
+    client_type = getattr(ollama, "AsyncClient", None)
+    if client_type is None:
+        raise HTTPException(status_code=503, detail="Ollama async runtime dependency is unavailable")
+    client = client_type(
+        host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        trust_env=False,
+        timeout=_effective_timeout_seconds(request),
+    )
+    try:
+        response = await client.generate(model=request.model, prompt=request.prompt, options=request.options)
+        metadata = {"done": response.get("done", False)}
+        metadata.update(_ollama_usage_metadata(response))
+        return LlmResponse(provider="ollama", model=request.model,
+                           text=response.get("response", ""), metadata=metadata)
+    finally:
+        close = getattr(client, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
 
 
 def _stream_openai(request: LlmRequest):
@@ -688,7 +893,8 @@ def _stream_openai(request: LlmRequest):
     from openai import OpenAI
 
     base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60")))
+    client = OpenAI(api_key=api_key, base_url=base_url,
+                    timeout=_effective_timeout_seconds(request), max_retries=0)
     completion = client.chat.completions.create(
         model=request.model,
         messages=[{"role": "user", "content": request.prompt}],
@@ -707,11 +913,79 @@ def _stream_openai(request: LlmRequest):
 
 def _stream_ollama(request: LlmRequest):
     _ensure_runtime_env_loaded()
-    client = _ollama_client()
+    client = _ollama_client(_effective_timeout_seconds(request))
     for chunk in client.generate(model=request.model, prompt=request.prompt, options=request.options, stream=True):
         text = chunk.get("response", "") if isinstance(chunk, dict) else ""
         if text:
             yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
+
+
+async def _stream_openai_async(request: LlmRequest):
+    _ensure_runtime_env_loaded()
+    route_provider = _openai_route_provider_id()
+    route_prefix = PROVIDER_PRESETS[route_provider]["envPrefix"] if route_provider else "OPENAI"
+    api_key = os.getenv(f"{route_prefix}_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="OpenAI-compatible provider API key is not configured")
+    from openai import AsyncOpenAI
+
+    base_url = (_provider_base_url(route_provider) if route_provider else os.getenv("OPENAI_BASE_URL", "")).strip() or None
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url,
+                         timeout=_effective_timeout_seconds(request), max_retries=0)
+    stream = None
+    try:
+        stream = await client.chat.completions.create(
+            model=request.model,
+            messages=[{"role": "user", "content": request.prompt}],
+            temperature=float(request.options.get("temperature", 0.2)),
+            stream=True,
+        )
+        async for chunk in stream:
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            text = getattr(delta, "content", None) if delta is not None else None
+            if text:
+                yield {"provider": "openai", "model": request.model, "text": text, "metadata": {}}
+    finally:
+        close_stream = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+        if close_stream is not None:
+            result = close_stream()
+            if hasattr(result, "__await__"):
+                await result
+        await client.close()
+
+
+async def _stream_ollama_async(request: LlmRequest):
+    _ensure_runtime_env_loaded()
+    import ollama
+
+    client_type = getattr(ollama, "AsyncClient", None)
+    if client_type is None:
+        raise HTTPException(status_code=503, detail="Ollama async runtime dependency is unavailable")
+    client = client_type(
+        host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        trust_env=False,
+        timeout=_effective_timeout_seconds(request),
+    )
+    stream = None
+    try:
+        stream = await client.generate(model=request.model, prompt=request.prompt,
+                                       options=request.options, stream=True)
+        async for chunk in stream:
+            text = chunk.get("response", "") if isinstance(chunk, dict) else ""
+            if text:
+                yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
+    finally:
+        close_stream = getattr(stream, "aclose", None)
+        if close_stream is not None:
+            await close_stream()
+        close = getattr(client, "close", None)
+        if close is not None:
+            result = close()
+            if hasattr(result, "__await__"):
+                await result
 
 
 def _openai_usage_metadata(completion: Any) -> dict[str, int]:
@@ -758,13 +1032,22 @@ def _ollama_model_names() -> list[str]:
         return []
 
 
-def _ollama_client():
+def _effective_timeout_seconds(request: Any) -> float:
+    requested = float(getattr(request, "timeoutSeconds", 60.0))
+    configured = float(os.getenv("AI_PROVIDER_MAX_TIMEOUT_SECONDS", "1800"))
+    return max(0.1, min(requested, configured, 1800.0))
+
+
+def _ollama_client(timeout_seconds: Optional[float] = None):
     import ollama
 
-    return ollama.Client(
-        host=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-        trust_env=False,
-    )
+    options: dict[str, Any] = {
+        "host": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "trust_env": False,
+    }
+    if timeout_seconds is not None:
+        options["timeout"] = timeout_seconds
+    return ollama.Client(**options)
 
 
 def _ollama_model_name(model: Any) -> str:
@@ -1075,14 +1358,6 @@ def _text_to_subtitle(text: str, fmt: str, line_seconds: float) -> str:
         output.append(line)
         output.append("")
     return "\n".join(output)
-
-
-def _write_generated_subtitle(content: str, fmt: str) -> str:
-    object_key = f"generated/subtitles/{uuid.uuid4().hex}.{fmt}"
-    output_dir = Path(os.getenv("AI_OUTPUT_DIR", tempfile.gettempdir())) / "aetherflow" / "generated" / "subtitles"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / Path(object_key).name).write_text(content, encoding="utf-8")
-    return object_key
 
 
 def _format_srt_ts(seconds: float) -> str:

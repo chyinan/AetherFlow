@@ -1,5 +1,9 @@
 package com.aetherflow.file.service;
 
+// pattern: Imperative Shell
+
+import com.aetherflow.common.dto.CreateGeneratedFileRequestDTO;
+import com.aetherflow.common.dto.GeneratedArtifactBatchRequestDTO;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.file.model.FileAssetDtos.FileAssetPageResponse;
@@ -29,6 +33,14 @@ public interface FileInfoService {
     FileMetadataDTO getMetadata(Long userId, Long fileId);
 
     FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request);
+
+    FileMetadataDTO storeGeneratedArtifact(CreateGeneratedFileRequestDTO request);
+
+    java.util.List<FileMetadataDTO> commitGeneratedArtifactBatch(GeneratedArtifactBatchRequestDTO request);
+
+    void abortGeneratedArtifactBatch(GeneratedArtifactBatchRequestDTO request);
+
+    int reconcileStaleGeneratedArtifacts();
 
     FileAssetPageResponse listAssets(Long userId,
                                      String query,

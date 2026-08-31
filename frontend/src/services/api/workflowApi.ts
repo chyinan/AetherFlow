@@ -2,6 +2,7 @@
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import {
   createDefinition,
+  cancelWorkflowInstance,
   deleteDefinition,
   getDefinition,
   listDefinitions,
@@ -9,6 +10,8 @@ import {
   updateDefinition,
   type WorkflowDefinitionEntity,
 } from '@/api/modules/workflow'
+
+export { cancelWorkflowInstance }
 import { useAuthStore } from '@/stores/authStore'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowSummary } from '@/types/workflow'
 import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
@@ -125,7 +128,8 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   UPSCALE: 'upscale',
   SAVE_IMAGE: 'save-image',
   URL_FETCH: 'url-fetch',
-  UPLOAD: 'ffmpeg',
+  UPLOAD: 'upload',
+  FFMPEG: 'ffmpeg',
   WHISPER: 'whisper',
   LLM: 'llm',
   TRANSLATE: 'translate',
@@ -187,11 +191,17 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     inputs: ['websiteUrl'],
     outputs: ['urlText', 'urlTitle', 'urlSourceUrl', 'urlCharCount'],
   },
-  ffmpeg: {
+  upload: {
     label: '读取视频文件',
     description: '从文件服务读取上传视频元数据，向后续真实运行节点传递 fileUrl。',
     inputs: ['fileId'],
     outputs: ['fileUrl', 'fileObjectKey', 'fileSize'],
+  },
+  ffmpeg: {
+    label: 'FFmpeg Media Transform',
+    description: 'Extract audio or convert media through the real FFmpeg runtime.',
+    inputs: ['fileUrl'],
+    outputs: ['mediaFileName', 'mediaContentType', 'mediaSize'],
   },
   whisper: {
     label: 'FFmpeg 分离音频 / Whisper 提取文本',

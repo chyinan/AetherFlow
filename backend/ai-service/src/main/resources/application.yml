@@ -9,7 +9,7 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USERNAME:root}
+    username: ${MYSQL_USERNAME:aetherflow_app}
     password: ${MYSQL_PASSWORD:mysql}
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
@@ -93,6 +93,8 @@ aetherflow:
     default-provider: ${AI_DEFAULT_PROVIDER:OLLAMA}
     default-model: ${AI_DEFAULT_MODEL:llama3}
     task-cache-ttl: ${AI_TASK_CACHE_TTL:6h}
+    job-lease-duration: ${AI_JOB_LEASE_DURATION:2m}
+    job-lease-heartbeat-interval: ${AI_JOB_LEASE_HEARTBEAT_INTERVAL:30s}
     provider-timeout: ${AI_PROVIDER_TIMEOUT:60s}
     callback-timeout: ${AI_CALLBACK_TIMEOUT:5s}
     callback-confirm-timeout: ${AI_CALLBACK_CONFIRM_TIMEOUT:5s}

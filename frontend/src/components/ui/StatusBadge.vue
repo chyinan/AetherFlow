@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import type { WorkflowNodeStatus } from '@/types/workflow'
 
 const props = defineProps<{
-  status: WorkflowNodeStatus | 'queued' | 'running' | 'success' | 'failed' | 'paused' | 'warning'
+  status: WorkflowNodeStatus | 'queued' | 'running' | 'success' | 'failed' | 'paused' | 'cancelled' | 'warning'
 }>()
 
 const { t } = useI18n()
@@ -17,6 +17,7 @@ const classes: Record<typeof props.status, string> = {
   success: 'border-status-success/25 bg-status-success/10 text-status-success',
   failed: 'border-status-error/25 bg-status-error/10 text-status-error',
   warning: 'border-status-warning/25 bg-status-warning/10 text-status-warning',
+  cancelled: 'border-slate-300 bg-slate-100 text-slate-600',
   skipped: 'border-app-border bg-app-muted text-text-muted',
   paused: 'border-status-paused/25 bg-status-paused/10 text-status-paused',
 }
@@ -28,6 +29,7 @@ const statusLabels: Record<string, string> = {
   success: 'status.success',
   failed: 'status.failed',
   warning: 'status.warning',
+  cancelled: 'status.cancelled',
   skipped: 'status.skipped',
   paused: 'status.paused',
 }

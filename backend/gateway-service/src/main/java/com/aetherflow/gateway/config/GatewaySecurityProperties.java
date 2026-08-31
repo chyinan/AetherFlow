@@ -17,7 +17,9 @@ public class GatewaySecurityProperties {
     private boolean authEnabled = true;
 
     private List<String> permitAll = new ArrayList<>(List.of(
-            "/auth/**",
+            "/auth/login",
+            "/auth/register",
+            "/auth/refresh",
             "/oauth2/**",
             "/login/oauth2/**",
             "/actuator/**",

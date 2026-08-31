@@ -1,11 +1,15 @@
 package com.aetherflow.file.entity;
 
+// pattern: Functional Core
+
 import com.aetherflow.common.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+
+import java.time.LocalDateTime;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -25,6 +29,24 @@ public class FileInfo extends BaseEntity {
     private String artifactKind;
 
     private String workflowId;
+
+    @TableField("idempotency_key")
+    @Schema(description = "Operation idempotency key for generated artifacts.")
+    private String idempotencyKey;
+
+    private Long aiJobId;
+
+    private Long taskId;
+
+    private String artifactBatchId;
+
+    private Integer artifactOrdinal;
+
+    private String producerFenceToken;
+
+    private String claimToken;
+
+    private LocalDateTime claimExpiresAt;
 
     @Schema(description = "MinIO bucket name.", example = "aetherflow")
     private String bucket;

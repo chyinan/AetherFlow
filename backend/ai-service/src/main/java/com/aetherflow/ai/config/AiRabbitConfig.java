@@ -1,5 +1,7 @@
 package com.aetherflow.ai.config;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.RabbitMqNames;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
@@ -29,6 +31,11 @@ public class AiRabbitConfig {
     }
 
     @Bean
+    public DirectExchange aiTaskRetryExchange() {
+        return new DirectExchange(RabbitMqNames.AI_TASK_RETRY_EXCHANGE, true, false);
+    }
+
+    @Bean
     public DirectExchange notifyExchange() {
         return new DirectExchange(RabbitMqNames.NOTIFY_EXCHANGE, true, false);
     }
@@ -46,6 +53,47 @@ public class AiRabbitConfig {
         return BindingBuilder.bind(aiTaskQueue)
                 .to(taskExchange)
                 .with(RabbitMqNames.AI_TASK_ROUTING_KEY);
+    }
+
+    @Bean
+    public Queue aiTaskRetryShortQueue() {
+        return retryQueue(RabbitMqNames.AI_TASK_RETRY_SHORT_QUEUE, 5_000L);
+    }
+
+    @Bean
+    public Queue aiTaskRetryMediumQueue() {
+        return retryQueue(RabbitMqNames.AI_TASK_RETRY_MEDIUM_QUEUE, 30_000L);
+    }
+
+    @Bean
+    public Queue aiTaskRetryLongQueue() {
+        return retryQueue(RabbitMqNames.AI_TASK_RETRY_LONG_QUEUE, 120_000L);
+    }
+
+    @Bean
+    public Binding aiTaskRetryShortBinding(Queue aiTaskRetryShortQueue, DirectExchange aiTaskRetryExchange) {
+        return BindingBuilder.bind(aiTaskRetryShortQueue).to(aiTaskRetryExchange)
+                .with(RabbitMqNames.AI_TASK_RETRY_SHORT_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding aiTaskRetryMediumBinding(Queue aiTaskRetryMediumQueue, DirectExchange aiTaskRetryExchange) {
+        return BindingBuilder.bind(aiTaskRetryMediumQueue).to(aiTaskRetryExchange)
+                .with(RabbitMqNames.AI_TASK_RETRY_MEDIUM_ROUTING_KEY);
+    }
+
+    @Bean
+    public Binding aiTaskRetryLongBinding(Queue aiTaskRetryLongQueue, DirectExchange aiTaskRetryExchange) {
+        return BindingBuilder.bind(aiTaskRetryLongQueue).to(aiTaskRetryExchange)
+                .with(RabbitMqNames.AI_TASK_RETRY_LONG_ROUTING_KEY);
+    }
+
+    private Queue retryQueue(String name, long ttlMillis) {
+        return QueueBuilder.durable(name)
+                .withArgument("x-message-ttl", ttlMillis)
+                .withArgument("x-dead-letter-exchange", RabbitMqNames.TASK_EXCHANGE)
+                .withArgument("x-dead-letter-routing-key", RabbitMqNames.AI_TASK_ROUTING_KEY)
+                .build();
     }
 
     @Bean

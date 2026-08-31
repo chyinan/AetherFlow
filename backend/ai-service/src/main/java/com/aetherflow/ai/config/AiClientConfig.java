@@ -23,19 +23,25 @@ public class AiClientConfig {
     public RestClient pythonAiRestClient(RestClient.Builder restClientBuilder, PythonAiProperties properties) {
         JdkClientHttpRequestFactory requestFactory = requestFactory(
                 properties.getConnectTimeoutMillis(), properties.getReadTimeoutMillis());
-        return restClientBuilder.clone()
+        RestClient.Builder builder = restClientBuilder.clone()
                 .baseUrl(properties.getBaseUrl())
-                .requestFactory(requestFactory)
-                .build();
+                .requestFactory(requestFactory);
+        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
+            builder.defaultHeader("X-API-Key", properties.getApiKey());
+        }
+        return builder.build();
     }
 
     @Bean
     public RestClient pythonAiStatusRestClient(RestClient.Builder restClientBuilder, PythonAiProperties properties) {
         int timeoutMillis = Math.max(100, properties.getStatusTimeoutMillis());
-        return restClientBuilder.clone()
+        RestClient.Builder builder = restClientBuilder.clone()
                 .baseUrl(properties.getBaseUrl())
-                .requestFactory(requestFactory(Math.min(properties.getConnectTimeoutMillis(), timeoutMillis), timeoutMillis))
-                .build();
+                .requestFactory(requestFactory(Math.min(properties.getConnectTimeoutMillis(), timeoutMillis), timeoutMillis));
+        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
+            builder.defaultHeader("X-API-Key", properties.getApiKey());
+        }
+        return builder.build();
     }
 
     @Bean

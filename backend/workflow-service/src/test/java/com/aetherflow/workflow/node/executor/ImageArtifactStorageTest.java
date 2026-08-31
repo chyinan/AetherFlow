@@ -11,6 +11,7 @@ import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.config.WorkflowNodeConfig;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -23,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 class ImageArtifactStorageTest {
 
@@ -76,6 +78,20 @@ class ImageArtifactStorageTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
                 .hasMessageContaining("generated image data is empty");
+    }
+
+    @Test
+    void metadataFailureCleansUploadedPhysicalObject() throws Exception {
+        MinioClient minioClient = mock(MinioClient.class);
+        FileMetadataClient fileClient = mock(FileMetadataClient.class);
+        when(fileClient.createMetadata(any(String.class), any(CreateFileMetadataRequestDTO.class)))
+                .thenThrow(new IllegalStateException("file service down"));
+        ImageArtifactStorage storage = new ImageArtifactStorage(minioClient, fileClient, properties(), minioProperties());
+
+        assertThatThrownBy(() -> storage.store("wf", "node", 100L,
+                new ImageWorkflowDtos.GeneratedImage("image.png", "image/png", "aW1hZ2U=", null, Map.of())))
+                .isInstanceOf(IllegalStateException.class);
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
     }
 
     private WorkflowNodeProperties properties() {

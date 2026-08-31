@@ -1,6 +1,8 @@
 package com.aetherflow.file.service.impl;
 
 import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.dto.CreateGeneratedFileRequestDTO;
+import com.aetherflow.common.dto.GeneratedArtifactBatchRequestDTO;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
@@ -33,19 +35,23 @@ import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
 import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -54,7 +60,7 @@ import java.util.UUID;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
+// pattern: Imperative Shell
 public class FileInfoServiceImpl implements FileInfoService {
 
     private static final String STATUS_AVAILABLE = "AVAILABLE";
@@ -71,6 +77,15 @@ public class FileInfoServiceImpl implements FileInfoService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final int SIGNED_URL_EXPIRY_MINUTES = 15;
 
+    @Value("${aetherflow.file.generated-artifact-max-bytes:52428800}")
+    private long generatedArtifactMaxBytes = 50L * 1024L * 1024L;
+
+    @Value("${aetherflow.file.generated-artifact-claim-millis:120000}")
+    private long generatedArtifactClaimMillis = 120_000L;
+
+    @Value("${aetherflow.file.generated-artifact-stale-millis:3600000}")
+    private long generatedArtifactStaleMillis = 3_600_000L;
+
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
     private final FileInfoMapper fileInfoMapper;
@@ -78,6 +93,37 @@ public class FileInfoServiceImpl implements FileInfoService {
     private final FileHashService fileHashService;
     private final FileGovernanceCacheService cacheService;
     private final MinioHealthService minioHealthService;
+    private final GeneratedArtifactAuthorityService artifactAuthorityService;
+
+    public FileInfoServiceImpl(MinioClient minioClient,
+                               MinioProperties minioProperties,
+                               FileInfoMapper fileInfoMapper,
+                               FileUploadGuardService fileUploadGuardService,
+                               FileHashService fileHashService,
+                               FileGovernanceCacheService cacheService,
+                               MinioHealthService minioHealthService) {
+        this(minioClient, minioProperties, fileInfoMapper, fileUploadGuardService, fileHashService,
+                cacheService, minioHealthService, null);
+    }
+
+    @Autowired
+    public FileInfoServiceImpl(MinioClient minioClient,
+                               MinioProperties minioProperties,
+                               FileInfoMapper fileInfoMapper,
+                               FileUploadGuardService fileUploadGuardService,
+                               FileHashService fileHashService,
+                               FileGovernanceCacheService cacheService,
+                               MinioHealthService minioHealthService,
+                               GeneratedArtifactAuthorityService artifactAuthorityService) {
+        this.minioClient = minioClient;
+        this.minioProperties = minioProperties;
+        this.fileInfoMapper = fileInfoMapper;
+        this.fileUploadGuardService = fileUploadGuardService;
+        this.fileHashService = fileHashService;
+        this.cacheService = cacheService;
+        this.minioHealthService = minioHealthService;
+        this.artifactAuthorityService = artifactAuthorityService;
+    }
 
     @PostConstruct
     void initializeStorageBucket() throws Exception {
@@ -253,6 +299,7 @@ public class FileInfoServiceImpl implements FileInfoService {
     public FileMetadataDTO createMetadata(Long userId, CreateFileMetadataRequestDTO request) {
         String contentType = resolveContentType(request.getContentType());
         Long ownerUserId = userId != null ? userId : request.getUserId();
+        requireUserId(ownerUserId);
         FileInfo fileInfo = buildFileInfo(
                 ownerUserId,
                 request.getBucket(),
@@ -271,6 +318,205 @@ public class FileInfoServiceImpl implements FileInfoService {
     }
 
     @Override
+    public FileMetadataDTO storeGeneratedArtifact(CreateGeneratedFileRequestDTO request) {
+        GeneratedArtifactPolicy.PreparedGeneratedArtifact artifact =
+                GeneratedArtifactPolicy.prepare(request, generatedArtifactMaxBytes);
+        if (artifactAuthorityService != null) {
+            artifactAuthorityService.assertCurrent(request);
+        }
+        FileLogContext.putUserId(artifact.userId());
+
+        FileInfo existing = fileInfoMapper.selectGeneratedByIdempotency(
+                artifact.userId(), artifact.idempotencyKey());
+        if (existing != null) {
+            return replayGeneratedArtifact(existing, artifact, request.getLeaseToken());
+        }
+
+        FileInfo fileInfo = buildFileInfo(
+                artifact.userId(),
+                minioProperties.getBucket(),
+                artifact.objectKey(),
+                artifact.originalName(),
+                artifact.contentType(),
+                (long) artifact.content().length,
+                artifact.sha256(),
+                null
+        );
+        fileInfo.setIdempotencyKey(artifact.idempotencyKey());
+        fileInfo.setSource(artifact.source());
+        fileInfo.setArtifactKind(artifact.artifactKind());
+        fileInfo.setWorkflowId(artifact.workflowId());
+        fileInfo.setAiJobId(request.getAiJobId());
+        fileInfo.setTaskId(request.getTaskId());
+        fileInfo.setArtifactBatchId(request.getArtifactBatchId());
+        fileInfo.setArtifactOrdinal(request.getArtifactOrdinal());
+        fileInfo.setProducerFenceToken(request.getLeaseToken());
+        fileInfo.setClaimToken(UUID.randomUUID().toString());
+        fileInfo.setStatus("UPLOADING");
+
+        try {
+            fileInfoMapper.insertGeneratedArtifactReservation(fileInfo, micros(generatedArtifactClaimMillis));
+        } catch (DuplicateKeyException exception) {
+            FileInfo raced = fileInfoMapper.selectGeneratedByIdempotency(
+                    artifact.userId(), artifact.idempotencyKey());
+            if (raced == null) {
+                throw exception;
+            }
+            return replayGeneratedArtifact(raced, artifact, request.getLeaseToken());
+        }
+        FileLogContext.putFileId(fileInfo.getId());
+        return persistClaimedGeneratedArtifact(fileInfo, artifact, fileInfo.getClaimToken());
+    }
+
+    private FileMetadataDTO replayGeneratedArtifact(
+            FileInfo existing,
+            GeneratedArtifactPolicy.PreparedGeneratedArtifact artifact,
+            String producerFenceToken) {
+        if (!artifact.sha256().equals(existing.getHash())) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "generated artifact idempotency key was reused with different content");
+        }
+        if (STATUS_AVAILABLE.equals(existing.getStatus())) {
+            if (objectExists(existing)) {
+                return toDTO(existing);
+            }
+            fileInfoMapper.updateGeneratedArtifactStatus(
+                    existing.getId(), STATUS_AVAILABLE, "FAILED", LocalDateTime.now());
+            existing.setStatus("FAILED");
+        }
+        String claimToken = UUID.randomUUID().toString();
+        FileInfo candidate = buildFileInfo(
+                artifact.userId(), existing.getBucket(), artifact.objectKey(), artifact.originalName(),
+                artifact.contentType(), (long) artifact.content().length, artifact.sha256(), null);
+        candidate.setId(existing.getId());
+        candidate.setIdempotencyKey(existing.getIdempotencyKey());
+        candidate.setSource(artifact.source());
+        candidate.setArtifactKind(artifact.artifactKind());
+        candidate.setWorkflowId(artifact.workflowId());
+        candidate.setAiJobId(existing.getAiJobId());
+        candidate.setTaskId(existing.getTaskId());
+        candidate.setArtifactBatchId(existing.getArtifactBatchId());
+        candidate.setArtifactOrdinal(existing.getArtifactOrdinal());
+        candidate.setProducerFenceToken(producerFenceToken);
+        candidate.setClaimToken(claimToken);
+        int claimed = fileInfoMapper.claimGeneratedArtifact(
+                candidate, claimToken, micros(generatedArtifactClaimMillis));
+        if (claimed != 1) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "generated artifact retry was claimed by another worker");
+        }
+        candidate.setStatus("UPLOADING");
+        return persistClaimedGeneratedArtifact(candidate, artifact, claimToken);
+    }
+
+    private FileMetadataDTO persistClaimedGeneratedArtifact(
+            FileInfo fileInfo,
+            GeneratedArtifactPolicy.PreparedGeneratedArtifact artifact,
+            String claimToken) {
+        boolean uploaded = false;
+        try {
+            ensureBucket(fileInfo.getBucket());
+            byte[] content = artifact.content();
+            try (ByteArrayInputStream inputStream = new ByteArrayInputStream(content)) {
+                minioClient.putObject(PutObjectArgs.builder()
+                        .bucket(fileInfo.getBucket())
+                        .object(fileInfo.getObjectKey())
+                        .stream(inputStream, content.length, -1)
+                        .contentType(fileInfo.getContentType())
+                        .build());
+            }
+            uploaded = true;
+            int updated = fileInfoMapper.completeGeneratedArtifactStage(fileInfo.getId(), claimToken);
+            if (updated != 1) {
+                throw new BusinessException(ResultCode.CONFLICT,
+                        "generated artifact ownership was lost before completion");
+            }
+            fileInfo.setStatus("STAGED");
+            fileInfo.setClaimToken(null);
+            fileInfo.setClaimExpiresAt(null);
+            log.info("Generated artifact stored traceId={} fileId={} userId={} workflowId={} kind={} idempotencyKey={}",
+                    FileLogContext.traceId(), fileInfo.getId(), artifact.userId(), artifact.workflowId(),
+                    artifact.artifactKind(), artifact.idempotencyKey());
+            return toDTO(fileInfo);
+        } catch (BusinessException exception) {
+            failGeneratedArtifact(fileInfo, uploaded);
+            throw exception;
+        } catch (Exception exception) {
+            failGeneratedArtifact(fileInfo, uploaded);
+            throw new StorageException("generated artifact storage failed");
+        }
+    }
+
+    private void failGeneratedArtifact(FileInfo fileInfo, boolean uploaded) {
+        int changed = fileInfoMapper.failGeneratedArtifactClaim(fileInfo.getId(), fileInfo.getClaimToken());
+        if (uploaded && changed == 1) {
+            removeGeneratedObjectIfNoReferences(fileInfo.getBucket(), fileInfo.getObjectKey());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<FileMetadataDTO> commitGeneratedArtifactBatch(GeneratedArtifactBatchRequestDTO request) {
+        if (artifactAuthorityService != null) {
+            artifactAuthorityService.assertTerminal(request);
+        }
+        validateBatchRequest(request);
+        List<FileInfo> files = fileInfoMapper.selectGeneratedArtifactBatch(
+                request.getUserId(), request.getAiJobId(), request.getArtifactBatchId());
+        if (files.size() != request.getExpectedCount()
+                || files.stream().anyMatch(file -> !"STAGED".equals(file.getStatus())
+                && !STATUS_AVAILABLE.equals(file.getStatus()))) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "generated artifact batch is incomplete or contains failed artifacts");
+        }
+        fileInfoMapper.commitGeneratedArtifactBatch(
+                request.getUserId(), request.getAiJobId(), request.getArtifactBatchId());
+        files.forEach(file -> file.setStatus(STATUS_AVAILABLE));
+        return files.stream().map(this::toDTO).toList();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void abortGeneratedArtifactBatch(GeneratedArtifactBatchRequestDTO request) {
+        validateBatchRequest(request);
+        if (artifactAuthorityService != null) {
+            artifactAuthorityService.assertFailed(request);
+        }
+        List<FileInfo> files = fileInfoMapper.selectGeneratedArtifactBatchForAbort(
+                request.getUserId(), request.getAiJobId(), request.getArtifactBatchId());
+        fileInfoMapper.abortGeneratedArtifactBatch(
+                request.getUserId(), request.getAiJobId(), request.getArtifactBatchId());
+        afterCommit(() -> files.forEach(file -> removeGeneratedObjectIfNoReferences(
+                file.getBucket(), file.getObjectKey())));
+    }
+
+    @Override
+    public int reconcileStaleGeneratedArtifacts() {
+        List<FileInfo> stale = fileInfoMapper.selectStaleGeneratedArtifacts(
+                micros(generatedArtifactStaleMillis), 200);
+        int recovered = 0;
+        for (FileInfo file : stale) {
+            int changed = fileInfoMapper.failGeneratedArtifactClaim(file.getId(), file.getClaimToken());
+            if (changed == 1) {
+                recovered++;
+                removeGeneratedObjectIfNoReferences(file.getBucket(), file.getObjectKey());
+            }
+        }
+        return recovered;
+    }
+
+    private void validateBatchRequest(GeneratedArtifactBatchRequestDTO request) {
+        if (request == null || request.getUserId() == null || request.getUserId() <= 0
+                || request.getAiJobId() == null || request.getAiJobId() <= 0
+                || request.getTaskId() == null || request.getTaskId() <= 0
+                || !StringUtils.hasText(request.getWorkflowId())
+                || !StringUtils.hasText(request.getArtifactBatchId())
+                || request.getExpectedCount() == null || request.getExpectedCount() <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "generated artifact batch context is incomplete");
+        }
+    }
+
+    @Override
     public FileAssetPageResponse listAssets(Long userId,
                                             String query,
                                             String type,
@@ -284,16 +530,16 @@ public class FileInfoServiceImpl implements FileInfoService {
 
         int normalizedPage = Math.max(1, page);
         int normalizedPageSize = normalizePageSize(pageSize);
-        if (unsupportedSource(source) || unsupportedArtifactKind(artifactKind) || StringUtils.hasText(workflowId)
-                || unsupportedType(type)) {
+        if (unsupportedSource(source) || unsupportedArtifactKind(artifactKind) || unsupportedType(type)) {
             return emptyPage(normalizedPage, normalizedPageSize);
         }
 
         String normalizedType = normalize(type);
         String normalizedSource = normalize(source);
         String normalizedArtifactKind = normalize(artifactKind);
+        String normalizedWorkflowId = StringUtils.hasText(workflowId) ? workflowId.trim() : null;
         LambdaQueryWrapper<FileInfo> countQuery = listQuery(userId, query, normalizedType, normalizedSource,
-                normalizedArtifactKind);
+                normalizedArtifactKind, normalizedWorkflowId);
         long total = safeLong(fileInfoMapper.selectCount(countQuery));
         if (total == 0) {
             return emptyPage(normalizedPage, normalizedPageSize);
@@ -301,7 +547,7 @@ public class FileInfoServiceImpl implements FileInfoService {
 
         long offset = (long) (normalizedPage - 1) * normalizedPageSize;
         LambdaQueryWrapper<FileInfo> pageQuery = listQuery(userId, query, normalizedType, normalizedSource,
-                normalizedArtifactKind)
+                normalizedArtifactKind, normalizedWorkflowId)
                 .orderByDesc(FileInfo::getUpdatedAt)
                 .orderByDesc(FileInfo::getId)
                 .last("LIMIT " + offset + ", " + normalizedPageSize);
@@ -480,7 +726,8 @@ public class FileInfoServiceImpl implements FileInfoService {
                                                    String queryText,
                                                    String type,
                                                    String source,
-                                                   String artifactKind) {
+                                                   String artifactKind,
+                                                   String workflowId) {
         LambdaQueryWrapper<FileInfo> query = new LambdaQueryWrapper<FileInfo>()
                 .eq(FileInfo::getUserId, userId)
                 .eq(FileInfo::getStatus, STATUS_AVAILABLE);
@@ -497,6 +744,12 @@ public class FileInfoServiceImpl implements FileInfoService {
         applyTypeFilter(query, type);
         applySourceFilter(query, source);
         applyArtifactKindFilter(query, artifactKind);
+        if (StringUtils.hasText(workflowId)) {
+            String legacyPrefix = WORKFLOW_EXPORT_PREFIX + workflowId + "/";
+            query.and(wrapper -> wrapper.eq(FileInfo::getWorkflowId, workflowId)
+                    .or(legacy -> legacy.isNull(FileInfo::getWorkflowId)
+                            .likeRight(FileInfo::getObjectKey, legacyPrefix)));
+        }
         return query;
     }
 
@@ -505,10 +758,14 @@ public class FileInfoServiceImpl implements FileInfoService {
             return;
         }
         if (SOURCE_ARTIFACT.equals(source)) {
-            query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+            query.and(wrapper -> wrapper.eq(FileInfo::getSource, SOURCE_ARTIFACT)
+                    .or(legacy -> legacy.isNull(FileInfo::getSource)
+                            .likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)));
             return;
         }
-        query.notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+        query.and(wrapper -> wrapper.eq(FileInfo::getSource, DEFAULT_SOURCE)
+                .or(legacy -> legacy.isNull(FileInfo::getSource)
+                        .notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)));
     }
 
     private void applyArtifactKindFilter(LambdaQueryWrapper<FileInfo> query, String artifactKind) {
@@ -516,21 +773,27 @@ public class FileInfoServiceImpl implements FileInfoService {
             return;
         }
         if (DEFAULT_ARTIFACT_KIND.equals(artifactKind)) {
-            query.notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+            query.and(wrapper -> wrapper.eq(FileInfo::getArtifactKind, DEFAULT_ARTIFACT_KIND)
+                    .or(legacy -> legacy.isNull(FileInfo::getArtifactKind)
+                            .notLikeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)));
             return;
         }
         if (ARTIFACT_KIND_SUMMARY.equals(artifactKind)) {
-            query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)
-                    .and(wrapper -> wrapper.like(FileInfo::getOriginalName, ".md")
+            query.and(wrapper -> wrapper.eq(FileInfo::getArtifactKind, ARTIFACT_KIND_SUMMARY)
+                    .or(legacy -> legacy.isNull(FileInfo::getArtifactKind)
+                            .likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)
+                            .and(name -> name.like(FileInfo::getOriginalName, ".md")
                             .or()
                             .like(FileInfo::getOriginalName, ".markdown")
                             .or()
                             .like(FileInfo::getOriginalName, ".txt")
                             .or()
-                            .like(FileInfo::getOriginalName, ".json"));
+                            .like(FileInfo::getOriginalName, ".json"))));
             return;
         }
-        query.likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX);
+        query.and(wrapper -> wrapper.eq(FileInfo::getArtifactKind, artifactKind)
+                .or(legacy -> legacy.isNull(FileInfo::getArtifactKind)
+                        .likeRight(FileInfo::getObjectKey, WORKFLOW_EXPORT_PREFIX)));
     }
 
     private void applyTypeFilter(LambdaQueryWrapper<FileInfo> query, String type) {
@@ -811,6 +1074,34 @@ public class FileInfoServiceImpl implements FileInfoService {
         }
     }
 
+    private void removeGeneratedObjectIfNoReferences(String bucket, String objectKey) {
+        if (safeLong(fileInfoMapper.countAvailableByObject(bucket, objectKey)) > 0) {
+            return;
+        }
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(objectKey)
+                    .build());
+        } catch (Exception exception) {
+            log.warn("Generated artifact rollback failed traceId={} fileId={} userId={} bucket={} objectKey={}",
+                    FileLogContext.traceId(), FileLogContext.fileId(), FileLogContext.userId(), bucket, objectKey,
+                    exception);
+        }
+    }
+
+    private boolean objectExists(FileInfo fileInfo) {
+        try {
+            minioClient.statObject(StatObjectArgs.builder()
+                    .bucket(fileInfo.getBucket())
+                    .object(fileInfo.getObjectKey())
+                    .build());
+            return true;
+        } catch (Exception exception) {
+            return false;
+        }
+    }
+
     private void removePhysicalObject(FileInfo fileInfo) {
         try {
             minioClient.removeObject(RemoveObjectArgs.builder()
@@ -862,7 +1153,7 @@ public class FileInfoServiceImpl implements FileInfoService {
                 fileInfo.getOriginalName(),
                 resolveContentType(resolveMimeType(fileInfo)),
                 fileInfo.getFileSize(),
-                signedDownloadUrl(fileInfo)
+                "STAGED".equals(fileInfo.getStatus()) ? null : signedDownloadUrl(fileInfo)
         );
     }
 
@@ -890,6 +1181,13 @@ public class FileInfoServiceImpl implements FileInfoService {
 
     private Long elapsedMs(long start) {
         return (System.nanoTime() - start) / 1_000_000L;
+    }
+
+    private long micros(long millis) {
+        if (millis <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "generated artifact duration must be positive");
+        }
+        return Math.multiplyExact(millis, 1_000L);
     }
 
     private long safeLong(Long value) {

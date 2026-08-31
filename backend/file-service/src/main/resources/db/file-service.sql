@@ -5,6 +5,14 @@ CREATE TABLE IF NOT EXISTS af_file_info (
     source VARCHAR(32),
     artifact_kind VARCHAR(64),
     workflow_id VARCHAR(128),
+    idempotency_key VARCHAR(128),
+    ai_job_id BIGINT,
+    task_id BIGINT,
+    artifact_batch_id VARCHAR(128),
+    artifact_ordinal INT,
+    producer_fence_token VARCHAR(64),
+    claim_token VARCHAR(64),
+    claim_expires_at DATETIME(6),
     bucket VARCHAR(128) NOT NULL,
     object_key VARCHAR(512) NOT NULL,
     original_name VARCHAR(255),
@@ -22,6 +30,10 @@ CREATE TABLE IF NOT EXISTS af_file_info (
     KEY idx_af_file_info_user (user_id),
     KEY idx_af_file_info_uploader (uploader_id),
     KEY idx_af_file_info_workflow (workflow_id),
+    UNIQUE KEY uk_af_file_info_user_idempotency (user_id, idempotency_key),
+    UNIQUE KEY uk_af_file_info_artifact_ordinal (user_id, artifact_batch_id, artifact_ordinal),
+    KEY idx_af_file_info_artifact_batch (user_id, ai_job_id, artifact_batch_id, status),
+    KEY idx_af_file_info_artifact_recovery (status, claim_expires_at, updated_at),
     KEY idx_af_file_info_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -47,6 +59,36 @@ SET @idx_exists = (
 );
 SET @sql = IF(@idx_exists > 0,
     'ALTER TABLE af_file_info DROP INDEX uk_af_file_info_object',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @col_exists = (
+    SELECT COUNT(1)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'af_file_info'
+      AND column_name = 'idempotency_key'
+);
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE af_file_info ADD COLUMN idempotency_key VARCHAR(128) NULL AFTER workflow_id',
+    'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @idx_exists = (
+    SELECT COUNT(1)
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'af_file_info'
+      AND index_name = 'uk_af_file_info_user_idempotency'
+);
+SET @sql = IF(@idx_exists = 0,
+    'ALTER TABLE af_file_info ADD UNIQUE INDEX uk_af_file_info_user_idempotency (user_id, idempotency_key)',
     'SELECT 1'
 );
 PREPARE stmt FROM @sql;

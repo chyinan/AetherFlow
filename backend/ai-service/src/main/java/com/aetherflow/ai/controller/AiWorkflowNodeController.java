@@ -6,6 +6,7 @@ import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
 import com.aetherflow.ai.capability.AiWorkflowCapabilityService;
 import com.aetherflow.ai.config.AiInternalProperties;
+import com.aetherflow.ai.file.AiFileRegistrationService;
 import com.aetherflow.common.core.InternalHeaders;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -45,13 +46,16 @@ public class AiWorkflowNodeController {
 
     private final DefaultAiNodeExecutorRegistry executorRegistry;
     private final AiWorkflowCapabilityService capabilityService;
+    private final AiFileRegistrationService fileRegistrationService;
     private final InternalServiceTokenService internalTokenService;
 
     public AiWorkflowNodeController(DefaultAiNodeExecutorRegistry executorRegistry,
                                     AiWorkflowCapabilityService capabilityService,
+                                    AiFileRegistrationService fileRegistrationService,
                                     AiInternalProperties properties) {
         this.executorRegistry = executorRegistry;
         this.capabilityService = capabilityService;
+        this.fileRegistrationService = fileRegistrationService;
         this.internalTokenService = new InternalServiceTokenService(
                 properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1));
     }
@@ -85,13 +89,19 @@ public class AiWorkflowNodeController {
         AiNodeExecutor executor = executorRegistry.getRequired(executorType);
         log.info("AI workflow node execution started traceId={} workflowId={} nodeId={} nodeType={} executorType={}",
                 request.getTraceId(), request.getWorkflowId(), request.getNodeId(), request.getNodeType(), executorType);
-        AiNodeResult result = executor.execute(new AiNodeExecutionContext(taskMessage(request, executorType), payload));
+        TaskMessageDTO taskMessage = taskMessage(request, executorType);
+        AiNodeResult result = executor.execute(new AiNodeExecutionContext(taskMessage, payload));
+        if (result.artifacts() != null && !result.artifacts().isEmpty()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "generated artifact nodes require fenced asynchronous execution");
+        }
+        AiNodeResult durableResult = result;
         log.info("AI workflow node execution completed traceId={} workflowId={} nodeId={} nodeType={} status={}",
-                request.getTraceId(), request.getWorkflowId(), request.getNodeId(), request.getNodeType(), result.status());
+                request.getTraceId(), request.getWorkflowId(), request.getNodeId(), request.getNodeType(), durableResult.status());
         return Result.success(new AiWorkflowNodeResponseDTO(
                 normalizeNodeType(request.getNodeType()),
-                result.status(),
-                result.output()
+                durableResult.status(),
+                durableResult.output()
         ));
     }
 
@@ -103,10 +113,26 @@ public class AiWorkflowNodeController {
 
     private TaskMessageDTO taskMessage(AiWorkflowNodeRequestDTO request, String executorType) {
         TaskMessageDTO message = new TaskMessageDTO();
+        message.setTaskId(positiveLong(request.getTaskId(), "taskId"));
+        message.setWorkflowInstanceId(positiveLong(request.getWorkflowId(), "workflowId"));
+        message.setUserId(request.getUserId());
+        message.setTraceId(request.getTraceId());
         message.setNodeId(request.getNodeId());
         message.setNodeType(executorType);
         message.setPayload(request.getPayload());
         return message;
+    }
+
+    private Long positiveLong(String value, String field) {
+        try {
+            long parsed = Long.parseLong(value);
+            if (parsed <= 0) {
+                throw new NumberFormatException("not positive");
+            }
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "ai workflow " + field + " must be a positive integer");
+        }
     }
 
     private String executorType(String nodeType) {

@@ -26,6 +26,7 @@ class WorkflowNodeCatalogControllerTest {
                         "START",
                         "END",
                         "UPLOAD",
+                        "FFMPEG",
                         "OCR",
                         "URL_FETCH",
                         "WHISPER",
@@ -62,6 +63,12 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("fileUrl", "fileObjectKey", "fileSize");
         assertThat(upload.exampleConfig()).containsEntry("fileIdVariable", "fileId");
+
+        WorkflowNodeCatalogItem ffmpeg = item(result.getData(), "FFMPEG");
+        assertThat(ffmpeg.configSchema()).extracting(WorkflowNodeConfigSchema::name)
+                .contains("fileUrl", "fileUrlVariable", "operation", "outputFormat");
+        assertThat(ffmpeg.outputVariables()).extracting(WorkflowNodeVariableSchema::name)
+                .contains("mediaFileName", "mediaContentType", "mediaSize");
 
         WorkflowNodeCatalogItem start = item(result.getData(), "START");
         assertThat(start.exampleConfig()).doesNotContainKey("variables");

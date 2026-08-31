@@ -11,6 +11,8 @@ public interface NotificationService {
 
     List<NotificationRecordResponse> list(Long userId, int limit);
 
+    List<NotificationRecordResponse> listAfter(Long userId, Long afterId, int limit);
+
     void markAllRead(Long userId);
 
     void clear(Long userId);

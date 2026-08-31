@@ -93,7 +93,9 @@ public class AiProviderRouter {
             AtomicBoolean streamStarted = new AtomicBoolean(false);
             try {
                 metricsService.recordCall(providerType);
-                provider.stream(request.withProvider(providerType), response -> {
+                AiProviderRequest routedRequest = request.withProvider(providerType)
+                        .withTimeout(policy.effectiveRequestTimeout(request.timeout()));
+                provider.stream(routedRequest, response -> {
                     if (response != null && response.text() != null && !response.text().isBlank()) {
                         streamStarted.set(true);
                     }
@@ -167,7 +169,9 @@ public class AiProviderRouter {
                 Instant startedAt = Instant.now();
                 try {
                     metricsService.recordCall(providerType);
-                    AiProviderResponse response = provider.get().generate(request.withProvider(providerType));
+                    AiProviderRequest routedRequest = request.withProvider(providerType)
+                            .withTimeout(policy.effectiveRequestTimeout(request.timeout()));
+                    AiProviderResponse response = provider.get().generate(routedRequest);
                     Map<String, Object> responseMetadata = pricingSnapshotService.addCostMetadata(
                             response.metadata(), providerType, response.model(), startedAt);
                     AiProviderResponse enrichedResponse = new AiProviderResponse(

@@ -74,12 +74,19 @@ class FileInfoServiceImplListTest {
     }
 
     @Test
-    void returnsEmptyPageForUnpersistedWorkflowFilter() {
-        FileAssetPageResponse response = service.listAssets(1001L, null, null, null, null, "wf-1", 1, 20);
+    void listsFilesForPersistedWorkflowFilter() {
+        when(fileInfoMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+        when(fileInfoMapper.selectList(any(Wrapper.class))).thenReturn(List.of(exportFile()));
 
-        assertThat(response.total()).isZero();
-        assertThat(response.items()).isEmpty();
-        verify(fileInfoMapper, never()).selectCount(any(Wrapper.class));
+        FileAssetPageResponse response = service.listAssets(
+                1001L, null, null, "artifact", "summary", "2002", 1, 20);
+
+        assertThat(response.total()).isEqualTo(1);
+        assertThat(response.items()).singleElement().satisfies(item -> {
+            assertThat(item.workflowId()).isEqualTo("2002");
+            assertThat(item.source()).isEqualTo("artifact");
+            assertThat(item.artifactKind()).isEqualTo("summary");
+        });
     }
 
     @Test
@@ -147,6 +154,9 @@ class FileInfoServiceImplListTest {
         fileInfo.setOriginalName("meeting-summary.md");
         fileInfo.setContentType("text/markdown");
         fileInfo.setMimeType("text/markdown");
+        fileInfo.setSource("artifact");
+        fileInfo.setArtifactKind("summary");
+        fileInfo.setWorkflowId("2002");
         fileInfo.setFileUrl("http://minio/aetherflow/workflow/exports/5/node-export/meeting-summary.md");
         return fileInfo;
     }

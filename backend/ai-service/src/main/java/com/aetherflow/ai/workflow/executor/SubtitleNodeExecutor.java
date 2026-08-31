@@ -1,5 +1,7 @@
 package com.aetherflow.ai.workflow.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.workflow.AiArtifact;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,9 +46,13 @@ public class SubtitleNodeExecutor implements AiNodeExecutor {
         if (response != null) {
             output.put("content", response.content());
             output.put("format", response.format());
-            output.put("objectKey", response.objectKey());
-            if (response.objectKey() != null && !response.objectKey().isBlank()) {
-                artifacts.add(new AiArtifact(response.format().toUpperCase(), response.objectKey(), "text/plain"));
+            if (response.content() != null && !response.content().isBlank()) {
+                String format = response.format() == null || response.format().isBlank()
+                        ? "srt"
+                        : response.format().toLowerCase();
+                artifacts.add(new AiArtifact(
+                        format.toUpperCase(), "subtitle." + format, "text/plain",
+                        response.content().getBytes(StandardCharsets.UTF_8)));
             }
         }
         return new AiNodeResult(nodeType(), "SUCCEEDED", output, artifacts);
@@ -54,6 +61,6 @@ public class SubtitleNodeExecutor implements AiNodeExecutor {
     private record SubtitleRequest(String text, String format, Double lineSeconds) {
     }
 
-    private record SubtitleResponse(String content, String format, String objectKey) {
+    private record SubtitleResponse(String content, String format) {
     }
 }

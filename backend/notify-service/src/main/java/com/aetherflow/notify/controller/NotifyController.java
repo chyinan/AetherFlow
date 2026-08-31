@@ -66,12 +66,46 @@ public class NotifyController {
     @GetMapping("/sse/{userId}")
     public SseEmitter subscribe(@Parameter(description = "Target user id.", example = "10001")
                                 @PathVariable Long userId,
-                                @RequestParam("streamToken") String streamToken) {
+                                @RequestParam("streamToken") String streamToken,
+                                @RequestParam(value = "afterId", required = false) Long afterId,
+                                @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        StreamTokenService.StreamTokenClaims claims = streamTokenService.validate(streamToken);
+        if (claims.userId() == null || !claims.userId().equals(userId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "stream token user does not match requested user");
+        }
+        Long cursor = afterId != null ? afterId : parseCursor(lastEventId);
+        if (cursor == null) {
+            return sseEmitterRegistry.register(userId);
+        }
+        return sseEmitterRegistry.register(userId, notificationService.listAfter(userId, cursor, 100));
+    }
+
+    /** Backward-compatible Java entry point used by internal callers and contract tests. */
+    public SseEmitter subscribe(Long userId, String streamToken, Long afterId) {
+        return subscribe(userId, streamToken, afterId, null);
+    }
+
+    /** Backward-compatible Java entry point used by internal callers and contract tests. */
+    @Operation(summary = "Subscribe notification SSE stream (legacy overload)")
+    @ApiResponses({@ApiResponse(responseCode = "200", description = "SSE stream established.")})
+    public SseEmitter subscribe(Long userId, String streamToken) {
         StreamTokenService.StreamTokenClaims claims = streamTokenService.validate(streamToken);
         if (claims.userId() == null || !claims.userId().equals(userId)) {
             throw new BusinessException(ResultCode.FORBIDDEN, "stream token user does not match requested user");
         }
         return sseEmitterRegistry.register(userId);
+    }
+
+    private Long parseCursor(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            long cursor = Long.parseLong(value.trim());
+            return cursor >= 0 ? cursor : null;
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     @Operation(summary = "Issue short-lived stream token",
@@ -136,6 +170,9 @@ public class NotifyController {
             @RequestBody NotifyMessageDTO message) {
         if (!internalTokenService.isValid(internalToken, "notify-service", Instant.now())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "invalid internal notify token");
+        }
+        if (message == null || message.getUserId() == null || message.getUserId() <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "notification userId must be a positive value");
         }
         notificationService.send(message);
         return Result.success();

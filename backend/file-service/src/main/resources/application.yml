@@ -9,7 +9,7 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:192.168.101.68}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USERNAME:root}
+    username: ${MYSQL_USERNAME:aetherflow_app}
     password: ${MYSQL_PASSWORD:mysql}
   data:
     redis:
@@ -54,6 +54,8 @@ seata:
       default: ${SEATA_ADDR:192.168.101.68:8091}
 
 aetherflow:
+  ai:
+    internal-token: ${AI_INTERNAL_TOKEN:aetherflow-ai-internal-dev-token}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://192.168.101.68:9000}
     public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://192.168.101.68:9000}

@@ -1,5 +1,7 @@
 package com.aetherflow.ai.provider;
 
+// pattern: Functional Core
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -12,6 +14,10 @@ import java.util.Objects;
 @Data
 @Schema(description = "AI provider routing, retry, failover and circuit breaker policy.")
 public class ProviderRoutingPolicy {
+
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration MIN_REQUEST_TIMEOUT = Duration.ofMillis(100);
+    private static final Duration MAX_REQUEST_TIMEOUT = Duration.ofMinutes(30);
 
     @Schema(description = "Whether provider failover is enabled.", example = "true")
     private boolean enableFailover = true;
@@ -61,7 +67,7 @@ public class ProviderRoutingPolicy {
         policy.circuitFailureThreshold = Math.max(1, policy.circuitFailureThreshold);
         policy.retryInitialBackoff = ensureDuration(policy.retryInitialBackoff, Duration.ofMillis(200));
         policy.retryMaxBackoff = ensureDuration(policy.retryMaxBackoff, Duration.ofSeconds(2));
-        policy.requestTimeout = ensureDuration(policy.requestTimeout, Duration.ofSeconds(60));
+        policy.requestTimeout = boundedRequestTimeout(policy.requestTimeout);
         policy.circuitOpenDuration = ensureDuration(policy.circuitOpenDuration, Duration.ofSeconds(60));
         policy.healthCheckInterval = ensureDuration(policy.healthCheckInterval, Duration.ofSeconds(30));
         return policy;
@@ -75,6 +81,17 @@ public class ProviderRoutingPolicy {
         }
         ordered.addAll(policy.providers);
         return new ArrayList<>(ordered);
+    }
+
+    public Duration effectiveRequestTimeout(Duration perCallTimeout) {
+        Duration policyTimeout = boundedRequestTimeout(requestTimeout);
+        if (perCallTimeout == null || perCallTimeout.isZero() || perCallTimeout.isNegative()) {
+            return policyTimeout;
+        }
+        Duration boundedPerCall = perCallTimeout.compareTo(MAX_REQUEST_TIMEOUT) > 0
+                ? MAX_REQUEST_TIMEOUT
+                : perCallTimeout;
+        return boundedPerCall.compareTo(policyTimeout) < 0 ? boundedPerCall : policyTimeout;
     }
 
     public ProviderRoutingPolicy copy() {
@@ -94,5 +111,18 @@ public class ProviderRoutingPolicy {
 
     private Duration ensureDuration(Duration value, Duration fallback) {
         return Objects.requireNonNullElse(value, fallback);
+    }
+
+    private Duration boundedRequestTimeout(Duration value) {
+        Duration timeout = value == null || value.isZero() || value.isNegative()
+                ? DEFAULT_REQUEST_TIMEOUT
+                : value;
+        if (timeout.compareTo(MIN_REQUEST_TIMEOUT) < 0) {
+            return MIN_REQUEST_TIMEOUT;
+        }
+        if (timeout.compareTo(MAX_REQUEST_TIMEOUT) > 0) {
+            return MAX_REQUEST_TIMEOUT;
+        }
+        return timeout;
     }
 }

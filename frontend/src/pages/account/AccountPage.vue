@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { BadgeCheck, Building2, Clock3, KeyRound, ShieldCheck, UserRound } from 'lucide-vue-next'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useAuthStore } from '@/stores/authStore'
@@ -24,7 +24,7 @@ const member = computed(() =>
 const email = computed(() =>
   typeof user.value?.email === 'string' && user.value.email
     ? user.value.email
-    : member.value?.email ?? `${username.value}@aetherflow.local`
+    : member.value?.email ?? ''
 )
 const roleLabel = computed(() => {
   const role = user.value?.role ?? 'operator'
@@ -40,6 +40,13 @@ const sessionExpiresAt = computed(() => {
   return formatDateTime(new Date(expiresAt))
 })
 const avatarText = computed(() => displayName.value.slice(0, 2).toUpperCase())
+const usernameInput = ref('')
+const emailInput = ref('')
+const currentPassword = ref('')
+const newPassword = ref('')
+const savingProfile = ref(false)
+const profileError = ref<string | null>(null)
+const profileSaved = ref(false)
 
 const cards = computed(() => [
   {
@@ -62,7 +69,40 @@ const cards = computed(() => [
   },
 ])
 
-onMounted(() => {
+async function loadProfile() {
+  try {
+    const profile = await authStore.loadProfile()
+    usernameInput.value = profile.username ?? ''
+    emailInput.value = typeof profile.email === 'string' ? profile.email : ''
+  } catch {
+    usernameInput.value = username.value
+    emailInput.value = email.value
+  }
+}
+
+async function saveProfile() {
+  savingProfile.value = true
+  profileError.value = null
+  profileSaved.value = false
+  try {
+    await authStore.updateProfile({
+      username: usernameInput.value.trim() || undefined,
+      email: emailInput.value.trim() || undefined,
+      currentPassword: currentPassword.value || undefined,
+      newPassword: newPassword.value || undefined,
+    })
+    profileSaved.value = true
+    currentPassword.value = ''
+    newPassword.value = ''
+  } catch (error) {
+    profileError.value = error instanceof Error ? error.message : t('account.updateFailed')
+  } finally {
+    savingProfile.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadProfile()
   if (!settingsStore.workspace && !settingsStore.loading) {
     void settingsStore.loadSettings()
   }
@@ -118,16 +158,30 @@ onMounted(() => {
           <div class="space-y-4">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold">{{ t('account.username') }}</span>
-              <input class="h-11 w-full rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" :value="username" readonly />
+              <input v-model="usernameInput" class="h-11 w-full rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" autocomplete="username" />
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold">{{ t('account.email') }}</span>
-              <input class="h-11 w-full rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" :value="email" readonly />
+              <input v-model="emailInput" class="h-11 w-full rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" autocomplete="email" />
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold">{{ t('account.userId') }}</span>
               <input class="h-11 w-full rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" :value="user?.userId ?? user?.id ?? '-'" readonly />
             </label>
+          </div>
+
+          <div class="mt-4 space-y-3 lg:col-span-2">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <input v-model="currentPassword" type="password" class="h-11 rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" :placeholder="t('account.currentPassword')" autocomplete="current-password" />
+              <input v-model="newPassword" type="password" class="h-11 rounded-lg border border-app-border bg-app-bg2 px-3 text-sm outline-none" :placeholder="t('account.newPassword')" autocomplete="new-password" />
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="button" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" :disabled="savingProfile" @click="saveProfile">
+                {{ savingProfile ? t('account.saving') : t('account.saveProfile') }}
+              </button>
+              <span v-if="profileSaved" class="text-sm text-status-success">{{ t('account.profileSaved') }}</span>
+              <span v-if="profileError" class="text-sm text-status-error" role="alert">{{ profileError }}</span>
+            </div>
           </div>
 
           <aside class="rounded-xl border border-app-border bg-app-bg2 p-4">

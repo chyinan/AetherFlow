@@ -9,10 +9,11 @@ import org.springframework.web.client.RestClient;
 @Component
 public class OpenAIProvider extends PythonRuntimeAiProvider {
 
-    public OpenAIProvider(@Qualifier("pythonAiRestClient") RestClient pythonAiRestClient,
+    public OpenAIProvider(@Qualifier("pythonAiStatusRestClient") RestClient pythonAiStatusRestClient,
+                          PythonAiInferenceClientFactory inferenceClientFactory,
                           SentinelAiGuard sentinelAiGuard,
                           ObjectMapper objectMapper) {
-        super(pythonAiRestClient, sentinelAiGuard, objectMapper);
+        super(pythonAiStatusRestClient, inferenceClientFactory, sentinelAiGuard, objectMapper);
     }
 
     @Override

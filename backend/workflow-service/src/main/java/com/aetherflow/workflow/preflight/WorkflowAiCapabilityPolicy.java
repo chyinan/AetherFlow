@@ -33,7 +33,23 @@ public final class WorkflowAiCapabilityPolicy {
         }
         return definition.getNodes().stream()
                 .map(node -> normalize(node == null ? null : node.getNodeType()))
-                .anyMatch(type -> requiredCapability(type) != null);
+                .anyMatch(type -> requiredCapability(type) != null || requiresAsyncType(type));
+    }
+
+    public static List<String> validateAsyncRequirement(WorkflowDefinitionDTO definition) {
+        if (definition == null || definition.getNodes() == null) return List.of();
+        return definition.getNodes().stream()
+                .filter(node -> node != null && requiresAsyncType(normalize(node.getNodeType())))
+                .map(node -> prefix(node, normalize(node.getNodeType()))
+                        + "requires WORKFLOW_AI_ASYNC_ENABLED=true for fenced artifact execution")
+                .toList();
+    }
+
+    private static boolean requiresAsyncType(String type) {
+        return switch (type) {
+            case "WHISPER", "ASR", "FFMPEG", "IMAGE_GENERATION", "UPSCALE" -> true;
+            default -> false;
+        };
     }
 
     private static void validateNode(WorkflowNodeDTO node,

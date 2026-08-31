@@ -10,6 +10,7 @@ interface WorkflowNodeLike {
 }
 
 const FILE_BACKED_NODE_KINDS = new Set<WorkflowNodeKind>([
+  'upload',
   'ffmpeg',
   'whisper',
   'document-extractor',

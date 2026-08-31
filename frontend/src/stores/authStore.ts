@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { setUnauthorizedSessionRefresher } from '@/api/client/apiClient'
 import { tokenManager, type AuthSession, type AuthSessionUserSnapshot } from '@/api/client/tokenManager'
 import { authApi, type AuthUser } from '@/services/api/authApi'
+import type { UserProfileUpdateRequest } from '@/api/modules/auth'
 
 interface AuthState {
   token: string | null
@@ -63,6 +64,7 @@ function toAuthUser(user: AuthSessionUserSnapshot | null | undefined): AuthUser 
     workspace:
       typeof user.workspace === 'string' && user.workspace ? user.workspace : 'AetherFlow Lab',
     username: typeof user.username === 'string' ? user.username : undefined,
+    email: typeof user.email === 'string' ? user.email : undefined,
     roles,
     rawRoles: readStringArray(userRecord.rawRoles),
     userId:
@@ -204,6 +206,30 @@ export const useAuthStore = defineStore('auth', {
       }
 
       return this.refreshSession()
+    },
+    async loadProfile() {
+      const profile = await authApi.profile()
+      const current = this.session ?? tokenManager.readSession()
+      if (current) {
+        const nextSession = { ...current, user: profile }
+        tokenManager.setSession(nextSession)
+        this.setActiveSession(nextSession)
+      }
+      return profile
+    },
+    async updateProfile(payload: UserProfileUpdateRequest) {
+      const profile = await authApi.updateProfile(payload)
+      if (payload.newPassword) {
+        this.clearLocalSession()
+      } else {
+        const current = this.session ?? tokenManager.readSession()
+        if (current) {
+          const nextSession = { ...current, user: profile }
+          tokenManager.setSession(nextSession)
+          this.setActiveSession(nextSession)
+        }
+      }
+      return profile
     },
     async logout() {
       const session = this.session ?? tokenManager.readSession()

@@ -2,6 +2,7 @@ package com.aetherflow.workflow.service;
 
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
+import com.aetherflow.workflow.controller.WorkflowCopyRequest;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 
@@ -20,5 +21,9 @@ public interface WorkflowService {
     void deleteDefinition(Long definitionId);
 
     WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request);
+
+    WorkflowDefinition copyDefinition(Long definitionId, WorkflowCopyRequest request);
+
+    List<WorkflowDefinitionDTO> listTemplates();
 }
 

@@ -12,6 +12,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.dto.UserProfileUpdateRequest;
 import com.aetherflow.common.exception.BusinessException;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,6 +29,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -143,6 +145,28 @@ public class UserController {
             @Parameter(description = "Comma-separated roles forwarded by gateway.", example = "USER,ADMIN")
             @NotBlank @RequestHeader(value = "X-Roles", required = false) String roles) {
         return Result.success(userService.currentUser(userId, username, roles));
+    }
+
+    @GetMapping("/profile")
+    @Operation(summary = "Get current account profile", description = "Reads the authenticated account directly from auth-service storage.")
+    public Result<UserPrincipalDTO> profile(
+            @NotNull @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        return Result.success(userService.profile(userId));
+    }
+
+    @PatchMapping("/profile")
+    @Operation(summary = "Update current account profile", description = "Updates username, email or password with uniqueness and current-password checks.")
+    public Result<UserPrincipalDTO> updateProfile(
+            @NotNull @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Valid @RequestBody UserProfileUpdateRequest request,
+            HttpServletRequest servletRequest) {
+        String authorization = servletRequest.getHeader("Authorization");
+        return Result.success(userService.updateProfile(userId, request, authorization));
+    }
+
+    /** Backward-compatible Java entry point used by contract tests and internal callers. */
+    public Result<UserPrincipalDTO> updateProfile(Long userId, UserProfileUpdateRequest request) {
+        return Result.success(userService.updateProfile(userId, request));
     }
 
     private Result<AuthTokenResponse> browserTokenResponse(AuthTokenResponse token,

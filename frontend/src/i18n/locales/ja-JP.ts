@@ -190,6 +190,7 @@ export const jaJP = {
     success: '成功',
     failed: '失敗',
     skipped: 'スキップ',
+    cancelled: 'キャンセル済み',
     paused: '一時停止',
     active: 'アクティブ',
     invited: '招待済み',

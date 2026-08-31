@@ -149,6 +149,34 @@ class AiProviderRouterTest {
         assertThat(fixture.provider(AiProviderType.OLLAMA).calls).isZero();
     }
 
+    @Test
+    void policyTimeoutCapsEveryProviderAttemptAndStreamRequest() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI), 1, 5);
+        policy.setRequestTimeout(Duration.ofSeconds(3));
+        RouterFixture fixture = fixture(policy, new FakeProvider(AiProviderType.OPENAI, "done", "streamed"));
+
+        fixture.router.complete(new AiProviderRequest(
+                null, "gpt-4o-mini", "summarize", Map.of(), Duration.ofSeconds(10)));
+        fixture.router.stream(new AiProviderRequest(
+                null, "gpt-4o-mini", "summarize", Map.of(), Duration.ofSeconds(10)), ignored -> { });
+
+        assertThat(fixture.provider(AiProviderType.OPENAI).timeouts)
+                .containsExactly(Duration.ofSeconds(3), Duration.ofSeconds(3));
+    }
+
+    @Test
+    void shorterPerCallTimeoutIsPreservedBelowPolicyMaximum() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI), 0, 5);
+        policy.setRequestTimeout(Duration.ofSeconds(30));
+        RouterFixture fixture = fixture(policy, new FakeProvider(AiProviderType.OPENAI, "done"));
+
+        fixture.router.complete(new AiProviderRequest(
+                null, "gpt-4o-mini", "summarize", Map.of(), Duration.ofSeconds(2)));
+
+        assertThat(fixture.provider(AiProviderType.OPENAI).timeouts)
+                .containsExactly(Duration.ofSeconds(2));
+    }
+
     private ProviderRoutingPolicy policy(List<AiProviderType> providers, int maxRetries, int threshold) {
         ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
         policy.setProviders(providers);
@@ -200,6 +228,7 @@ class AiProviderRouterTest {
     private static final class FakeProvider implements AiProvider {
         private final AiProviderType type;
         private final Queue<Object> outcomes = new ArrayDeque<>();
+        private final List<Duration> timeouts = new ArrayList<>();
         private int calls;
 
         private FakeProvider(AiProviderType type, Object... outcomes) {
@@ -215,6 +244,7 @@ class AiProviderRouterTest {
         @Override
         public AiProviderResponse complete(AiProviderRequest request) {
             calls++;
+            timeouts.add(request.timeout());
             Object outcome = outcomes.isEmpty() ? "ok" : outcomes.remove();
             if (outcome instanceof RuntimeException runtimeException) {
                 throw runtimeException;
@@ -225,6 +255,7 @@ class AiProviderRouterTest {
         @Override
         public void stream(AiProviderRequest request, java.util.function.Consumer<AiProviderResponse> consumer) {
             calls++;
+            timeouts.add(request.timeout());
             Object outcome = outcomes.isEmpty() ? "ok" : outcomes.remove();
             if (outcome instanceof PartialStreamFailure failure) {
                 consumer.accept(new AiProviderResponse(type, request.model(), failure.partial(), Map.of()));

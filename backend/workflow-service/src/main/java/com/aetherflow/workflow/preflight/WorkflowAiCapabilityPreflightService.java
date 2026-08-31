@@ -6,6 +6,8 @@ import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,8 @@ import java.util.List;
 public class WorkflowAiCapabilityPreflightService {
 
     private final AiWorkflowNodeClient aiClient;
+    @Autowired(required = false)
+    private WorkflowNodeProperties nodeProperties;
 
     public void validate(WorkflowDefinitionDTO definition) {
         if (!WorkflowAiCapabilityPolicy.requiresRemoteCapabilities(definition)) {
@@ -24,6 +28,10 @@ public class WorkflowAiCapabilityPreflightService {
         }
         AiWorkflowCapabilitiesDTO capabilities = loadCapabilities();
         List<String> violations = WorkflowAiCapabilityPolicy.validate(definition, capabilities);
+        if (nodeProperties != null && !nodeProperties.isAsyncAiEnabled()) {
+            violations = new java.util.ArrayList<>(violations);
+            violations.addAll(WorkflowAiCapabilityPolicy.validateAsyncRequirement(definition));
+        }
         if (!violations.isEmpty()) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "workflow AI capability preflight failed: " + String.join("; ", violations));

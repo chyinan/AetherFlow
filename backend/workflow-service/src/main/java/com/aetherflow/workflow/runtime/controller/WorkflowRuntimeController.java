@@ -5,6 +5,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.async.WorkflowAsyncCompletionService;
@@ -51,6 +52,7 @@ public class WorkflowRuntimeController {
     private final RuntimeEventStore runtimeEventStore;
     private final RuntimeEventStreamService streamService;
     private final WorkflowInstanceMapper workflowInstanceMapper;
+    private final WorkflowRuntimeSnapshotMapper workflowRuntimeSnapshotMapper;
     private final WorkflowAsyncCompletionService completionService;
     private final WorkflowRuntimeStreamTokenService streamTokenService;
 
@@ -60,6 +62,7 @@ public class WorkflowRuntimeController {
                                      RuntimeEventStore runtimeEventStore,
                                      RuntimeEventStreamService streamService,
                                      WorkflowInstanceMapper workflowInstanceMapper,
+                                     WorkflowRuntimeSnapshotMapper workflowRuntimeSnapshotMapper,
                                      WorkflowAsyncCompletionService completionService,
                                      WorkflowRuntimeStreamTokenService streamTokenService) {
         this.metrics = metrics;
@@ -67,8 +70,20 @@ public class WorkflowRuntimeController {
         this.runtimeEventStore = runtimeEventStore;
         this.streamService = streamService;
         this.workflowInstanceMapper = workflowInstanceMapper;
+        this.workflowRuntimeSnapshotMapper = workflowRuntimeSnapshotMapper;
         this.completionService = completionService;
         this.streamTokenService = streamTokenService;
+    }
+
+    public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
+                                     InMemoryRuntimeObservationStore observationStore,
+                                     RuntimeEventStore runtimeEventStore,
+                                     RuntimeEventStreamService streamService,
+                                     WorkflowInstanceMapper workflowInstanceMapper,
+                                     WorkflowAsyncCompletionService completionService,
+                                     WorkflowRuntimeStreamTokenService streamTokenService) {
+        this(metrics, observationStore, runtimeEventStore, streamService, workflowInstanceMapper, null,
+                completionService, streamTokenService);
     }
 
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -200,6 +215,32 @@ public class WorkflowRuntimeController {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow stream token service is unavailable");
         }
         return Result.success(streamTokenService.issue(userId, username, workflowId));
+    }
+
+    @Operation(summary = "Cancel workflow run", description = "Cancels an active owned workflow run. The runtime checks this durable state before every subsequent node dispatch.")
+    @PostMapping("/instances/{workflowInstanceId}/cancel")
+    public Result<Void> cancel(
+            @PathVariable Long workflowInstanceId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
+        if (workflowInstanceMapper == null) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow cancellation service is unavailable");
+        }
+        int updated = workflowInstanceMapper.cancelIfActive(
+                workflowInstanceId, userId, java.time.LocalDateTime.now());
+        if (updated == 0) {
+            WorkflowInstance instance = workflowInstanceMapper.selectById(workflowInstanceId);
+            if (instance == null) {
+                throw new BusinessException(ResultCode.NOT_FOUND, "workflow instance not found");
+            }
+            if (!"CANCELLED".equals(instance.getStatus())) {
+                throw new BusinessException(ResultCode.CONFLICT, "workflow run is already terminal");
+            }
+        }
+        if (workflowRuntimeSnapshotMapper != null) {
+            workflowRuntimeSnapshotMapper.markCancelled(String.valueOf(workflowInstanceId));
+        }
+        return Result.success();
     }
 
     @Operation(summary = "Complete a human approval node",

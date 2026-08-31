@@ -188,6 +188,7 @@ export const enUS = {
     success: 'success',
     failed: 'failed',
     skipped: 'skipped',
+    cancelled: 'cancelled',
     paused: 'paused',
     active: 'active',
     invited: 'invited',

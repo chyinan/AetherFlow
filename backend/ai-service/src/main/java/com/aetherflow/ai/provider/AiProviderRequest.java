@@ -1,5 +1,7 @@
 package com.aetherflow.ai.provider;
 
+// pattern: Functional Core
+
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Duration;
@@ -25,5 +27,9 @@ public record AiProviderRequest(
 
     public AiProviderRequest withProvider(AiProviderType providerType) {
         return new AiProviderRequest(providerType, model, prompt, options, timeout);
+    }
+
+    public AiProviderRequest withTimeout(Duration effectiveTimeout) {
+        return new AiProviderRequest(provider, model, prompt, options, effectiveTimeout);
     }
 }

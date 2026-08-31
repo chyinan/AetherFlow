@@ -1,12 +1,15 @@
 spring:
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USERNAME:root}
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=true&requireSSL=true&verifyServerCertificate=true&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:aetherflow_app}
     password: ${MYSQL_PASSWORD}
   rabbitmq:
     host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_SSL_PORT:5671}
     username: ${RABBITMQ_USERNAME:aetherflow}
     password: ${RABBITMQ_PASSWORD}
+    ssl:
+      enabled: true
     listener:
       simple:
         default-requeue-rejected: true

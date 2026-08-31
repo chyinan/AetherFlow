@@ -8,6 +8,7 @@ import com.aetherflow.notify.entity.NotificationRecord;
 import com.aetherflow.notify.mapper.NotificationRecordMapper;
 import com.aetherflow.notify.service.NotificationService;
 import com.aetherflow.notify.service.NotificationWebSocketHandler;
+import com.aetherflow.notify.service.RedisNotificationFanout;
 import com.aetherflow.notify.service.SseEmitterRegistry;
 import com.aetherflow.notify.service.TelegramNotificationSender;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -40,10 +41,15 @@ public class NotificationServiceImpl implements NotificationService {
     private final SseEmitterRegistry sseEmitterRegistry;
     private final TelegramNotificationSender telegramNotificationSender;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private RedisNotificationFanout redisNotificationFanout;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void send(NotifyMessageDTO message) {
+        if (message == null || message.getUserId() == null || message.getUserId() <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "notification userId must be a positive value");
+        }
         if (StringUtils.hasText(message.getEventId()) && existsEvent(message.getEventId())) {
             return;
         }
@@ -71,9 +77,14 @@ public class NotificationServiceImpl implements NotificationService {
         // only invoked by Spring once STATUS_COMMITTED has been reached, so a rollback
         // silently drops the push along with the row.
         Long userId = message.getUserId();
+        if (record.getId() != null) {
+            message.setEventId(String.valueOf(record.getId()));
+        }
         afterCommit(() -> {
-            webSocketHandler.send(userId, message);
-            sseEmitterRegistry.send(userId, message);
+            if (redisNotificationFanout == null || !redisNotificationFanout.publish(message)) {
+                webSocketHandler.send(userId, message);
+                sseEmitterRegistry.send(userId, message);
+            }
             telegramNotificationSender.sendIfRequested(message);
         });
     }
@@ -101,6 +112,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public List<NotificationRecordResponse> list(Long userId, int limit) {
+        requireUserId(userId);
         int safeLimit = Math.max(1, Math.min(limit, 50));
         return notificationRecordMapper.selectList(new LambdaQueryWrapper<NotificationRecord>()
                         .eq(NotificationRecord::getUserId, userId)
@@ -113,8 +125,24 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public List<NotificationRecordResponse> listAfter(Long userId, Long afterId, int limit) {
+        requireUserId(userId);
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        long cursor = afterId == null ? 0L : Math.max(0L, afterId);
+        return notificationRecordMapper.selectList(new LambdaQueryWrapper<NotificationRecord>()
+                        .eq(NotificationRecord::getUserId, userId)
+                        .gt(NotificationRecord::getId, cursor)
+                        .orderByAsc(NotificationRecord::getId)
+                        .last("LIMIT " + safeLimit))
+                .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void markAllRead(Long userId) {
+        requireUserId(userId);
         notificationRecordMapper.update(null, new LambdaUpdateWrapper<NotificationRecord>()
                 .eq(NotificationRecord::getUserId, userId)
                 .ne(NotificationRecord::getStatus, "READ")
@@ -124,8 +152,15 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void clear(Long userId) {
+        requireUserId(userId);
         notificationRecordMapper.delete(new LambdaQueryWrapper<NotificationRecord>()
                 .eq(NotificationRecord::getUserId, userId));
+    }
+
+    private void requireUserId(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
+        }
     }
 
     private String writeJson(Object value) {

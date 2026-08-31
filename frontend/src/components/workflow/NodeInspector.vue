@@ -84,6 +84,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   upscale: SlidersHorizontal,
   'save-image': FileText,
   'url-fetch': Search,
+  upload: Upload,
   whisper: Mic,
   llm: Brain,
   ffmpeg: Film,
@@ -672,18 +673,48 @@ onMounted(() => {
           </template>
         </section>
 
+        <section v-else-if="selectedKind === 'upload'" class="space-y-5 p-5">
+          <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
+            <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.videoMetadataTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.fileUrlOutput') }}</p>
+          </div>
+          <label class="block">
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
+          </label>
+        </section>
+
         <section v-else-if="selectedKind === 'ffmpeg'" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.videoMetadataTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.videoMetadataHint') }}</p>
           </div>
           <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
           </label>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">Operation</span>
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('operation', 'extract-audio')" @change="handleTextInput('operation', $event)">
+                <option value="extract-audio">extract-audio</option>
+                <option value="convert">convert</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">Output format</span>
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('outputFormat', 'wav')" @change="handleTextInput('outputFormat', $event)">
+                <option value="wav">wav</option>
+                <option value="mp3">mp3</option>
+                <option value="m4a">m4a</option>
+                <option value="aac">aac</option>
+                <option value="mp4">mp4</option>
+              </select>
+            </label>
+          </div>
           <div class="rounded-lg border border-app-border bg-white p-3 text-sm text-text-secondary">
-            <p><span class="font-semibold text-text-primary">fileUrl</span>：{{ t('workflow.inspector.fileUrlOutput') }}</p>
-            <p class="mt-1"><span class="font-semibold text-text-primary">fileObjectKey</span>：{{ t('workflow.inspector.objectKeyOutput') }}</p>
+            <p><span class="font-semibold text-text-primary">mediaFileName</span>：generated media artifact</p>
+            <p class="mt-1"><span class="font-semibold text-text-primary">mediaSize</span>：output bytes (maximum 50 MiB)</p>
           </div>
         </section>
 

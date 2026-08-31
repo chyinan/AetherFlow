@@ -116,6 +116,24 @@ class WorkflowControllerTest {
         verify(workflowService).deleteDefinition(10L);
     }
 
+    @Test
+    void copiesDefinitionAndListsPresetTemplates() throws Exception {
+        when(workflowService.copyDefinition(eq(10L), any(WorkflowCopyRequest.class)))
+                .thenReturn(definition(11L, "Copy"));
+        when(workflowService.listTemplates()).thenReturn(List.of(definitionRequest("Media digest")));
+
+        mockMvc.perform(post("/workflows/definitions/10/copy")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("name", "Copy"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(11));
+        mockMvc.perform(get("/workflows/templates"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].name").value("Media digest"));
+        verify(workflowService).copyDefinition(eq(10L), any(WorkflowCopyRequest.class));
+        verify(workflowService).listTemplates();
+    }
+
     private static WorkflowDefinition definition(Long id, String name) {
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setId(id);

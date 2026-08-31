@@ -13,6 +13,11 @@ public class UserPrincipalDTO {
 
     private Long userId;
     private String username;
+    private String email;
     private List<String> roles;
+
+    public UserPrincipalDTO(Long userId, String username, List<String> roles) {
+        this(userId, username, null, roles);
+    }
 }
 

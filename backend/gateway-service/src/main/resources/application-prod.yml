@@ -3,6 +3,8 @@ spring:
     redis:
       host: ${REDIS_HOST:redis}
       password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: true
   cloud:
     nacos:
       discovery:

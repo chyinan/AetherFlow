@@ -8,6 +8,7 @@ import com.aetherflow.auth.web.AuthRequestContext;
 import com.aetherflow.common.dto.AuthLoginRequest;
 import com.aetherflow.common.dto.UserPrincipalDTO;
 import com.aetherflow.common.dto.UserRegisterRequest;
+import com.aetherflow.common.dto.UserProfileUpdateRequest;
 
 public interface UserService {
 
@@ -24,4 +25,12 @@ public interface UserService {
     AuthMetricsResponse metrics();
 
     UserPrincipalDTO currentUser(Long userId, String username, String roles);
+
+    UserPrincipalDTO profile(Long userId);
+
+    default UserPrincipalDTO updateProfile(Long userId, UserProfileUpdateRequest request) {
+        return updateProfile(userId, request, null);
+    }
+
+    UserPrincipalDTO updateProfile(Long userId, UserProfileUpdateRequest request, String currentAccessToken);
 }

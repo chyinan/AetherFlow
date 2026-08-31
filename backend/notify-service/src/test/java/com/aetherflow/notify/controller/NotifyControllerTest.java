@@ -57,7 +57,7 @@ class NotifyControllerTest {
         when(streamTokenService.validate("stream-token"))
                 .thenReturn(new StreamTokenService.StreamTokenClaims(8L, "bob"));
 
-        assertThatThrownBy(() -> controller.subscribe(7L, "stream-token"))
+        assertThatThrownBy(() -> controller.subscribe(7L, "stream-token", null))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.FORBIDDEN));
     }
@@ -71,7 +71,7 @@ class NotifyControllerTest {
         when(streamTokenService.validate("stream-token"))
                 .thenReturn(new StreamTokenService.StreamTokenClaims(7L, "alice"));
 
-        controller.subscribe(7L, "stream-token");
+        controller.subscribe(7L, "stream-token", null);
 
         verify(registry).register(7L);
     }
@@ -92,7 +92,9 @@ class NotifyControllerTest {
 
         String token = new InternalServiceTokenService(properties.getInternalToken(), "aetherflow-internal", Duration.ofMinutes(1))
                 .issue("notify-service", Instant.now());
-        controller.send(token, new com.aetherflow.common.dto.NotifyMessageDTO());
+        com.aetherflow.common.dto.NotifyMessageDTO message = new com.aetherflow.common.dto.NotifyMessageDTO();
+        message.setUserId(7L);
+        controller.send(token, message);
         verify(notificationService).send(org.mockito.ArgumentMatchers.any());
     }
 

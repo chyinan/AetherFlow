@@ -1,0 +1,48 @@
+name: aetherflow
+
+# 无状态服务的生产覆盖层。状态型组件（MySQL、Redis、RabbitMQ、MinIO、Nacos、Seata）
+# 必须使用外部高可用集群或对应 operator；本文件不会伪造单机服务的 HA 能力。
+services:
+  gateway-service:
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  auth-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}
+
+  workflow-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}
+
+  task-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}
+
+  ai-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}
+
+  file-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}
+
+  notify-service:
+    deploy:
+      replicas: 2
+      update_config: {parallelism: 1, order: start-first, failure_action: rollback}

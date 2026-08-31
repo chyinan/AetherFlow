@@ -198,22 +198,41 @@ CREATE TABLE IF NOT EXISTS af_task_record (
     UNIQUE KEY uk_af_task_record_idempotency (idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS af_workflow_start_outbox (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    workflow_instance_id BIGINT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    attempt_count INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME(6),
+    last_error VARCHAR(1000),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_af_workflow_start_outbox_instance (workflow_instance_id),
+    KEY idx_af_workflow_start_outbox_due (status, next_attempt_at, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS af_ai_job (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     task_id BIGINT,
+    user_id BIGINT NOT NULL DEFAULT 0,
     idempotency_key VARCHAR(128),
     workflow_instance_id BIGINT,
     job_type VARCHAR(64) NOT NULL,
     input_json LONGTEXT,
     output_json LONGTEXT,
     status VARCHAR(32) NOT NULL,
+    lease_token VARCHAR(64),
+    lease_expires_at DATETIME(6),
+    last_heartbeat_at DATETIME(6),
+    attempt_count INT NOT NULL DEFAULT 0,
     started_at DATETIME NOT NULL,
     completed_at DATETIME,
     updated_at DATETIME NOT NULL,
-    UNIQUE KEY uk_af_ai_job_idempotency (idempotency_key),
+    UNIQUE KEY uk_af_ai_job_user_idempotency (user_id, idempotency_key),
     KEY idx_af_ai_job_task (task_id),
     KEY idx_af_ai_job_instance (workflow_instance_id),
-    KEY idx_af_ai_job_status (status)
+    KEY idx_af_ai_job_status (status),
+    KEY idx_af_ai_job_lease_due (status, lease_expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS af_ai_task_event_outbox (
@@ -265,17 +284,39 @@ CREATE TABLE IF NOT EXISTS af_copilot_message (
 CREATE TABLE IF NOT EXISTS af_file_info (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT,
+    uploader_id BIGINT,
+    source VARCHAR(32),
+    artifact_kind VARCHAR(64),
+    workflow_id VARCHAR(128),
+    idempotency_key VARCHAR(128),
+    ai_job_id BIGINT,
+    task_id BIGINT,
+    artifact_batch_id VARCHAR(128),
+    artifact_ordinal INT,
+    producer_fence_token VARCHAR(64),
+    claim_token VARCHAR(64),
+    claim_expires_at DATETIME(6),
     bucket VARCHAR(128) NOT NULL,
     object_key VARCHAR(512) NOT NULL,
     original_name VARCHAR(255),
     content_type VARCHAR(128),
+    mime_type VARCHAR(128),
+    file_hash VARCHAR(64),
     file_size BIGINT,
     file_url VARCHAR(1024) NOT NULL,
     status VARCHAR(32) NOT NULL,
+    upload_duration BIGINT,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
-    UNIQUE KEY uk_af_file_info_object (bucket, object_key),
+    UNIQUE KEY uk_af_file_info_user_idempotency (user_id, idempotency_key),
+    UNIQUE KEY uk_af_file_info_artifact_ordinal (user_id, artifact_batch_id, artifact_ordinal),
+    KEY idx_af_file_info_object (bucket, object_key),
+    KEY idx_af_file_info_hash (file_hash),
     KEY idx_af_file_info_user (user_id),
+    KEY idx_af_file_info_uploader (uploader_id),
+    KEY idx_af_file_info_workflow (workflow_id),
+    KEY idx_af_file_info_artifact_batch (user_id, ai_job_id, artifact_batch_id, status),
+    KEY idx_af_file_info_artifact_recovery (status, claim_expires_at, updated_at),
     KEY idx_af_file_info_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -3,6 +3,7 @@ package com.aetherflow.file.controller;
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
+import com.aetherflow.common.dto.CreateGeneratedFileRequestDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.common.security.InternalServiceTokenService;
@@ -64,6 +65,38 @@ class InternalFileControllerTest {
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData()).isSameAs(metadata);
         verify(fileInfoService).createMetadata(1001L, request);
+    }
+
+    @Test
+    void storesGeneratedArtifactOnlyAfterInternalTokenValidation() {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        FileInternalProperties properties = new FileInternalProperties();
+        properties.setInternalToken(secret());
+        InternalFileController controller = new InternalFileController(fileInfoService, properties);
+        CreateGeneratedFileRequestDTO request = generatedArtifactRequest();
+        FileMetadataDTO metadata = new FileMetadataDTO(
+                8L, "aetherflow", "workflow/exports/2002/generated/transcription.srt",
+                "transcription.srt", "text/plain", 16L, "https://files.example/transcription.srt"
+        );
+        when(fileInfoService.storeGeneratedArtifact(request)).thenReturn(metadata);
+
+        Result<FileMetadataDTO> result = controller.storeGeneratedArtifact(fileToken(), request);
+
+        assertThat(result.getData()).isSameAs(metadata);
+        verify(fileInfoService).storeGeneratedArtifact(request);
+    }
+
+    @Test
+    void rejectsGeneratedArtifactWhenInternalTokenDoesNotMatch() {
+        FileInfoService fileInfoService = mock(FileInfoService.class);
+        FileInternalProperties properties = new FileInternalProperties();
+        properties.setInternalToken(secret());
+        InternalFileController controller = new InternalFileController(fileInfoService, properties);
+
+        assertThatThrownBy(() -> controller.storeGeneratedArtifact("wrong-token", generatedArtifactRequest()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.FORBIDDEN));
+        verifyNoInteractions(fileInfoService);
     }
 
     @Test
@@ -135,6 +168,24 @@ class InternalFileControllerTest {
         request.setOriginalName("demo.txt");
         request.setContentType("text/plain");
         request.setSize(16L);
+        return request;
+    }
+
+    private CreateGeneratedFileRequestDTO generatedArtifactRequest() {
+        CreateGeneratedFileRequestDTO request = new CreateGeneratedFileRequestDTO();
+        request.setUserId(1001L);
+        request.setAiJobId(3003L);
+        request.setTaskId(77L);
+        request.setLeaseToken("lease-token-1");
+        request.setArtifactBatchId("ai-task:77:node-whisper:artifacts");
+        request.setArtifactOrdinal(0);
+        request.setIdempotencyKey("ai-task:77:node-whisper:SRT:0");
+        request.setWorkflowId("2002");
+        request.setSource("artifact");
+        request.setArtifactKind("subtitle");
+        request.setOriginalName("transcription.srt");
+        request.setContentType("text/plain");
+        request.setContentBase64(java.util.Base64.getEncoder().encodeToString("subtitle".getBytes(StandardCharsets.UTF_8)));
         return request;
     }
 
