@@ -1,0 +1,30 @@
+groups:
+  - name: aetherflow-production
+    rules:
+      - alert: AetherFlowHighHttp5xxRate
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          /
+          sum by (job) (rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AetherFlow HTTP 5xx rate is above 5%"
+      - alert: AetherFlowDatabasePoolExhaustion
+        expr: |
+          max by (job, instance) (hikaricp_connections_active)
+          /
+          max by (job, instance) (hikaricp_connections_max) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AetherFlow database pool is above 90% utilization"
+      - alert: AetherFlowServiceDown
+        expr: up{job=~"aetherflow-gateway|aetherflow-services"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AetherFlow service scrape target is down"

@@ -320,6 +320,14 @@ export const difyApi = {
     )
     return (response.results ?? []).map(mapChunk)
   },
+  async reindexKnowledgeDataset(datasetId: string) {
+    const response = await apiClient.post<number>(
+      `/knowledge/datasets/${encodeURIComponent(datasetId)}/vector-index/reindex`,
+      undefined,
+      { source: 'workflow', timeout: 10 * 60 * 1000 },
+    )
+    return numberOr(response)
+  },
   async listMonitorMetrics() {
     const [runtimeResult, providerMetricsResult, providerLogsResult] = await Promise.allSettled([
       getRuntimeMetrics(),

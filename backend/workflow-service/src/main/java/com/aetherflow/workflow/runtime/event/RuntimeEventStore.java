@@ -11,6 +11,10 @@ public interface RuntimeEventStore {
 
     List<RuntimeEvent> findByWorkflowId(String workflowId);
 
+    default List<RuntimeEvent> findByWorkflowId(String workflowId, int limit) {
+        return bounded(safeEvents(workflowId), limit);
+    }
+
     default boolean supportsIncrementalQuery() {
         return false;
     }
@@ -26,6 +30,10 @@ public interface RuntimeEventStore {
             }
         }
         return events;
+    }
+
+    default List<RuntimeEvent> findByWorkflowIdAfter(String workflowId, String eventId, int limit) {
+        return bounded(findByWorkflowIdAfter(workflowId, eventId), limit);
     }
 
     static RuntimeEventStore noop() {
@@ -47,5 +55,12 @@ public interface RuntimeEventStore {
         }
         List<RuntimeEvent> events = findByWorkflowId(workflowId);
         return events == null ? List.of() : List.copyOf(events);
+    }
+
+    private static List<RuntimeEvent> bounded(List<RuntimeEvent> events, int limit) {
+        if (events == null || events.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        return List.copyOf(events.subList(0, Math.min(events.size(), limit)));
     }
 }

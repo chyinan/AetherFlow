@@ -138,7 +138,13 @@ public class WorkflowNodeCatalogService {
                 List.of(
                         variable("mediaFileName", "STRING", "Generated media file name.", "transformed.wav"),
                         variable("mediaContentType", "STRING", "Generated media MIME type.", "audio/wav"),
-                        variable("mediaSize", "NUMBER", "Generated media size in bytes.", 1048576)
+                        variable("mediaSize", "NUMBER", "Generated media size in bytes.", 1048576),
+                        variable("mediaFileId", "NUMBER", "Persisted generated media file id.", 9001),
+                        variable("mediaUrl", "STRING", "Download URL of generated media.", "http://minio/aetherflow/transformed.wav"),
+                        variable("mediaObjectKey", "STRING", "Object storage key of generated media.", "tenant-7/transformed.wav"),
+                        variable("fileId", "NUMBER", "Generic file id for downstream file nodes.", 9001),
+                        variable("fileUrl", "STRING", "Generic file URL for downstream file nodes.", "http://minio/aetherflow/transformed.wav"),
+                        variable("fileObjectKey", "STRING", "Generic object key for downstream file nodes.", "tenant-7/transformed.wav")
                 ),
                 mapOf("fileUrlVariable", "fileUrl", "operation", "extract-audio", "outputFormat", "wav")
         );
@@ -297,7 +303,7 @@ public class WorkflowNodeCatalogService {
                 "EMBEDDING",
                 "Embedding",
                 "AI",
-                "Splits text into overlapping chunks, embeds each chunk through a provider, and writes vector records to memory or an external Qdrant store for RAG preprocessing.",
+                "Splits text into overlapping chunks, embeds each chunk through Ollama, and writes durable vector records to the configured external Qdrant store.",
                 List.of(
                         field("provider", "STRING", false, "Embedding provider name.", "ollama",
                                 List.of("ollama")),
@@ -307,7 +313,7 @@ public class WorkflowNodeCatalogService {
                         field("textVariable", "STRING", false, "Workflow variable used as embedding input.", "ocrText"),
                         field("chunkSize", "NUMBER", false, "Maximum characters per chunk.", 512),
                         field("overlap", "NUMBER", false, "Overlapping characters between adjacent chunks.", 128),
-                        field("vectorStoreProvider", "STRING", false, "Vector store provider.", "memory", List.of("memory", "qdrant")),
+                        field("vectorStoreProvider", "STRING", false, "Vector store provider. Process-memory storage is development-only.", "qdrant", List.of("memory", "qdrant")),
                         field("vectorCollection", "STRING", false, "Vector collection name.", "workflow-embeddings")
                 ),
                 List.of(variable("ocrText", "STRING", "Text produced by OCR, Split, Summary or another upstream node.", "Knowledge base document text")),
@@ -331,7 +337,7 @@ public class WorkflowNodeCatalogService {
                         "textVariable", "ocrText",
                         "chunkSize", 512,
                         "overlap", 128,
-                        "vectorStoreProvider", "memory",
+                        "vectorStoreProvider", "qdrant",
                         "vectorCollection", "workflow-embeddings"
                 )
         );

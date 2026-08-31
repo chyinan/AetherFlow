@@ -26,6 +26,7 @@ if ([string]::IsNullOrWhiteSpace($ResultRoot)) {
 $runnerArgs = @{
     Protocol = $Protocol; HostName = $HostName; Port = $Port; Threads = $Threads
     RampUpSeconds = $RampUpSeconds; Loops = $Loops; SkipUpload = $true
+    DurationSeconds = $SoakMinutes * 60
     SkipPreflight = $false; ResultRoot = $ResultRoot
     MaxErrorRatePercent = $MaxErrorRatePercent; MaxP95Milliseconds = $MaxP95Milliseconds
     MaxP99Milliseconds = $MaxP99Milliseconds
@@ -43,10 +44,11 @@ $evidence = [ordered]@{
     rampUpSeconds = $RampUpSeconds
     loops = $Loops
     soakMinutes = $SoakMinutes
+    durationSeconds = $SoakMinutes * 60
     generatedAt = [DateTimeOffset]::UtcNow.ToString("O")
     gitCommit = (& git -C $root rev-parse HEAD 2>$null)
     runDirectory = $latest.FullName
-    note = "必须另行完成 SoakMinutes 对应的持续运行；默认脚本不会把短跑伪装成浸泡证据。"
+    note = "JMeter ThreadGroup scheduler was enabled for the requested soak duration; inspect the JTL and host metrics before release."
 }
 $evidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $latest.FullName "capacity-evidence.json") -Encoding utf8
 Write-Host "真实容量门禁通过，证据目录: $($latest.FullName)"

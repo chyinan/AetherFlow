@@ -199,11 +199,11 @@ export function getProviderStatus() {
 }
 
 export function getProviderPolicy() {
-  return apiClient.get<ProviderRoutingPolicy>('/ai/provider/policy', { source: 'ai' })
+  return apiClient.get<ProviderRoutingPolicy>('/ai/provider/policy/user', { source: 'ai' })
 }
 
 export function updateProviderPolicy(policy: ProviderRoutingPolicy) {
-  return apiClient.put<ProviderRoutingPolicy>('/ai/provider/policy', policy, { source: 'ai' })
+  return apiClient.put<ProviderRoutingPolicy>('/ai/provider/policy/user', policy, { source: 'ai' })
 }
 
 export function recoverProvider(provider: AiProviderType) {

@@ -14,6 +14,9 @@ import com.aetherflow.workflow.mapper.WorkflowStartOutboxMapper;
 import com.aetherflow.workflow.entity.WorkflowStartOutbox;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogService;
+import com.aetherflow.workflow.node.validation.WorkflowNodeConfigValidator;
+import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.preflight.WorkflowAiCapabilityPreflightService;
@@ -26,6 +29,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.aetherflow.workflow.service.WorkflowService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -38,9 +42,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.core.task.TaskRejectedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.net.URI;
@@ -66,17 +71,23 @@ public class WorkflowServiceImpl implements WorkflowService {
     private final ObjectMapper objectMapper;
     private final WorkflowRuntimeProperties runtimeProperties;
     private final NodeRegistry nodeRegistry;
+    private final WorkflowNodeCatalogService workflowNodeCatalogService;
     private final WorkflowAiCapabilityPreflightService aiCapabilityPreflightService;
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
-    @Autowired(required = false)
-    private WorkflowStartOutboxMapper workflowStartOutboxMapper;
+    private final WorkflowStartOutboxMapper workflowStartOutboxMapper;
 
     @Autowired(required = false)
     private RuntimeSnapshotRepository runtimeSnapshotRepository;
 
     @Autowired(required = false)
     private WorkflowNodeProperties workflowNodeProperties;
+
+    @Autowired(required = false)
+    private WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService;
+
+    @Autowired(required = false)
+    private EmbeddingProperties embeddingProperties;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -139,6 +150,7 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     @GlobalTransactional(name = "aetherflow-start-workflow-instance", rollbackFor = Exception.class)
     public WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request) {
         Long userId = currentUserId();
@@ -153,61 +165,42 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setDefinitionId(definitionId);
         instance.setUserId(userId);
         instance.setInputJson(writeJson(input));
-        instance.setStatus(RuntimeState.RUNNING.name());
+        // The instance is not running until the durable start outbox has been
+        // claimed. This prevents an in-flight HTTP transaction from racing the
+        // recovery scanner and makes the outbox the single dispatch authority.
+        instance.setStatus(RuntimeState.PENDING.name());
         instance.setStartedAt(LocalDateTime.now());
         instance.setUpdatedAt(LocalDateTime.now());
         instanceMapper.insert(instance);
 
         createStartOutbox(instance);
-
-        WorkflowRuntimeRequest runtimeRequest = new WorkflowRuntimeRequest(
-                String.valueOf(instance.getId()),
-                newTraceId(),
-                String.valueOf(instance.getId()),
-                definitionId,
-                definitionDTO,
-                runtimeVariables(definitionDTO, input, userId),
-                runtimeProperties.getRetry().toRetryPolicy()
-        );
-
-        String username = currentUsername();
-        try {
-            workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(userId, username, () -> {
-                executeRuntime(instance.getId(), runtimeRequest);
-                return null;
-            }));
-        } catch (TaskRejectedException exception) {
-            log.warn("workflow runtime queue is full, instanceId={}", instance.getId());
-            throw new BusinessException(ResultCode.TOO_MANY_REQUESTS,
-                    "workflow runtime queue is busy; retry shortly");
-        }
+        dispatchStartsAfterCommit();
         return instance;
     }
 
     private void executeRuntime(Long instanceId, WorkflowRuntimeRequest runtimeRequest) {
         try {
-            if (workflowStartOutboxMapper != null) {
-                workflowStartOutboxMapper.markDispatched(instanceId, LocalDateTime.now());
-            }
+            workflowStartOutboxMapper.markDispatched(instanceId, LocalDateTime.now());
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
             persistRuntimeProjection(instanceId, snapshot);
         } catch (RuntimeException exception) {
             LocalDateTime failedAt = LocalDateTime.now();
-            instanceMapper.transitionRuntimeState(
+            int transitioned = instanceMapper.transitionRuntimeState(
                     instanceId,
                     RuntimeState.FAILED.name(),
                     null,
                     failedAt,
                     failedAt);
+            if (transitioned == 1 && terminalNotificationOutboxService != null) {
+                enqueueTerminalNotification(instanceId, userId(runtimeRequest.variables()), runtimeRequest.traceId(),
+                        RuntimeState.FAILED, null);
+            }
             log.warn("workflow runtime execution failed, workflowId={}, reason={}",
                     runtimeRequest.workflowId(), exception.getMessage(), exception);
         }
     }
 
     public int dispatchPendingStarts() {
-        if (workflowStartOutboxMapper == null) {
-            return 0;
-        }
         LocalDateTime now = LocalDateTime.now();
         int dispatched = 0;
         for (WorkflowStartOutbox outbox : workflowStartOutboxMapper.selectDue(now, now.minusMinutes(30), 50)) {
@@ -216,7 +209,7 @@ public class WorkflowServiceImpl implements WorkflowService {
             }
             try {
                 WorkflowInstance instance = instanceMapper.selectById(outbox.getWorkflowInstanceId());
-                if (instance == null || "CANCELLED".equals(instance.getStatus())) {
+                if (instance == null || isTerminalStatus(instance.getStatus())) {
                     workflowStartOutboxMapper.markDispatched(outbox.getWorkflowInstanceId(), LocalDateTime.now());
                     continue;
                 }
@@ -248,9 +241,6 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     private void createStartOutbox(WorkflowInstance instance) {
-        if (workflowStartOutboxMapper == null) {
-            return;
-        }
         WorkflowStartOutbox outbox = new WorkflowStartOutbox();
         outbox.setWorkflowInstanceId(instance.getId());
         outbox.setStatus(WorkflowStartOutbox.PENDING);
@@ -259,6 +249,35 @@ public class WorkflowServiceImpl implements WorkflowService {
         outbox.setCreatedAt(LocalDateTime.now());
         outbox.setUpdatedAt(LocalDateTime.now());
         workflowStartOutboxMapper.insert(outbox);
+    }
+
+    private void dispatchStartsAfterCommit() {
+        Runnable dispatcher = () -> {
+            try {
+                dispatchPendingStarts();
+            } catch (RuntimeException exception) {
+                // The durable PENDING row remains available to the scheduled
+                // recovery job when the after-commit dispatch attempt cannot
+                // reach the database or executor.
+                log.warn("workflow start after-commit dispatch failed; recovery job will retry", exception);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            dispatcher.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                dispatcher.run();
+            }
+        });
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return RuntimeState.SUCCESS.name().equals(status)
+                || RuntimeState.FAILED.name().equals(status)
+                || RuntimeState.CANCELLED.name().equals(status);
     }
 
     private WorkflowDefinition getExistingDefinitionForRecovery(Long definitionId) {
@@ -334,18 +353,54 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private void persistRuntimeProjection(Long instanceId, WorkflowExecutionSnapshot snapshot) {
         LocalDateTime updatedAt = LocalDateTime.now();
-        instanceMapper.transitionRuntimeState(
+        int transitioned = instanceMapper.transitionRuntimeState(
                 instanceId,
                 snapshot.runtimeState().name(),
                 snapshot.currentNodeId(),
                 isTerminal(snapshot.runtimeState()) ? updatedAt : null,
                 updatedAt);
+        if (transitioned == 1 && isTerminal(snapshot.runtimeState()) && terminalNotificationOutboxService != null) {
+            enqueueTerminalNotification(instanceId, userId(snapshot.variables()), snapshot.traceId(),
+                    snapshot.runtimeState(), snapshot.currentNodeId());
+        }
+    }
+
+    private void enqueueTerminalNotification(Long instanceId,
+                                             Long userId,
+                                             String traceId,
+                                             RuntimeState state,
+                                             String currentNodeId) {
+        try {
+            terminalNotificationOutboxService.enqueue(instanceId, userId, traceId, state, currentNodeId);
+        } catch (RuntimeException exception) {
+            // Notification persistence must not downgrade an already committed
+            // workflow result. The failure remains visible in logs/metrics;
+            // operators can replay the terminal event from the runtime record.
+            log.error("workflow terminal notification enqueue failed, instanceId={}, state={}",
+                    instanceId, state, exception);
+        }
     }
 
     private boolean isTerminal(RuntimeState state) {
         return state == RuntimeState.SUCCESS
                 || state == RuntimeState.FAILED
                 || state == RuntimeState.CANCELLED;
+    }
+
+    private Long userId(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("userId");
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                long parsed = Long.parseLong(String.valueOf(value));
+                return parsed > 0 ? parsed : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private WorkflowDefinition getExistingDefinition(Long definitionId) {
@@ -426,6 +481,11 @@ public class WorkflowServiceImpl implements WorkflowService {
             WorkflowDag dag = WorkflowDag.from(definition);
             validateNodeTypes(definition);
             validateExplicitStartRoots(definition, dag);
+            List<String> configViolations = WorkflowNodeConfigValidator.validateAll(
+                    definition.getNodes(), workflowNodeCatalogService);
+            if (!configViolations.isEmpty()) {
+                throw new IllegalArgumentException(String.join("; ", configViolations));
+            }
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow dag invalid: " + exception.getMessage());
         }
@@ -513,6 +573,14 @@ public class WorkflowServiceImpl implements WorkflowService {
                     throw new BusinessException(ResultCode.BAD_REQUEST,
                             "knowledge retrieval node datasetId is invalid");
                 }
+            }
+            if ("EMBEDDING".equalsIgnoreCase(nodeType)
+                    && embeddingProperties != null
+                    && "memory".equalsIgnoreCase(String.valueOf(config.getOrDefault(
+                    "vectorStoreProvider", embeddingProperties.getDefaultVectorStoreProvider())))
+                    && !embeddingProperties.isInMemoryEnabled()) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "embedding node uses process-memory vector storage, which is disabled in this environment");
             }
         }
         aiCapabilityPreflightService.validate(definition);

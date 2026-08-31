@@ -67,6 +67,21 @@ class WorkflowAiCapabilityPolicyTest {
         assertThat(WorkflowAiCapabilityPolicy.validate(definition, capabilities)).isEmpty();
     }
 
+    @Test
+    void rejectsFfmpegWhenRuntimeCapabilityIsUnavailable() {
+        WorkflowDefinitionDTO definition = definition(node("media", "FFMPEG", Map.of()));
+        AiWorkflowCapabilitiesDTO capabilities = capabilities(
+                true,
+                true,
+                List.of("OLLAMA"),
+                List.of(),
+                Map.of("FFMPEG", "ffmpeg executable is unavailable")
+        );
+
+        assertThat(WorkflowAiCapabilityPolicy.validate(definition, capabilities))
+                .containsExactly("node media (FFMPEG): ffmpeg executable is unavailable");
+    }
+
     private static AiWorkflowCapabilitiesDTO capabilities(
             boolean llmExecutable,
             boolean whisperExecutable,

@@ -82,6 +82,8 @@ class RetryManagerTest {
         message.setTaskId(task.getId());
         when(taskMapper.selectList(any())).thenReturn(List.of(task));
         when(taskMessageFactory.from(task)).thenReturn(message);
+        when(taskStateService.mark(eq(task), eq(TaskStatus.DISPATCHING), any(LocalDateTime.class))).thenReturn(true);
+        when(taskStateService.mark(eq(task), eq(TaskStatus.QUEUED), any(LocalDateTime.class))).thenReturn(true);
 
         int count = retryManager.retryDueTasks();
 

@@ -9,6 +9,10 @@ public final class ProviderRedisKeys {
     private ProviderRedisKeys() {
     }
 
+    public static String policy(Long userId) {
+        return "AI_PROVIDER:ROUTING_POLICY:USER:" + userId;
+    }
+
     public static String circuit(AiProviderType provider) {
         return "AI_PROVIDER:" + provider.name() + ":CIRCUIT";
     }

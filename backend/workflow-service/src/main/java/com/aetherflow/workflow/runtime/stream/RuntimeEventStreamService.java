@@ -18,6 +18,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -33,12 +35,14 @@ public class RuntimeEventStreamService {
     private static final long POLL_INTERVAL_MS = 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 15000L;
     private static final int MAX_EVENTS_PER_POLL = 500;
+    private static final int MAX_CACHED_WORKFLOWS = 10_000;
 
     private final RuntimeEventStore runtimeEventStore;
     private final ScheduledExecutorService executor;
     private final long streamTimeoutMs;
     private final long pollIntervalMs;
     private final long heartbeatIntervalMs;
+    private final ConcurrentMap<String, CachedEvents> workflowEventCache = new ConcurrentHashMap<>();
 
     @Autowired
     public RuntimeEventStreamService(RuntimeEventStore runtimeEventStore) {
@@ -81,7 +85,9 @@ public class RuntimeEventStreamService {
 
     public List<RuntimeEvent> eventsAfterCursor(String workflowId, String cursor) {
         if (!hasText(cursor)) {
-            return boundedEvents(safeEvents(workflowId));
+            return boundedEvents(runtimeEventStore.supportsIncrementalQuery()
+                    ? cachedEvents(workflowId)
+                    : safeEvents(workflowId));
         }
         if (!runtimeEventStore.supportsIncrementalQuery()) {
             List<RuntimeEvent> events = safeEvents(workflowId);
@@ -92,7 +98,19 @@ public class RuntimeEventStreamService {
             }
             return boundedEvents(events);
         }
-        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim());
+        List<RuntimeEvent> cached = cachedEvents(workflowId);
+        for (int index = 0; index < cached.size(); index++) {
+            if (cursor.trim().equals(cached.get(index).eventId())) {
+                return boundedEvents(cached.subList(index + 1, cached.size()));
+            }
+        }
+        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim(), MAX_EVENTS_PER_POLL);
+        if (events == null) {
+            // Preserve compatibility with older/custom stores that do not
+            // implement the bounded overload; the result is still bounded
+            // before it reaches the client.
+            events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim());
+        }
         if (events == null) {
             return boundedEvents(safeEvents(workflowId));
         }
@@ -113,6 +131,7 @@ public class RuntimeEventStreamService {
 
     @PreDestroy
     public void shutdown() {
+        workflowEventCache.clear();
         executor.shutdownNow();
     }
 
@@ -169,8 +188,37 @@ public class RuntimeEventStreamService {
         if (!hasText(workflowId)) {
             return List.of();
         }
-        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowId(workflowId);
+        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowId(workflowId, MAX_EVENTS_PER_POLL);
+        if (events == null) {
+            events = runtimeEventStore.findByWorkflowId(workflowId);
+        }
         return events == null ? List.of() : List.copyOf(events);
+    }
+
+    private List<RuntimeEvent> cachedEvents(String workflowId) {
+        if (!hasText(workflowId)) {
+            return List.of();
+        }
+        long now = System.currentTimeMillis();
+        CachedEvents cached = workflowEventCache.get(workflowId);
+        if (cached != null && now - cached.loadedAtMs() < pollIntervalMs) {
+            return cached.events();
+        }
+        CachedEvents refreshed = workflowEventCache.compute(workflowId, (key, current) -> {
+            long currentTime = System.currentTimeMillis();
+            if (current != null && currentTime - current.loadedAtMs() < pollIntervalMs) {
+                return current;
+            }
+            List<RuntimeEvent> events = runtimeEventStore.findByWorkflowId(workflowId, MAX_EVENTS_PER_POLL);
+            if (events == null) {
+                events = runtimeEventStore.findByWorkflowId(workflowId);
+            }
+            return new CachedEvents(events == null ? List.of() : List.copyOf(events), currentTime);
+        });
+        if (workflowEventCache.size() > MAX_CACHED_WORKFLOWS) {
+            workflowEventCache.keySet().stream().findFirst().ifPresent(workflowEventCache::remove);
+        }
+        return refreshed.events();
     }
 
     private List<RuntimeEvent> boundedEvents(List<RuntimeEvent> events) {
@@ -209,6 +257,9 @@ public class RuntimeEventStreamService {
         };
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
         return Executors.newScheduledThreadPool(poolSize, threadFactory);
+    }
+
+    private record CachedEvents(List<RuntimeEvent> events, long loadedAtMs) {
     }
 
     private static final class StreamState {

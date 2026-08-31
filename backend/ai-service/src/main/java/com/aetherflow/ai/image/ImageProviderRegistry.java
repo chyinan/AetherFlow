@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,6 +49,32 @@ public class ImageProviderRegistry {
             throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported image provider: " + provider);
         }
         return imageProvider;
+    }
+
+    public List<ImageGenerationProvider> orderedAvailableProviders(String requestedProvider) {
+        ImageProviderType preferred = resolveType(requestedProvider);
+        LinkedHashSet<ImageProviderType> orderedTypes = new LinkedHashSet<>();
+        if (providers.containsKey(preferred) && isAvailable(preferred, providers.get(preferred))) {
+            orderedTypes.add(preferred);
+        }
+        for (String available : availableProviderNames()) {
+            try {
+                orderedTypes.add(ImageProviderType.from(available, null));
+            } catch (IllegalArgumentException ignored) {
+                // The registry owns the allow-list; ignore malformed provider metadata.
+            }
+        }
+        List<ImageGenerationProvider> ordered = new ArrayList<>();
+        for (ImageProviderType type : orderedTypes) {
+            ImageGenerationProvider provider = providers.get(type);
+            if (provider != null) {
+                ordered.add(provider);
+            }
+        }
+        if (ordered.isEmpty()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "no healthy image provider is available");
+        }
+        return List.copyOf(ordered);
     }
 
     public List<String> availableProviderNames() {

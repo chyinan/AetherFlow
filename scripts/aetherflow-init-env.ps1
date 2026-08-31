@@ -91,6 +91,7 @@ $content = Set-EnvValue $content 'RABBITMQ_MANAGEMENT_PASSWORD' (Get-EnvValue $c
 $content = Set-SecureEnvValue $content 'MINIO_ACCESS_KEY' @('minioadmin', 'aetherflow')
 $content = Set-SecureEnvValue $content 'MINIO_SECRET_KEY' @('minioadmin', 'change-me-minio-secret-key')
 $content = Set-SecureEnvValue $content 'ELASTIC_PASSWORD' @('aetherflow', 'change-me-elastic-strong-password')
+$content = Set-SecureEnvValue $content 'GRAFANA_ADMIN_PASSWORD' @()
 $content = Set-SecureEnvValue $content 'NACOS_AUTH_TOKEN' @('SecretKey012345678901234567890123456789012345678901234567890123456789')
 $content = Set-SecureEnvValue $content 'NACOS_AUTH_IDENTITY_VALUE' @('nacos', 'change-me-server-identity-value')
 $content = Set-SecureEnvValue $content 'NACOS_PASSWORD' @('nacos', 'change-me-nacos-password')

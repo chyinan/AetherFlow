@@ -45,6 +45,10 @@ public class RetryManager {
         int requeued = 0;
         for (Task task : dueTasks) {
             try {
+                if (!taskStateService.mark(task, TaskStatus.DISPATCHING,
+                        now.plus(properties.getDispatchTimeout()))) {
+                    continue;
+                }
                 requeue(task, "retry due");
                 requeued++;
             } catch (RuntimeException exception) {
@@ -68,8 +72,14 @@ public class RetryManager {
 
     private void requeue(Task task, String reason) {
         TaskMessageDTO taskMessage = taskMessageFactory.from(task);
+        // Publish only after the task is visible as QUEUED. If the process dies
+        // between these two operations, the timeout scanner can recover it;
+        // publishing first would let a consumer race a stale RETRYING state.
+        if (!taskStateService.mark(task, TaskStatus.QUEUED,
+                LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
+            return;
+        }
         taskQueueProducer.publishForDispatch(taskMessage);
-        taskStateService.mark(task, TaskStatus.QUEUED, LocalDateTime.now().plus(properties.getDispatchTimeout()));
         log.info("task requeued, taskId={}, retryCount={}, reason={}", task.getId(), task.getRetryCount(), reason);
     }
 

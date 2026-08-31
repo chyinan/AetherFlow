@@ -88,4 +88,23 @@ describe('workflow definition graph mapping', () => {
       fileId: 42,
     })
   })
+
+  it('exposes persisted FFmpeg artifact variables for downstream file bindings', () => {
+    const graph = mapBackendDefinitionGraph([
+      {
+        nodeId: 'node-ffmpeg',
+        nodeType: 'FFMPEG',
+        config: { fileUrlVariable: 'fileUrl' },
+      },
+    ])
+
+    expect(graph.nodes[0]?.data.outputs).toEqual(expect.arrayContaining([
+      'mediaFileId',
+      'mediaUrl',
+      'mediaObjectKey',
+      'fileId',
+      'fileUrl',
+      'fileObjectKey',
+    ]))
+  })
 })

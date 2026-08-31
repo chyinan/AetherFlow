@@ -78,7 +78,7 @@ public class CopilotServiceImpl implements CopilotService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
-        String assistantContent = assistantReply(request, prepared.history());
+        String assistantContent = assistantReply(request, prepared.history(), userId);
         CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
                 persistAssistantReply(prepared, assistantContent));
 
@@ -102,7 +102,7 @@ public class CopilotServiceImpl implements CopilotService {
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
         StringBuilder assistantContent = new StringBuilder();
-        aiProviderRouter.stream(providerRequest(request, prepared.history()), response -> {
+        aiProviderRouter.stream(providerRequest(request, prepared.history(), userId), response -> {
             if (response != null && hasText(response.text())) {
                 String delta = response.text();
                 assistantContent.append(delta);
@@ -263,15 +263,15 @@ public class CopilotServiceImpl implements CopilotService {
         }
     }
 
-    private String assistantReply(CopilotChatRequest request, List<CopilotMessageEntity> history) {
-        AiProviderResponse response = aiProviderRouter.complete(providerRequest(request, history));
+    private String assistantReply(CopilotChatRequest request, List<CopilotMessageEntity> history, Long userId) {
+        AiProviderResponse response = aiProviderRouter.complete(providerRequest(request, history, userId));
         if (response == null || !hasText(response.text())) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
         }
         return response.text().strip();
     }
 
-    private AiProviderRequest providerRequest(CopilotChatRequest request, List<CopilotMessageEntity> history) {
+    private AiProviderRequest providerRequest(CopilotChatRequest request, List<CopilotMessageEntity> history, Long userId) {
         return new AiProviderRequest(
                 parseProvider(request.getProvider()),
                 normalizeOptionalText(request.getModel()),
@@ -280,7 +280,8 @@ public class CopilotServiceImpl implements CopilotService {
                         "temperature", 0.2,
                         "maxTokens", 900
                 ),
-                COPILOT_TIMEOUT
+                COPILOT_TIMEOUT,
+                userId
         );
     }
 

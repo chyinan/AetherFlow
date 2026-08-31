@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { FileJson, FolderKanban, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow } from 'lucide-vue-next'
+import { Copy, FileJson, FolderKanban, Library, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow, X } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
@@ -35,6 +35,8 @@ const showCopilot = ref(false)
 const showRunConsole = ref(false)
 const startingRun = ref(false)
 const importingComfyUi = ref(false)
+const copyingWorkflow = ref(false)
+const showingWorkflowTemplates = ref(false)
 const comfyUiImportError = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
 const currentWorkflowRun = computed(() =>
@@ -300,6 +302,52 @@ async function saveWorkflow() {
   }
 }
 
+async function copyWorkflow() {
+  if (!workflowStore.backendDefinitionId || copyingWorkflow.value) {
+    return
+  }
+  copyingWorkflow.value = true
+  workflowStore.setRunError(null)
+  try {
+    if (workflowStore.dirty) {
+      await workflowStore.saveCurrentWorkflow({
+        projectId: numericProjectId(routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id),
+      })
+    }
+    const copied = await workflowStore.copyCurrentWorkflow()
+    await router.replace({
+      path: `/workflows/${copied.id}`,
+      query: route.query.projectId ? { projectId: routeQueryString(route.query.projectId) } : undefined,
+    })
+  } catch (error) {
+    workflowStore.setRunError(`${t('workflow.copyFailed')}: ${runErrorMessage(error)}`)
+  } finally {
+    copyingWorkflow.value = false
+  }
+}
+
+async function openWorkflowTemplates() {
+  if (workflowStore.workflowTemplatesLoading) {
+    return
+  }
+  workflowStore.setRunError(null)
+  try {
+    await workflowStore.loadWorkflowTemplates()
+    showingWorkflowTemplates.value = true
+  } catch (error) {
+    workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
+  }
+}
+
+function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates)[number]) {
+  if (!confirmDiscardUnsavedChanges()) {
+    return
+  }
+  workflowStore.useWorkflowTemplate(template)
+  uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
+  showingWorkflowTemplates.value = false
+}
+
 function selectedInputFileId() {
   const startNode = workflowStore.nodes.find((node) => node.data.kind === 'start')
   const configuredFileId = startNode?.data.config.fileId
@@ -544,6 +592,29 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
           <Upload v-else class="h-4 w-4" />
           {{ importingComfyUi ? t('workflow.importingComfyUi') : t('workflow.importComfyUi') }}
         </button>
+        <button
+          type="button"
+          data-action="workflow-templates"
+          class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="workflowStore.workflowTemplatesLoading"
+          @click="openWorkflowTemplates"
+        >
+          <LoaderCircle v-if="workflowStore.workflowTemplatesLoading" class="h-4 w-4 animate-spin" />
+          <Library v-else class="h-4 w-4" />
+          {{ t('workflow.templates') }}
+        </button>
+        <button
+          v-if="workflowStore.backendDefinitionId"
+          type="button"
+          data-action="copy-workflow"
+          class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="copyingWorkflow || workflowStore.saving"
+          @click="copyWorkflow"
+        >
+          <LoaderCircle v-if="copyingWorkflow" class="h-4 w-4 animate-spin" />
+          <Copy v-else class="h-4 w-4" />
+          {{ copyingWorkflow ? t('workflow.copyingWorkflow') : t('workflow.copyWorkflow') }}
+        </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" :title="t('workflow.undo')" :aria-label="t('workflow.undo')" :disabled="!workflowStore.canUndo" @click="workflowStore.undo">
           <Undo2 class="h-4 w-4" />
           <span class="hidden xl:inline">{{ t('workflow.undo') }}</span>
@@ -602,6 +673,36 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
           <RunConsole @close="showRunConsole = false" />
         </div>
       </Transition>
+
+      <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid place-items-center bg-slate-950/25 p-4">
+        <section class="w-full max-w-xl rounded-xl border border-app-border bg-white p-5 shadow-panel" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
+              <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
+            </div>
+            <button type="button" class="rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="showingWorkflowTemplates = false">
+              <X class="h-5 w-5" />
+            </button>
+          </div>
+          <div class="mt-4 grid gap-2">
+            <button
+              v-for="template in workflowStore.workflowTemplates"
+              :key="template.id"
+              type="button"
+              class="rounded-lg border border-app-border px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/20"
+              @click="applyWorkflowTemplate(template)"
+            >
+              <p class="text-sm font-semibold text-text-primary">{{ template.name }}</p>
+              <p class="mt-1 text-xs text-text-muted">{{ template.description || t('workflow.templatesHint') }}</p>
+              <p class="mt-2 text-[11px] text-text-muted">{{ template.nodes.length }} {{ t('common.nodes') }} · {{ template.edges.length }} {{ t('common.edges') }}</p>
+            </button>
+            <p v-if="workflowStore.workflowTemplates.length === 0" class="rounded-lg border border-dashed border-app-border px-4 py-6 text-center text-sm text-text-muted">
+              {{ t('workflow.noTemplates') }}
+            </p>
+          </div>
+        </section>
+      </div>
     </div>
   </section>
 </template>

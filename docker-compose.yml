@@ -265,6 +265,40 @@ services:
       retries: 6
       start_period: 20s
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: aetherflow-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      gateway-service:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: aetherflow-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    restart: unless-stopped
     networks:
       - aetherflow
 
@@ -562,6 +596,12 @@ services:
       WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED: ${WORKFLOW_CODE_RUNTIME_ISOLATION_CONFIRMED:-false}
       WORKFLOW_CODE_RUNTIME_URL: ${WORKFLOW_CODE_RUNTIME_URL:-http://code-runtime-service:8300}
       WORKFLOW_CODE_RUNTIME_API_KEY: ${WORKFLOW_CODE_RUNTIME_API_KEY:-}
+      WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:-qdrant}
+      WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED: ${WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED:-false}
+      WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:-false}
+      WORKFLOW_QDRANT_BASE_URL: ${WORKFLOW_QDRANT_BASE_URL:-https://qdrant.example.com}
+      WORKFLOW_QDRANT_API_KEY: ${WORKFLOW_QDRANT_API_KEY:-}
+      WORKFLOW_QDRANT_ENABLED: ${WORKFLOW_QDRANT_ENABLED:-false}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
@@ -735,4 +775,6 @@ volumes:
   minio-data:
   frontend-dist:
   elasticsearch-data:
+  prometheus-data:
+  grafana-data:
 

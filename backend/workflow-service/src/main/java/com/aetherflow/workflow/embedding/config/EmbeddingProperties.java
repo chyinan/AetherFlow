@@ -15,10 +15,13 @@ public class EmbeddingProperties {
     private int defaultOverlap = 128;
     private String defaultTextVariable = "ocrText";
     private String defaultVectorCollection = "workflow-embeddings";
-    private String defaultVectorStoreProvider = "memory";
+    private String defaultVectorStoreProvider = "qdrant";
+    private boolean inMemoryEnabled = true;
+    private boolean knowledgeVectorIndexRequired = false;
     private String ollamaBaseUrl = "http://localhost:11434";
     private String qdrantBaseUrl = "https://qdrant.example.com";
     private String qdrantApiKey = "";
+    private boolean qdrantEnabled = false;
     private Duration timeout = Duration.ofSeconds(30);
     private int threadPoolSize = 2;
     private int queueCapacity = 20;

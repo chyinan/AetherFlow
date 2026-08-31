@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -77,6 +78,18 @@ public class AiProviderController {
         return Result.success(sentinelAiGuard.execute("ai-provider-policy", policyService::currentPolicy));
     }
 
+    @Operation(summary = "Get user AI provider routing policy",
+            description = "Returns the authenticated user's provider routing policy, falling back to the platform default.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "User routing policy returned."),
+            @ApiResponse(responseCode = "401", description = "Missing authenticated user.")
+    })
+    @GetMapping("/policy/user")
+    public Result<ProviderRoutingPolicy> policyForUser(
+            @RequestHeader(value = "X-User-Id") Long userId) {
+        return Result.success(sentinelAiGuard.execute("ai-provider-policy", () -> policyService.currentPolicy(userId)));
+    }
+
     @Operation(summary = "Update AI provider routing policy",
             description = "Updates provider priority, failover, retry, circuit breaker and health check policy.")
     @ApiResponses({
@@ -84,6 +97,20 @@ public class AiProviderController {
                     content = @Content(schema = @Schema(implementation = ProviderRoutingPolicy.class))),
             @ApiResponse(responseCode = "400", description = "Invalid routing policy."),
             @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
+    @PutMapping("/policy/user")
+    public Result<ProviderRoutingPolicy> updatePolicyForUser(
+            @RequestHeader(value = "X-User-Id") Long userId,
+            @Valid @RequestBody ProviderRoutingPolicy policy) {
+        return Result.success(sentinelAiGuard.execute("ai-provider-policy", () -> policyService.updatePolicy(userId, policy)));
+    }
+
+    /** Platform-default policy endpoint retained for operations tooling and compatibility. */
+    @Operation(summary = "Update platform AI provider routing policy",
+            description = "Updates the platform-default provider routing policy.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Routing policy updated."),
+            @ApiResponse(responseCode = "400", description = "Invalid routing policy.")
     })
     @PutMapping("/policy")
     public Result<ProviderRoutingPolicy> updatePolicy(@Valid @RequestBody ProviderRoutingPolicy policy) {

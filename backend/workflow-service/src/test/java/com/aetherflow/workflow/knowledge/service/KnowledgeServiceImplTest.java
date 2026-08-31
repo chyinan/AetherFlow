@@ -28,6 +28,7 @@ import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
 import com.aetherflow.workflow.knowledge.service.impl.KnowledgeServiceImpl;
+import com.aetherflow.workflow.knowledge.vector.KnowledgeVectorIndex;
 import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobMapper;
@@ -58,6 +59,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -668,6 +670,50 @@ class KnowledgeServiceImplTest {
 
         assertThat(response.results()).extracting(result -> result.source())
                 .containsExactly("workflow-runbook.md");
+    }
+
+    @Test
+    void usesQdrantIndexCandidatesWithoutScanningAllKnowledgeChunks() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity indexedChunk = chunk("indexed.md", "indexed semantic facts", 0.0D);
+        indexedChunk.setVectorJson("[1.0,0.0]");
+        when(chunkMapper.selectBatchIds(List.of(indexedChunk.getId()))).thenReturn(List.of(indexedChunk));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest embeddingRequest) {
+                return new EmbeddingResult(List.of(1.0D, 0.0D), 2, embeddingRequest.model(), embeddingRequest.chunkIndex());
+            }
+        };
+        KnowledgeServiceImpl indexedService = new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
+        );
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
+        when(index.search(eq(11L), any(), eq(60), eq(Map.of()))).thenReturn(List.of(indexedChunk.getId()));
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("indexed.md");
+        verify(chunkMapper, never()).selectList(any(Wrapper.class));
+        verify(index).search(eq(11L), any(), eq(60), eq(Map.of()));
     }
 
     @Test

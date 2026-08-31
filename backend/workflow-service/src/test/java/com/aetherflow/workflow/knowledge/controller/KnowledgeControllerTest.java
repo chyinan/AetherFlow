@@ -121,6 +121,19 @@ class KnowledgeControllerTest {
     }
 
     @Test
+    void rebuildsKnowledgeVectorIndexThroughExplicitOperationsEndpoint() throws Exception {
+        KnowledgeService service = mock(KnowledgeService.class);
+        when(service.reindexVectorIndex(11L)).thenReturn(37);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new KnowledgeController(service)).build();
+
+        mockMvc.perform(post("/knowledge/datasets/11/vector-index/reindex"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").value(37));
+
+        verify(service).reindexVectorIndex(11L);
+    }
+
+    @Test
     void deletesDataset() throws Exception {
         KnowledgeService service = mock(KnowledgeService.class);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new KnowledgeController(service)).build();

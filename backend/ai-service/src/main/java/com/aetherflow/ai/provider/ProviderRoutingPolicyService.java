@@ -18,11 +18,22 @@ public class ProviderRoutingPolicyService {
     private final AiTaskProperties properties;
 
     public ProviderRoutingPolicy currentPolicy() {
-        ProviderRoutingPolicy policy = repository.load();
+        return currentPolicy(null);
+    }
+
+    public ProviderRoutingPolicy currentPolicy(Long userId) {
+        validateUserId(userId);
+        ProviderRoutingPolicy policy = userId == null || userId <= 0
+                ? repository.load()
+                : repository.load(userId);
         if (policy == null) {
             policy = defaultPolicy();
             try {
-                repository.save(policy);
+                if (userId == null || userId <= 0) {
+                    repository.save(policy);
+                } else {
+                    repository.save(userId, policy);
+                }
             } catch (RuntimeException exception) {
                 log.warn("Failed to seed default provider routing policy", exception);
             }
@@ -31,11 +42,20 @@ public class ProviderRoutingPolicyService {
     }
 
     public ProviderRoutingPolicy updatePolicy(ProviderRoutingPolicy policy) {
+        return updatePolicy(null, policy);
+    }
+
+    public ProviderRoutingPolicy updatePolicy(Long userId, ProviderRoutingPolicy policy) {
+        validateUserId(userId);
         if (policy == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "provider routing policy is required");
         }
         ProviderRoutingPolicy normalized = policy.normalized();
-        repository.save(normalized);
+        if (userId == null || userId <= 0) {
+            repository.save(normalized);
+        } else {
+            repository.save(userId, normalized);
+        }
         return normalized;
     }
 
@@ -56,5 +76,11 @@ public class ProviderRoutingPolicyService {
         policy.setCircuitOpenDuration(properties.getProviderCircuitOpenDuration());
         policy.setHealthCheckInterval(properties.getProviderHealthCheckInterval());
         return policy.normalized();
+    }
+
+    private void validateUserId(Long userId) {
+        if (userId != null && userId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "provider policy userId must be positive");
+        }
     }
 }

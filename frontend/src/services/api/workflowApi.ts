@@ -3,9 +3,11 @@ import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import {
   createDefinition,
   cancelWorkflowInstance,
+  copyDefinition as copyWorkflowDefinition,
   deleteDefinition,
   getDefinition,
   listDefinitions,
+  listWorkflowTemplates as fetchWorkflowTemplates,
   startInstance,
   updateDefinition,
   type WorkflowDefinitionEntity,
@@ -201,7 +203,7 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     label: 'FFmpeg Media Transform',
     description: 'Extract audio or convert media through the real FFmpeg runtime.',
     inputs: ['fileUrl'],
-    outputs: ['mediaFileName', 'mediaContentType', 'mediaSize'],
+    outputs: ['mediaFileName', 'mediaContentType', 'mediaSize', 'mediaFileId', 'mediaUrl', 'mediaObjectKey', 'fileId', 'fileUrl', 'fileObjectKey'],
   },
   whisper: {
     label: 'FFmpeg 分离音频 / Whisper 提取文本',
@@ -568,6 +570,26 @@ export const workflowApi = {
     }
 
     throw lastError ?? new Error(`workflow definition id is invalid: ${workflowId}`)
+  },
+  async copyWorkflow(workflowId: string, name?: string) {
+    const definitionId = getBackendDefinitionId(workflowId) ?? numericIdFromWorkflowId(workflowId)
+    if (!definitionId) {
+      throw new Error('backend workflow definition is required before copying')
+    }
+    return mapDefinition(await copyWorkflowDefinition(definitionId, name?.trim() ? { name: name.trim() } : {}))
+  },
+  async listWorkflowTemplates(): Promise<WorkflowDefinition[]> {
+    const templates = await fetchWorkflowTemplates()
+    return templates.map((template, index) => {
+      const graph = mapBackendDefinitionGraph(template.nodes)
+      return {
+        id: `template-${index + 1}`,
+        name: stringOr(template.name, `Template ${index + 1}`),
+        description: stringOr(template.description, ''),
+        nodes: graph.nodes,
+        edges: graph.edges,
+      }
+    })
   },
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     return emptyWorkflow(workflowId, workflowName)

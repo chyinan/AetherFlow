@@ -31,6 +31,7 @@ class TimeoutCheckerTest {
         dispatched.setStatus(TaskStatus.DISPATCHED.value());
         dispatched.setNextRetryAt(LocalDateTime.now().minusMinutes(1));
         when(taskMapper.selectList(any())).thenReturn(List.of(dispatched));
+        when(taskStateService.mark(eq(dispatched), eq(TaskStatus.TIMEOUT), any())).thenReturn(true);
 
         int handled = timeoutChecker.checkTimeouts();
 

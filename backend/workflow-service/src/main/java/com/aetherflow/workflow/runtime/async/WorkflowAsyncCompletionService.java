@@ -12,7 +12,9 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -24,6 +26,7 @@ import java.util.Map;
 // pattern: Imperative Shell
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class WorkflowAsyncCompletionService {
 
     private final RuntimeSnapshotRepository snapshotRepository;
@@ -33,6 +36,9 @@ public class WorkflowAsyncCompletionService {
 
     @Autowired(required = false)
     private ImageWorkflowNodeResultFinisher imageResultFinisher;
+
+    @Autowired(required = false)
+    private WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService;
 
     public WorkflowExecutionSnapshot completeApproval(Long workflowInstanceId,
                                                        String nodeId,
@@ -120,12 +126,27 @@ public class WorkflowAsyncCompletionService {
 
     private void updateInstance(Long workflowInstanceId, WorkflowExecutionSnapshot snapshot) {
         LocalDateTime updatedAt = LocalDateTime.now();
-        instanceMapper.transitionRuntimeState(
+        int transitioned = instanceMapper.transitionRuntimeState(
                 workflowInstanceId,
                 snapshot.runtimeState().name(),
                 snapshot.currentNodeId(),
                 isTerminal(snapshot.runtimeState()) ? updatedAt : null,
                 updatedAt);
+        if (transitioned == 1 && isTerminal(snapshot.runtimeState()) && terminalNotificationOutboxService != null) {
+            try {
+                terminalNotificationOutboxService.enqueue(
+                        workflowInstanceId,
+                        userId(snapshot.variables()),
+                        snapshot.traceId(),
+                        snapshot.runtimeState(),
+                        snapshot.currentNodeId());
+            } catch (RuntimeException exception) {
+                // A notification outage must not turn a committed async result
+                // into a failed workflow response.
+                log.error("workflow terminal notification enqueue failed, instanceId={}, state={}",
+                        workflowInstanceId, snapshot.runtimeState(), exception);
+            }
+        }
     }
 
     private boolean isTerminal(RuntimeState state) {
@@ -190,6 +211,22 @@ public class WorkflowAsyncCompletionService {
 
     private String textOr(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private Long userId(Map<String, Object> variables) {
+        Object value = variables == null ? null : variables.get("userId");
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                long parsed = Long.parseLong(String.valueOf(value));
+                return parsed > 0 ? parsed : null;
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
 }

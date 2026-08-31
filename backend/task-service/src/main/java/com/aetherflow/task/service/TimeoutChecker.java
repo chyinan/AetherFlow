@@ -48,7 +48,9 @@ public class TimeoutChecker {
                     log.info("task timeout ignored, taskId={}, status={}", task.getId(), task.getStatus());
                     continue;
                 }
-                taskStateService.mark(task, TaskStatus.TIMEOUT, now);
+                if (!taskStateService.mark(task, TaskStatus.TIMEOUT, now)) {
+                    continue;
+                }
                 retryManager.handleTimeout(task);
                 handled++;
             } catch (RuntimeException exception) {

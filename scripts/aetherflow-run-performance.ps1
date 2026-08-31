@@ -11,6 +11,8 @@ param(
     [int]$RampUpSeconds = 20,
     [ValidateRange(1, 100000)]
     [int]$Loops = 3,
+    [ValidateRange(0, 86400)]
+    [int]$DurationSeconds = 0,
     [switch]$SkipUpload,
     [switch]$SkipPreflight,
     [string]$JMeterPath = "",
@@ -86,6 +88,7 @@ $summaryPath = Join-Path $runDirectory "performance-gate-summary.json"
 New-Item -ItemType Directory -Path $runDirectory | Out-Null
 
 $skipUploadValue = if ($SkipUpload) { "true" } else { "false" }
+$jmeterLoops = if ($DurationSeconds -gt 0) { -1 } else { $Loops }
 $jmeterArguments = @(
     "-n",
     "-t", $testPlan,
@@ -96,14 +99,16 @@ $jmeterArguments = @(
     "-Jport=$Port",
     "-Jthreads=$Threads",
     "-Jramp_up=$RampUpSeconds",
-    "-Jloops=$Loops",
+    "-Jloops=$jmeterLoops",
+    "-Jduration_seconds=$DurationSeconds",
+    "-Jscheduler=$(if ($DurationSeconds -gt 0) { 'true' } else { 'false' })",
     "-Jthink_time_ms=0",
     "-Jskip_upload=$skipUploadValue",
     "-Jupload_file_path=$uploadFile"
 )
 
 Write-Host "Running JMeter plan: $testPlan"
-Write-Host "Target: ${Protocol}://${HostName}:${Port}; threads=$Threads rampUp=${RampUpSeconds}s loops=$Loops skipUpload=$skipUploadValue"
+Write-Host "Target: ${Protocol}://${HostName}:${Port}; threads=$Threads rampUp=${RampUpSeconds}s loops=$jmeterLoops duration=${DurationSeconds}s skipUpload=$skipUploadValue"
 & $jmeter @jmeterArguments
 if ($LASTEXITCODE -ne 0) {
     throw "JMeter exited with code $LASTEXITCODE. Results: $runDirectory"

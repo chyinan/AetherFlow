@@ -31,12 +31,24 @@ public class TaskStateService {
         return Optional.ofNullable(taskMapper.selectById(taskId));
     }
 
-    public void mark(Task task, TaskStatus status, LocalDateTime nextRetryAt) {
+    public boolean mark(Task task, TaskStatus status, LocalDateTime nextRetryAt) {
+        if (task == null || task.getId() == null || status == null) {
+            return false;
+        }
+        String expectedStatus = task.getStatus() == null
+                ? TaskStatus.PENDING.value()
+                : task.getStatus();
+        LocalDateTime updatedAt = LocalDateTime.now();
+        if (taskMapper.updateStatusIfCurrent(task.getId(), expectedStatus, status.value(), nextRetryAt, updatedAt) != 1) {
+            log.info("task state CAS lost, taskId={}, expectedStatus={}, targetStatus={}",
+                    task.getId(), expectedStatus, status.value());
+            return false;
+        }
         task.setStatus(status.value());
         task.setNextRetryAt(nextRetryAt);
-        task.setUpdatedAt(LocalDateTime.now());
-        taskMapper.updateById(task);
+        task.setUpdatedAt(updatedAt);
         cacheStatus(task.getId(), status);
+        return true;
     }
 
     public void cacheStatus(Long taskId, TaskStatus status) {

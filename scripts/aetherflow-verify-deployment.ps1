@@ -69,7 +69,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 $criticalServices = @(
     "mysql", "redis", "rabbitmq", "nacos", "gateway-service", "auth-service",
-    "workflow-service", "task-service", "ai-service", "file-service", "notify-service", "nginx"
+    "workflow-service", "task-service", "ai-service", "file-service", "notify-service", "nginx",
+    "prometheus", "grafana"
 )
 $missingServices = @($criticalServices | Where-Object { $_ -notin $services })
 if ($missingServices.Count -gt 0) {

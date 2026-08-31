@@ -3,6 +3,13 @@ spring:
     url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=true&requireSSL=true&verifyServerCertificate=true&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:aetherflow_app}
     password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: ${NOTIFY_DB_POOL_MAX:20}
+      minimum-idle: ${NOTIFY_DB_POOL_MIN:5}
+      connection-timeout: ${NOTIFY_DB_CONNECTION_TIMEOUT_MS:3000}
+      validation-timeout: ${NOTIFY_DB_VALIDATION_TIMEOUT_MS:1000}
+      idle-timeout: ${NOTIFY_DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${NOTIFY_DB_MAX_LIFETIME_MS:1800000}
   rabbitmq:
     host: ${RABBITMQ_HOST:rabbitmq}
     port: ${RABBITMQ_SSL_PORT:5671}

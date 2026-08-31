@@ -9,7 +9,7 @@ import { i18n } from '@/i18n'
 import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotActions'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
-import type { CanvasPosition, NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
+import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
@@ -206,6 +206,9 @@ export const useWorkflowStore = defineStore('workflow', {
     backendDefinitionId: null as number | null,
     projectId: null as number | null,
     templates: nodeTemplates,
+    workflowTemplates: [] as WorkflowDefinition[],
+    workflowTemplatesLoading: false,
+    workflowTemplatesError: null as string | null,
     nodes: cloneNodes(),
     edges: cloneEdges(),
     dirty: false,
@@ -251,6 +254,53 @@ export const useWorkflowStore = defineStore('workflow', {
         ? capabilityResult.value
         : unavailableWorkflowCapabilities('AI capability service unavailable')
       this.templates = applyWorkflowCapabilities(templates, capabilities)
+    },
+    async loadWorkflowTemplates() {
+      this.workflowTemplatesLoading = true
+      this.workflowTemplatesError = null
+      try {
+        this.workflowTemplates = await workflowApi.listWorkflowTemplates()
+        return this.workflowTemplates
+      } catch (error) {
+        const details = error instanceof Error && error.message ? error.message : 'workflow templates unavailable'
+        this.workflowTemplatesError = details
+        throw error
+      } finally {
+        this.workflowTemplatesLoading = false
+      }
+    },
+    applyWorkflowDefinition(workflow: WorkflowDefinition, dirty = false) {
+      workflowLoadRequestCounter += 1
+      this.workflowId = workflow.id
+      this.workflowName = workflow.name
+      this.backendDefinitionId = workflow.backendDefinitionId ?? null
+      this.projectId = workflow.projectId ?? this.projectId ?? null
+      this.nodes = structuredClone(workflow.nodes)
+      this.edges = structuredClone(workflow.edges)
+      this.historyPast = []
+      this.historyFuture = []
+      this.editRevision += 1
+      this.dirty = dirty
+      this.loadingError = null
+      this.savingError = null
+      this.runError = null
+    },
+    useWorkflowTemplate(workflow: WorkflowDefinition) {
+      this.applyWorkflowDefinition({
+        ...workflow,
+        id: 'new',
+        backendDefinitionId: undefined,
+        projectId: this.projectId ?? workflow.projectId,
+      }, true)
+      return this.nodes
+    },
+    async copyCurrentWorkflow(name?: string) {
+      if (!this.backendDefinitionId) {
+        throw new Error('backend workflow definition is required before copying')
+      }
+      const copied = await workflowApi.copyWorkflow(String(this.backendDefinitionId), name)
+      this.applyWorkflowDefinition(copied)
+      return copied
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)

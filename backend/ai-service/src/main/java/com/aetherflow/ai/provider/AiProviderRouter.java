@@ -71,7 +71,9 @@ public class AiProviderRouter {
         if (request == null || request.prompt() == null || request.prompt().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "ai provider request prompt is required");
         }
-        ProviderRoutingPolicy policy = policyService.currentPolicy();
+        ProviderRoutingPolicy policy = request.userId() == null
+                ? policyService.currentPolicy()
+                : policyService.currentPolicy(request.userId());
         List<AiProviderType> candidates = policy.orderedCandidates(request.provider());
         if (!policy.isEnableFailover() && !candidates.isEmpty()) {
             candidates = List.of(candidates.get(0));
@@ -128,7 +130,9 @@ public class AiProviderRouter {
         if (request == null || request.prompt() == null || request.prompt().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "ai provider request prompt is required");
         }
-        ProviderRoutingPolicy policy = policyService.currentPolicy();
+        ProviderRoutingPolicy policy = request.userId() == null
+                ? policyService.currentPolicy()
+                : policyService.currentPolicy(request.userId());
         List<AiProviderType> candidates = policy.orderedCandidates(request.provider());
         if (!policy.isEnableFailover() && !candidates.isEmpty()) {
             candidates = List.of(candidates.get(0));

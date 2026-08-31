@@ -48,7 +48,8 @@ public class SummaryNodeExecutor implements AiNodeExecutor {
                 context.payloadString("model", properties.getDefaultModel()),
                 prompt.content(),
                 Map.of("temperature", 0.2),
-                properties.getProviderTimeout()
+                properties.getProviderTimeout(),
+                context.taskMessage() == null ? null : context.taskMessage().getUserId()
         ));
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("summary", response.text());

@@ -106,4 +106,9 @@ public class KnowledgeController {
                                                           @RequestBody RetrievalTestRequest request) {
         return Result.success(knowledgeService.runRetrievalTest(id, request));
     }
+
+    @PostMapping("/datasets/{id}/vector-index/reindex")
+    public Result<Integer> reindexVectorIndex(@PathVariable Long id) {
+        return Result.success(knowledgeService.reindexVectorIndex(id));
+    }
 }

@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Swarm production topology. Images are built and pushed by CI; stateful
 # dependencies (MySQL/Redis/RabbitMQ/MinIO/Nacos/Seata) are managed as HA
 # external services and addressed through the *_HOST variables.
@@ -79,6 +77,12 @@ services:
       TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?set NOTIFY_INTERNAL_TOKEN}
+      WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:-qdrant}
+      WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED: "false"
+      WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: "true"
+      WORKFLOW_QDRANT_BASE_URL: ${WORKFLOW_QDRANT_BASE_URL:?set WORKFLOW_QDRANT_BASE_URL}
+      WORKFLOW_QDRANT_API_KEY: ${WORKFLOW_QDRANT_API_KEY:?set WORKFLOW_QDRANT_API_KEY}
+      WORKFLOW_QDRANT_ENABLED: "true"
     networks: [aetherflow]
     deploy: { replicas: 3, restart_policy: { condition: on-failure } }
 

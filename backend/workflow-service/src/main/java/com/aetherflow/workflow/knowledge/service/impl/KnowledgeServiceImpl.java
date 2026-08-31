@@ -38,6 +38,7 @@ import com.aetherflow.workflow.knowledge.entity.KnowledgeDocumentEntity;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeChunkMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDatasetMapper;
 import com.aetherflow.workflow.knowledge.mapper.KnowledgeDocumentMapper;
+import com.aetherflow.workflow.knowledge.vector.KnowledgeVectorIndex;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
@@ -125,6 +126,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Autowired(required = false)
     private KnowledgeIngestionProperties ingestionProperties;
+
+    @Autowired(required = false)
+    private KnowledgeVectorIndex knowledgeVectorIndex;
 
     @Autowired(required = false)
     @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
@@ -648,6 +652,39 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 matchedEntities.stream().map(chunk -> toRetrievalChunkSummary(chunk, queryTokens, queryVector, parentChunks)).toList());
     }
 
+    @Override
+    public int reindexVectorIndex(Long datasetId) {
+        requireDataset(datasetId);
+        if (knowledgeVectorIndex == null || !isKnowledgeVectorIndexAvailable()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge semantic vector index is not available");
+        }
+        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = retrievalBaseWrapper(datasetId)
+                .orderByAsc(KnowledgeChunkEntity::getId);
+        int indexed = 0;
+        long pageNo = 1;
+        while (true) {
+            IPage<KnowledgeChunkEntity> page = chunkMapper.selectPage(new Page<>(pageNo, SEMANTIC_PAGE_SIZE, false), wrapper);
+            if (page == null) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "knowledge vector index rebuild requires paged database access");
+            }
+            List<KnowledgeChunkEntity> records = page.getRecords() == null ? List.of() : page.getRecords();
+            for (KnowledgeChunkEntity chunk : records) {
+                List<Double> vector = vectorFromJson(chunk.getVectorJson());
+                if (vector.isEmpty()) {
+                    continue;
+                }
+                knowledgeVectorIndex.upsert(chunk, vector);
+                indexed++;
+            }
+            if (records.size() < SEMANTIC_PAGE_SIZE) {
+                return indexed;
+            }
+            pageNo++;
+        }
+    }
+
     private KnowledgeDatasetEntity requireDataset(Long datasetId) {
         KnowledgeDatasetEntity dataset = datasetMapper.selectById(datasetId);
         if (dataset == null || !owns(dataset.getOwnerUserId())) {
@@ -804,6 +841,28 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                                                                          List<Double> queryVector,
                                                                          Map<String, Object> metadataFilter,
                                                                          int topK) {
+        if (knowledgeVectorIndex != null) {
+            boolean indexAvailable = isKnowledgeVectorIndexAvailable();
+            if (indexAvailable) {
+                try {
+                    List<Long> indexedIds = knowledgeVectorIndex.search(
+                            datasetId, queryVector, Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20)), metadataFilter);
+                    return loadIndexedSemanticCandidates(indexedIds, queryTokens, queryVector, metadataFilter);
+                } catch (RuntimeException exception) {
+                    if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
+                        throw exception;
+                    }
+                    log.warn("knowledge semantic index unavailable, falling back to paged SQL scan, datasetId={}",
+                            datasetId, exception);
+                }
+            } else if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "knowledge semantic vector index is not available");
+            }
+        } else if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge semantic vector index is not configured");
+        }
         LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = retrievalBaseWrapper(datasetId)
                 .orderByAsc(KnowledgeChunkEntity::getId);
         int bufferSize = Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20));
@@ -846,6 +905,39 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                         .reversed()
                         .thenComparing(KnowledgeChunkEntity::getId, Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
+    }
+
+    private List<KnowledgeChunkEntity> loadIndexedSemanticCandidates(List<Long> ids,
+                                                                       Set<String> queryTokens,
+                                                                       List<Double> queryVector,
+                                                                       Map<String, Object> metadataFilter) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<KnowledgeChunkEntity> records = chunkMapper.selectBatchIds(ids);
+        if (records == null || records.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, KnowledgeChunkEntity> byId = records.stream()
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toMap(KnowledgeChunkEntity::getId, chunk -> chunk,
+                        (left, right) -> left));
+        return ids.stream()
+                .map(byId::get)
+                .filter(Objects::nonNull)
+                .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
+                .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
+                .filter(chunk -> metadataMatches(chunk, metadataFilter))
+                .filter(chunk -> matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true))
+                .toList();
+    }
+
+    private boolean isKnowledgeVectorIndexAvailable() {
+        try {
+            return knowledgeVectorIndex.isAvailable();
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     private List<KnowledgeChunkEntity> boundedSemanticCandidates(List<KnowledgeChunkEntity> chunks,
@@ -964,6 +1056,21 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         chunk.setCreatedAt(now);
         chunk.setUpdatedAt(now);
         chunkMapper.insert(chunk);
+        if (embeddingIndex >= 0 && embeddingIndex < embeddings.size()
+                && knowledgeVectorIndex != null && isKnowledgeVectorIndexAvailable()) {
+            try {
+                knowledgeVectorIndex.upsert(chunk, embeddings.get(embeddingIndex).vector());
+            } catch (RuntimeException exception) {
+                if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
+                    throw exception;
+                }
+                log.warn("knowledge vector index upsert failed, chunkId={}", chunk.getId(), exception);
+            }
+        } else if (embeddingIndex >= 0 && embeddingIndex < embeddings.size()
+                && embeddingProperties.isKnowledgeVectorIndexRequired()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "knowledge semantic vector index is not available");
+        }
         return chunk;
     }
 

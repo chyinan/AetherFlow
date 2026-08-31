@@ -70,4 +70,22 @@ class AiWorkflowNodeResultAdapterTest {
                 .containsEntry("translatedText", "你好");
         assertThat(summary.variables()).containsEntry("summary", "要点");
     }
+
+    @Test
+    void adaptsFfmpegArtifactToGenericFileVariablesForDownstreamNodes() {
+        NodeResult result = AiWorkflowNodeResultAdapter.adapt(
+                "FFMPEG",
+                Map.of(
+                        "mediaFileId", 9001L,
+                        "mediaUrl", "https://minio.test/transformed.wav",
+                        "mediaObjectKey", "tenant-7/transformed.wav"));
+
+        assertThat(result.variables())
+                .containsEntry("mediaFileId", 9001L)
+                .containsEntry("mediaUrl", "https://minio.test/transformed.wav")
+                .containsEntry("mediaObjectKey", "tenant-7/transformed.wav")
+                .containsEntry("fileId", 9001L)
+                .containsEntry("fileUrl", "https://minio.test/transformed.wav")
+                .containsEntry("fileObjectKey", "tenant-7/transformed.wav");
+    }
 }

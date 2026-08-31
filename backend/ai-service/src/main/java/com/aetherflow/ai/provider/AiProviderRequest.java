@@ -22,14 +22,25 @@ public record AiProviderRequest(
         Map<String, Object> options,
 
         @Schema(description = "Request timeout.", example = "PT60S")
-        Duration timeout
+        Duration timeout,
+
+        @Schema(description = "Owning user id used for user-scoped routing policy.", example = "10001")
+        Long userId
 ) {
 
+    public AiProviderRequest(AiProviderType provider,
+                             String model,
+                             String prompt,
+                             Map<String, Object> options,
+                             Duration timeout) {
+        this(provider, model, prompt, options, timeout, null);
+    }
+
     public AiProviderRequest withProvider(AiProviderType providerType) {
-        return new AiProviderRequest(providerType, model, prompt, options, timeout);
+        return new AiProviderRequest(providerType, model, prompt, options, timeout, userId);
     }
 
     public AiProviderRequest withTimeout(Duration effectiveTimeout) {
-        return new AiProviderRequest(provider, model, prompt, options, effectiveTimeout);
+        return new AiProviderRequest(provider, model, prompt, options, effectiveTimeout, userId);
     }
 }

@@ -24,6 +24,17 @@ public final class AiWorkflowNodeResultAdapter {
                 copy(safeOutput, variables, "srtObjectKey", "srtObjectKey");
                 copy(safeOutput, variables, "durationSeconds", "durationSeconds");
             }
+            case "FFMPEG" -> {
+                // MEDIA artifacts are the hand-off contract for FFmpeg -> Whisper/OCR
+                // chains. Keep descriptive aliases and publish generic file variables
+                // so downstream nodes do not need provider-specific knowledge.
+                copy(safeOutput, variables, "mediaFileId", "mediaFileId");
+                copy(safeOutput, variables, "mediaUrl", "mediaUrl");
+                copy(safeOutput, variables, "mediaObjectKey", "mediaObjectKey");
+                copy(safeOutput, variables, "mediaFileId", "fileId");
+                copy(safeOutput, variables, "mediaUrl", "fileUrl");
+                copy(safeOutput, variables, "mediaObjectKey", "fileObjectKey");
+            }
             case "TRANSLATE" -> copy(safeOutput, variables, "translatedText", "translation");
             case "SUMMARY" -> copy(safeOutput, variables, "summary", "summary");
             case "AGENT" -> {

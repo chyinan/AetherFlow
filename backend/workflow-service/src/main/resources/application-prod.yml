@@ -3,6 +3,13 @@ spring:
     url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:aetherflow}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=true&requireSSL=true&verifyServerCertificate=true&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:aetherflow_app}
     password: ${MYSQL_PASSWORD}
+    hikari:
+      maximum-pool-size: ${WORKFLOW_DB_POOL_MAX:40}
+      minimum-idle: ${WORKFLOW_DB_POOL_MIN:10}
+      connection-timeout: ${WORKFLOW_DB_CONNECTION_TIMEOUT_MS:3000}
+      validation-timeout: ${WORKFLOW_DB_VALIDATION_TIMEOUT_MS:1000}
+      idle-timeout: ${WORKFLOW_DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${WORKFLOW_DB_MAX_LIFETIME_MS:1800000}
   data:
     redis:
       host: ${REDIS_HOST:redis}
@@ -73,6 +80,12 @@ aetherflow:
       async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
     embedding:
       ollama-base-url: ${OLLAMA_BASE_URL:http://host.docker.internal:11434}
+      qdrant-base-url: ${WORKFLOW_QDRANT_BASE_URL:https://qdrant.example.com}
+      qdrant-api-key: ${WORKFLOW_QDRANT_API_KEY:}
+      qdrant-enabled: ${WORKFLOW_QDRANT_ENABLED:true}
+      default-vector-store-provider: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:qdrant}
+      in-memory-enabled: ${WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED:false}
+      knowledge-vector-index-required: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:true}
     ocr:
       mock: ${WORKFLOW_OCR_MOCK:false}
       default-provider: ${WORKFLOW_OCR_PROVIDER:auto}

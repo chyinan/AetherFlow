@@ -6,10 +6,12 @@ import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.entity.WorkflowStartOutbox;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.mapper.WorkflowStartOutboxMapper;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogService;
 import com.aetherflow.workflow.project.entity.ProjectEntity;
 import com.aetherflow.workflow.project.mapper.ProjectMapper;
 import com.aetherflow.workflow.preflight.WorkflowAiCapabilityPreflightService;
@@ -24,6 +26,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.seata.spring.annotation.GlobalTransactional;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -46,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,6 +69,9 @@ class WorkflowServiceImplTest {
 
     @Mock
     private WorkflowRuntimeEngine runtimeEngine;
+
+    @Mock
+    private WorkflowStartOutboxMapper workflowStartOutboxMapper;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -87,8 +95,10 @@ class WorkflowServiceImplTest {
                 objectMapper,
                 runtimeProperties,
                 nodeRegistry,
+                new WorkflowNodeCatalogService(),
                 aiCapabilityPreflightService,
-                Runnable::run
+                Runnable::run,
+                workflowStartOutboxMapper
         );
     }
 
@@ -100,6 +110,7 @@ class WorkflowServiceImplTest {
 
         assertThat(globalTransactional).isNotNull();
         assertThat(globalTransactional.name()).isEqualTo("aetherflow-start-workflow-instance");
+        assertThat(method.getAnnotation(Transactional.class)).isNotNull();
     }
 
     @Test
@@ -116,6 +127,7 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO);
         when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(99L);
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenReturn(new WorkflowExecutionSnapshot(
                 "99",
                 "trace-generated",
@@ -130,7 +142,7 @@ class WorkflowServiceImplTest {
         WorkflowInstance instance = asUser(7L, () -> workflowService.startInstance(10L, request));
 
         assertThat(instance.getId()).isEqualTo(99L);
-        assertThat(instance.getStatus()).isEqualTo("RUNNING");
+        assertThat(instance.getStatus()).isEqualTo("PENDING");
         ArgumentCaptor<WorkflowRuntimeRequest> runtimeRequest = ArgumentCaptor.forClass(WorkflowRuntimeRequest.class);
         verify(runtimeEngine).execute(runtimeRequest.capture());
         assertThat(runtimeRequest.getValue().workflowId()).isEqualTo("99");
@@ -155,6 +167,7 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
         when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(102L);
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenAnswer(invocation -> {
             assertThat(AuthenticatedUserContext.requireUserId()).isEqualTo(7L);
             return new WorkflowExecutionSnapshot(
@@ -179,12 +192,13 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
         when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(100L);
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class)))
                 .thenThrow(new IllegalStateException("node failed"));
 
         WorkflowInstance instance = asUser(7L, () -> workflowService.startInstance(10L, request));
         assertThat(instance.getId()).isEqualTo(100L);
-        assertThat(instance.getStatus()).isEqualTo("RUNNING");
+        assertThat(instance.getStatus()).isEqualTo("PENDING");
 
         verify(instanceMapper).transitionRuntimeState(
                 eq(100L), eq("FAILED"), any(), any(), any());
@@ -202,6 +216,7 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
         when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(101L);
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenReturn(new WorkflowExecutionSnapshot(
                 "101", "trace", "101", RuntimeState.WAITING, "node-ai",
                 Map.of(), Map.of("node-ai", NodeResult.waiting(Map.of("externalTaskId", 91L))), List.of()));
@@ -210,6 +225,27 @@ class WorkflowServiceImplTest {
 
         verify(instanceMapper).transitionRuntimeState(
                 eq(101L), eq("WAITING"), eq("node-ai"), any(), any());
+    }
+
+    @Test
+    void startInstanceDoesNotExecuteRuntimeDirectlyWhenStartOutboxIsAvailable() throws Exception {
+        when(workflowStartOutboxMapper.selectDue(any(), any(), eq(50))).thenReturn(List.of());
+
+        WorkflowDefinition definition = definitionEntity();
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(104L);
+            return 1;
+        }).when(instanceMapper).insert(any(WorkflowInstance.class));
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+
+        WorkflowInstance instance = asUser(7L, () -> workflowService.startInstance(10L, request()));
+
+        assertThat(instance.getStatus()).isEqualTo("PENDING");
+        verify(workflowStartOutboxMapper).insert(any(WorkflowStartOutbox.class));
+        verify(runtimeEngine, never()).execute(any(WorkflowRuntimeRequest.class));
     }
 
     @Test
@@ -248,6 +284,7 @@ class WorkflowServiceImplTest {
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
         when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(103L);
         when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class))).thenAnswer(invocation -> {
             runtimeEntered.countDown();
             assertThat(callbackCompleted.await(2, TimeUnit.SECONDS)).isTrue();
@@ -263,12 +300,14 @@ class WorkflowServiceImplTest {
                 objectMapper,
                 runtimeProperties,
                 nodeRegistry,
+                new WorkflowNodeCatalogService(),
                 aiCapabilityPreflightService,
                 task -> {
                     Thread thread = new Thread(task, "workflow-initial-projection-test");
                     thread.setDaemon(true);
                     thread.start();
-                });
+                },
+                workflowStartOutboxMapper);
 
         asUser(7L, () -> asynchronousService.startInstance(10L, request));
         assertThat(runtimeEntered.await(2, TimeUnit.SECONDS)).isTrue();
@@ -508,6 +547,24 @@ class WorkflowServiceImplTest {
         project.setOwnerUserId(ownerUserId);
         project.setStatus("ACTIVE");
         return project;
+    }
+
+    private void stubDueStart(Long instanceId) throws Exception {
+        WorkflowStartOutbox outbox = new WorkflowStartOutbox();
+        outbox.setId(instanceId + 1000L);
+        outbox.setWorkflowInstanceId(instanceId);
+        outbox.setStatus(WorkflowStartOutbox.PENDING);
+        when(workflowStartOutboxMapper.selectDue(any(), any(), eq(50))).thenReturn(List.of(outbox));
+        when(workflowStartOutboxMapper.claim(eq(outbox.getId()), any(), any())).thenReturn(1);
+        WorkflowInstance persisted = new WorkflowInstance();
+        persisted.setId(instanceId);
+        persisted.setDefinitionId(10L);
+        persisted.setUserId(7L);
+        persisted.setStatus(RuntimeState.PENDING.name());
+        persisted.setInputJson("{\"file\":\"audio.mp3\"}");
+        when(instanceMapper.selectById(instanceId)).thenReturn(persisted);
+        when(objectMapper.readValue(eq(persisted.getInputJson()), any(TypeReference.class)))
+                .thenReturn(Map.of("file", "audio.mp3"));
     }
 
     private static <T> T asUser(Long userId, Supplier<T> action) {

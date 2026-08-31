@@ -37,17 +37,28 @@ public class TaskQueueConsumer {
         Task task = taskStateService.findById(taskId)
                 .orElseThrow(() -> new AmqpRejectAndDontRequeueException("task not found, taskId=" + taskId));
         TaskStatus currentStatus = TaskStatus.from(task.getStatus());
-        if (currentStatus.terminal() || currentStatus == TaskStatus.DISPATCHED) {
+        if (currentStatus.terminal()
+                || currentStatus == TaskStatus.DISPATCHED
+                || currentStatus == TaskStatus.DISPATCHING
+                || currentStatus == TaskStatus.RETRYING
+                || currentStatus == TaskStatus.TIMEOUT) {
             log.info("task dispatch message ignored, taskId={}, status={}", taskId, currentStatus);
             return;
         }
 
         try {
-            taskStateService.mark(task, TaskStatus.DISPATCHING, LocalDateTime.now().plus(properties.getDispatchTimeout()));
+            if (!taskStateService.mark(task, TaskStatus.DISPATCHING,
+                    LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
+                return;
+            }
             TaskMessageDTO workerMessage = taskMessageFactory.from(task);
             sentinelGuard.checkConsumerDispatch();
             taskQueueProducer.publishToWorker(workerMessage);
-            taskStateService.mark(task, TaskStatus.DISPATCHED, LocalDateTime.now().plus(properties.getExecutionTimeout()));
+            if (!taskStateService.mark(task, TaskStatus.DISPATCHED,
+                    LocalDateTime.now().plus(properties.getExecutionTimeout()))) {
+                log.warn("task dispatch state changed while publishing worker message, taskId={}", taskId);
+                return;
+            }
             log.info("task dispatch consumed, taskId={}, workflowInstanceId={}, nodeId={}",
                     taskId, task.getWorkflowInstanceId(), task.getNodeId());
         } catch (RuntimeException exception) {

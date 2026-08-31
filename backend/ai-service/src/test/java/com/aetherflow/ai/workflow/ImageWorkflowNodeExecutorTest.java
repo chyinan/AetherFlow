@@ -9,6 +9,8 @@ import com.aetherflow.ai.image.ImageProviderType;
 import com.aetherflow.ai.workflow.executor.ImageGenerationAiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.PromptAiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.UpscaleAiNodeExecutor;
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -90,6 +92,29 @@ class ImageWorkflowNodeExecutorTest {
     }
 
     @Test
+    void imageGenerationFailsOverToTheNextHealthyProviderOnTransientFailure() {
+        ImageGenerationProvider primary = new CapturingProvider(ImageProviderType.COMFYUI) {
+            @Override
+            public ImageGenerationResponse generate(ImageGenerationRequest request) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "primary image provider unavailable");
+            }
+        };
+        CapturingProvider fallback = new CapturingProvider(ImageProviderType.STABLE_DIFFUSION_WEBUI);
+        ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(
+                new ImageProviderRegistry(List.of(primary, fallback))
+        );
+
+        AiNodeResult result = executor.execute(new AiNodeExecutionContext(null, Map.of(
+                "provider", "COMFYUI",
+                "prompt", "cat"
+        )));
+
+        assertThat(fallback.lastRequest).isNotNull();
+        assertThat(fallback.lastRequest.provider()).isEqualTo(ImageProviderType.STABLE_DIFFUSION_WEBUI);
+        assertThat(result.output()).containsEntry("provider", "STABLE_DIFFUSION_WEBUI");
+    }
+
+    @Test
     void upscaleExecutorUsesProviderUpscaleMode() {
         CapturingProvider provider = new CapturingProvider();
         UpscaleAiNodeExecutor executor = new UpscaleAiNodeExecutor(new ImageProviderRegistry(List.of(provider)));
@@ -110,7 +135,7 @@ class ImageWorkflowNodeExecutorTest {
         assertThat(result.output()).containsEntry("mode", "upscale");
     }
 
-    private static final class CapturingProvider implements ImageGenerationProvider {
+    private static class CapturingProvider implements ImageGenerationProvider {
         private final ImageProviderType type;
         private ImageGenerationRequest lastRequest;
         private boolean upscaleCalled;

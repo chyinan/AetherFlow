@@ -84,6 +84,9 @@ aetherflow:
   notify:
     internal-token: ${NOTIFY_INTERNAL_TOKEN:aetherflow-notify-internal-dev-token}
   workflow:
+    runtime-event-retention: ${WORKFLOW_RUNTIME_EVENT_RETENTION:30d}
+    runtime-event-retention-batch-size: ${WORKFLOW_RUNTIME_EVENT_RETENTION_BATCH_SIZE:1000}
+    runtime-event-retention-fixed-delay: ${WORKFLOW_RUNTIME_EVENT_RETENTION_FIXED_DELAY:3600000}
     websocket:
       allowed-origins: ${AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
       stream-timeout: ${WORKFLOW_RUNTIME_WS_STREAM_TIMEOUT:5m}
@@ -111,7 +114,13 @@ aetherflow:
       default-overlap: ${WORKFLOW_EMBEDDING_OVERLAP:128}
       default-text-variable: ${WORKFLOW_EMBEDDING_TEXT_VARIABLE:ocrText}
       default-vector-collection: ${WORKFLOW_EMBEDDING_VECTOR_COLLECTION:workflow-embeddings}
+      default-vector-store-provider: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:qdrant}
+      in-memory-enabled: ${WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED:true}
+      knowledge-vector-index-required: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:false}
       ollama-base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      qdrant-base-url: ${WORKFLOW_QDRANT_BASE_URL:https://qdrant.example.com}
+      qdrant-api-key: ${WORKFLOW_QDRANT_API_KEY:}
+      qdrant-enabled: ${WORKFLOW_QDRANT_ENABLED:false}
       timeout: ${WORKFLOW_EMBEDDING_TIMEOUT:30s}
       thread-pool-size: ${WORKFLOW_EMBEDDING_THREAD_POOL_SIZE:2}
       queue-capacity: ${WORKFLOW_EMBEDDING_QUEUE_CAPACITY:20}
@@ -170,7 +179,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:

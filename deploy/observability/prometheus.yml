@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: aetherflow-gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["gateway-service:8080"]
+  - job_name: aetherflow-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - "auth-service:8101"
+          - "workflow-service:8102"
+          - "task-service:8103"
+          - "ai-service:8104"
+          - "file-service:8105"
+          - "notify-service:8106"
+
+# Production should replace static targets with service discovery and keep the
+# metrics endpoint on the private network behind the operations plane.

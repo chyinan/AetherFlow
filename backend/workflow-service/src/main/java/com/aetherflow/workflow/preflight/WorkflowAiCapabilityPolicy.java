@@ -114,6 +114,7 @@ public final class WorkflowAiCapabilityPolicy {
             case "LLM", "SUMMARY", "TRANSLATE", "AGENT", "QUESTION_UNDERSTAND",
                     "QUESTION_CLASSIFIER", "PARAMETER_EXTRACTOR" -> "LLM";
             case "WHISPER" -> "WHISPER";
+            case "FFMPEG" -> "FFMPEG";
             case "IMAGE_GENERATION" -> "IMAGE_GENERATION";
             case "UPSCALE" -> "UPSCALE";
             default -> null;

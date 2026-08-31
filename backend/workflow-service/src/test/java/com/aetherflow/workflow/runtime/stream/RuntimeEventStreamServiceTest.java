@@ -12,7 +12,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 class RuntimeEventStreamServiceTest {
 
@@ -23,6 +25,7 @@ class RuntimeEventStreamServiceTest {
         RuntimeEvent event3 = event("event-3", RuntimeEventType.NODE_COMPLETED);
         RuntimeEventStore store = mock(RuntimeEventStore.class);
         when(store.findByWorkflowId("workflow-1")).thenReturn(List.of(event1, event2, event3));
+        when(store.findByWorkflowId("workflow-1", 500)).thenReturn(List.of(event1, event2, event3));
 
         RuntimeEventStreamService service = new RuntimeEventStreamService(store);
 
@@ -37,6 +40,7 @@ class RuntimeEventStreamServiceTest {
         RuntimeEvent event2 = event("event-2", RuntimeEventType.NODE_STARTED);
         RuntimeEventStore store = mock(RuntimeEventStore.class);
         when(store.findByWorkflowId("workflow-1")).thenReturn(List.of(event1, event2));
+        when(store.findByWorkflowId("workflow-1", 500)).thenReturn(List.of(event1, event2));
 
         RuntimeEventStreamService service = new RuntimeEventStreamService(store);
 
@@ -66,6 +70,36 @@ class RuntimeEventStreamServiceTest {
         assertThat(payload).containsEntry("workflowId", "workflow-1")
                 .containsEntry("cursor", "event-9")
                 .containsEntry("occurredAt", "2026-05-29T09:30:00Z");
+    }
+
+    @Test
+    void incrementalPollingPassesTheDatabasePageLimit() {
+        RuntimeEventStore store = mock(RuntimeEventStore.class);
+        when(store.supportsIncrementalQuery()).thenReturn(true);
+        when(store.findByWorkflowIdAfter("workflow-1", "event-1", 500))
+                .thenReturn(List.of(event("event-2", RuntimeEventType.NODE_COMPLETED)));
+
+        RuntimeEventStreamService service = new RuntimeEventStreamService(store);
+
+        assertThat(service.eventsAfterCursor("workflow-1", "event-1"))
+                .extracting(RuntimeEvent::eventId)
+                .containsExactly("event-2");
+        verify(store).findByWorkflowIdAfter("workflow-1", "event-1", 500);
+    }
+
+    @Test
+    void sharesAWorkflowEventPollAcrossConnectionsWithinOnePollInterval() {
+        RuntimeEventStore store = mock(RuntimeEventStore.class);
+        when(store.supportsIncrementalQuery()).thenReturn(true);
+        when(store.findByWorkflowId("workflow-1", 500))
+                .thenReturn(List.of(event("event-1", RuntimeEventType.WORKFLOW_STARTED)));
+
+        RuntimeEventStreamService service = new RuntimeEventStreamService(store);
+
+        assertThat(service.eventsAfterCursor("workflow-1", null)).hasSize(1);
+        assertThat(service.eventsAfterCursor("workflow-1", null)).hasSize(1);
+
+        verify(store, times(1)).findByWorkflowId("workflow-1", 500);
     }
 
     private static RuntimeEvent event(String eventId, RuntimeEventType eventType) {

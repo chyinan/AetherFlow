@@ -15,7 +15,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.aetherflow.workflow.knowledge.mapper",
         "com.aetherflow.workflow.project.mapper",
         "com.aetherflow.workflow.embedding.store",
-        "com.aetherflow.workflow.knowledge.ingestion"
+        "com.aetherflow.workflow.knowledge.ingestion",
+        "com.aetherflow.workflow.runtime.notification"
 })
 @SpringBootApplication(scanBasePackages = "com.aetherflow")
 public class WorkflowServiceApplication {

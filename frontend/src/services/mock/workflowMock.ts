@@ -117,7 +117,7 @@ export const nodeTemplates: NodeTemplate[] = [
     group: 'recommended',
     config: { fileUrlVariable: 'fileUrl', operation: 'extract-audio', outputFormat: 'wav' },
     inputs: ['fileUrl'],
-    outputs: ['mediaFileName', 'mediaContentType', 'mediaSize'],
+    outputs: ['mediaFileName', 'mediaContentType', 'mediaSize', 'mediaFileId', 'mediaUrl', 'mediaObjectKey', 'fileId', 'fileUrl', 'fileObjectKey'],
   },
   {
     kind: 'url-fetch',
@@ -170,7 +170,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'AI',
     catalog: 'node',
     group: 'recommended',
-    config: { provider: 'ollama', model: 'nomic-embed-text', textVariable: 'urlText', chunkSize: 512, overlap: 128, vectorStoreProvider: 'memory', vectorCollection: 'workflow-embeddings' },
+    config: { provider: 'ollama', model: 'nomic-embed-text', textVariable: 'urlText', chunkSize: 512, overlap: 128, vectorStoreProvider: 'qdrant', vectorCollection: 'workflow-embeddings' },
     inputs: ['ocrText', 'urlText', 'summary'],
     outputs: ['embeddingResults', 'embeddingVectorCount', 'embeddingVectorStore'],
   },

@@ -40,4 +40,6 @@ public interface KnowledgeService {
     PageResult<KnowledgeChunkSummary> listDatasetChunks(Long datasetId, int page, int pageSize);
 
     RetrievalTestResponse runRetrievalTest(Long datasetId, RetrievalTestRequest request);
+
+    int reindexVectorIndex(Long datasetId);
 }

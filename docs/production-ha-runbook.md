@@ -33,3 +33,13 @@ docker stack deploy -c docker-stack.yml aetherflow
 ```
 
 `docker-compose.ha.yml` remains the local Compose scaling overlay only and is not a Swarm input. Stateful endpoints must be external TLS-enabled clusters; do not run the single-node dependencies as the HA data plane.
+
+## Observability and release evidence
+
+Every Java service exposes Micrometer Prometheus metrics at `/actuator/prometheus` on its private service port. The local Compose topology includes Prometheus and Grafana for verification; production Swarm must attach an external Prometheus/Alertmanager plane and use `deploy/observability/prometheus.yml` and `deploy/observability/alerts.yml` as the starting scrape and alert policy.
+
+The release gate must retain the exact image tag, Git commit, JMeter JTL, percentile summary, host CPU/memory/database-pool metrics, and queue depth for the full soak duration. A short contract test is only a wiring check and cannot be used as production capacity evidence.
+
+Workflow start, terminal notification, AI artifact registration, and task retry records are durable outboxes. Operators must monitor rows that remain in `PENDING` or `DISPATCHING` beyond the configured lease window before declaring the system healthy.
+
+Production semantic knowledge retrieval uses the external Qdrant index (`WORKFLOW_QDRANT_ENABLED=true` and `WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED=true`). The MySQL vector JSON path remains a development compatibility fallback only; do not enable it as the production retrieval data plane. Existing datasets must be re-indexed before enabling the fail-closed production flag; use `POST /knowledge/datasets/{id}/vector-index/reindex` per owned dataset and verify the returned indexed count.

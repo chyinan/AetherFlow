@@ -50,13 +50,19 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
 
     @Override
     public List<RuntimeEvent> findByWorkflowId(String workflowId) {
+        return findByWorkflowId(workflowId, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public List<RuntimeEvent> findByWorkflowId(String workflowId, int limit) {
         if (workflowId == null || workflowId.isBlank()) {
             return List.of();
         }
         return mapper.selectList(new LambdaQueryWrapper<RuntimeEventEntity>()
                         .eq(RuntimeEventEntity::getWorkflowId, workflowId)
                         .orderByAsc(RuntimeEventEntity::getOccurredAt)
-                        .orderByAsc(RuntimeEventEntity::getId))
+                        .orderByAsc(RuntimeEventEntity::getId)
+                        .last("LIMIT " + safeLimit(limit)))
                 .stream()
                 .map(this::toEvent)
                 .toList();
@@ -64,15 +70,20 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
 
     @Override
     public List<RuntimeEvent> findByWorkflowIdAfter(String workflowId, String eventId) {
+        return findByWorkflowIdAfter(workflowId, eventId, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public List<RuntimeEvent> findByWorkflowIdAfter(String workflowId, String eventId, int limit) {
         if (workflowId == null || workflowId.isBlank() || eventId == null || eventId.isBlank()) {
-            return findByWorkflowId(workflowId);
+            return findByWorkflowId(workflowId, limit);
         }
         RuntimeEventEntity cursor = mapper.selectOne(new LambdaQueryWrapper<RuntimeEventEntity>()
                 .eq(RuntimeEventEntity::getEventId, eventId)
                 .eq(RuntimeEventEntity::getWorkflowId, workflowId)
                 .last("LIMIT 1"));
         if (cursor == null) {
-            return findByWorkflowId(workflowId);
+            return findByWorkflowId(workflowId, limit);
         }
         return mapper.selectList(new LambdaQueryWrapper<RuntimeEventEntity>()
                         .eq(RuntimeEventEntity::getWorkflowId, workflowId)
@@ -81,10 +92,15 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
                                 .eq(RuntimeEventEntity::getOccurredAt, cursor.getOccurredAt())
                                 .gt(RuntimeEventEntity::getId, cursor.getId()))
                         .orderByAsc(RuntimeEventEntity::getOccurredAt)
-                        .orderByAsc(RuntimeEventEntity::getId))
+                        .orderByAsc(RuntimeEventEntity::getId)
+                        .last("LIMIT " + safeLimit(limit)))
                 .stream()
                 .map(this::toEvent)
                 .toList();
+    }
+
+    private int safeLimit(int limit) {
+        return Math.max(1, Math.min(limit, 10_000));
     }
 
     private RuntimeEventEntity toEntity(RuntimeEvent event, RuntimeEventEntity existing) {

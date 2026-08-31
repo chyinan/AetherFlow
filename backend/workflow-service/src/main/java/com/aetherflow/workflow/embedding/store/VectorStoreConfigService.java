@@ -85,7 +85,7 @@ public class VectorStoreConfigService {
         }
         return new VectorStoreRuntimeConfig(
                 "qdrant",
-                false,
+                properties.isQdrantEnabled(),
                 normalizeBaseUrl(properties.getQdrantBaseUrl()),
                 properties.getQdrantApiKey() == null ? "" : properties.getQdrantApiKey(),
                 properties.getDefaultVectorCollection()

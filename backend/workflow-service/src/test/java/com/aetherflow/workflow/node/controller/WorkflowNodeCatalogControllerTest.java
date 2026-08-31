@@ -108,7 +108,7 @@ class WorkflowNodeCatalogControllerTest {
                 .extracting(WorkflowNodeVariableSchema::name)
                 .contains("embeddingResults", "embeddingVectors", "embeddingVectorCount", "embeddingModel");
         assertThat(embedding.exampleConfig()).containsEntry("provider", "ollama");
-        assertThat(embedding.exampleConfig()).containsEntry("vectorStoreProvider", "memory");
+        assertThat(embedding.exampleConfig()).containsEntry("vectorStoreProvider", "qdrant");
         assertThat(embedding.exampleConfig()).containsEntry("chunkSize", 512);
         assertThat(embedding.configSchema())
                 .filteredOn(schema -> "provider".equals(schema.name()))

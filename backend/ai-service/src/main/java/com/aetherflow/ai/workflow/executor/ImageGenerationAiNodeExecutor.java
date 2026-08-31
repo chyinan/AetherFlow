@@ -4,11 +4,14 @@ import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageProviderRegistry;
 import com.aetherflow.ai.image.ImageProviderType;
+import com.aetherflow.ai.provider.ProviderFailureClassifier;
+import com.aetherflow.ai.provider.ProviderFailureType;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.stereotype.Component;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -17,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 
 @Component
+@Slf4j
 public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
 
     private final ImageProviderRegistry providerRegistry;
@@ -33,8 +37,57 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         ImageGenerationRequest request = request(context.payload(), string(context.payload(), "mode", "txt2img"));
-        ImageGenerationResponse response = providerRegistry.getRequired(request.provider().name()).generate(request);
+        ImageGenerationResponse response = executeWithFailover(request, false);
         return result(nodeType(), response);
+    }
+
+    protected ImageGenerationResponse executeWithFailover(ImageGenerationRequest request, boolean upscale) {
+        RuntimeException lastException = null;
+        for (var provider : providerRegistry.orderedAvailableProviders(request.provider().name())) {
+            try {
+                ImageGenerationRequest routedRequest = withProvider(request, provider.type());
+                ImageGenerationResponse response = upscale ? provider.upscale(routedRequest) : provider.generate(routedRequest);
+                if (response == null) {
+                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned no response");
+                }
+                return response;
+            } catch (RuntimeException exception) {
+                lastException = exception;
+                ProviderFailureType failureType = ProviderFailureClassifier.classify(exception);
+                if (!failureType.isRetryable()) {
+                    throw exception;
+                }
+                log.warn("image provider failed, provider={}, failureType={}, trying next provider",
+                        provider.type(), failureType, exception.getMessage());
+            }
+        }
+        throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                "all image providers failed: " + (lastException == null ? "unknown" : lastException.getMessage()));
+    }
+
+    private ImageGenerationRequest withProvider(ImageGenerationRequest request, ImageProviderType provider) {
+        return new ImageGenerationRequest(
+                provider,
+                request.mode(),
+                request.prompt(),
+                request.negativePrompt(),
+                request.seed(),
+                request.steps(),
+                request.cfgScale(),
+                request.sampler(),
+                request.scheduler(),
+                request.width(),
+                request.height(),
+                request.batchSize(),
+                request.denoiseStrength(),
+                request.checkpoint(),
+                request.vae(),
+                request.lora(),
+                request.sourceImageBase64(),
+                request.sourceImageContentType(),
+                request.workflowJson(),
+                request.options(),
+                request.timeout());
     }
 
     protected AiNodeResult result(String nodeType, ImageGenerationResponse response) {
