@@ -45,5 +45,7 @@ aetherflow:
     internal-token: ${NOTIFY_INTERNAL_TOKEN}
     websocket:
       allowed-origins: ${AETHERFLOW_NOTIFY_ALLOWED_ORIGINS:}
+      max-connections: ${NOTIFY_MAX_WS_CONNECTIONS:2000}
+      max-connections-per-user: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:10}
   swagger-ui:
     enabled: false

@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.event;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.mapper.WorkflowRuntimeEventMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
@@ -16,6 +18,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.Collections;
 
 @Repository
 @RequiredArgsConstructor
@@ -37,15 +41,7 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
         if (event == null) {
             return;
         }
-        RuntimeEventEntity existing = mapper.selectOne(new LambdaQueryWrapper<RuntimeEventEntity>()
-                .eq(RuntimeEventEntity::getEventId, event.eventId())
-                .last("LIMIT 1"));
-        RuntimeEventEntity entity = toEntity(event, existing);
-        if (existing == null) {
-            mapper.insert(entity);
-        } else {
-            mapper.updateById(entity);
-        }
+        mapper.insertIfAbsent(toEntity(event, null));
     }
 
     @Override
@@ -71,6 +67,23 @@ public class MybatisRuntimeEventStore implements RuntimeEventStore {
     @Override
     public List<RuntimeEvent> findByWorkflowIdAfter(String workflowId, String eventId) {
         return findByWorkflowIdAfter(workflowId, eventId, Integer.MAX_VALUE);
+    }
+
+    @Override
+    public List<RuntimeEvent> findLatestByWorkflowId(String workflowId, int limit) {
+        if (workflowId == null || workflowId.isBlank()) {
+            return List.of();
+        }
+        List<RuntimeEvent> events = mapper.selectList(new LambdaQueryWrapper<RuntimeEventEntity>()
+                        .eq(RuntimeEventEntity::getWorkflowId, workflowId)
+                        .orderByDesc(RuntimeEventEntity::getOccurredAt)
+                        .orderByDesc(RuntimeEventEntity::getId)
+                        .last("LIMIT " + safeLimit(limit)))
+                .stream()
+                .map(this::toEvent)
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        Collections.reverse(events);
+        return List.copyOf(events);
     }
 
     @Override

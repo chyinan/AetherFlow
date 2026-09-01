@@ -1,10 +1,13 @@
 package com.aetherflow.workflow.runtime.async;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.RabbitMqNames;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -19,7 +22,9 @@ public class WorkflowAiResultRabbitConfig {
 
     @Bean
     public Queue workflowAiResultQueue() {
-        return new Queue(RabbitMqNames.WORKFLOW_AI_RESULT_QUEUE, true);
+        return QueueBuilder.durable(RabbitMqNames.WORKFLOW_AI_RESULT_QUEUE)
+                .withArgument("x-queue-type", "quorum")
+                .build();
     }
 
     @Bean

@@ -65,6 +65,8 @@ aetherflow:
     redis-fanout-enabled: ${NOTIFY_REDIS_FANOUT_ENABLED:false}
     websocket:
       allowed-origins: ${AETHERFLOW_NOTIFY_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+      max-connections: ${NOTIFY_MAX_WS_CONNECTIONS:2000}
+      max-connections-per-user: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:10}
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

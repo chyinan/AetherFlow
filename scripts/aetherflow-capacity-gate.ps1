@@ -7,6 +7,7 @@ param(
     [ValidateRange(1, 3600)][int]$RampUpSeconds = 120,
     [ValidateRange(1, 100000)][int]$Loops = 20,
     [ValidateRange(1, 1440)][int]$SoakMinutes = 30,
+    [switch]$SkipUpload,
     [string]$JMeterPath = "",
     [string]$ResultRoot = "",
     [double]$MaxErrorRatePercent = 1.0,
@@ -25,7 +26,7 @@ if ([string]::IsNullOrWhiteSpace($ResultRoot)) {
 # 真实容量门禁不允许 mock fallback；脚本只把真实目标的 JTL 和环境快照作为发布证据。
 $runnerArgs = @{
     Protocol = $Protocol; HostName = $HostName; Port = $Port; Threads = $Threads
-    RampUpSeconds = $RampUpSeconds; Loops = $Loops; SkipUpload = $true
+    RampUpSeconds = $RampUpSeconds; Loops = $Loops; SkipUpload = $SkipUpload.IsPresent
     DurationSeconds = $SoakMinutes * 60
     SkipPreflight = $false; ResultRoot = $ResultRoot
     MaxErrorRatePercent = $MaxErrorRatePercent; MaxP95Milliseconds = $MaxP95Milliseconds
@@ -45,6 +46,7 @@ $evidence = [ordered]@{
     loops = $Loops
     soakMinutes = $SoakMinutes
     durationSeconds = $SoakMinutes * 60
+    skipUpload = $SkipUpload.IsPresent
     generatedAt = [DateTimeOffset]::UtcNow.ToString("O")
     gitCommit = (& git -C $root rev-parse HEAD 2>$null)
     runDirectory = $latest.FullName

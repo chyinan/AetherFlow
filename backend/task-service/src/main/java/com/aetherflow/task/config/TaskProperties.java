@@ -1,5 +1,7 @@
 package com.aetherflow.task.config;
 
+// pattern: Imperative Shell
+
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -48,7 +50,7 @@ public class TaskProperties {
     @Data
     public static class QueueProtection {
         private boolean enabled = true;
-        private boolean failClosedOnMonitorError = false;
+        private boolean failClosedOnMonitorError = true;
         private long busyDepthThreshold = 1000;
         private long recoveryDepthThreshold = 300;
         private long busyUnackedThreshold = 500;

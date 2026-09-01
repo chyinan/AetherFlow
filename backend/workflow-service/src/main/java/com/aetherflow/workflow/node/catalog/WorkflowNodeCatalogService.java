@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.catalog;
 
+// pattern: Functional Core
+
 import com.aetherflow.common.dto.WorkflowNodeConfigUiSchema;
 import com.aetherflow.workflow.document.DocumentFormatPolicy;
 import org.springframework.stereotype.Service;
@@ -220,7 +222,9 @@ public class WorkflowNodeCatalogService {
                 ),
                 List.of(
                         variable("transcription", "STRING", "Transcribed text.", "hello world"),
+                        variable("srtFileId", "NUMBER", "Persisted subtitle file id.", 7001),
                         variable("srtObjectKey", "STRING", "Generated subtitle object key.", "subtitles/audio.srt"),
+                        variable("srtUrl", "STRING", "Download URL of the generated subtitle file.", "https://files/audio.srt"),
                         variable("durationSeconds", "NUMBER", "Audio or video duration.", 62.5)
                 ),
                 mapOf("fileUrlVariable", "fileUrl", "fileIdVariable", "fileId", "language", "auto", "prompt", "")

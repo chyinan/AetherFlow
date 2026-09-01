@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.ocr;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.ocr.config.OCRProperties;
@@ -55,6 +57,16 @@ class OCRProviderRegistryTest {
         assertThatThrownBy(() -> registry.select(OCRNodeConfig.from(Map.of("provider", "cloud"), properties)))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST));
+    }
+
+    @Test
+    void resolvesAutoProviderToTheRegisteredRealProvider() {
+        OCRProvider tesseract = provider("tesseract");
+        OCRProperties properties = new OCRProperties();
+        properties.setDefaultProvider("auto");
+        OCRProviderRegistry registry = new OCRProviderRegistry(List.of(tesseract), properties);
+
+        assertThat(registry.select(OCRNodeConfig.from(Map.of(), properties))).isSameAs(tesseract);
     }
 
     private static OCRProvider provider(String name) {

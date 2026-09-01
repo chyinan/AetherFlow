@@ -1,5 +1,7 @@
 package com.aetherflow.ai.provider;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.config.AiTaskProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -8,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import com.aetherflow.ai.image.ImageProviderType;
 
 @Slf4j
 @Service
@@ -61,6 +64,10 @@ public class ProviderRoutingPolicyService {
 
     public List<AiProviderType> orderedCandidates(AiProviderType requestedProvider) {
         return currentPolicy().orderedCandidates(requestedProvider);
+    }
+
+    public List<ImageProviderType> orderedImageCandidates(Long userId, ImageProviderType requestedProvider) {
+        return currentPolicy(userId).orderedImageCandidates(requestedProvider);
     }
 
     private ProviderRoutingPolicy defaultPolicy() {

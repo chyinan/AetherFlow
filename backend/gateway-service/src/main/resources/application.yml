@@ -123,7 +123,7 @@ spring:
         - id: notify-service
           uri: lb://notify-service
           predicates:
-            - Path=/notify/**
+            - Path=/notify/sse/**,/notify/stream-token,/notify/messages,/notify/messages/**,/notify/ws
 
 aetherflow:
   security:

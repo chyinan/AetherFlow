@@ -43,6 +43,7 @@ public class DocumentContentExtractionService {
         validate(input);
         OCRInputFile ocrFile = new OCRInputFile(input.fileName(), input.contentType(), input.content());
         if (DocumentFormatPolicy.supportsImageOcr(input.fileName(), input.contentType())) {
+            ensureOcrReady(language);
             return fromOcr(tesseractOCRProvider.recognize(ocrRequest(ocrFile, language)), input.contentType());
         }
 
@@ -50,6 +51,7 @@ public class DocumentContentExtractionService {
         if (!textResult.text().isBlank() || !tesseractOCRProvider.supports(ocrFile)) {
             return textResult;
         }
+        ensureOcrReady(language);
         return fromOcr(tesseractOCRProvider.recognize(ocrRequest(ocrFile, language)), input.contentType());
     }
 
@@ -72,6 +74,13 @@ public class DocumentContentExtractionService {
                 "language", language == null || language.isBlank() ? "auto" : language
         ), ocrProperties);
         return new OCRRequest(input, config);
+    }
+
+    private void ensureOcrReady(String language) {
+        if (!tesseractOCRProvider.isReady(language)) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "tesseract OCR provider is not ready for language " + (language == null ? "auto" : language));
+        }
     }
 
     private DocumentExtractionResult fromOcr(OCRResult result, String contentType) {

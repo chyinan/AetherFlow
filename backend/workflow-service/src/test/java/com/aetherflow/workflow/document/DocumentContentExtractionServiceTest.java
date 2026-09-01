@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.document;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.ocr.OCRInputFile;
 import com.aetherflow.workflow.ocr.OCRRequest;
 import com.aetherflow.workflow.ocr.OCRResult;
@@ -41,6 +43,7 @@ class DocumentContentExtractionServiceTest {
         DocumentInput input = input("scan.pdf", "application/pdf");
         when(textExtractor.extract(input)).thenReturn(new DocumentExtractionResult("", "application/pdf", 0));
         when(tesseract.supports(any(OCRInputFile.class))).thenReturn(true);
+        when(tesseract.isReady("eng")).thenReturn(true);
         when(tesseract.recognize(any(OCRRequest.class))).thenReturn(new OCRResult("scanned text", "eng", 0.87, 2));
         DocumentContentExtractionService service = new DocumentContentExtractionService(
                 textExtractor, tesseract, new OCRProperties());
@@ -57,6 +60,7 @@ class DocumentContentExtractionServiceTest {
         DocumentTextExtractionService textExtractor = mock(DocumentTextExtractionService.class);
         TesseractOCRProvider tesseract = mock(TesseractOCRProvider.class);
         DocumentInput input = input("receipt.png", "image/png");
+        when(tesseract.isReady("eng")).thenReturn(true);
         when(tesseract.recognize(any(OCRRequest.class))).thenReturn(new OCRResult("receipt", "eng", 0.9, 1));
         DocumentContentExtractionService service = new DocumentContentExtractionService(
                 textExtractor, tesseract, new OCRProperties());

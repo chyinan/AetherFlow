@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.entity;
 
+// pattern: Imperative Shell
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -22,6 +24,9 @@ public class WorkflowInstance {
 
     @Schema(description = "Owner user id.", example = "10001")
     private Long userId;
+
+    @Schema(description = "Operation-level idempotency key scoped to the owner user.", example = "workflow-start:order-20260901-001")
+    private String idempotencyKey;
 
     @Schema(description = "Workflow instance status.", example = "RUNNING")
     private String status;

@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.entity;
 
+// pattern: Imperative Shell
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -28,6 +30,9 @@ public class WorkflowDefinition {
 
     @Schema(description = "Owner user id.", example = "10001")
     private Long ownerUserId;
+
+    @Schema(description = "Operation-level idempotency key scoped to the owner user.", example = "workflow-definition:media-digest-v1")
+    private String idempotencyKey;
 
     @Schema(description = "Owner username.", example = "aether.operator")
     private String ownerName;

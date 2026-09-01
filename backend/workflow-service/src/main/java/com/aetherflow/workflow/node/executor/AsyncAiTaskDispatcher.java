@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.workflow.client.TaskClient;
@@ -42,6 +44,9 @@ public class AsyncAiTaskDispatcher {
             } catch (NumberFormatException exception) {
                 throw new IllegalArgumentException("workflow userId variable must be numeric", exception);
             }
+        }
+        if (message.getUserId() == null || message.getUserId() <= 0) {
+            throw new IllegalArgumentException("workflow userId variable is required for async AI execution");
         }
         message.setTraceId(context.traceId());
         message.setNodeId(context.currentNodeId());

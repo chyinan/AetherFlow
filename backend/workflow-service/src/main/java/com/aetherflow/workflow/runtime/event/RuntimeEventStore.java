@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.event;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 
 import java.util.Collections;
@@ -10,6 +12,15 @@ public interface RuntimeEventStore {
     void append(RuntimeEvent event);
 
     List<RuntimeEvent> findByWorkflowId(String workflowId);
+
+    default List<RuntimeEvent> findLatestByWorkflowId(String workflowId, int limit) {
+        List<RuntimeEvent> events = findByWorkflowId(workflowId, limit);
+        if (events == null || events.isEmpty()) {
+            return List.of();
+        }
+        int start = Math.max(0, events.size() - Math.max(1, limit));
+        return List.copyOf(events.subList(start, events.size()));
+    }
 
     default List<RuntimeEvent> findByWorkflowId(String workflowId, int limit) {
         return bounded(safeEvents(workflowId), limit);

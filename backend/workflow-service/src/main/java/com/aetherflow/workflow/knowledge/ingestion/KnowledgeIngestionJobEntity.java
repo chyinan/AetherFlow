@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.knowledge.ingestion;
 
+// pattern: Imperative Shell
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -24,6 +26,7 @@ public class KnowledgeIngestionJobEntity {
     private Long ownerUserId;
     private String payloadJson;
     private String status;
+    private String leaseToken;
     private Integer attemptCount;
     private LocalDateTime nextAttemptAt;
     private String lastError;

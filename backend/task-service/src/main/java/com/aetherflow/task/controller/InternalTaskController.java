@@ -1,5 +1,7 @@
 package com.aetherflow.task.controller;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.InternalHeaders;
 import com.aetherflow.common.core.ResultCode;
@@ -11,6 +13,7 @@ import com.aetherflow.task.service.TaskDispatchService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -61,6 +64,24 @@ public class InternalTaskController {
         validateInternalToken(internalToken);
         taskDispatchService.markFailed(id);
         return Result.success();
+    }
+
+    @PostMapping("/workflow/{workflowInstanceId}/cancel")
+    @Operation(summary = "Cancel active tasks belonging to a workflow instance.")
+    public Result<Integer> cancelWorkflowTasks(
+            @RequestHeader(value = InternalHeaders.TASK_SERVICE_TOKEN, required = false) String internalToken,
+            @PathVariable Long workflowInstanceId) {
+        validateInternalToken(internalToken);
+        return Result.success(taskDispatchService.cancelActiveByWorkflowInstance(workflowInstanceId));
+    }
+
+    @GetMapping("/{taskId}/status")
+    @Operation(summary = "Read an asynchronous workflow task status internally.")
+    public Result<String> status(
+            @RequestHeader(value = InternalHeaders.TASK_SERVICE_TOKEN, required = false) String internalToken,
+            @PathVariable Long taskId) {
+        validateInternalToken(internalToken);
+        return Result.success(taskDispatchService.status(taskId));
     }
 
     private void validateInternalToken(String internalToken) {

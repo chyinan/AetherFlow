@@ -1,5 +1,7 @@
 package com.aetherflow.task.monitor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.RabbitMqNames;
 import com.aetherflow.task.config.TaskProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -10,6 +12,10 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -36,6 +42,34 @@ public class QueueMonitorService {
     private final AtomicReference<QueueHealthSnapshot> latestSnapshot =
             new AtomicReference<>(QueueHealthSnapshot.unknown("queue health not initialized", false));
     private final AtomicLong localRejectedTaskCount = new AtomicLong();
+    private final AtomicLong readyMessagesMetric = new AtomicLong();
+    private final AtomicLong unackedMessagesMetric = new AtomicLong();
+    private final AtomicLong totalMessagesMetric = new AtomicLong();
+    private final AtomicLong consumersMetric = new AtomicLong();
+    private final AtomicLong busyMetric = new AtomicLong();
+    private final AtomicLong healthKnownMetric = new AtomicLong();
+
+    @Autowired(required = false)
+    private MeterRegistry meterRegistry;
+
+    @PostConstruct
+    void registerMetrics() {
+        if (meterRegistry == null) {
+            return;
+        }
+        Gauge.builder("aetherflow_task_queue_ready_messages", readyMessagesMetric, AtomicLong::get)
+                .description("Ready messages across protected AetherFlow queues.").register(meterRegistry);
+        Gauge.builder("aetherflow_task_queue_unacked_messages", unackedMessagesMetric, AtomicLong::get)
+                .description("Unacknowledged messages across protected AetherFlow queues.").register(meterRegistry);
+        Gauge.builder("aetherflow_task_queue_total_messages", totalMessagesMetric, AtomicLong::get)
+                .description("Total messages across protected AetherFlow queues.").register(meterRegistry);
+        Gauge.builder("aetherflow_task_queue_consumers", consumersMetric, AtomicLong::get)
+                .description("Consumers across protected AetherFlow queues.").register(meterRegistry);
+        Gauge.builder("aetherflow_task_queue_busy", busyMetric, AtomicLong::get)
+                .description("Whether task queue admission is under backpressure.").register(meterRegistry);
+        Gauge.builder("aetherflow_task_queue_health_known", healthKnownMetric, AtomicLong::get)
+                .description("Whether the latest queue health snapshot came from usable metrics.").register(meterRegistry);
+    }
 
     @Scheduled(fixedDelayString = "${aetherflow.task.queue-protection.monitor-interval-ms:10000}")
     public void scheduledMonitorQueues() {
@@ -215,6 +249,13 @@ public class QueueMonitorService {
 
     private void updateSnapshot(QueueHealthSnapshot snapshot) {
         QueueHealthSnapshot previous = latestSnapshot.getAndSet(copy(snapshot));
+        readyMessagesMetric.set(snapshot.getReadyMessages());
+        unackedMessagesMetric.set(snapshot.getUnackedMessages());
+        totalMessagesMetric.set(snapshot.getTotalMessages());
+        consumersMetric.set(snapshot.getConsumers());
+        busyMetric.set(snapshot.isBusy() ? 1 : 0);
+        healthKnownMetric.set(snapshot.getStatus() != QueueBusyStatus.UNKNOWN
+                && (snapshot.getReason() == null || !snapshot.getReason().startsWith("queue metrics unavailable")) ? 1 : 0);
         persistSnapshot(snapshot);
         if (!previous.isBusy() && snapshot.isBusy()) {
             log.warn("queue backpressure enabled, status={}, reason={}", snapshot.getStatus(), snapshot.getReason());

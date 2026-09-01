@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.workflow.client.NotifyInternalClient;
@@ -14,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -29,7 +32,7 @@ class NotifyNodeExecutorTest {
 
         NodeResult result = executor.execute(context(
                 Map.of("userId", 7L, "eventType", "WORKFLOW_COMPLETED"),
-                Map.of("summary", "Done")
+                Map.of("userId", 7L, "summary", "Done")
         ));
 
         assertThat(result.output()).containsEntry("notified", true);
@@ -44,6 +47,18 @@ class NotifyNodeExecutorTest {
                 .containsEntry("nodeId", "notify")
                 .containsEntry("summary", "Done");
         assertThat(message.getOccurredAt()).isNotNull();
+    }
+
+    @Test
+    void rejectsNotificationTargetOutsideAuthenticatedUserScope() {
+        NotifyInternalClient notifyClient = mock(NotifyInternalClient.class);
+        NotifyNodeExecutor executor = new NotifyNodeExecutor(new WorkflowNodeMetrics(), notifyClient);
+
+        assertThatThrownBy(() -> executor.execute(context(
+                Map.of("userId", 8L, "eventType", "WORKFLOW_COMPLETED"),
+                Map.of("userId", 7L))))
+                .isInstanceOf(com.aetherflow.common.exception.BusinessException.class)
+                .hasMessageContaining("notification target must match authenticated user");
     }
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {

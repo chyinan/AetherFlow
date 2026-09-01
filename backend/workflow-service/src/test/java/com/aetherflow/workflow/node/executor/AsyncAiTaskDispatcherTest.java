@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.workflow.client.TaskClient;
@@ -29,7 +31,7 @@ class AsyncAiTaskDispatcherTest {
         AsyncAiTaskDispatcher dispatcher = new AsyncAiTaskDispatcher(taskClient, credentials, nodeProperties);
         when(taskClient.dispatch(any(String.class), any(TaskMessageDTO.class))).thenReturn(Result.success(91L));
         DefaultWorkflowContext context = new DefaultWorkflowContext(
-                "101", "trace-101", "101", Map.of());
+                "101", "trace-101", "101", Map.of("userId", 7L));
         context.updateCurrentNodeId("node-ai");
 
         long taskId = dispatcher.dispatch(context, "LLM", Map.of("prompt", "summarize"));

@@ -1,5 +1,7 @@
 package com.aetherflow.task.mapper;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.task.entity.Task;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
@@ -8,6 +10,15 @@ import org.apache.ibatis.annotations.Update;
 import java.time.LocalDateTime;
 
 public interface TaskMapper extends BaseMapper<Task> {
+
+    @Update("""
+            UPDATE af_task_record
+               SET status = 'CANCELLED', next_retry_at = NULL, updated_at = #{updatedAt}
+             WHERE workflow_instance_id = #{workflowInstanceId}
+               AND status NOT IN ('SUCCEEDED', 'FAILED', 'CANCELLED')
+            """)
+    int cancelActiveByWorkflowInstance(@Param("workflowInstanceId") Long workflowInstanceId,
+                                       @Param("updatedAt") LocalDateTime updatedAt);
 
     @Update("""
             UPDATE af_task_record

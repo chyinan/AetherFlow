@@ -1,5 +1,7 @@
 package com.aetherflow.common.dto;
 
+// pattern: Imperative Shell
+
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
@@ -27,5 +29,8 @@ public class CreateFileMetadataRequestDTO {
 
     @Schema(description = "Owner user id for generated artifacts.", example = "10001")
     private Long userId;
+
+    @Schema(description = "Operation-level idempotency key scoped to the owner user.", example = "workflow-export:99:node-end:hash")
+    private String idempotencyKey;
 }
 

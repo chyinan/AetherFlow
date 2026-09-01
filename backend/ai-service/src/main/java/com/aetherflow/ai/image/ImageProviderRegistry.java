@@ -1,5 +1,7 @@
 package com.aetherflow.ai.image;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.ai.config.ImageProviderProperties;
@@ -53,9 +55,17 @@ public class ImageProviderRegistry {
 
     public List<ImageGenerationProvider> orderedAvailableProviders(String requestedProvider) {
         ImageProviderType preferred = resolveType(requestedProvider);
+        return orderedAvailableProviders(List.of(preferred));
+    }
+
+    public List<ImageGenerationProvider> orderedAvailableProviders(List<ImageProviderType> preferredProviders) {
         LinkedHashSet<ImageProviderType> orderedTypes = new LinkedHashSet<>();
-        if (providers.containsKey(preferred) && isAvailable(preferred, providers.get(preferred))) {
-            orderedTypes.add(preferred);
+        if (preferredProviders != null) {
+            for (ImageProviderType preferred : preferredProviders) {
+                if (preferred != null && providers.containsKey(preferred) && isAvailable(preferred, providers.get(preferred))) {
+                    orderedTypes.add(preferred);
+                }
+            }
         }
         for (String available : availableProviderNames()) {
             try {

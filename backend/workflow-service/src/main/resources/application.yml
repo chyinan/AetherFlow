@@ -158,6 +158,8 @@ aetherflow:
       recovery:
         enabled: ${WORKFLOW_RUNTIME_RECOVERY_ENABLED:true}
         scan-limit: ${WORKFLOW_RUNTIME_RECOVERY_SCAN_LIMIT:100}
+        interval: ${WORKFLOW_RUNTIME_RECOVERY_INTERVAL:10000}
+        stale-after: ${WORKFLOW_RUNTIME_RECOVERY_STALE_AFTER:2m}
         waiting-watchdog-enabled: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_ENABLED:true}
         waiting-timeout: ${WORKFLOW_RUNTIME_WAITING_TIMEOUT:30m}
         waiting-watchdog-interval: ${WORKFLOW_RUNTIME_WAITING_WATCHDOG_INTERVAL:60000}

@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.knowledge.vector;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.store.VectorStoreConfigService;
@@ -69,6 +71,24 @@ public class QdrantKnowledgeVectorIndex implements KnowledgeVectorIndex {
     }
 
     @Override
+    public void deleteDataset(Long datasetId) {
+        if (datasetId == null || datasetId <= 0 || !isAvailable()) {
+            return;
+        }
+        VectorStoreConfigService.VectorStoreRuntimeConfig config = requiredConfig();
+        Map<String, Object> body = Map.of(
+                "filter", Map.of("must", List.of(
+                        Map.of("key", "datasetId", "match", Map.of("value", datasetId))
+                ))
+        );
+        HttpResponse<String> response = send(config,
+                "POST",
+                "/collections/" + path(knowledgeCollection(config)) + "/points/delete?wait=true",
+                body);
+        requireSuccess(response, "qdrant knowledge vector delete failed");
+    }
+
+    @Override
     public List<Long> search(Long datasetId, List<Double> queryVector, int limit) {
         return search(datasetId, queryVector, limit, Map.of());
     }
@@ -135,6 +155,7 @@ public class QdrantKnowledgeVectorIndex implements KnowledgeVectorIndex {
                 "/collections/" + path(knowledgeCollection(config)),
                 null);
         if (existing.statusCode() >= 200 && existing.statusCode() < 300) {
+            validateCollectionDimension(existing, dimension);
             return;
         }
         if (existing.statusCode() != 404) {
@@ -147,6 +168,25 @@ public class QdrantKnowledgeVectorIndex implements KnowledgeVectorIndex {
                 body);
         if (created.statusCode() != 409) {
             requireSuccess(created, "qdrant knowledge collection create failed");
+        }
+    }
+
+    private void validateCollectionDimension(HttpResponse<String> response, int expectedDimension) {
+        try {
+            JsonNode body = objectMapper.readTree(response.body());
+            if (body == null) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "qdrant knowledge collection metadata is invalid");
+            }
+            JsonNode configuredDimension = body
+                    .path("result").path("config").path("params").path("vectors").path("size");
+            if (configuredDimension.isNumber() && configuredDimension.intValue() != expectedDimension) {
+                throw new BusinessException(ResultCode.CONFLICT,
+                        "qdrant knowledge collection dimension does not match embedding model");
+            }
+        } catch (IOException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "qdrant knowledge collection metadata is invalid");
         }
     }
 

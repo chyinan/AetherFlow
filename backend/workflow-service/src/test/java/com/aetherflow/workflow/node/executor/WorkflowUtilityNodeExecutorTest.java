@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
@@ -247,13 +249,13 @@ class WorkflowUtilityNodeExecutorTest {
                 "queryVariable", "question",
                 "topK", 2,
                 "outputVariable", "context",
-                "metadataFilter", "enabled"
+                 "metadataFilter", "{\"sourceType\":\"input\"}"
         ), Map.of("question", "pricing")));
 
         assertThat(result.output()).containsEntry("datasetId", "42");
         assertThat(result.output()).containsEntry("query", "pricing");
         assertThat(result.output()).containsEntry("retrievalCount", 2);
-        assertThat(result.output()).containsEntry("metadataFilter", "enabled");
+        assertThat(result.output()).containsEntry("metadataFilter", "{\"sourceType\":\"input\"}");
         assertThat(result.variables()).containsEntry("context", "Pricing policy paragraph\n\nBilling FAQ paragraph");
         assertThat(result.variables()).containsEntry("retrievalCount", 2);
         assertThat(result.variables().get("retrievalResults")).asList().hasSize(2);

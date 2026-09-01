@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_runtime_snapshot (
     definition_id BIGINT,
     definition_json LONGTEXT NOT NULL,
     runtime_state VARCHAR(32) NOT NULL,
+    fencing_token VARCHAR(128),
     current_node_ids_json LONGTEXT,
     completed_node_ids_json LONGTEXT,
     failed_node_ids_json LONGTEXT,

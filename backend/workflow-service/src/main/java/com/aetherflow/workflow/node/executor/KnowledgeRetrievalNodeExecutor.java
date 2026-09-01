@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.knowledge.dto.KnowledgeDtos.KnowledgeChunkSummary;
@@ -10,6 +12,9 @@ import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -20,10 +25,19 @@ import java.util.Map;
 public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
 
     private final KnowledgeService knowledgeService;
+    private final ObjectMapper objectMapper;
 
     public KnowledgeRetrievalNodeExecutor(WorkflowNodeMetrics metrics, KnowledgeService knowledgeService) {
+        this(metrics, knowledgeService, new ObjectMapper());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public KnowledgeRetrievalNodeExecutor(WorkflowNodeMetrics metrics,
+                                          KnowledgeService knowledgeService,
+                                          ObjectMapper objectMapper) {
         super(WorkflowNodeTypes.KNOWLEDGE_RETRIEVAL, metrics);
         this.knowledgeService = knowledgeService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -32,7 +46,7 @@ public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
         String query = query(context, config);
         int topK = Math.min(50, Math.max(1, NodeValueSupport.intValue(config.get("topK"), 3)));
         String outputVariable = NodeValueSupport.stringValue(config.get("outputVariable"), "retrievalContext");
-        String metadataFilter = NodeValueSupport.stringValue(config.get("metadataFilter"), "");
+        String metadataFilter = metadataFilter(config.get("metadataFilter"));
 
         RetrievalTestRequest request = new RetrievalTestRequest();
         request.setQuery(query);
@@ -78,6 +92,23 @@ public class KnowledgeRetrievalNodeExecutor extends BaseNodeExecutor {
             return parsed;
         } catch (NumberFormatException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval node datasetId is invalid");
+        }
+    }
+
+    private String metadataFilter(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode node = value instanceof Map<?, ?> map
+                    ? objectMapper.valueToTree(map)
+                    : objectMapper.readTree(String.valueOf(value));
+            if (node == null || !node.isObject()) {
+                throw new IllegalArgumentException("metadataFilter must be a JSON object");
+            }
+            return objectMapper.writeValueAsString(node);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "knowledge retrieval metadataFilter must be a JSON object");
         }
     }
 

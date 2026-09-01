@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: aetherflow-operations
+  group_by: [alertname, job, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # Configure a real webhook/SMTP receiver through the operations deployment
+  # process before production. Keeping a named receiver here makes alert routing
+  # explicit and prevents Prometheus from silently dropping fired alerts.
+  - name: aetherflow-operations

@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_definition (
     description VARCHAR(512),
     project_id BIGINT,
     owner_user_id BIGINT,
+    idempotency_key VARCHAR(128),
     owner_name VARCHAR(128),
     definition_json LONGTEXT NOT NULL,
     version INT NOT NULL DEFAULT 1,
@@ -111,13 +112,15 @@ CREATE TABLE IF NOT EXISTS af_workflow_definition (
     updated_at DATETIME NOT NULL,
     KEY idx_af_workflow_definition_owner (owner_user_id),
     KEY idx_af_workflow_definition_project (project_id),
-    KEY idx_af_workflow_definition_status (status)
+    KEY idx_af_workflow_definition_status (status),
+    UNIQUE KEY uk_af_workflow_definition_owner_idempotency (owner_user_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS af_workflow_instance (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     definition_id BIGINT NOT NULL,
     user_id BIGINT,
+    idempotency_key VARCHAR(128),
     source VARCHAR(32),
     artifact_kind VARCHAR(64),
     workflow_id VARCHAR(128),
@@ -129,7 +132,8 @@ CREATE TABLE IF NOT EXISTS af_workflow_instance (
     updated_at DATETIME NOT NULL,
     KEY idx_af_workflow_instance_definition (definition_id),
     KEY idx_af_workflow_instance_user (user_id),
-    KEY idx_af_workflow_instance_status (status)
+    KEY idx_af_workflow_instance_status (status),
+    UNIQUE KEY uk_af_workflow_instance_user_idempotency (user_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS af_workspace (
@@ -202,6 +206,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_start_outbox (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     workflow_instance_id BIGINT NOT NULL,
     status VARCHAR(32) NOT NULL,
+    lease_token VARCHAR(64),
     attempt_count INT NOT NULL DEFAULT 0,
     next_attempt_at DATETIME(6),
     last_error VARCHAR(1000),
@@ -243,6 +248,7 @@ CREATE TABLE IF NOT EXISTS af_ai_task_event_outbox (
     event_type VARCHAR(64) NOT NULL,
     payload_json LONGTEXT NOT NULL,
     status VARCHAR(32) NOT NULL,
+    lease_token VARCHAR(64),
     attempt_count INT NOT NULL DEFAULT 0,
     next_attempt_at DATETIME,
     published_at DATETIME,
@@ -379,7 +385,8 @@ CREATE TABLE IF NOT EXISTS af_knowledge_ingestion_job (
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_knowledge_ingestion_document (document_id),
     KEY idx_af_knowledge_ingestion_due (status, next_attempt_at),
-    KEY idx_af_knowledge_ingestion_dataset (dataset_id)
+    KEY idx_af_knowledge_ingestion_dataset (dataset_id),
+    KEY idx_af_knowledge_ingestion_lease (status, lease_token, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS af_knowledge_chunk (
@@ -437,6 +444,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_runtime_snapshot (
     definition_id BIGINT,
     definition_json LONGTEXT NOT NULL,
     runtime_state VARCHAR(32) NOT NULL,
+    fencing_token VARCHAR(128),
     current_node_ids_json LONGTEXT,
     completed_node_ids_json LONGTEXT,
     failed_node_ids_json LONGTEXT,

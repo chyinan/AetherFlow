@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
@@ -25,6 +27,7 @@ import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -205,6 +208,28 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void lostRuntimeLeaseDoesNotMarkInstanceFailed() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        StartWorkflowRequest request = request();
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(104L);
+            return 1;
+        }).when(instanceMapper).insert(any(WorkflowInstance.class));
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{\"file\":\"audio.mp3\"}");
+        stubDueStart(104L);
+        when(runtimeEngine.execute(any(WorkflowRuntimeRequest.class)))
+                .thenThrow(new WorkflowRuntimeLeaseLostException("fencing token lost"));
+
+        asUser(7L, () -> workflowService.startInstance(10L, request));
+
+        verify(instanceMapper, never()).transitionRuntimeState(
+                eq(104L), eq("FAILED"), any(), any(), any());
+    }
+
+    @Test
     void waitingWorkflowIsNotMarkedCompleted() throws Exception {
         WorkflowDefinition definition = definitionEntity();
         StartWorkflowRequest request = request();
@@ -225,6 +250,44 @@ class WorkflowServiceImplTest {
 
         verify(instanceMapper).transitionRuntimeState(
                 eq(101L), eq("WAITING"), eq("node-ai"), any(), any());
+    }
+
+    @Test
+    void startInstanceReturnsExistingInstanceForRepeatedIdempotencyKey() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        WorkflowInstance existing = new WorkflowInstance();
+        existing.setId(98L);
+        existing.setDefinitionId(10L);
+        existing.setUserId(7L);
+        existing.setIdempotencyKey("start-98");
+        existing.setStatus(RuntimeState.RUNNING.name());
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(instanceMapper.findByUserIdAndIdempotencyKey(7L, "start-98")).thenReturn(existing);
+
+        StartWorkflowRequest request = request();
+        request.setIdempotencyKey("start-98");
+
+        WorkflowInstance result = asUser(7L, () -> workflowService.startInstance(10L, request));
+
+        assertThat(result).isSameAs(existing);
+        verify(instanceMapper, never()).insert(any(WorkflowInstance.class));
+        verify(workflowStartOutboxMapper, never()).insert(any(WorkflowStartOutbox.class));
+        verify(runtimeEngine, never()).execute(any(WorkflowRuntimeRequest.class));
+    }
+
+    @Test
+    void createDefinitionReturnsExistingDefinitionForRepeatedIdempotencyKey() {
+        WorkflowDefinition existing = definitionEntity();
+        existing.setId(77L);
+        existing.setIdempotencyKey("definition-77");
+        when(definitionMapper.findByOwnerUserIdAndIdempotencyKey(7L, "definition-77")).thenReturn(existing);
+        WorkflowDefinitionDTO request = definitionDTO();
+        request.setIdempotencyKey("definition-77");
+
+        WorkflowDefinition result = asUser(7L, () -> workflowService.createDefinition(request));
+
+        assertThat(result).isSameAs(existing);
+        verify(definitionMapper, never()).insert(any(WorkflowDefinition.class));
     }
 
     @Test

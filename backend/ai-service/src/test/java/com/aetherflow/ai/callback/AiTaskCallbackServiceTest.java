@@ -1,5 +1,7 @@
 package com.aetherflow.ai.callback;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.client.TaskStatusClient;
 import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.workflow.AiNodeResult;
@@ -66,6 +68,7 @@ class AiTaskCallbackServiceTest {
         ArgumentCaptor<NotifyMessageDTO> captor = ArgumentCaptor.forClass(NotifyMessageDTO.class);
         verify(rabbitTemplate).convertAndSend(any(String.class), any(String.class), captor.capture());
         assertThat(captor.getValue().getTraceId()).isEqualTo("trace-ai-59");
+        assertThat(captor.getValue().getUserId()).isEqualTo(7L);
         assertThat(captor.getValue().getPayload()).containsEntry("traceId", "trace-ai-59");
     }
 
@@ -91,6 +94,7 @@ class AiTaskCallbackServiceTest {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setTaskId(59L);
         message.setWorkflowInstanceId(100L);
+        message.setUserId(7L);
         message.setTraceId("trace-59");
         message.setNodeId("node-1");
         message.setNodeType("AI_TRANSCRIPTION");

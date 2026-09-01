@@ -1,5 +1,7 @@
 package com.aetherflow.ai.callback;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.client.TaskStatusClient;
 import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.workflow.AiNodeResult;
@@ -72,6 +74,7 @@ public class AiTaskCallbackService {
         payload.put("traceId", taskMessage.getTraceId());
         payload.put("nodeId", taskMessage.getNodeId());
         payload.put("nodeType", taskMessage.getNodeType());
+        payload.put("userId", taskMessage.getUserId());
         return payload;
     }
 
@@ -82,6 +85,7 @@ public class AiTaskCallbackService {
         notifyMessage.setTraceId(traceId == null ? null : String.valueOf(traceId));
         notifyMessage.setEventType(eventType);
         notifyMessage.setChannel("WORKFLOW");
+        notifyMessage.setUserId(toUserId(payload.get("userId")));
         notifyMessage.setPayload(payload);
         notifyMessage.setOccurredAt(OffsetDateTime.now());
         if (rabbitTemplate.getConnectionFactory() == null) {
@@ -100,6 +104,17 @@ public class AiTaskCallbackService {
                 notifyMessage,
                 correlationData);
         awaitPublisherConfirm(correlationData, notifyMessage.getEventId());
+    }
+
+    private Long toUserId(Object value) {
+        if (value instanceof Number number && number.longValue() > 0) {
+            return number.longValue();
+        }
+        try {
+            return value == null ? null : Long.valueOf(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     private void awaitPublisherConfirm(CorrelationData correlationData, String eventId) {

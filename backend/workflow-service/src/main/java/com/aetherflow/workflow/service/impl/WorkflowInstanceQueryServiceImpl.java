@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.LogFrame;
@@ -35,6 +37,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
     private static final int MAX_LOG_FRAMES = 200;
+    private static final int MAX_EVENTS_FOR_RUN_VIEW = 2_000;
 
     private final WorkflowInstanceMapper instanceMapper;
     private final WorkflowDefinitionMapper definitionMapper;
@@ -181,7 +184,7 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
         if (workflowId == null || workflowId.isBlank()) {
             return List.of();
         }
-        List<RuntimeEvent> events = runtimeEventStore.findByWorkflowId(workflowId);
+        List<RuntimeEvent> events = runtimeEventStore.findLatestByWorkflowId(workflowId, MAX_EVENTS_FOR_RUN_VIEW);
         return events == null ? List.of() : List.copyOf(events);
     }
 

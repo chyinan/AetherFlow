@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.persistence;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
@@ -19,10 +21,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -78,31 +76,17 @@ class MybatisRuntimeSnapshotRepositoryTest {
     }
 
     @Test
-    void serializesConcurrentSavesForTheSameWorkflow() throws Exception {
+    void rejectsSnapshotWriteWhenDistributedFencingTokenIsLost() throws Exception {
         WorkflowRuntimeSnapshotEntity existing = entity(snapshot("workflow-lock", RuntimeState.RUNNING));
-        CountDownLatch firstRead = new CountDownLatch(1);
-        CountDownLatch releaseFirstRead = new CountDownLatch(1);
-        CountDownLatch secondRead = new CountDownLatch(1);
-        AtomicInteger reads = new AtomicInteger();
-        when(mapper.selectOne(any(Wrapper.class))).thenAnswer(invocation -> {
-            if (reads.incrementAndGet() == 1) {
-                firstRead.countDown();
-                assertThat(releaseFirstRead.await(2, TimeUnit.SECONDS)).isTrue();
-            } else {
-                secondRead.countDown();
-            }
-            return existing;
-        });
+        existing.setFencingToken("lease-b");
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(existing);
+        when(mapper.updateIfOwned(any(WorkflowRuntimeSnapshotEntity.class))).thenReturn(0);
 
-        CompletableFuture<Void> first = CompletableFuture.runAsync(() -> repository.save(snapshot("workflow-lock", RuntimeState.RUNNING)));
-        assertThat(firstRead.await(1, TimeUnit.SECONDS)).isTrue();
-        CompletableFuture<Void> second = CompletableFuture.runAsync(() -> repository.save(snapshot("workflow-lock", RuntimeState.SUCCESS)));
-
-        assertThat(secondRead.await(100, TimeUnit.MILLISECONDS)).isFalse();
-        releaseFirstRead.countDown();
-        first.get(2, TimeUnit.SECONDS);
-        second.get(2, TimeUnit.SECONDS);
-        assertThat(reads).hasValue(2);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                repository.save(snapshot("workflow-lock", RuntimeState.SUCCESS), "lease-a")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("fencing token lost");
+        verify(mapper).updateIfOwned(any(WorkflowRuntimeSnapshotEntity.class));
     }
 
     private WorkflowRuntimeSnapshotEntity entity(WorkflowRuntimeSnapshot snapshot) throws Exception {

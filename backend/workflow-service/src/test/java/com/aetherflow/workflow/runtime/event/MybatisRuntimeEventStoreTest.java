@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.event;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.mapper.WorkflowRuntimeEventMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
@@ -44,7 +46,7 @@ class MybatisRuntimeEventStoreTest {
         store.append(event);
 
         ArgumentCaptor<RuntimeEventEntity> entityCaptor = ArgumentCaptor.forClass(RuntimeEventEntity.class);
-        verify(mapper).insert(entityCaptor.capture());
+        verify(mapper).insertIfAbsent(entityCaptor.capture());
         RuntimeEventEntity entity = entityCaptor.getValue();
         assertThat(entity.getEventId()).isEqualTo("event-1");
         assertThat(entity.getWorkflowId()).isEqualTo("workflow-1");

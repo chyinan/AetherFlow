@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+// pattern: Imperative Shell
+
 const root = resolve(import.meta.dirname, '..', '..')
 const compose = readFileSync(resolve(root, 'docker-compose.yml'), 'utf8')
 const envExample = readFileSync(resolve(root, '.env.example'), 'utf8')
@@ -18,6 +20,10 @@ const internalFileController = readFileSync(resolve(root, 'backend', 'file-servi
 const aiFileProperties = readFileSync(resolve(root, 'backend', 'ai-service', 'src', 'main', 'java', 'com', 'aetherflow', 'ai', 'config', 'FileClientProperties.java'), 'utf8')
 const workflowNodeProperties = readFileSync(resolve(root, 'backend', 'workflow-service', 'src', 'main', 'java', 'com', 'aetherflow', 'workflow', 'node', 'WorkflowNodeProperties.java'), 'utf8')
 const codeRuntimeDockerfile = readFileSync(resolve(root, 'python-ai-service', 'CodeRuntime.Dockerfile'), 'utf8')
+const javaServiceDockerfile = readFileSync(resolve(root, 'docker', 'java-service.Dockerfile'), 'utf8')
+const taskProd = readFileSync(resolve(root, 'backend', 'task-service', 'src', 'main', 'resources', 'application-prod.yml'), 'utf8')
+const prometheus = readFileSync(resolve(root, 'deploy', 'observability', 'prometheus.yml'), 'utf8')
+const productionStack = readFileSync(resolve(root, 'docker-stack.yml'), 'utf8')
 const productionProfiles = [
   'workflow-service',
   'auth-service',
@@ -77,6 +83,16 @@ assertIncludes(initScript, "Set-SecureEnvValue $content 'MINIO_ACCESS_KEY'", 'en
 assertIncludes(initScript, "Set-SecureEnvValue $content 'FILE_INTERNAL_TOKEN'", 'environment initializer must generate the file-service internal token')
 assertIncludes(initScript, "Set-SecureEnvValue $content 'TASK_INTERNAL_TOKEN'", 'environment initializer must generate the task-service internal token')
 assertExcludes(rabbitDefinitions, '"password": "aetherflow"', 'RabbitMQ definitions must not override the generated password')
+assertIncludes(rabbitDefinitions, 'aetherflow.workflow.ai-result.queue', 'RabbitMQ definitions must predeclare the durable workflow AI result queue')
+assertIncludes(rabbitDefinitions, '"x-queue-type": "quorum"', 'workflow AI result queue must be a durable quorum queue')
+assertIncludes(rabbitDefinitions, '"routing_key": "notify.user"', 'RabbitMQ definitions must bind workflow AI results to the notify exchange')
+assertIncludes(taskProd, 'fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:true}', 'task admission must fail closed when RabbitMQ health is unknown')
+assertIncludes(javaServiceDockerfile, 'tesseract-ocr-chi-sim', 'workflow production image must include the Chinese OCR language model')
+assertIncludes(prometheus, 'alertmanager:9093', 'Prometheus must forward fired alerts to Alertmanager')
+assertIncludes(productionStack, 'TASK_QUEUE_FAIL_CLOSED: "true"', 'production stack must fail closed when queue health is unknown')
+assertIncludes(productionStack, 'NOTIFY_MAX_WS_CONNECTIONS_PER_USER', 'production stack must bound notification WebSocket fan-out per user')
+assertIncludes(productionStack, 'WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: "true"', 'production stack must require external vector index')
+assertIncludes(compose, '127.0.0.1:${GATEWAY_DEBUG_PORT:-8080}:8080', 'local gateway debug port must not bypass the public Nginx entrypoint')
 assertIncludes(demoController, '@Profile("dev")', 'workflow demo endpoints must only exist in the dev profile')
 assertIncludes(mockNodeExecutor, '@Profile("!prod")', 'mock workflow executor must not load in production')
 assertExcludes(workflowNodeCatalog, '"MOCK",\n                "Mock"', 'public workflow node catalog must not expose the mock node')

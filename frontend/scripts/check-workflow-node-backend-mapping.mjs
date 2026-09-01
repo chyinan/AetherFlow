@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
+// pattern: Imperative Shell
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const mapper = readFileSync(join(root, 'src/api/mappers/workflowMapper.ts'), 'utf8')
 const canvas = readFileSync(join(root, 'src/components/workflow/WorkflowCanvas.vue'), 'utf8')
@@ -14,7 +16,7 @@ const requiredMappings = {
   'save-image': 'SAVE_IMAGE',
   whisper: 'WHISPER',
   llm: 'LLM',
-  ffmpeg: 'UPLOAD',
+  ffmpeg: 'FFMPEG',
   translate: 'TRANSLATE',
   summary: 'SUMMARY',
   export: 'EXPORT',

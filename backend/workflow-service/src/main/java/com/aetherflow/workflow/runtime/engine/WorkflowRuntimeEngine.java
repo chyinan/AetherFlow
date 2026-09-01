@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.engine;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.runtime.api.NodeExecutor;
@@ -14,6 +16,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.RetryPolicy;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 import com.aetherflow.workflow.runtime.logging.RuntimeLogContext;
 import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
@@ -42,6 +45,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -56,12 +60,18 @@ public class WorkflowRuntimeEngine {
 
     private static final int MAX_NESTED_ITERATIONS = 1_000;
     private static final int MAX_NESTED_BODY_NODES = 100;
-    private static final ExecutorService SHARED_NODE_EXECUTOR = Executors.newFixedThreadPool(
-            Math.max(8, Runtime.getRuntime().availableProcessors() * 4), runnable -> {
+    private static final ExecutorService SHARED_NODE_EXECUTOR = new java.util.concurrent.ThreadPoolExecutor(
+            Math.max(8, Runtime.getRuntime().availableProcessors() * 4),
+            Math.max(8, Runtime.getRuntime().availableProcessors() * 4),
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(Math.max(256, Runtime.getRuntime().availableProcessors() * 32)),
+            runnable -> {
                 Thread thread = new Thread(runnable, "workflow-node-worker");
                 thread.setDaemon(true);
                 return thread;
-            });
+            },
+            new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
     private static final ScheduledExecutorService SHARED_RENEWAL_EXECUTOR = Executors.newScheduledThreadPool(4, runnable -> {
         Thread thread = new Thread(runnable, "workflow-runtime-lock-renewal");
         thread.setDaemon(true);
@@ -75,7 +85,10 @@ public class WorkflowRuntimeEngine {
     private final RuntimeSnapshotRepository snapshotRepository;
     private final WorkflowRuntimeLock workflowRuntimeLock;
     private final WorkflowCancellationProbe cancellationProbe;
-    private final InheritableThreadLocal<AtomicBoolean> activeLockLost = new InheritableThreadLocal<>();
+    private final ThreadLocal<AtomicBoolean> activeLockLost = new ThreadLocal<>();
+    private final ThreadLocal<String> activeFencingToken = new ThreadLocal<>();
+    private final ThreadLocal<LockExecutionState> activeWorkerLock = new ThreadLocal<>();
+    private final ConcurrentHashMap<String, LockExecutionState> activeLockStates = new ConcurrentHashMap<>();
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
         this(nodeRegistry, new RuntimeStateMachine(), event -> {
@@ -246,8 +259,13 @@ public class WorkflowRuntimeEngine {
                         "workflow runtime lock already held for workflowId " + workflowId));
         AtomicBoolean lockLost = new AtomicBoolean(false);
         activeLockLost.set(lockLost);
-        ScheduledFuture<?> renewalFuture = startLockRenewal(lease, lockLost);
+        LockExecutionState lockState = new LockExecutionState(lease.token(), lockLost);
+        activeLockStates.put(workflowId, lockState);
+        activeFencingToken.set(lease.token());
+        ScheduledFuture<?> renewalFuture = null;
         try {
+            snapshotRepository.claimForLease(workflowId, lease.token());
+            renewalFuture = startLockRenewal(lease, lockLost);
             ensureLockHealthy();
             WorkflowExecutionSnapshot result = execution.get();
             ensureLockHealthy();
@@ -258,6 +276,8 @@ public class WorkflowRuntimeEngine {
                 renewalFuture.cancel(false);
             }
             releaseLock(lease);
+            activeLockStates.remove(workflowId, lockState);
+            activeFencingToken.remove();
             activeLockLost.remove();
         }
     }
@@ -582,7 +602,29 @@ public class WorkflowRuntimeEngine {
     private void ensureLockHealthy() {
         AtomicBoolean lockLost = activeLockLost.get();
         if (lockLost != null && lockLost.get()) {
-            throw new IllegalStateException("workflow runtime lock was lost during execution");
+            throw new WorkflowRuntimeLeaseLostException("workflow runtime lock was lost during execution");
+        }
+    }
+
+    private void ensureLockHealthy(String workflowId) {
+        LockExecutionState workerLockState = activeWorkerLock.get();
+        LockExecutionState currentLockState = workflowId == null ? null : activeLockStates.get(workflowId);
+        LockExecutionState lockState = workerLockState == null ? currentLockState : workerLockState;
+        if (lockState != null && (lockState.lockLost().get()
+                || (workerLockState != null && currentLockState != workerLockState))) {
+            throw new WorkflowRuntimeLeaseLostException("workflow runtime lock was lost during execution");
+        }
+    }
+
+    private void ensureLockHealthy(String workflowId, String fencingToken) {
+        if (fencingToken == null || fencingToken.isBlank()) {
+            ensureLockHealthy(workflowId);
+            return;
+        }
+        LockExecutionState lockState = workflowId == null ? null : activeLockStates.get(workflowId);
+        if (lockState == null || !fencingToken.equals(lockState.fencingToken())
+                || lockState.lockLost().get()) {
+            throw new WorkflowRuntimeLeaseLostException("workflow runtime lock was lost during execution");
         }
     }
 
@@ -669,6 +711,8 @@ public class WorkflowRuntimeEngine {
                                  Long userId,
                                  String username) {
         int submittedCount = inFlight;
+        String fencingToken = activeFencingToken.get();
+        LockExecutionState workerLockState = activeLockStates.get(request.workflowId());
         while (!readyQueue.isEmpty()) {
             String nodeId = readyQueue.remove();
             if (!scheduled.add(nodeId)) {
@@ -676,17 +720,22 @@ public class WorkflowRuntimeEngine {
             }
             tracker.markInFlight(nodeId);
             completionService.submit(() -> {
-                return AuthenticatedUserContext.runAs(userId, username, () -> {
-                    try {
-                        return executeNode(request, dag, context, nodeId);
-                    } catch (RuntimeException exception) {
-                        tracker.markFailed(nodeId);
-                        // Snapshot persistence is owned by the coordinator thread.
-                        // Writing from worker threads races with a newer completion
-                        // and can roll the durable runtime state backwards.
-                        throw new NodeExecutionException(nodeId, exception);
-                    }
-                });
+                activeWorkerLock.set(workerLockState);
+                try {
+                    return AuthenticatedUserContext.runAs(userId, username, () -> {
+                        try {
+                            return executeNode(request, dag, context, nodeId, fencingToken);
+                        } catch (RuntimeException exception) {
+                            tracker.markFailed(nodeId);
+                            // Snapshot persistence is owned by the coordinator thread.
+                            // Writing from worker threads races with a newer completion
+                            // and can roll the durable runtime state backwards.
+                            throw new NodeExecutionException(nodeId, exception);
+                        }
+                    });
+                } finally {
+                    activeWorkerLock.remove();
+                }
             });
             submittedCount++;
         }
@@ -696,12 +745,14 @@ public class WorkflowRuntimeEngine {
     private NodeExecution executeNode(WorkflowRuntimeRequest request,
                                       WorkflowDag dag,
                                       DefaultWorkflowContext context,
-                                      String nodeId) {
+                                      String nodeId,
+                                      String fencingToken) {
+        ensureLockHealthy(request.workflowId(), fencingToken);
         WorkflowNodeDTO node = dag.node(nodeId);
         context.updateCurrentNodeId(nodeId);
         RuntimeLogContext.run(context, nodeId,
                 () -> log.info("workflow node started, nodeType={}", node.getNodeType()));
-        publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()));
+        publish(context, RuntimeEventType.NODE_STARTED, nodeId, Map.of("nodeType", node.getNodeType()), fencingToken);
         NodeResult result = RuntimeLogContext.supply(context, nodeId,
                 () -> {
                     if (hasNestedBody(node)) {
@@ -1259,13 +1310,32 @@ public class WorkflowRuntimeEngine {
                 snapshot(context, tracker),
                 tracker.currentNodeIds(),
                 tracker.failedNodeIds()
-        ));
+        ), activeFencingToken.get());
     }
 
     private void publish(DefaultWorkflowContext context,
                          RuntimeEventType eventType,
                          String nodeId,
                          Map<String, Object> attributes) {
+        ensureLockHealthy(context.workflowId());
+        eventPublisher.publish(RuntimeEvent.of(
+                eventType,
+                context.workflowId(),
+                context.traceId(),
+                context.taskId(),
+                nodeId,
+                context.runtimeState(),
+                Instant.now(),
+                attributes
+        ));
+    }
+
+    private void publish(DefaultWorkflowContext context,
+                         RuntimeEventType eventType,
+                         String nodeId,
+                         Map<String, Object> attributes,
+                         String fencingToken) {
+        ensureLockHealthy(context.workflowId(), fencingToken);
         eventPublisher.publish(RuntimeEvent.of(
                 eventType,
                 context.workflowId(),
@@ -1282,6 +1352,9 @@ public class WorkflowRuntimeEngine {
     }
 
     private record VariableWriter(String nodeId, int depth) {
+    }
+
+    private record LockExecutionState(String fencingToken, AtomicBoolean lockLost) {
     }
 
     private static final class NodeExecutionException extends RuntimeException {

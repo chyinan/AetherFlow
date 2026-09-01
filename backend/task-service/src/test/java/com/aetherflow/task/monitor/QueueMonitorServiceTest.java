@@ -1,5 +1,7 @@
 package com.aetherflow.task.monitor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.task.config.TaskProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,13 +79,13 @@ class QueueMonitorServiceTest {
     }
 
     @Test
-    void fallsBackToNormalSnapshotWhenMetricsAreUnavailableBeforeFirstSuccessfulCheck() {
+    void failsClosedWhenMetricsAreUnavailableBeforeFirstSuccessfulCheck() {
         QueueMonitorService failingMonitor = monitorWithState(new AtomicReference<>());
 
         QueueHealthSnapshot snapshot = failingMonitor.refreshNow();
 
-        assertThat(snapshot.getStatus()).isEqualTo(QueueBusyStatus.NORMAL);
-        assertThat(snapshot.isBusy()).isFalse();
+        assertThat(snapshot.getStatus()).isEqualTo(QueueBusyStatus.BUSY);
+        assertThat(snapshot.isBusy()).isTrue();
         assertThat(snapshot.getReason()).contains("queue metrics unavailable");
     }
 

@@ -28,3 +28,17 @@ groups:
           severity: critical
         annotations:
           summary: "AetherFlow service scrape target is down"
+      - alert: AetherFlowQueueHealthUnknown
+        expr: aetherflow_task_queue_health_known == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AetherFlow queue health metrics are unavailable; admission is fail-closed"
+      - alert: AetherFlowQueueBackpressure
+        expr: aetherflow_task_queue_busy == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AetherFlow task queue admission is under backpressure"

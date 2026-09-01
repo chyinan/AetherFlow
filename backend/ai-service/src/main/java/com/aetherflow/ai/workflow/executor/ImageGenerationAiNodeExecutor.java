@@ -1,11 +1,14 @@
 package com.aetherflow.ai.workflow.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageProviderRegistry;
 import com.aetherflow.ai.image.ImageProviderType;
 import com.aetherflow.ai.provider.ProviderFailureClassifier;
 import com.aetherflow.ai.provider.ProviderFailureType;
+import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.common.core.ResultCode;
@@ -25,6 +28,9 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
 
     private final ImageProviderRegistry providerRegistry;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProviderRoutingPolicyService policyService;
+
     public ImageGenerationAiNodeExecutor(ImageProviderRegistry providerRegistry) {
         this.providerRegistry = providerRegistry;
     }
@@ -37,18 +43,33 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         ImageGenerationRequest request = request(context.payload(), string(context.payload(), "mode", "txt2img"));
-        ImageGenerationResponse response = executeWithFailover(request, false);
+        ImageGenerationResponse response = executeWithFailover(request, false, contextUserId(context));
         return result(nodeType(), response);
     }
 
     protected ImageGenerationResponse executeWithFailover(ImageGenerationRequest request, boolean upscale) {
+        return executeWithFailover(request, upscale, null);
+    }
+
+    protected ImageGenerationResponse executeWithFailover(ImageGenerationRequest request,
+                                                          boolean upscale,
+                                                          Long userId) {
         RuntimeException lastException = null;
-        for (var provider : providerRegistry.orderedAvailableProviders(request.provider().name())) {
+        List<com.aetherflow.ai.image.ImageGenerationProvider> availableProviders = policyService == null
+                ? providerRegistry.orderedAvailableProviders(request.provider().name())
+                : providerRegistry.orderedAvailableProviders(
+                policyService.orderedImageCandidates(userId, request.provider()));
+        for (int index = 0; index < availableProviders.size(); index++) {
+            var provider = availableProviders.get(index);
             try {
                 ImageGenerationRequest routedRequest = withProvider(request, provider.type());
                 ImageGenerationResponse response = upscale ? provider.upscale(routedRequest) : provider.generate(routedRequest);
                 if (response == null) {
                     throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned no response");
+                }
+                if (index > 0) {
+                    log.info("image provider failover recovered request, provider={}, fallbackIndex={}",
+                            provider.type(), index);
                 }
                 return response;
             } catch (RuntimeException exception) {
@@ -97,6 +118,13 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         output.put("images", response.images());
         output.put("metadata", response.metadata());
         return new AiNodeResult(nodeType, "SUCCEEDED", output, List.of());
+    }
+
+    protected Long contextUserId(AiNodeExecutionContext context) {
+        if (context == null || context.taskMessage() == null) {
+            return null;
+        }
+        return context.taskMessage().getUserId();
     }
 
     protected ImageGenerationRequest request(Map<String, Object> payload, String mode) {

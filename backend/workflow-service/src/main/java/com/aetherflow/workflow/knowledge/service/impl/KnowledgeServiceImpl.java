@@ -241,6 +241,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(ResultCode.CONFLICT,
                     "knowledge dataset is still referenced by a workflow; update the workflow first");
         }
+        if (knowledgeVectorIndex != null) {
+            knowledgeVectorIndex.deleteDataset(datasetId);
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .eq(KnowledgeChunkEntity::getDatasetId, datasetId));
         documentMapper.delete(new LambdaQueryWrapper<KnowledgeDocumentEntity>()
@@ -494,7 +497,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
         KnowledgeDocumentEntity document = documentMapper.selectById(job.getDocumentId());
         if (document == null || !"processing".equalsIgnoreCase(document.getStatus())) {
-            ingestionJobMapper.finishAttempt(jobId, KnowledgeIngestionJobEntity.FAILED,
+            finishIngestionAttempt(job, KnowledgeIngestionJobEntity.FAILED,
                     nvl(job.getAttemptCount()), null, "document is no longer processable", LocalDateTime.now());
             return;
         }
@@ -517,6 +520,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             KnowledgeDocumentPreparation.validateChunkCount(persistedChunkCount);
             String model = defaultText(datasetMapper.selectById(job.getDatasetId()).getEmbeddingModel(), DEFAULT_EMBEDDING_MODEL);
             List<EmbeddingResult> embeddings = semanticModel(model) ? embedChunks(chunks, model) : List.of();
+            ensureIngestionLease(job);
             chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                     .eq(KnowledgeChunkEntity::getDocumentId, document.getId()));
             LocalDateTime now = LocalDateTime.now();
@@ -532,12 +536,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             document.setStatus(STATUS_READY);
             document.setErrorMessage(null);
             document.setUpdatedAt(now);
+            ensureIngestionLease(job);
             documentMapper.updateById(document);
             if (datasetMapper.completeIngestion(job.getDatasetId(), persistedChunkCount, now) != 1) {
                 throw new BusinessException(ResultCode.INTERNAL_ERROR, "knowledge dataset counter update failed");
             }
-            ingestionJobMapper.finishAttempt(jobId, KnowledgeIngestionJobEntity.SUCCEEDED,
-                    attempt, null, null, now);
+            finishIngestionAttempt(job, KnowledgeIngestionJobEntity.SUCCEEDED, attempt, null, null, now);
+        } catch (IngestionLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             handleIngestionFailure(job, document, attempt, exception);
         } catch (JsonProcessingException exception) {
@@ -847,7 +853,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 try {
                     List<Long> indexedIds = knowledgeVectorIndex.search(
                             datasetId, queryVector, Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20)), metadataFilter);
-                    return loadIndexedSemanticCandidates(indexedIds, queryTokens, queryVector, metadataFilter);
+                    return loadIndexedSemanticCandidates(datasetId, indexedIds, queryTokens, queryVector, metadataFilter);
                 } catch (RuntimeException exception) {
                     if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
                         throw exception;
@@ -907,7 +913,8 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .toList();
     }
 
-    private List<KnowledgeChunkEntity> loadIndexedSemanticCandidates(List<Long> ids,
+    private List<KnowledgeChunkEntity> loadIndexedSemanticCandidates(Long datasetId,
+                                                                       List<Long> ids,
                                                                        Set<String> queryTokens,
                                                                        List<Double> queryVector,
                                                                        Map<String, Object> metadataFilter) {
@@ -927,6 +934,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .filter(Objects::nonNull)
                 .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
                 .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
+                .filter(chunk -> Objects.equals(chunk.getDatasetId(), datasetId))
                 .filter(chunk -> metadataMatches(chunk, metadataFilter))
                 .filter(chunk -> matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true))
                 .toList();
@@ -1428,6 +1436,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         String message = safeError(exception);
         int maxAttempts = ingestionProperties == null ? 3 : Math.max(1, ingestionProperties.getMaxAttempts());
         LocalDateTime now = LocalDateTime.now();
+        if (hasLeaseToken(job)) {
+            ensureIngestionLease(job);
+        }
         chunkMapper.delete(new LambdaQueryWrapper<KnowledgeChunkEntity>()
                 .eq(KnowledgeChunkEntity::getDocumentId, document.getId()));
         if (attempt >= maxAttempts) {
@@ -1436,8 +1447,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             document.setUpdatedAt(now);
             documentMapper.updateById(document);
             datasetMapper.failIngestion(job.getDatasetId(), now);
-            ingestionJobMapper.finishAttempt(job.getId(), KnowledgeIngestionJobEntity.FAILED,
-                    attempt, null, message, now);
+            finishIngestionAttempt(job, KnowledgeIngestionJobEntity.FAILED, attempt, null, message, now);
             log.error("knowledge ingestion failed permanently, jobId={}, documentId={}, reason={}",
                     job.getId(), job.getDocumentId(), message);
             return;
@@ -1449,10 +1459,38 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 ? Duration.ofMinutes(1)
                 : ingestionProperties.getRetryDelay();
         LocalDateTime nextAttempt = now.plus(retryDelay == null ? Duration.ofMinutes(1) : retryDelay);
-        ingestionJobMapper.finishAttempt(job.getId(), KnowledgeIngestionJobEntity.PENDING,
+        finishIngestionAttempt(job, KnowledgeIngestionJobEntity.PENDING,
                 attempt, nextAttempt, message, now);
         log.warn("knowledge ingestion scheduled for retry, jobId={}, attempt={}, reason={}",
                 job.getId(), attempt, message);
+    }
+
+    private void finishIngestionAttempt(KnowledgeIngestionJobEntity job,
+                                        String status,
+                                        int attempt,
+                                        LocalDateTime nextAttemptAt,
+                                        String error,
+                                        LocalDateTime updatedAt) {
+        int updated = hasLeaseToken(job)
+                ? ingestionJobMapper.finishAttemptWithLease(job.getId(), job.getLeaseToken(), status,
+                attempt, nextAttemptAt, error, updatedAt)
+                : ingestionJobMapper.finishAttempt(job.getId(), status, attempt, nextAttemptAt, error, updatedAt);
+        if (hasLeaseToken(job) && updated != 1) {
+            throw new IngestionLeaseLostException();
+        }
+    }
+
+    private void ensureIngestionLease(KnowledgeIngestionJobEntity job) {
+        if (hasLeaseToken(job) && ingestionJobMapper.isLeaseOwner(job.getId(), job.getLeaseToken()) != 1) {
+            throw new IngestionLeaseLostException();
+        }
+    }
+
+    private boolean hasLeaseToken(KnowledgeIngestionJobEntity job) {
+        return job != null && job.getLeaseToken() != null && !job.getLeaseToken().isBlank();
+    }
+
+    private static final class IngestionLeaseLostException extends RuntimeException {
     }
 
     private String safeError(Exception exception) {

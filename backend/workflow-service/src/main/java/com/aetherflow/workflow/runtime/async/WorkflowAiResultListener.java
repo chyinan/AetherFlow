@@ -1,11 +1,16 @@
 package com.aetherflow.workflow.runtime.async;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.RabbitMqNames;
 import com.aetherflow.common.dto.NotifyMessageDTO;
+import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,6 +22,9 @@ import java.util.Map;
 public class WorkflowAiResultListener {
 
     private final WorkflowAsyncCompletionService completionService;
+
+    @Autowired(required = false)
+    private WorkflowInstanceMapper workflowInstanceMapper;
 
     @RabbitListener(queues = RabbitMqNames.WORKFLOW_AI_RESULT_QUEUE)
     public void handle(NotifyMessageDTO message) {
@@ -53,6 +61,10 @@ public class WorkflowAiResultListener {
                 }
                 throw exception;
             }
+            return;
+        }
+        if (!belongsToMessageUser(workflowInstanceId, message, payload)) {
+            log.warn("AI result event ignored because user scope does not match workflowInstanceId={}", workflowInstanceId);
             return;
         }
         try {
@@ -99,5 +111,20 @@ public class WorkflowAiResultListener {
         String message = exception.getMessage();
         return message != null && (message.startsWith("stale external AI completion")
                 || message.startsWith("invalid external AI task identity"));
+    }
+
+    private boolean belongsToMessageUser(Long workflowInstanceId,
+                                         NotifyMessageDTO message,
+                                         Map<String, Object> payload) {
+        if (workflowInstanceMapper == null) {
+            return true;
+        }
+        WorkflowInstance instance = workflowInstanceMapper.selectById(workflowInstanceId);
+        if (instance == null) {
+            return false;
+        }
+        Object rawUserId = message.getUserId() == null ? payload.get("userId") : message.getUserId();
+        Long eventUserId = toLong(rawUserId);
+        return eventUserId != null && eventUserId.equals(instance.getUserId());
     }
 }

@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.ocr.provider;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.ocr.OCRInputFile;
 import com.aetherflow.workflow.ocr.OCRNodeConfig;
 import com.aetherflow.workflow.ocr.OCRRequest;
@@ -13,14 +15,30 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TesseractOCRProviderTest {
+
+    @Test
+    void reportsReadinessOnlyWhenAllRequestedLanguageModelsExist(@TempDir Path tessdata) throws Exception {
+        OCRProperties properties = new OCRProperties();
+        properties.getTesseract().setDataPath(tessdata.toString());
+        TesseractOCRProvider provider = new TesseractOCRProvider(properties);
+
+        assertThat(provider.isReady("eng+chi_sim")).isFalse();
+        Files.createFile(tessdata.resolve("eng.traineddata"));
+        Files.createFile(tessdata.resolve("chi_sim.traineddata"));
+
+        assertThat(provider.isReady("eng+chi_sim")).isTrue();
+    }
 
     @Test
     void extractsTextLayerFromPdfWithoutNativeTesseract() throws Exception {

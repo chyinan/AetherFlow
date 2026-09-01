@@ -43,3 +43,11 @@ The release gate must retain the exact image tag, Git commit, JMeter JTL, percen
 Workflow start, terminal notification, AI artifact registration, and task retry records are durable outboxes. Operators must monitor rows that remain in `PENDING` or `DISPATCHING` beyond the configured lease window before declaring the system healthy.
 
 Production semantic knowledge retrieval uses the external Qdrant index (`WORKFLOW_QDRANT_ENABLED=true` and `WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED=true`). The MySQL vector JSON path remains a development compatibility fallback only; do not enable it as the production retrieval data plane. Existing datasets must be re-indexed before enabling the fail-closed production flag; use `POST /knowledge/datasets/{id}/vector-index/reindex` per owned dataset and verify the returned indexed count.
+## 本轮投产加固补充
+
+- Workflow AI Result 使用预置的 quorum 队列 `aetherflow.workflow.ai-result.queue`；RabbitMQ definitions、Spring 声明和数据库迁移必须一起发布，禁止只重启 Workflow Service 期待运行时补建队列。
+- 工作流运行快照和启动 Outbox 使用分布式租约/fencing token；生产副本必须共享 MySQL 和 Redis，禁止把 JVM 锁作为唯一一致性机制。
+- Task Service 的 `TASK_QUEUE_FAIL_CLOSED` 必须保持 `true`；队列监控未知时拒绝新任务，直到 RabbitMQ 管理接口恢复。
+- 生产工作流 Embedding 必须使用外部 Qdrant，`WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED=true` 且 `WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED=false`。
+- 生产 Workflow Service 镜像包含 Tesseract 中文/英文语言模型；上线前必须用真实图片和扫描 PDF 执行 OCR 验收。
+- Prometheus 告警必须接入 Alertmanager 或企业统一告警平台；空 receiver 只能用于本地验证，不能作为生产通知方案。

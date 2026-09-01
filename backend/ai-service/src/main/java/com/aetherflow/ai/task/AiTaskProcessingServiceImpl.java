@@ -1,6 +1,10 @@
 package com.aetherflow.ai.task;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.cache.AiTaskCacheService;
+import com.aetherflow.ai.client.TaskStatusClient;
+import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.entity.AiJob;
 import com.aetherflow.ai.file.AiFileRegistrationService;
 import com.aetherflow.ai.mapper.AiJobMapper;
@@ -18,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.retry.RetryContext;
 import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.stereotype.Service;
@@ -44,6 +49,12 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
     private final AiTaskTerminalCoordinator terminalCoordinator;
     private final SentinelAiGuard sentinelAiGuard;
     private final ObjectMapper objectMapper;
+
+    @Autowired(required = false)
+    private TaskStatusClient taskStatusClient;
+
+    @Autowired(required = false)
+    private TaskClientProperties taskClientProperties;
 
     @Value("${spring.rabbitmq.listener.simple.retry.max-attempts:3}")
     private int listenerRetryMaxAttempts = 3;
@@ -95,6 +106,11 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
             AiNodeResult durableResult;
             com.aetherflow.ai.file.ArtifactRegistrationResult artifactRegistration = null;
             try {
+                if (isTaskCancelled(taskMessage.getTaskId())) {
+                    terminalCoordinator.recordFailure(job, lease, taskMessage, "task cancelled before AI execution");
+                    cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.FAILED);
+                    return;
+                }
                 AiNodeExecutor executor = executorRegistry.getRequired(taskMessage.getNodeType());
                 AiNodeResult result = executor.execute(new AiNodeExecutionContext(taskMessage, payload));
                 guard.assertOwned();
@@ -144,7 +160,8 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
 
     private void validateTask(TaskMessageDTO taskMessage) {
         if (taskMessage == null || taskMessage.getTaskId() == null || taskMessage.getNodeType() == null
-                || taskMessage.getNodeId() == null || taskMessage.getNodeId().isBlank()) {
+                || taskMessage.getNodeId() == null || taskMessage.getNodeId().isBlank()
+                || taskMessage.getUserId() == null || taskMessage.getUserId() <= 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "invalid ai task message");
         }
     }
@@ -207,5 +224,22 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
                 ? ""
                 : taskMessage.getNodeId().trim();
         return nodeId.isEmpty() ? taskId : taskId + ":" + nodeId;
+    }
+
+    private boolean isTaskCancelled(Long taskId) {
+        if (taskStatusClient == null || taskClientProperties == null || taskId == null) {
+            return false;
+        }
+        try {
+            com.aetherflow.common.core.Result<String> result = taskStatusClient.status(
+                    taskClientProperties.issueInternalToken(), taskId);
+            return result != null && result.isSuccess() && "CANCELLED".equalsIgnoreCase(result.getData());
+        } catch (RuntimeException exception) {
+            // A task status lookup is a safety check, not a dependency that may
+            // turn a healthy AI worker into a retry storm. The durable lease and
+            // workflow cancellation still fence late callbacks.
+            log.warn("task cancellation status lookup failed, taskId={}, reason={}", taskId, exception.getMessage());
+            return false;
+        }
     }
 }

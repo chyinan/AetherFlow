@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
@@ -28,6 +30,7 @@ import com.aetherflow.workflow.runtime.dag.WorkflowDag;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
@@ -43,6 +46,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PreDestroy;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -53,6 +57,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -76,6 +84,11 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Qualifier("workflowRuntimeTaskExecutor")
     private final TaskExecutor workflowRuntimeTaskExecutor;
     private final WorkflowStartOutboxMapper workflowStartOutboxMapper;
+    private final ScheduledExecutorService startLeaseHeartbeat = Executors.newScheduledThreadPool(2, runnable -> {
+        Thread thread = new Thread(runnable, "workflow-start-outbox-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     @Autowired(required = false)
     private RuntimeSnapshotRepository runtimeSnapshotRepository;
@@ -92,20 +105,36 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public WorkflowDefinition createDefinition(WorkflowDefinitionDTO request) {
-        validateDag(request);
         Long userId = currentUserId();
+        String idempotencyKey = normalizeIdempotencyKey(request == null ? null : request.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            WorkflowDefinition existing = definitionMapper.findByOwnerUserIdAndIdempotencyKey(userId, idempotencyKey);
+            if (existing != null) {
+                return existing;
+            }
+        }
+        validateDag(request);
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
         definition.setProjectId(requireOwnedProjectId(request.getProjectId()));
         definition.setOwnerUserId(userId);
         definition.setOwnerName(currentUsername());
+        definition.setIdempotencyKey(idempotencyKey);
         definition.setDefinitionJson(writeJson(request));
         definition.setVersion(1);
         definition.setStatus(STATUS_ENABLED);
         definition.setCreatedAt(LocalDateTime.now());
         definition.setUpdatedAt(LocalDateTime.now());
-        definitionMapper.insert(definition);
+        if (idempotencyKey == null) {
+            definitionMapper.insert(definition);
+        } else {
+            definitionMapper.insertIdempotent(definition);
+            WorkflowDefinition persisted = definitionMapper.selectById(definition.getId());
+            if (persisted != null) {
+                return persisted;
+            }
+        }
         return definition;
     }
 
@@ -156,6 +185,14 @@ public class WorkflowServiceImpl implements WorkflowService {
         Long userId = currentUserId();
         WorkflowDefinition definition = getExistingDefinition(definitionId);
 
+        String idempotencyKey = normalizeIdempotencyKey(request == null ? null : request.getIdempotencyKey());
+        if (idempotencyKey != null) {
+            WorkflowInstance existing = instanceMapper.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+            if (existing != null) {
+                return existing;
+            }
+        }
+
         WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
         validateDag(definitionDTO);
         validateRuntimePreflight(definitionDTO);
@@ -164,6 +201,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         WorkflowInstance instance = new WorkflowInstance();
         instance.setDefinitionId(definitionId);
         instance.setUserId(userId);
+        instance.setIdempotencyKey(idempotencyKey);
         instance.setInputJson(writeJson(input));
         // The instance is not running until the durable start outbox has been
         // claimed. This prevents an in-flight HTTP transaction from racing the
@@ -171,18 +209,43 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setStatus(RuntimeState.PENDING.name());
         instance.setStartedAt(LocalDateTime.now());
         instance.setUpdatedAt(LocalDateTime.now());
-        instanceMapper.insert(instance);
+        if (idempotencyKey == null) {
+            instanceMapper.insert(instance);
+        } else {
+            instanceMapper.insertIdempotent(instance);
+            WorkflowInstance persisted = instanceMapper.selectById(instance.getId());
+            if (persisted != null) {
+                return persisted;
+            }
+        }
 
         createStartOutbox(instance);
         dispatchStartsAfterCommit();
         return instance;
     }
 
-    private void executeRuntime(Long instanceId, WorkflowRuntimeRequest runtimeRequest) {
+    private void executeRuntime(Long instanceId, Long outboxId, WorkflowRuntimeRequest runtimeRequest, String leaseToken) {
+        ScheduledFuture<?> heartbeat = leaseToken == null || leaseToken.isBlank() ? null
+                : startLeaseHeartbeat.scheduleWithFixedDelay(
+                () -> workflowStartOutboxMapper.touchDispatching(
+                        outboxId, leaseToken, LocalDateTime.now()),
+                10, 10, TimeUnit.SECONDS);
         try {
-            workflowStartOutboxMapper.markDispatched(instanceId, LocalDateTime.now());
             WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
+            // The runtime writes its durable snapshot before returning. Marking the
+            // outbox only afterwards closes the crash window where a dispatcher had
+            // acknowledged work that had not yet produced a recoverable snapshot.
+            if (leaseToken == null || leaseToken.isBlank()) {
+                    workflowStartOutboxMapper.markDispatched(instanceId, LocalDateTime.now());
+            } else {
+                workflowStartOutboxMapper.markDispatchedOwned(instanceId, leaseToken, LocalDateTime.now());
+            }
             persistRuntimeProjection(instanceId, snapshot);
+        } catch (WorkflowRuntimeLeaseLostException exception) {
+            // 旧副本失去租约后不得把新副本正在推进的实例标记为 FAILED。
+            // 由带 fencing token 的恢复执行器继续推进，避免状态回退或重复终态通知。
+            log.warn("workflow runtime lease lost; recovery scanner will resume, workflowId={}, reason={}",
+                    runtimeRequest.workflowId(), exception.getMessage());
         } catch (RuntimeException exception) {
             LocalDateTime failedAt = LocalDateTime.now();
             int transitioned = instanceMapper.transitionRuntimeState(
@@ -197,6 +260,10 @@ public class WorkflowServiceImpl implements WorkflowService {
             }
             log.warn("workflow runtime execution failed, workflowId={}, reason={}",
                     runtimeRequest.workflowId(), exception.getMessage(), exception);
+        } finally {
+            if (heartbeat != null) {
+                heartbeat.cancel(false);
+            }
         }
     }
 
@@ -207,15 +274,29 @@ public class WorkflowServiceImpl implements WorkflowService {
             if (workflowStartOutboxMapper.claim(outbox.getId(), now, now.minusMinutes(30)) != 1) {
                 continue;
             }
+            WorkflowStartOutbox claimedOutbox = workflowStartOutboxMapper.selectById(outbox.getId());
+            String leaseToken = claimedOutbox == null ? null : claimedOutbox.getLeaseToken();
             try {
                 WorkflowInstance instance = instanceMapper.selectById(outbox.getWorkflowInstanceId());
                 if (instance == null || isTerminalStatus(instance.getStatus())) {
-                    workflowStartOutboxMapper.markDispatched(outbox.getWorkflowInstanceId(), LocalDateTime.now());
+                    if (leaseToken == null || leaseToken.isBlank()) {
+                        workflowStartOutboxMapper.markDispatched(outbox.getWorkflowInstanceId(), LocalDateTime.now());
+                    } else {
+                        workflowStartOutboxMapper.markDispatchedOwned(outbox.getWorkflowInstanceId(), leaseToken, LocalDateTime.now());
+                    }
                     continue;
                 }
-                if ("DISPATCHED".equals(outbox.getStatus()) && runtimeSnapshotRepository != null
+                if (runtimeSnapshotRepository != null
                         && runtimeSnapshotRepository.findByWorkflowId(String.valueOf(instance.getId())).isPresent()) {
-                    workflowStartOutboxMapper.markDispatched(instance.getId(), LocalDateTime.now());
+                    // A previous dispatcher may have executed the runtime and
+                    // crashed before acknowledging the start outbox. The durable
+                    // snapshot is the execution receipt; never start the same
+                    // workflow a second time just because the outbox row is stale.
+                    if (leaseToken == null || leaseToken.isBlank()) {
+                        workflowStartOutboxMapper.markDispatched(instance.getId(), LocalDateTime.now());
+                    } else {
+                        workflowStartOutboxMapper.markDispatchedOwned(instance.getId(), leaseToken, LocalDateTime.now());
+                    }
                     continue;
                 }
                 WorkflowDefinition definition = getExistingDefinitionForRecovery(instance.getDefinitionId());
@@ -228,16 +309,26 @@ public class WorkflowServiceImpl implements WorkflowService {
                         runtimeProperties.getRetry().toRetryPolicy());
                 workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(
                         instance.getUserId(), definition.getOwnerName(), () -> {
-                            executeRuntime(instance.getId(), runtimeRequest);
+                            executeRuntime(instance.getId(), outbox.getId(), runtimeRequest, leaseToken);
                             return null;
                         }));
                 dispatched++;
             } catch (RuntimeException exception) {
-                workflowStartOutboxMapper.markRetry(outbox.getId(), now.plusSeconds(5),
-                        exception.getMessage(), LocalDateTime.now());
+                if (leaseToken == null || leaseToken.isBlank()) {
+                    workflowStartOutboxMapper.markRetry(outbox.getId(), now.plusSeconds(5),
+                            exception.getMessage(), LocalDateTime.now());
+                } else {
+                    workflowStartOutboxMapper.markRetryOwned(outbox.getId(), leaseToken, now.plusSeconds(5),
+                            exception.getMessage(), LocalDateTime.now());
+                }
             }
         }
         return dispatched;
+    }
+
+    @PreDestroy
+    void shutdownStartLeaseHeartbeat() {
+        startLeaseHeartbeat.shutdownNow();
     }
 
     private void createStartOutbox(WorkflowInstance instance) {
@@ -280,6 +371,17 @@ public class WorkflowServiceImpl implements WorkflowService {
                 || RuntimeState.CANCELLED.name().equals(status);
     }
 
+    private String normalizeIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 128) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow idempotencyKey must not exceed 128 characters");
+        }
+        return normalized;
+    }
+
     private WorkflowDefinition getExistingDefinitionForRecovery(Long definitionId) {
         WorkflowDefinition definition = definitionMapper.selectById(definitionId);
         if (definition == null || STATUS_DELETED.equals(definition.getStatus())) {
@@ -308,6 +410,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         copy.setName(requestedName == null || requestedName.isBlank()
                 ? source.getName() + " Copy" : requestedName.trim());
         copy.setProjectId(source.getProjectId());
+        copy.setIdempotencyKey(null);
         return createDefinition(copy);
     }
 

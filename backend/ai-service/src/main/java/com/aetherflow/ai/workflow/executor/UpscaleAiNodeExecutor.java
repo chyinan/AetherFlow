@@ -1,5 +1,7 @@
 package com.aetherflow.ai.workflow.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageProviderRegistry;
@@ -22,7 +24,7 @@ public class UpscaleAiNodeExecutor extends ImageGenerationAiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         ImageGenerationRequest request = request(context.payload(), "upscale");
-        ImageGenerationResponse response = executeWithFailover(request, true);
+        ImageGenerationResponse response = executeWithFailover(request, true, contextUserId(context));
         return result(nodeType(), response);
     }
 }

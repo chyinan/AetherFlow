@@ -29,7 +29,7 @@
   -Loops 3
 ```
 
-如果只验证 Gateway/Auth/Workflow，可添加 `-SkipUpload`。脚本会先检查 `/health` 和 `/gateway/status`，为本次运行创建带时间戳的独立目录，生成 JTL、HTML 报告和 `performance-gate-summary.json`，不会覆盖历史结果。
+容量门禁默认包含真实 MinIO 文件上传/下载/删除链路；只有明确使用 `-SkipUpload` 才允许跳过。脚本会先检查 `/health` 和 `/gateway/status`，为本次运行创建带时间戳的独立目录，生成 JTL、HTML 报告和 `performance-gate-summary.json`，不会覆盖历史结果。
 
 ## 默认门禁
 

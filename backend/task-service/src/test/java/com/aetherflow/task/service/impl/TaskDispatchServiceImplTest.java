@@ -1,5 +1,7 @@
 package com.aetherflow.task.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.task.config.TaskProperties;
@@ -185,6 +187,7 @@ class TaskDispatchServiceImplTest {
     private TaskMessageDTO validMessage() {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setWorkflowInstanceId(10L);
+        message.setUserId(7L);
         message.setTraceId("trace-10");
         message.setNodeId("node-1");
         message.setNodeType("AI_TRANSCRIPTION");

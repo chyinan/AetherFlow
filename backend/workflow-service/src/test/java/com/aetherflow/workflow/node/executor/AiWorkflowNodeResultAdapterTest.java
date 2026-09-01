@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Functional Core
+
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import org.junit.jupiter.api.Test;
 
@@ -58,13 +60,17 @@ class AiWorkflowNodeResultAdapterTest {
     @Test
     void adaptsWhisperTranslateAndSummaryOutputs() {
         NodeResult whisper = AiWorkflowNodeResultAdapter.adapt(
-                "WHISPER", Map.of("text", "hello", "durationSeconds", 3.2D));
+                "WHISPER", Map.of("text", "hello", "durationSeconds", 3.2D,
+                        "srtFileId", 19L, "srtObjectKey", "workflow/19.srt", "srtUrl", "https://files/19.srt"));
         NodeResult translate = AiWorkflowNodeResultAdapter.adapt(
                 "TRANSLATE", Map.of("translatedText", "你好"));
         NodeResult summary = AiWorkflowNodeResultAdapter.adapt(
                 "SUMMARY", Map.of("summary", "要点"));
 
-        assertThat(whisper.variables()).containsEntry("transcription", "hello");
+        assertThat(whisper.variables()).containsEntry("transcription", "hello")
+                .containsEntry("srtFileId", 19L)
+                .containsEntry("srtObjectKey", "workflow/19.srt")
+                .containsEntry("srtUrl", "https://files/19.srt");
         assertThat(translate.variables())
                 .containsEntry("translation", "你好")
                 .containsEntry("translatedText", "你好");

@@ -52,6 +52,7 @@ seata:
 aetherflow:
   task:
     queue-protection:
+      fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:true}
       management-api:
         base-url: ${RABBITMQ_MANAGEMENT_URL:http://rabbitmq:15672}
         username: ${RABBITMQ_USERNAME:aetherflow}

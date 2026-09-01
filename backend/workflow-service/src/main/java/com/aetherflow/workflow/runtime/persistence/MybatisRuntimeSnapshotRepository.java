@@ -1,9 +1,12 @@
 package com.aetherflow.workflow.runtime.persistence;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -34,40 +37,45 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
 
     private final WorkflowRuntimeSnapshotMapper mapper;
     private final ObjectMapper objectMapper;
-    private final Object[] saveLocks = createSaveLocks();
-
     @Override
     public void save(WorkflowRuntimeSnapshot snapshot) {
+        save(snapshot, null);
+    }
+
+    @Override
+    public void claimForLease(String workflowId, String fencingToken) {
+        if (workflowId == null || workflowId.isBlank() || fencingToken == null || fencingToken.isBlank()) {
+            return;
+        }
+        mapper.claimForLease(workflowId, fencingToken);
+    }
+
+    @Override
+    public void save(WorkflowRuntimeSnapshot snapshot, String fencingToken) {
         if (snapshot == null) {
             return;
         }
-        synchronized (saveLock(snapshot.workflowId())) {
-            WorkflowRuntimeSnapshotEntity existing = mapper.selectOne(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
-                    .eq(WorkflowRuntimeSnapshotEntity::getWorkflowId, snapshot.workflowId())
-                    .last("LIMIT 1"));
-            WorkflowRuntimeSnapshotEntity entity = toEntity(snapshot, existing);
-            if (existing == null) {
-                mapper.insert(entity);
-            } else {
-                if ("CANCELLED".equals(existing.getRuntimeState()) && !"CANCELLED".equals(snapshot.runtimeState().name())) {
-                    return;
-                }
-                mapper.updateIfNotCancelled(entity);
-            }
+        WorkflowRuntimeSnapshotEntity existing = mapper.selectOne(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                .eq(WorkflowRuntimeSnapshotEntity::getWorkflowId, snapshot.workflowId())
+                .last("LIMIT 1"));
+        WorkflowRuntimeSnapshotEntity entity = toEntity(snapshot, existing);
+        if (fencingToken != null && !fencingToken.isBlank()) {
+            entity.setFencingToken(fencingToken);
         }
-    }
-
-    private Object saveLock(String workflowId) {
-        int hash = workflowId == null ? 0 : workflowId.hashCode();
-        return saveLocks[(hash & Integer.MAX_VALUE) % saveLocks.length];
-    }
-
-    private static Object[] createSaveLocks() {
-        Object[] locks = new Object[64];
-        for (int index = 0; index < locks.length; index++) {
-            locks[index] = new Object();
+        if (existing == null) {
+            mapper.insert(entity);
+            return;
         }
-        return locks;
+        if ("CANCELLED".equals(existing.getRuntimeState()) && !"CANCELLED".equals(snapshot.runtimeState().name())) {
+            return;
+        }
+        int updated = fencingToken == null || fencingToken.isBlank()
+                ? mapper.updateIfNotCancelled(entity)
+                : mapper.updateIfOwned(entity);
+        if (fencingToken != null && !fencingToken.isBlank() && updated != 1) {
+            throw new WorkflowRuntimeLeaseLostException("workflow runtime snapshot fencing token lost for workflowId "
+                    + snapshot.workflowId());
+        }
     }
 
     @Override
@@ -95,6 +103,20 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
         return readSnapshots(mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
                         .in(WorkflowRuntimeSnapshotEntity::getRuntimeState,
                                 RuntimeState.SUCCESS.name(), RuntimeState.FAILED.name(), RuntimeState.CANCELLED.name())
+                        .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
+                        .last("LIMIT " + maxResults)));
+    }
+
+    @Override
+    public List<WorkflowRuntimeSnapshot> findRecoverable(int limit, Instant before) {
+        int maxResults = Math.max(1, limit);
+        LocalDateTime cutoff = before == null
+                ? LocalDateTime.now()
+                : LocalDateTime.ofInstant(before, ZoneId.systemDefault());
+        return readSnapshots(mapper.selectList(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                        .in(WorkflowRuntimeSnapshotEntity::getRuntimeState,
+                                RuntimeState.RUNNING.name(), RuntimeState.RETRYING.name())
+                        .le(WorkflowRuntimeSnapshotEntity::getUpdatedAt, cutoff)
                         .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
                         .last("LIMIT " + maxResults)));
     }
@@ -135,6 +157,7 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
         if (existing != null) {
             entity.setId(existing.getId());
             entity.setCreatedAt(existing.getCreatedAt());
+            entity.setFencingToken(existing.getFencingToken());
         } else {
             entity.setCreatedAt(now);
         }

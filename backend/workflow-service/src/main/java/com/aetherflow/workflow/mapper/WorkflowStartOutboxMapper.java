@@ -26,7 +26,7 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
 
     @Update("""
             UPDATE af_workflow_start_outbox
-            SET status = 'DISPATCHING', attempt_count = attempt_count + 1, updated_at = #{now}
+            SET status = 'DISPATCHING', lease_token = UUID(), attempt_count = attempt_count + 1, updated_at = #{now}
             WHERE id = #{id}
               AND ((status = 'PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= #{now}))
                 OR (status IN ('DISPATCHING', 'DISPATCHED') AND updated_at <= #{staleBefore}))
@@ -37,7 +37,7 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
 
     @Update("""
             UPDATE af_workflow_start_outbox
-            SET status = 'DISPATCHED', last_error = NULL, updated_at = #{now}
+            SET status = 'DISPATCHED', lease_token = NULL, last_error = NULL, updated_at = #{now}
             WHERE workflow_instance_id = #{workflowInstanceId}
               AND status = 'DISPATCHING'
             """)
@@ -46,7 +46,7 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
 
     @Update("""
             UPDATE af_workflow_start_outbox
-            SET status = 'PENDING', next_attempt_at = #{nextAttemptAt},
+            SET status = 'PENDING', lease_token = NULL, next_attempt_at = #{nextAttemptAt},
                 last_error = #{lastError}, updated_at = #{now}
             WHERE id = #{id} AND status = 'DISPATCHING'
             """)
@@ -54,4 +54,35 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
                   @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
                   @Param("lastError") String lastError,
                   @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE af_workflow_start_outbox
+               SET status = 'DISPATCHED', lease_token = NULL, last_error = NULL, updated_at = #{now}
+             WHERE workflow_instance_id = #{workflowInstanceId}
+               AND status = 'DISPATCHING' AND lease_token = #{leaseToken}
+            """)
+    int markDispatchedOwned(@Param("workflowInstanceId") Long workflowInstanceId,
+                            @Param("leaseToken") String leaseToken,
+                            @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE af_workflow_start_outbox
+               SET updated_at = #{now}
+             WHERE id = #{id} AND status = 'DISPATCHING' AND lease_token = #{leaseToken}
+            """)
+    int touchDispatching(@Param("id") Long id,
+                         @Param("leaseToken") String leaseToken,
+                         @Param("now") LocalDateTime now);
+
+    @Update("""
+            UPDATE af_workflow_start_outbox
+               SET status = 'PENDING', lease_token = NULL, next_attempt_at = #{nextAttemptAt},
+                   last_error = #{lastError}, updated_at = #{now}
+             WHERE id = #{id} AND status = 'DISPATCHING' AND lease_token = #{leaseToken}
+            """)
+    int markRetryOwned(@Param("id") Long id,
+                       @Param("leaseToken") String leaseToken,
+                       @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
+                       @Param("lastError") String lastError,
+                       @Param("now") LocalDateTime now);
 }

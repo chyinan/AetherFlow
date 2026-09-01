@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.recovery;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
@@ -13,10 +15,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.time.Instant;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
+// pattern: Imperative Shell
 public class WorkflowRuntimeRecoveryService {
 
     private final RuntimeSnapshotRepository snapshotRepository;
@@ -35,8 +39,14 @@ public class WorkflowRuntimeRecoveryService {
     }
 
     public List<WorkflowExecutionSnapshot> recoverRunnableWorkflows(int limit) {
+        return recoverRunnableWorkflows(limit, null);
+    }
+
+    public List<WorkflowExecutionSnapshot> recoverRunnableWorkflows(int limit, Instant before) {
         List<WorkflowExecutionSnapshot> recovered = new java.util.ArrayList<>();
-        for (WorkflowRuntimeSnapshot snapshot : snapshotRepository.findRecoverable(limit)) {
+        for (WorkflowRuntimeSnapshot snapshot : before == null
+                ? snapshotRepository.findRecoverable(limit)
+                : snapshotRepository.findRecoverable(limit, before)) {
             try {
                 recovered.add(recover(snapshot));
             } catch (RuntimeException exception) {
@@ -61,16 +71,6 @@ public class WorkflowRuntimeRecoveryService {
         Long userId = userId(recoverySnapshot.variables());
         WorkflowExecutionSnapshot recovered = AuthenticatedUserContext.runAs(userId, username(recoverySnapshot.variables()),
                 () -> runtimeEngine.resume(request, recoverySnapshot.toExecutionSnapshot()));
-        snapshotRepository.save(WorkflowRuntimeSnapshot.fromExecution(
-                recoverySnapshot.workflowId(),
-                recoverySnapshot.traceId(),
-                recoverySnapshot.taskId(),
-                recoverySnapshot.definitionId(),
-                recoverySnapshot.definition(),
-                recovered,
-                recovered.currentNodeIds(),
-                recovered.failedNodeIds()
-        ));
         return recovered;
     }
 

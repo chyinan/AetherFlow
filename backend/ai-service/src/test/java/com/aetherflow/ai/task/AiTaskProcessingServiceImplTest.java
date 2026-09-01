@@ -1,5 +1,7 @@
 package com.aetherflow.ai.task;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.cache.AiTaskCacheService;
 import com.aetherflow.ai.entity.AiJob;
 import com.aetherflow.ai.file.AiFileRegistrationService;
@@ -68,7 +70,7 @@ class AiTaskProcessingServiceImplTest {
         completedJob.setTaskId(59L);
         completedJob.setIdempotencyKey("59:node-1");
         completedJob.setStatus(AiTaskStatus.SUCCEEDED);
-        when(aiJobMapper.selectByIdempotencyKey(anyString())).thenReturn(null, completedJob);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null, completedJob);
         stubInsertAndAuthoritativeRead(aiJobMapper);
         AiTaskProcessingServiceImpl service = new AiTaskProcessingServiceImpl(
                 aiJobMapper,
@@ -125,7 +127,7 @@ class AiTaskProcessingServiceImplTest {
         racedJob.setStatus(AiTaskStatus.RUNNING);
         racedJob.setLeaseToken("lease-owner");
         racedJob.setLeaseExpiresAt(LocalDateTime.now().plusMinutes(1));
-        when(aiJobMapper.selectByIdempotencyKey(anyString())).thenReturn(null, racedJob);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null, racedJob);
         doAnswer(invocation -> {
             throw new DuplicateKeyException("duplicate idempotency key");
         }).when(aiJobMapper).insertAiJobWithLease(any(AiJob.class), anyLong());
@@ -172,7 +174,7 @@ class AiTaskProcessingServiceImplTest {
         );
         when(executorRegistry.getRequired("LLM")).thenReturn(executor);
         when(executor.execute(any(AiNodeExecutionContext.class))).thenReturn(result);
-        when(aiJobMapper.selectByIdempotencyKey(anyString())).thenReturn(null);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null);
         stubInsertAndAuthoritativeRead(aiJobMapper);
         TaskMessageDTO message = taskMessage();
         when(fileRegistrationService.registerArtifacts(eq(message), any(AiJobLease.class), eq(result.artifacts())))
@@ -209,7 +211,7 @@ class AiTaskProcessingServiceImplTest {
         failedJob.setTaskId(59L);
         failedJob.setIdempotencyKey("59:node-1");
         failedJob.setStatus(AiTaskStatus.FAILED);
-        when(aiJobMapper.selectByIdempotencyKey(anyString())).thenReturn(failedJob);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(failedJob);
         AiTaskProcessingServiceImpl service = new AiTaskProcessingServiceImpl(
                 aiJobMapper, new AiJobLeaseService(aiJobMapper),
                 new AiJobLeaseHeartbeat(new AiJobLeaseService(aiJobMapper)),
@@ -245,7 +247,7 @@ class AiTaskProcessingServiceImplTest {
                 any(TaskMessageDTO.class), any(AiJobLease.class), eq(List.of())))
                 .thenReturn(ArtifactRegistrationResult.empty());
         AtomicReference<AiJob> retryJobRef = stubInsertAndAuthoritativeRead(aiJobMapper);
-        when(aiJobMapper.selectByIdempotencyKey(anyString()))
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString()))
                 .thenReturn(null)
                 .thenAnswer(invocation -> retryJobRef.get());
         when(aiJobMapper.markAiJobRetryingWithLease(any(), anyString(), anyString()))
@@ -303,7 +305,7 @@ class AiTaskProcessingServiceImplTest {
         when(executor.execute(any(AiNodeExecutionContext.class)))
                 .thenThrow(new IllegalStateException("provider unavailable"));
         AtomicReference<AiJob> failingJobRef = stubInsertAndAuthoritativeRead(aiJobMapper);
-        when(aiJobMapper.selectByIdempotencyKey(anyString()))
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString()))
                 .thenReturn(null)
                 .thenAnswer(invocation -> failingJobRef.get());
         when(aiJobMapper.markAiJobRetryingWithLease(any(), anyString(), anyString()))
@@ -370,7 +372,7 @@ class AiTaskProcessingServiceImplTest {
         IllegalStateException originalFailure = new IllegalStateException();
         when(executorRegistry.getRequired("LLM")).thenReturn(executor);
         when(executor.execute(any(AiNodeExecutionContext.class))).thenThrow(originalFailure);
-        when(aiJobMapper.selectByIdempotencyKey(anyString())).thenReturn(null);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null);
         stubInsertAndAuthoritativeRead(aiJobMapper);
         AiTaskProcessingServiceImpl service = new AiTaskProcessingServiceImpl(
                 aiJobMapper,
@@ -397,6 +399,7 @@ class AiTaskProcessingServiceImplTest {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setTaskId(59L);
         message.setWorkflowInstanceId(100L);
+        message.setUserId(7L);
         message.setNodeId("node-1");
         message.setNodeType("LLM");
         message.setPayload(Map.of("prompt", "summarize"));

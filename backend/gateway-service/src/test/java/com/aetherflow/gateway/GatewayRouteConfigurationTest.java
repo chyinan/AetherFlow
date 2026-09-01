@@ -1,5 +1,7 @@
 package com.aetherflow.gateway;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.gateway.config.GatewaySentinelProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -189,6 +191,11 @@ class GatewayRouteConfigurationTest {
         assertThat(route).isNotNull();
         assertThat(route.getId()).isEqualTo("notify-service");
         assertThat(route.getUri().toString()).isEqualTo("lb://notify-service");
+    }
+
+    @Test
+    void internalNotifyPathIsNotExposedThroughGateway() {
+        assertThat(matchingRoutes("/notify/internal/send")).isEmpty();
     }
 
     @Test

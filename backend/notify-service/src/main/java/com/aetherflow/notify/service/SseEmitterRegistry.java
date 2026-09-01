@@ -1,5 +1,7 @@
 package com.aetherflow.notify.service;
 
+// pattern: Imperative Shell
+
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.aetherflow.notify.dto.NotificationRecordResponse;
@@ -28,6 +30,7 @@ public class SseEmitterRegistry {
     private final Map<Long, List<SseEmitter>> emitters = new ConcurrentHashMap<>();
     private final Map<SseEmitter, CompletableFuture<Void>> sendTails = new ConcurrentHashMap<>();
     private final int maxConnections = parsePositiveInt(System.getenv("NOTIFY_MAX_SSE_CONNECTIONS"), 10_000);
+    private final int maxConnectionsPerUser = parsePositiveInt(System.getenv("NOTIFY_MAX_SSE_CONNECTIONS_PER_USER"), 20);
     private final AtomicInteger connectionCount = new AtomicInteger();
     private final ThreadPoolExecutor sendExecutor = new ThreadPoolExecutor(
             4, 32, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<>(2_000), runnable -> {
@@ -53,20 +56,17 @@ public class SseEmitterRegistry {
         if (userId == null || userId <= 0) {
             throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
         }
-        int current;
-        do {
-            current = connectionCount.get();
-            if (current >= maxConnections || !connectionCount.compareAndSet(current, current + 1)) {
-                if (current >= maxConnections) {
-                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "notification stream capacity reached");
-                }
-                continue;
-            }
-            break;
-        } while (true);
         SseEmitter emitter = new SseEmitter(TimeUnit.MINUTES.toMillis(30));
-        sendTails.put(emitter, CompletableFuture.completedFuture(null));
-        emitters.computeIfAbsent(userId, ignored -> new CopyOnWriteArrayList<>()).add(emitter);
+        synchronized (emitters) {
+            List<SseEmitter> userEmitters = emitters.get(userId);
+            if (userEmitters != null && userEmitters.size() >= maxConnectionsPerUser) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "notification stream capacity reached for user");
+            }
+            reserveGlobalConnection();
+            sendTails.put(emitter, CompletableFuture.completedFuture(null));
+            emitters.computeIfAbsent(userId, ignored -> new CopyOnWriteArrayList<>()).add(emitter);
+        }
         emitter.onCompletion(() -> remove(userId, emitter));
         emitter.onTimeout(() -> remove(userId, emitter));
         emitter.onError(error -> remove(userId, emitter));
@@ -77,6 +77,14 @@ public class SseEmitterRegistry {
                     .data(record)));
         }
         return emitter;
+    }
+
+    private void reserveGlobalConnection() {
+        int current = connectionCount.incrementAndGet();
+        if (current > maxConnections) {
+            connectionCount.decrementAndGet();
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "notification stream capacity reached");
+        }
     }
 
     public void send(Long userId, Object payload) {

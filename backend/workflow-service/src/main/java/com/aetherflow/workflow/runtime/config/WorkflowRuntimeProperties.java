@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.config;
 
+// pattern: Functional Core
+
 import com.aetherflow.workflow.runtime.api.RetryPolicy;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -49,6 +51,7 @@ public class WorkflowRuntimeProperties {
     public static class Recovery {
         private boolean enabled = true;
         private int scanLimit = 100;
+        private Duration staleAfter = Duration.ofMinutes(2);
         private boolean waitingWatchdogEnabled = true;
         private Duration waitingTimeout = Duration.ofMinutes(30);
     }

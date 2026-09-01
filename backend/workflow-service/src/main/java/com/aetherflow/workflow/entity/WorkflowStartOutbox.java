@@ -20,6 +20,7 @@ public class WorkflowStartOutbox {
     private Long id;
     private Long workflowInstanceId;
     private String status;
+    private String leaseToken;
     private Integer attemptCount;
     private LocalDateTime nextAttemptAt;
     private String lastError;

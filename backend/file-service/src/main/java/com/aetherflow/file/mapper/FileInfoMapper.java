@@ -26,6 +26,18 @@ public interface FileInfoMapper extends BaseMapper<FileInfo> {
                                           @Param("idempotencyKey") String idempotencyKey);
 
     @Insert("""
+            INSERT INTO af_file_info
+                (user_id, uploader_id, bucket, object_key, original_name, content_type, mime_type,
+                 file_size, file_url, idempotency_key, status, created_at, updated_at)
+            VALUES
+                (#{userId}, #{uploaderId}, #{bucket}, #{objectKey}, #{originalName}, #{contentType}, #{mimeType},
+                 #{fileSize}, #{fileUrl}, #{idempotencyKey}, #{status}, #{createdAt}, #{updatedAt})
+            ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    int insertMetadataIdempotent(FileInfo fileInfo);
+
+    @Insert("""
             INSERT INTO af_file_info (
                 user_id, uploader_id, source, artifact_kind, workflow_id, idempotency_key,
                 ai_job_id, task_id, artifact_batch_id, artifact_ordinal, producer_fence_token,

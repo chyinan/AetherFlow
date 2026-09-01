@@ -12,6 +12,9 @@ public interface KnowledgeVectorIndex {
 
     void upsert(KnowledgeChunkEntity chunk, List<Double> vector);
 
+    default void deleteDataset(Long datasetId) {
+    }
+
     List<Long> search(Long datasetId, List<Double> queryVector, int limit);
 
     default List<Long> search(Long datasetId,

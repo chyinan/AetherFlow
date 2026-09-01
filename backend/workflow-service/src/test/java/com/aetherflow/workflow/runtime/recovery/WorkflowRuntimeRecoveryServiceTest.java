@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.recovery;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.runtime.api.NodeExecutor;
@@ -12,6 +14,8 @@ import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
+import com.aetherflow.workflow.runtime.engine.RuntimeSleeper;
+import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
@@ -52,7 +56,8 @@ class WorkflowRuntimeRecoveryServiceTest {
         repository.save(snapshot("workflow-success", RuntimeState.SUCCESS, definition));
         WorkflowRuntimeRecoveryService recoveryService = new WorkflowRuntimeRecoveryService(
                 repository,
-                new WorkflowRuntimeEngine(registry),
+                new WorkflowRuntimeEngine(registry, new RuntimeStateMachine(),
+                        event -> { }, RuntimeSleeper.noop(), repository),
                 new WorkflowRuntimeProperties()
         );
 

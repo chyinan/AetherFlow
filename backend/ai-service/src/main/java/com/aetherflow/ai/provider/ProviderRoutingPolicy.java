@@ -3,6 +3,7 @@ package com.aetherflow.ai.provider;
 // pattern: Functional Core
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.aetherflow.ai.image.ImageProviderType;
 import lombok.Data;
 
 import java.time.Duration;
@@ -27,6 +28,10 @@ public class ProviderRoutingPolicy {
 
     @Schema(description = "Provider priority list.", example = "[\"OPENAI\",\"OLLAMA\"]")
     private List<AiProviderType> providers = new ArrayList<>(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
+
+    @Schema(description = "Image provider priority list scoped to the same user policy.", example = "[\"COMFYUI\",\"STABLE_DIFFUSION_WEBUI\"]")
+    private List<ImageProviderType> imageProviders = new ArrayList<>(List.of(
+            ImageProviderType.COMFYUI, ImageProviderType.STABLE_DIFFUSION_WEBUI));
 
     @Schema(description = "Maximum retry attempts per provider request.", example = "2")
     private int maxRetries = 2;
@@ -63,6 +68,18 @@ public class ProviderRoutingPolicy {
             unique.addAll(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA));
         }
         policy.providers = new ArrayList<>(unique);
+        LinkedHashSet<ImageProviderType> uniqueImageProviders = new LinkedHashSet<>();
+        if (policy.imageProviders != null) {
+            for (ImageProviderType provider : policy.imageProviders) {
+                if (provider != null) {
+                    uniqueImageProviders.add(provider);
+                }
+            }
+        }
+        if (uniqueImageProviders.isEmpty()) {
+            uniqueImageProviders.addAll(List.of(ImageProviderType.COMFYUI, ImageProviderType.STABLE_DIFFUSION_WEBUI));
+        }
+        policy.imageProviders = new ArrayList<>(uniqueImageProviders);
         policy.maxRetries = Math.max(0, policy.maxRetries);
         policy.circuitFailureThreshold = Math.max(1, policy.circuitFailureThreshold);
         policy.retryInitialBackoff = ensureDuration(policy.retryInitialBackoff, Duration.ofMillis(200));
@@ -83,6 +100,18 @@ public class ProviderRoutingPolicy {
         return new ArrayList<>(ordered);
     }
 
+    public List<ImageProviderType> orderedImageCandidates(ImageProviderType requestedProvider) {
+        ProviderRoutingPolicy policy = normalized();
+        LinkedHashSet<ImageProviderType> ordered = new LinkedHashSet<>();
+        if (requestedProvider != null) {
+            ordered.add(requestedProvider);
+        }
+        if (policy.enableFailover) {
+            ordered.addAll(policy.imageProviders);
+        }
+        return new ArrayList<>(ordered);
+    }
+
     public Duration effectiveRequestTimeout(Duration perCallTimeout) {
         Duration policyTimeout = boundedRequestTimeout(requestTimeout);
         if (perCallTimeout == null || perCallTimeout.isZero() || perCallTimeout.isNegative()) {
@@ -99,6 +128,7 @@ public class ProviderRoutingPolicy {
         policy.setEnableFailover(enableFailover);
         policy.setAutoRecoverPrimary(autoRecoverPrimary);
         policy.setProviders(providers == null ? null : new ArrayList<>(providers));
+        policy.setImageProviders(imageProviders == null ? null : new ArrayList<>(imageProviders));
         policy.setMaxRetries(maxRetries);
         policy.setRetryInitialBackoff(retryInitialBackoff);
         policy.setRetryMaxBackoff(retryMaxBackoff);

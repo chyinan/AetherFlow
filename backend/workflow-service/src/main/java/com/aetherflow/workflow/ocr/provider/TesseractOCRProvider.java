@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
 
@@ -54,6 +55,19 @@ public class TesseractOCRProvider implements OCRProvider {
 
     public boolean supports(OCRInputFile file) {
         return SUPPORTED_EXTENSIONS.contains(extension(file));
+    }
+
+    @Override
+    public boolean isReady(String language) {
+        String effectiveLanguage = language == null || language.isBlank() || "auto".equalsIgnoreCase(language)
+                ? properties.getTesseract().getFallbackLanguage()
+                : language;
+        String configuredPath = properties.getTesseract().getDataPath();
+        return tessdataCandidates(configuredPath).stream()
+                .anyMatch(path -> Arrays.stream(effectiveLanguage.split("[+,]"))
+                        .map(String::trim)
+                        .filter(value -> !value.isBlank())
+                        .allMatch(value -> Files.isRegularFile(path.resolve(value + ".traineddata"))));
     }
 
     @Override
@@ -128,6 +142,23 @@ public class TesseractOCRProvider implements OCRProvider {
         }
         tesseract.setLanguage(language(config));
         return tesseract;
+    }
+
+    private Set<Path> tessdataCandidates(String configuredPath) {
+        Set<Path> candidates = new java.util.LinkedHashSet<>();
+        if (StringUtils.hasText(configuredPath)) {
+            candidates.add(Path.of(configuredPath));
+        }
+        String envPath = System.getenv("TESSDATA_PREFIX");
+        if (StringUtils.hasText(envPath)) {
+            Path prefix = Path.of(envPath);
+            candidates.add(prefix);
+            candidates.add(prefix.resolve("tessdata"));
+        }
+        candidates.add(Path.of("/usr/share/tesseract-ocr/5/tessdata"));
+        candidates.add(Path.of("/usr/share/tesseract-ocr/4.00/tessdata"));
+        candidates.add(Path.of("C:/Program Files/Tesseract-OCR/tessdata"));
+        return Set.copyOf(candidates);
     }
 
     private String language(OCRNodeConfig config) {

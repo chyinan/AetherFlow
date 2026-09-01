@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.LogFrame;
 import com.aetherflow.workflow.dto.WorkflowInstanceRunDtos.RunPageResponse;
@@ -28,7 +30,10 @@ import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.ArgumentMatchers.eq;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowInstanceQueryServiceImplTest {
@@ -54,7 +59,7 @@ class WorkflowInstanceQueryServiceImplTest {
         WorkflowInstance instance = instance();
         when(instanceMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
         when(instanceMapper.selectList(any(Wrapper.class))).thenReturn(List.of(instance));
-        when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
+        doReturn(events()).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
 
         RunPageResponse response = asUser(7L, () -> queryService.listInstances("10", "success", 1, 20));
 
@@ -75,7 +80,7 @@ class WorkflowInstanceQueryServiceImplTest {
     @Test
     void returnsDetailForExistingInstance() {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
-        when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
+        doReturn(events()).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
 
         RunView detail = asUser(7L, () -> queryService.getInstance(99L));
 
@@ -107,7 +112,7 @@ class WorkflowInstanceQueryServiceImplTest {
     @Test
     void mapsRuntimeEventsToLogFrames() {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
-        when(runtimeEventStore.findByWorkflowId("99")).thenReturn(events());
+        doReturn(events()).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
 
         List<LogFrame> logs = asUser(7L, () -> queryService.logs(99L));
 
@@ -121,7 +126,7 @@ class WorkflowInstanceQueryServiceImplTest {
     @Test
     void logsReturnOnlyMostRecentFramesForLongRunningInstances() {
         when(instanceMapper.selectById(99L)).thenReturn(instance());
-        when(runtimeEventStore.findByWorkflowId("99")).thenReturn(manyEvents(250));
+        doReturn(manyEvents(250)).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
 
         List<LogFrame> logs = asUser(7L, () -> queryService.logs(99L));
 

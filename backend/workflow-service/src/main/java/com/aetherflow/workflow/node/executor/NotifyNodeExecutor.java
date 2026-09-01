@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.NotifyMessageDTO;
@@ -28,8 +30,16 @@ public class NotifyNodeExecutor extends BaseNodeExecutor {
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
-        Long userId = longValue(config.getOrDefault("userId", context.variables().get("userId")));
-        if (userId == null || userId <= 0) {
+        Long authenticatedUserId = longValue(context.variables().get("userId"));
+        Long configuredUserId = longValue(config.get("userId"));
+        if (authenticatedUserId == null || authenticatedUserId <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required for notification");
+        }
+        if (configuredUserId != null && !configuredUserId.equals(authenticatedUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN, "notification target must match authenticated user");
+        }
+        Long userId = authenticatedUserId;
+        if (userId <= 0) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "notify node userId is required");
         }
         String channel = stringValue(config.get("channel"), "WORKFLOW");

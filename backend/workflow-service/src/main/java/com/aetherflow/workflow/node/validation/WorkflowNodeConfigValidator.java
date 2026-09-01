@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.validation;
 
+// pattern: Functional Core
+
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogItem;
 import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogService;
@@ -10,6 +12,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 // pattern: Functional Core
 /**
@@ -17,6 +21,8 @@ import java.util.Map;
  * by the designer. This keeps malformed definitions out of the runtime queue.
  */
 public final class WorkflowNodeConfigValidator {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private WorkflowNodeConfigValidator() {
     }
@@ -53,7 +59,63 @@ public final class WorkflowNodeConfigValidator {
                 violations.add(prefix + "config field '" + field.name() + "' must be one of " + field.options());
             }
         }
+        violations.addAll(validateCrossFieldRules(node, config));
         return List.copyOf(violations);
+    }
+
+    private static List<String> validateCrossFieldRules(WorkflowNodeDTO node, Map<String, Object> config) {
+        String type = normalize(node.getNodeType());
+        String prefix = prefix(node, type);
+        List<String> violations = new ArrayList<>();
+        if ("KNOWLEDGE_RETRIEVAL".equals(type)) {
+            Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
+            if (!isBlank(datasetId) && !isPositiveLong(datasetId)) {
+                violations.add(prefix + "datasetId must be a positive number");
+            }
+            Object metadataFilter = config.get("metadataFilter");
+            if (!isBlank(metadataFilter)) {
+                if (metadataFilter instanceof Map<?, ?>) {
+                    // Already a JSON object after deserialization.
+                } else if (metadataFilter instanceof String text && !isJsonObject(text)) {
+                    violations.add(prefix + "metadataFilter must be a JSON object");
+                }
+            }
+            Object topK = config.get("topK");
+            if (topK instanceof Number number && (number.intValue() < 1 || number.intValue() > 50)) {
+                violations.add(prefix + "topK must be between 1 and 50");
+            }
+        }
+        if ("IMAGE_GENERATION".equals(type)
+                && isBlank(config.get("prompt")) && isBlank(config.get("promptVariable"))) {
+            violations.add(prefix + "one of prompt or promptVariable is required");
+        }
+        config.forEach((key, value) -> {
+            if (key != null && key.endsWith("Variable") && value != null
+                    && !String.valueOf(value).trim().matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                violations.add(prefix + "config field '" + key + "' must be a valid variable name");
+            }
+        });
+        return List.copyOf(violations);
+    }
+
+    private static boolean isPositiveLong(Object value) {
+        if (value == null || String.valueOf(value).isBlank()) {
+            return false;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim()) > 0;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    private static boolean isJsonObject(String value) {
+        try {
+            JsonNode node = JSON.readTree(value);
+            return node != null && node.isObject();
+        } catch (Exception exception) {
+            return false;
+        }
     }
 
     private static Object configuredValue(String nodeType, String fieldName, Map<String, Object> config) {

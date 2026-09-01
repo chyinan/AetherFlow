@@ -1,5 +1,9 @@
 package com.aetherflow.task.service.impl;
 
+// pattern: Imperative Shell
+
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.aetherflow.common.exception.BusinessException;
@@ -183,6 +187,9 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         if (taskMessage.getWorkflowInstanceId() == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow instance id is required");
         }
+        if (taskMessage.getUserId() == null || taskMessage.getUserId() <= 0) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED, "task user id is required");
+        }
         if (taskMessage.getTraceId() == null || taskMessage.getTraceId().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "task trace id is required");
         }
@@ -192,6 +199,31 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
         if (taskMessage.getNodeType() == null || taskMessage.getNodeType().isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "node type is required");
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int cancelActiveByWorkflowInstance(Long workflowInstanceId) {
+        if (workflowInstanceId == null || workflowInstanceId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow instance id is required");
+        }
+        int cancelled = taskMapper.cancelActiveByWorkflowInstance(workflowInstanceId, LocalDateTime.now());
+        if (cancelled > 0) {
+            log.info("active workflow tasks cancelled, workflowInstanceId={}, count={}", workflowInstanceId, cancelled);
+        }
+        return cancelled;
+    }
+
+    @Override
+    public String status(Long taskId) {
+        if (taskId == null || taskId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "task id is required");
+        }
+        Task task = taskMapper.selectById(taskId);
+        if (task == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND, "task not found");
+        }
+        return task.getStatus();
     }
 
     private String normalizeIdempotencyKey(String value) {

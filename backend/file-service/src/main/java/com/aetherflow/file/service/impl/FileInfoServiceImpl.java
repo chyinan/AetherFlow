@@ -1,5 +1,7 @@
 package com.aetherflow.file.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateGeneratedFileRequestDTO;
 import com.aetherflow.common.dto.GeneratedArtifactBatchRequestDTO;
@@ -310,11 +312,32 @@ public class FileInfoServiceImpl implements FileInfoService {
                 null,
                 null
         );
-        fileInfoMapper.insert(fileInfo);
+        String idempotencyKey = normalizeIdempotencyKey(request.getIdempotencyKey());
+        fileInfo.setIdempotencyKey(idempotencyKey);
+        if (idempotencyKey == null) {
+            fileInfoMapper.insert(fileInfo);
+        } else {
+            fileInfoMapper.insertMetadataIdempotent(fileInfo);
+            FileInfo persisted = fileInfoMapper.selectById(fileInfo.getId());
+            if (persisted != null) {
+                return toDTO(persisted);
+            }
+        }
         FileLogContext.putFileId(fileInfo.getId());
         log.info("Internal file metadata created traceId={} fileId={} userId={}",
                 FileLogContext.traceId(), fileInfo.getId(), FileLogContext.userId());
         return toDTO(fileInfo);
+    }
+
+    private String normalizeIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > 128) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file metadata idempotency key must not exceed 128 characters");
+        }
+        return normalized;
     }
 
     @Override

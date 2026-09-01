@@ -4,6 +4,8 @@ package com.aetherflow.workflow.runtime.controller;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.entity.WorkflowInstance;
+import com.aetherflow.workflow.client.TaskClient;
+import com.aetherflow.workflow.config.TaskClientProperties;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.common.core.Result;
@@ -55,6 +57,12 @@ public class WorkflowRuntimeController {
     private final WorkflowRuntimeSnapshotMapper workflowRuntimeSnapshotMapper;
     private final WorkflowAsyncCompletionService completionService;
     private final WorkflowRuntimeStreamTokenService streamTokenService;
+
+    @Autowired(required = false)
+    private TaskClient taskClient;
+
+    @Autowired(required = false)
+    private TaskClientProperties taskClientProperties;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -240,7 +248,23 @@ public class WorkflowRuntimeController {
         if (workflowRuntimeSnapshotMapper != null) {
             workflowRuntimeSnapshotMapper.markCancelled(String.valueOf(workflowInstanceId));
         }
+        cancelActiveTasks(workflowInstanceId);
         return Result.success();
+    }
+
+    private void cancelActiveTasks(Long workflowInstanceId) {
+        if (taskClient == null || taskClientProperties == null) {
+            return;
+        }
+        try {
+            taskClient.cancelWorkflowTasks(taskClientProperties.issueInternalToken(), workflowInstanceId);
+        } catch (RuntimeException exception) {
+            // The durable workflow cancellation already succeeded. The task service
+            // remains independently recoverable and will ignore late callbacks.
+            org.slf4j.LoggerFactory.getLogger(WorkflowRuntimeController.class)
+                    .warn("workflow task cancellation propagation failed, workflowInstanceId={}, reason={}",
+                            workflowInstanceId, exception.getMessage());
+        }
     }
 
     @Operation(summary = "Complete a human approval node",

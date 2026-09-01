@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
@@ -21,12 +23,10 @@ import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
+import java.security.MessageDigest;
 
 @Component
 public class ExportNodeExecutor extends BaseNodeExecutor {
@@ -59,11 +59,13 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         String content = renderContent(format, contentValue);
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         String fileName = fileName(config, format);
-        String objectKey = objectKey(context, config, fileName);
+        String contentHash = sha256(bytes);
+        String objectKey = objectKey(context, config, fileName, contentHash);
         upload(objectKey, format, bytes);
         FileMetadataDTO metadata;
         try {
-            metadata = createMetadata(context, objectKey, fileName, format, bytes.length);
+            metadata = createMetadata(context, objectKey, fileName, format, bytes.length,
+                    "workflow-export:" + context.workflowId() + ":" + context.currentNodeId() + ":" + contentHash);
         } catch (RuntimeException exception) {
             removeUploadedObject(objectKey);
             throw exception;
@@ -126,13 +128,15 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         }
     }
 
-    private FileMetadataDTO createMetadata(WorkflowContext context, String objectKey, String fileName, ExportFormat format, long size) {
+    private FileMetadataDTO createMetadata(WorkflowContext context, String objectKey, String fileName,
+                                           ExportFormat format, long size, String idempotencyKey) {
         CreateFileMetadataRequestDTO request = new CreateFileMetadataRequestDTO();
         request.setBucket(minioProperties.getBucket());
         request.setObjectKey(objectKey);
         request.setOriginalName(fileName);
         request.setContentType(format.contentType);
         request.setSize(size);
+        request.setIdempotencyKey(idempotencyKey);
         Long userId = longValue(context.variables().get("userId"));
         if (userId != null && userId > 0) {
             request.setUserId(userId);
@@ -175,7 +179,7 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         return "workflow-export." + format.extension;
     }
 
-    private String objectKey(WorkflowContext context, Map<String, Object> config, String fileName) {
+    private String objectKey(WorkflowContext context, Map<String, Object> config, String fileName, String contentHash) {
         String configured = stringValue(config.get("objectKey"), "");
         if (!configured.isBlank()) {
             return trimSlashes(configured);
@@ -184,9 +188,20 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         String prefix = outputDirectory.isBlank()
                 ? trimSlashes(properties.getExportObjectPrefix()) + "/" + context.workflowId() + "/" + context.currentNodeId()
                 : outputDirectory;
-        String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS")
-                .format(OffsetDateTime.now());
-        return prefix + "/" + timestamp + "-" + UUID.randomUUID() + "-" + sanitize(fileName);
+        return prefix + "/" + contentHash.substring(0, 24) + "-" + sanitize(fileName);
+    }
+
+    private String sha256(byte[] bytes) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                result.append(String.format("%02x", value));
+            }
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("sha-256 digest is unavailable", exception);
+        }
     }
 
     private Long longValue(Object value) {

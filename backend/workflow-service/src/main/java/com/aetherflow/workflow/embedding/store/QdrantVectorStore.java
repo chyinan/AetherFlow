@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.embedding.store;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.EmbeddingNodeConfig;
@@ -8,6 +10,7 @@ import com.aetherflow.workflow.embedding.TextChunk;
 import com.aetherflow.workflow.embedding.store.VectorStoreConfigService.VectorStoreRuntimeConfig;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -59,6 +62,7 @@ public class QdrantVectorStore implements WorkflowVectorStore {
     private void ensureCollection(VectorStoreRuntimeConfig config, String collection, int dimension) {
         HttpResponse<String> getResponse = send(config, "GET", "/collections/" + path(collection), "");
         if (getResponse.statusCode() >= 200 && getResponse.statusCode() < 300) {
+            validateCollectionDimension(getResponse, dimension);
             return;
         }
         if (getResponse.statusCode() != 404) {
@@ -73,6 +77,25 @@ public class QdrantVectorStore implements WorkflowVectorStore {
         HttpResponse<String> createResponse = send(config, "PUT", "/collections/" + path(collection), json(body));
         if (createResponse.statusCode() < 200 || createResponse.statusCode() >= 300) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "qdrant collection create failed");
+        }
+    }
+
+    private void validateCollectionDimension(HttpResponse<String> response, int expectedDimension) {
+        try {
+            JsonNode body = objectMapper.readTree(response.body());
+            if (body == null) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "qdrant collection metadata is invalid");
+            }
+            JsonNode configuredDimension = body
+                    .path("result").path("config").path("params").path("vectors").path("size");
+            if (configuredDimension.isNumber() && configuredDimension.intValue() != expectedDimension) {
+                throw new BusinessException(ResultCode.CONFLICT,
+                        "qdrant collection dimension does not match embedding model");
+            }
+        } catch (JsonProcessingException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "qdrant collection metadata is invalid");
         }
     }
 

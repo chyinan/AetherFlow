@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.persistence;
 
+// pattern: Imperative Shell
+
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -20,6 +22,7 @@ public class WorkflowRuntimeSnapshotEntity {
     private Long definitionId;
     private String definitionJson;
     private String runtimeState;
+    private String fencingToken;
     private String currentNodeIdsJson;
     private String completedNodeIdsJson;
     private String failedNodeIdsJson;

@@ -1,5 +1,7 @@
 package com.aetherflow.task.enums;
 
+// pattern: Functional Core
+
 import java.util.Locale;
 
 public enum TaskStatus {
@@ -10,6 +12,7 @@ public enum TaskStatus {
     DISPATCHED,
     RETRYING,
     TIMEOUT,
+    CANCELLED,
     FAILED,
     SUCCEEDED;
 
@@ -18,7 +21,7 @@ public enum TaskStatus {
     }
 
     public boolean terminal() {
-        return this == FAILED || this == SUCCEEDED;
+        return this == FAILED || this == SUCCEEDED || this == CANCELLED;
     }
 
     public static TaskStatus from(String value) {

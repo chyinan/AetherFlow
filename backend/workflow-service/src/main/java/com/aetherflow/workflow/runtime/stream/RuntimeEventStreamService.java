@@ -36,6 +36,7 @@ public class RuntimeEventStreamService {
     private static final long HEARTBEAT_INTERVAL_MS = 15000L;
     private static final int MAX_EVENTS_PER_POLL = 500;
     private static final int MAX_CACHED_WORKFLOWS = 10_000;
+    private static final int MAX_REMEMBERED_EVENT_IDS = 2_048;
 
     private final RuntimeEventStore runtimeEventStore;
     private final ScheduledExecutorService executor;
@@ -281,7 +282,13 @@ public class RuntimeEventStreamService {
         }
 
         private boolean markSent(String eventId) {
-            return sentEventIds.add(eventId);
+            if (!sentEventIds.add(eventId)) {
+                return false;
+            }
+            if (sentEventIds.size() > MAX_REMEMBERED_EVENT_IDS) {
+                sentEventIds.remove(sentEventIds.iterator().next());
+            }
+            return true;
         }
 
         private boolean shouldHeartbeat(Instant now, long heartbeatIntervalMs) {

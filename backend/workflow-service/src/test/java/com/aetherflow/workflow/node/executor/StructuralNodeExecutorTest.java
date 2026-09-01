@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
@@ -51,6 +53,19 @@ class StructuralNodeExecutorTest {
         NodeResult result = executor.execute(context);
 
         assertThat(result.output()).containsEntry("answer", "generated answer");
+    }
+
+    @Test
+    void endNodeExposesSafeWorkflowOutputsWhenNoExplicitProjectionIsConfigured() throws Exception {
+        EndNodeExecutor executor = new EndNodeExecutor(new WorkflowNodeMetrics());
+        DefaultWorkflowContext context = context("node-end", Map.of(),
+                Map.of("summary", "generated answer", "srtFileId", 19L));
+
+        NodeResult result = executor.execute(context);
+
+        assertThat(result.output()).containsEntry("summary", "generated answer")
+                .containsEntry("srtFileId", 19L)
+                .doesNotContainKey(WorkflowNodeContextKeys.NODE_CONFIGS);
     }
 
     private static DefaultWorkflowContext context(String nodeId, Map<String, Object> config) {

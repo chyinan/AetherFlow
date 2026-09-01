@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Functional Core
+
 import com.aetherflow.workflow.runtime.api.NodeResult;
 
 import java.util.LinkedHashMap;
@@ -21,7 +23,9 @@ public final class AiWorkflowNodeResultAdapter {
         switch (normalizedType) {
             case "WHISPER" -> {
                 copy(safeOutput, variables, "text", "transcription");
+                copy(safeOutput, variables, "srtFileId", "srtFileId");
                 copy(safeOutput, variables, "srtObjectKey", "srtObjectKey");
+                copy(safeOutput, variables, "srtUrl", "srtUrl");
                 copy(safeOutput, variables, "durationSeconds", "durationSeconds");
             }
             case "FFMPEG" -> {

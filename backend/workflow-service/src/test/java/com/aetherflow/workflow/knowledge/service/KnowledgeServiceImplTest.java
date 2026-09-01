@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.knowledge.service;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.PageResult;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
@@ -717,6 +719,42 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void ignoresIndexedChunkReturnedForAnotherDataset() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeChunkEntity wrongDataset = chunk("other-dataset.md", "semantic facts", 0.0D);
+        wrongDataset.setDatasetId(99L);
+        wrongDataset.setVectorJson("[1.0,0.0]");
+        when(chunkMapper.selectBatchIds(List.of(wrongDataset.getId()))).thenReturn(List.of(wrongDataset));
+
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest request) {
+                return new EmbeddingResult(List.of(1.0D, 0.0D), 2, request.model(), request.chunkIndex());
+            }
+        };
+        KnowledgeServiceImpl indexedService = new KnowledgeServiceImpl(
+                datasetMapper, documentMapper, chunkMapper, new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(), new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties(), documentContentExtractionService, new DocumentExtractionProperties());
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
+        when(index.search(eq(11L), any(), eq(60), eq(Map.of()))).thenReturn(List.of(wrongDataset.getId()));
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(3);
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).isEmpty();
+    }
+
+    @Test
     void excludesSemanticallyUnrelatedChunksWithCompatibleVectors() {
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
         KnowledgeChunkEntity catChunk = chunk("cats.md", "feline facts", 0.0D);
@@ -887,6 +925,8 @@ class KnowledgeServiceImplTest {
     @Test
     void deletesOwnedDatasetWithDocumentsAndChunks() {
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        KnowledgeVectorIndex vectorIndex = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        ReflectionTestUtils.setField(service, "knowledgeVectorIndex", vectorIndex);
 
         asUser(7L, () -> {
             service.deleteDataset(11L);
@@ -896,6 +936,7 @@ class KnowledgeServiceImplTest {
         verify(chunkMapper).delete(any(Wrapper.class));
         verify(documentMapper).delete(any(Wrapper.class));
         verify(datasetMapper).deleteById(11L);
+        verify(vectorIndex).deleteDataset(11L);
     }
 
     @Test

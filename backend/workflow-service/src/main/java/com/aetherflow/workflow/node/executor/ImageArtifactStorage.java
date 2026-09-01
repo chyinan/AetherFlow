@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.node.executor;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
@@ -15,10 +17,8 @@ import io.minio.RemoveObjectArgs;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayInputStream;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Base64;
-import java.util.UUID;
+import java.security.MessageDigest;
 
 // pattern: Imperative Shell
 @Component
@@ -51,10 +51,12 @@ public class ImageArtifactStorage {
         byte[] bytes = decode(image.getBase64Data());
         String fileName = sanitize(image.getFileName() == null ? "image.png" : image.getFileName());
         String contentType = contentType(image);
-        String objectKey = objectKey(workflowId, nodeId, fileName);
+        String contentHash = sha256(bytes);
+        String objectKey = objectKey(workflowId, nodeId, fileName, contentHash);
         upload(objectKey, contentType, bytes);
         try {
-            return createMetadata(userId, objectKey, fileName, contentType, bytes.length);
+            return createMetadata(userId, objectKey, fileName, contentType, bytes.length,
+                    "workflow-image:" + workflowId + ":" + nodeId + ":" + contentHash);
         } catch (RuntimeException exception) {
             removeUploadedObject(objectKey);
             throw exception;
@@ -111,13 +113,15 @@ public class ImageArtifactStorage {
         }
     }
 
-    private FileMetadataDTO createMetadata(Long userId, String objectKey, String fileName, String contentType, long size) {
+    private FileMetadataDTO createMetadata(Long userId, String objectKey, String fileName, String contentType,
+                                           long size, String idempotencyKey) {
         CreateFileMetadataRequestDTO request = new CreateFileMetadataRequestDTO();
         request.setBucket(minioProperties.getBucket());
         request.setObjectKey(objectKey);
         request.setOriginalName(fileName);
         request.setContentType(contentType);
         request.setSize(size);
+        request.setIdempotencyKey(idempotencyKey);
         if (userId != null && userId > 0) {
             request.setUserId(userId);
         }
@@ -128,11 +132,23 @@ public class ImageArtifactStorage {
         return result.getData();
     }
 
-    private String objectKey(String workflowId, String nodeId, String fileName) {
+    private String objectKey(String workflowId, String nodeId, String fileName, String contentHash) {
         String prefix = trimSlashes(properties.getExportObjectPrefix()) + "/images/"
                 + sanitizeSegment(workflowId) + "/" + sanitizeSegment(nodeId);
-        String timestamp = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS").format(OffsetDateTime.now());
-        return prefix + "/" + timestamp + "-" + UUID.randomUUID() + "-" + fileName;
+        return prefix + "/" + contentHash.substring(0, 24) + "-" + fileName;
+    }
+
+    private String sha256(byte[] bytes) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                result.append(String.format("%02x", value));
+            }
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("sha-256 digest is unavailable", exception);
+        }
     }
 
     private String contentType(ImageWorkflowDtos.GeneratedImage image) {

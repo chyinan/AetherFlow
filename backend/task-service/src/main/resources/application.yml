@@ -100,7 +100,7 @@ aetherflow:
       dispatch-routing-key: ${TASK_DISPATCH_ROUTING_KEY:task.schedule.dispatch}
     queue-protection:
       enabled: ${TASK_QUEUE_PROTECTION_ENABLED:true}
-      fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:false}
+      fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:true}
       busy-depth-threshold: ${TASK_QUEUE_BUSY_DEPTH_THRESHOLD:1000}
       recovery-depth-threshold: ${TASK_QUEUE_RECOVERY_DEPTH_THRESHOLD:300}
       busy-unacked-threshold: ${TASK_QUEUE_BUSY_UNACKED_THRESHOLD:500}

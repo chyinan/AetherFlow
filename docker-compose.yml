@@ -285,6 +285,21 @@ services:
     networks:
       - aetherflow
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aetherflow-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - ./deploy/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    restart: unless-stopped
+    networks:
+      - aetherflow
+
   grafana:
     image: grafana/grafana:11.2.0
     container_name: aetherflow-grafana
@@ -487,7 +502,9 @@ services:
       SPRING_RABBITMQ_TEMPLATE_OBSERVATION_ENABLED: "true"
       SPRING_RABBITMQ_LISTENER_SIMPLE_OBSERVATION_ENABLED: "true"
     ports:
-      - "8080:8080"
+      # Debug-only loopback binding; public traffic must enter through Nginx so
+      # TLS, request limiting and the internal-route boundary cannot be bypassed.
+      - "127.0.0.1:${GATEWAY_DEBUG_PORT:-8080}:8080"
     depends_on:
       nacos:
         condition: service_healthy
@@ -598,10 +615,10 @@ services:
       WORKFLOW_CODE_RUNTIME_API_KEY: ${WORKFLOW_CODE_RUNTIME_API_KEY:-}
       WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:-qdrant}
       WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED: ${WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED:-false}
-      WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:-false}
+      WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:-true}
       WORKFLOW_QDRANT_BASE_URL: ${WORKFLOW_QDRANT_BASE_URL:-https://qdrant.example.com}
       WORKFLOW_QDRANT_API_KEY: ${WORKFLOW_QDRANT_API_KEY:-}
-      WORKFLOW_QDRANT_ENABLED: ${WORKFLOW_QDRANT_ENABLED:-false}
+      WORKFLOW_QDRANT_ENABLED: ${WORKFLOW_QDRANT_ENABLED:-true}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
@@ -638,6 +655,7 @@ services:
     environment:
       <<: *java-service-env
       XXL_JOB_ENABLED: "false"
+      TASK_QUEUE_FAIL_CLOSED: ${TASK_QUEUE_FAIL_CLOSED:-true}
     expose:
       - "8103"
     depends_on:
@@ -743,6 +761,9 @@ services:
       <<: *java-service-env
       NOTIFY_REDIS_FANOUT_ENABLED: ${NOTIFY_REDIS_FANOUT_ENABLED:-true}
       NOTIFY_MAX_SSE_CONNECTIONS: ${NOTIFY_MAX_SSE_CONNECTIONS:-10000}
+      NOTIFY_MAX_SSE_CONNECTIONS_PER_USER: ${NOTIFY_MAX_SSE_CONNECTIONS_PER_USER:-20}
+      NOTIFY_MAX_WS_CONNECTIONS: ${NOTIFY_MAX_WS_CONNECTIONS:-2000}
+      NOTIFY_MAX_WS_CONNECTIONS_PER_USER: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:-10}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
       - "8106"
@@ -777,4 +798,5 @@ volumes:
   elasticsearch-data:
   prometheus-data:
   grafana-data:
+  alertmanager-data:
 
