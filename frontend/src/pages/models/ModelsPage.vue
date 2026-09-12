@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import {
   AlertTriangle,
   Brain,
@@ -17,11 +18,14 @@ import { useI18n } from 'vue-i18n'
 
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { useModelStore } from '@/stores/modelStore'
+import { useAuthStore } from '@/stores/authStore'
 
 const modelStore = useModelStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 
 const selectedProvider = computed(() => modelStore.selectedProvider)
+const canManageProviders = computed(() => authStore.isAdmin)
 
 const summaryCards = computed(() => [
   {
@@ -289,7 +293,7 @@ onMounted(() => {
                   <p class="text-xs text-text-muted">{{ t('models.catalogAndCapabilities') }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <button
+                  <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
                     :disabled="!selectedProvider || selectedProvider.active || modelStore.loading || modelStore.switchingProviderId === selectedProvider.id"
                     @click="switchPrimary"
@@ -297,7 +301,7 @@ onMounted(() => {
                     <Shuffle class="h-3.5 w-3.5" />
                     {{ modelStore.switchingProviderId === selectedProvider?.id ? t('models.switching') : t('models.setPrimary') }}
                   </button>
-                  <button
+                  <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
                     :disabled="!selectedProvider || modelStore.loading || modelStore.recoveringProviderId === selectedProvider.id"
                     @click="recoverProvider"

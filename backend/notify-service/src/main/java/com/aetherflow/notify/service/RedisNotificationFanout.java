@@ -47,6 +47,7 @@ public class RedisNotificationFanout implements MessageListener {
         container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
         container.addMessageListener(this, new ChannelTopic(CHANNEL));
+        container.afterPropertiesSet();
         container.start();
     }
 

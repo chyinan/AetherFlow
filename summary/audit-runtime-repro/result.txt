@@ -1,0 +1,13 @@
+CONTROL: absent idempotencyKey -> row inserted, status=PENDING, outbox inserts=1
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+Exception in thread "main" org.mockito.exceptions.verification.NeverWantedButInvoked: 
+workflowStartOutboxMapper.insert(
+    <any com.aetherflow.workflow.entity.WorkflowStartOutbox>
+);
+Never wanted here:
+-> at com.aetherflow.workflow.service.impl.AuditRuntimeRepro.reproduce(AuditRuntimeRepro.java:148)
+But invoked here:
+-> at com.aetherflow.workflow.service.impl.WorkflowServiceImpl.createStartOutbox(WorkflowServiceImpl.java:369) with arguments: [WorkflowStartOutbox(id=null, workflowInstanceId=991, status=PENDING, leaseToken=null, attemptCount=0, nextAttemptAt=2026-09-12T17:42:07.958314100, lastError=null, createdAt=2026-09-12T17:42:07.958314100, updatedAt=2026-09-12T17:42:07.958314100)]
+
+	at com.aetherflow.workflow.service.impl.AuditRuntimeRepro.reproduce(AuditRuntimeRepro.java:148)
+	at com.aetherflow.workflow.service.impl.AuditRuntimeRepro.main(AuditRuntimeRepro.java:51)

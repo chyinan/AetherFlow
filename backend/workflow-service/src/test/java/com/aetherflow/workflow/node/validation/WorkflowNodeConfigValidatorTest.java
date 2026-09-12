@@ -19,7 +19,9 @@ class WorkflowNodeConfigValidatorTest {
         WorkflowNodeDTO node = node("knowledge", "KNOWLEDGE_RETRIEVAL", Map.of("query", "hello"));
 
         assertThat(WorkflowNodeConfigValidator.validate(node, catalogService.catalog()))
-                .containsExactly("node knowledge (KNOWLEDGE_RETRIEVAL): config field 'datasetId' is required");
+                .containsExactly(
+                        "node knowledge (KNOWLEDGE_RETRIEVAL): config field 'datasetId' is required",
+                        "node knowledge (KNOWLEDGE_RETRIEVAL): one of queryText, queryVariable is required");
     }
 
     @Test
@@ -32,6 +34,19 @@ class WorkflowNodeConfigValidatorTest {
                 .containsExactly(
                         "node condition (CONDITION): config field 'variable' must be STRING",
                         "node condition (CONDITION): config field 'operator' must be one of [EQUALS, NOT_EQUALS, EXISTS, NOT_EXISTS, CONTAINS, GREATER_THAN, LESS_THAN]");
+    }
+
+    @Test
+    void rejectsExecutableNodesWithoutAnExplicitInputContract() {
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("media", "FFMPEG", Map.of()), catalogService.catalog()))
+                .contains("node media (FFMPEG): one of fileUrl, fileUrlVariable is required");
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("code", "CODE", Map.of("language", "python3")), catalogService.catalog()))
+                .contains("node code (CODE): config field 'code' is required");
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("summary", "SUMMARY", Map.of()), catalogService.catalog()))
+                .contains("node summary (SUMMARY): one of text, textVariable is required");
     }
 
     private static WorkflowNodeDTO node(String id, String type, Map<String, Object> config) {

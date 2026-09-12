@@ -15,6 +15,9 @@ public interface KnowledgeVectorIndex {
     default void deleteDataset(Long datasetId) {
     }
 
+    default void deleteDocument(Long documentId) {
+    }
+
     List<Long> search(Long datasetId, List<Double> queryVector, int limit);
 
     default List<Long> search(Long datasetId,

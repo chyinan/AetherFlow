@@ -62,8 +62,25 @@ public class AiProviderController {
             @ApiResponse(responseCode = "500", description = "Unexpected server error.")
     })
     @GetMapping("/status")
+    public Result<ProviderStatusResponse> status(
+            @RequestHeader(value = "X-Roles", required = false, defaultValue = "") String roles) {
+        boolean includeRecentLogs = java.util.Arrays.stream(roles.split(","))
+                .map(String::trim)
+                .anyMatch(role -> "ADMIN".equalsIgnoreCase(role) || "OWNER".equalsIgnoreCase(role));
+        return Result.success(sentinelAiGuard.execute("ai-provider-status",
+                () -> statusService.currentStatus(includeRecentLogs)));
+    }
+
+    @Operation(summary = "Get AI provider status",
+            description = "Returns active provider, routing policy, circuit states, health states, metrics and recent logs.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Provider status returned.",
+                    content = @Content(schema = @Schema(implementation = ProviderStatusResponse.class))),
+            @ApiResponse(responseCode = "429", description = "Provider status request rate limited."),
+            @ApiResponse(responseCode = "500", description = "Unexpected server error.")
+    })
     public Result<ProviderStatusResponse> status() {
-        return Result.success(sentinelAiGuard.execute("ai-provider-status", statusService::currentStatus));
+        return Result.success(statusService.currentStatus());
     }
 
     @Operation(summary = "Get AI provider routing policy",

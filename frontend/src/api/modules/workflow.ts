@@ -13,6 +13,8 @@ export interface WorkflowDefinitionDTO {
   name: string
   description?: string
   projectId?: number
+  idempotencyKey?: string
+  version?: number
   nodes: WorkflowDefinitionNodeDTO[]
 }
 
@@ -42,6 +44,7 @@ export interface WorkflowDefinitionEntity {
 export interface StartWorkflowRequest {
   userId?: number
   input?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface WorkflowInstanceEntity {

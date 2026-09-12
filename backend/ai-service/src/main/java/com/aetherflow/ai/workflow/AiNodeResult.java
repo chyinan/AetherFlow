@@ -34,6 +34,9 @@ public record AiNodeResult(
         }
         Map<String, Object> enrichedOutput = new LinkedHashMap<>(output == null ? Map.of() : output);
         enrichedOutput.put("artifactFiles", List.copyOf(files));
+        List<Long> imageFileIds = new java.util.ArrayList<>();
+        List<String> imageObjectKeys = new java.util.ArrayList<>();
+        List<String> imageUrls = new java.util.ArrayList<>();
         int mappedCount = Math.min(artifacts == null ? 0 : artifacts.size(), files.size());
         for (int index = 0; index < mappedCount; index++) {
             AiArtifact artifact = artifacts.get(index);
@@ -44,14 +47,20 @@ public record AiNodeResult(
             String prefix = artifact.type().trim().toLowerCase(Locale.ROOT);
             if (file.getId() != null) {
                 enrichedOutput.put(prefix + "FileId", file.getId());
+                if ("image".equals(prefix)) imageFileIds.add(file.getId());
             }
             if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) {
                 enrichedOutput.put(prefix + "ObjectKey", file.getObjectKey());
+                if ("image".equals(prefix)) imageObjectKeys.add(file.getObjectKey());
             }
-            if (file.getUrl() != null && !file.getUrl().isBlank()) {
+            if (file.getUrl() != null && !file.getUrl().isBlank() && !"image".equals(prefix)) {
                 enrichedOutput.put(prefix + "Url", file.getUrl());
             }
+            if ("image".equals(prefix) && file.getUrl() != null && !file.getUrl().isBlank()) imageUrls.add(file.getUrl());
         }
+        if (!imageFileIds.isEmpty()) enrichedOutput.put("imageFileIds", List.copyOf(imageFileIds));
+        if (!imageObjectKeys.isEmpty()) enrichedOutput.put("imageObjectKeys", List.copyOf(imageObjectKeys));
+        if (!imageUrls.isEmpty()) enrichedOutput.put("imageUrls", List.copyOf(imageUrls));
         // The staged outbox payload intentionally contains no signed URL. Rebuild
         // legacy convenience URL fields from committed metadata by extension so
         // clients do not retain an expired STAGED link after a delayed outbox.

@@ -89,6 +89,24 @@ public class QdrantKnowledgeVectorIndex implements KnowledgeVectorIndex {
     }
 
     @Override
+    public void deleteDocument(Long documentId) {
+        if (documentId == null || documentId <= 0 || !isAvailable()) {
+            return;
+        }
+        VectorStoreConfigService.VectorStoreRuntimeConfig config = requiredConfig();
+        Map<String, Object> body = Map.of(
+                "filter", Map.of("must", List.of(
+                        Map.of("key", "documentId", "match", Map.of("value", documentId))
+                ))
+        );
+        HttpResponse<String> response = send(config,
+                "POST",
+                "/collections/" + path(knowledgeCollection(config)) + "/points/delete?wait=true",
+                body);
+        requireSuccess(response, "qdrant knowledge vector document delete failed");
+    }
+
+    @Override
     public List<Long> search(Long datasetId, List<Double> queryVector, int limit) {
         return search(datasetId, queryVector, limit, Map.of());
     }

@@ -73,8 +73,16 @@ aetherflow:
   notify:
     internal-token: ${NOTIFY_INTERNAL_TOKEN}
   workflow:
+    terminal-notification-retention: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION:30d}
+    terminal-notification-retention-batch-size: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE:1000}
+    terminal-notification-retention-fixed-delay: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY:3600000}
+    start-outbox:
+      stale-after: ${WORKFLOW_START_OUTBOX_STALE_AFTER:30m}
+      batch-size: ${WORKFLOW_START_OUTBOX_BATCH_SIZE:50}
     websocket:
       allowed-origins: ${AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS:http://localhost}
+      send-time-limit-ms: ${WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS:5000}
+      send-buffer-size-bytes: ${WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES:65536}
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN}
       async-ai-enabled: ${WORKFLOW_AI_ASYNC_ENABLED:true}
@@ -83,6 +91,7 @@ aetherflow:
       qdrant-base-url: ${WORKFLOW_QDRANT_BASE_URL:https://qdrant.example.com}
       qdrant-api-key: ${WORKFLOW_QDRANT_API_KEY:}
       qdrant-enabled: ${WORKFLOW_QDRANT_ENABLED:true}
+      qdrant-allow-private-networks: ${WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS:false}
       default-vector-store-provider: ${WORKFLOW_EMBEDDING_VECTOR_STORE_PROVIDER:qdrant}
       in-memory-enabled: ${WORKFLOW_EMBEDDING_IN_MEMORY_ENABLED:false}
       knowledge-vector-index-required: ${WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED:true}

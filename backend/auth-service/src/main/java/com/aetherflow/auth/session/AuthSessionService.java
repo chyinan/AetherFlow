@@ -1,12 +1,15 @@
 package com.aetherflow.auth.session;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Service
@@ -87,8 +90,8 @@ public class AuthSessionService {
     }
 
     public AuthMetricsSnapshot metrics() {
-        Set<String> tokenKeys = redisTemplate.keys(TOKEN_PATTERN);
-        Set<String> failureKeys = redisTemplate.keys(LOGIN_FAILURE_PATTERN);
+        Set<String> tokenKeys = scanKeys(TOKEN_PATTERN);
+        Set<String> failureKeys = scanKeys(LOGIN_FAILURE_PATTERN);
         long tokenCount = tokenKeys == null ? 0 : tokenKeys.size();
         long failureCount = failureKeys == null ? 0 : failureKeys.stream()
                 .map(redisTemplate.opsForValue()::get)
@@ -96,6 +99,31 @@ public class AuthSessionService {
                 .mapToLong(this::parseLongSafely)
                 .sum();
         return new AuthMetricsSnapshot(tokenCount, tokenCount, failureCount);
+    }
+
+    private Set<String> scanKeys(String pattern) {
+        try {
+            Cursor<String> cursor = redisTemplate.scan(ScanOptions.scanOptions()
+                    .match(pattern)
+                    .count(512)
+                    .build());
+            if (cursor == null) {
+                // Mockito and legacy adapters may not implement SCAN yet. Keep
+                // their deterministic test adapter working without affecting
+                // the production RedisTemplate path.
+                Set<String> legacy = redisTemplate.keys(pattern);
+                return legacy == null ? Set.of() : legacy;
+            }
+            try (cursor) {
+                Set<String> keys = new LinkedHashSet<>();
+                cursor.forEachRemaining(keys::add);
+                return keys;
+            }
+        } catch (RuntimeException exception) {
+            // Metrics must remain non-blocking and best-effort when Redis is
+            // unavailable; authentication itself has its own fail-closed path.
+            return Set.of();
+        }
     }
 
     private long parseLongSafely(String value) {

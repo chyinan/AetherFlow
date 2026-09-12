@@ -150,7 +150,16 @@ async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unkno
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
   })
-  await projectReady
+  try {
+    await projectReady
+  } catch (error) {
+    // A rejected project request must not escape the mounted hook and become
+    // an unhandled Vue promise rejection. Keep the workflow load settled too.
+    await workflowLoad.catch(() => false)
+    const details = error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown')
+    workflowStore.loadingError = `${t('workflow.loadFailed')}: ${details}`
+    return false
+  }
   const loaded = await workflowLoad
   if (!loaded) {
     return false
@@ -236,6 +245,7 @@ onBeforeRouteUpdate((to, from) => {
   return confirmDiscardUnsavedChanges()
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
+const pendingStartIdempotencyKey = ref<string | null>(null)
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
@@ -370,6 +380,7 @@ async function startRun() {
   }
 
   startingRun.value = true
+  pendingStartIdempotencyKey.value ||= crypto.randomUUID()
   workflowStore.setRunError(null)
   try {
     await runStore.loadRuns()
@@ -405,8 +416,9 @@ async function startRun() {
     const result = await workflowApi.startRun(
       workflowStore.workflowId,
       fileId ? { fileId } : {},
-      { allowMockFallback: false },
+      { allowMockFallback: false, idempotencyKey: pendingStartIdempotencyKey.value },
     )
+    pendingStartIdempotencyKey.value = null
     const run = runStore.createRunFromWorkflow({
       runId: result.runId,
       workflowId: workflowStore.workflowId,

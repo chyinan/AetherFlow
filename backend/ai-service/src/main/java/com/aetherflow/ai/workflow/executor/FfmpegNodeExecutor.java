@@ -37,6 +37,14 @@ public class FfmpegNodeExecutor implements AiNodeExecutor {
         request.setFileUrl(fileUrl);
         request.setOperation(context.payloadString("operation", "extract-audio"));
         request.setOutputFormat(context.payloadString("outputFormat", "wav"));
+        String timeout = context.payloadString("timeoutSeconds");
+        if (timeout != null && !timeout.isBlank()) {
+            try {
+                request.setTimeoutSeconds(Math.max(1.0, Math.min(600.0, Double.parseDouble(timeout))));
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("FFmpeg timeoutSeconds must be numeric", exception);
+            }
+        }
         AiMediaTransformResponseDTO response = mediaClient.transform(request);
         byte[] content = Base64.getDecoder().decode(response.getContentBase64());
         Map<String, Object> output = new LinkedHashMap<>();

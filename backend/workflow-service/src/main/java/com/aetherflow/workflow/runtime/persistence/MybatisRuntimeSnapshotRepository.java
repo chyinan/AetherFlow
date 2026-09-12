@@ -47,7 +47,27 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
         if (workflowId == null || workflowId.isBlank() || fencingToken == null || fencingToken.isBlank()) {
             return;
         }
-        mapper.claimForLease(workflowId, fencingToken);
+        WorkflowRuntimeSnapshotEntity current = mapper.selectOne(new LambdaQueryWrapper<WorkflowRuntimeSnapshotEntity>()
+                .eq(WorkflowRuntimeSnapshotEntity::getWorkflowId, workflowId)
+                .last("LIMIT 1"));
+        if (current == null) {
+            // The initial execution creates its snapshot after taking the
+            // distributed lock. There is no durable row to claim yet.
+            return;
+        }
+        claimForLease(workflowId, current.getFencingToken(), fencingToken);
+    }
+
+    @Override
+    public void claimForLease(String workflowId, String expectedFencingToken, String fencingToken) {
+        if (workflowId == null || workflowId.isBlank() || fencingToken == null || fencingToken.isBlank()) {
+            return;
+        }
+        int updated = mapper.claimForLease(workflowId, expectedFencingToken, fencingToken);
+        if (updated != 1) {
+            throw new WorkflowRuntimeLeaseLostException(
+                    "workflow runtime snapshot claim lost for workflowId " + workflowId);
+        }
     }
 
     @Override
@@ -119,6 +139,12 @@ public class MybatisRuntimeSnapshotRepository implements RuntimeSnapshotReposito
                         .le(WorkflowRuntimeSnapshotEntity::getUpdatedAt, cutoff)
                         .orderByAsc(WorkflowRuntimeSnapshotEntity::getUpdatedAt)
                         .last("LIMIT " + maxResults)));
+    }
+
+    @Override
+    public List<WorkflowRuntimeSnapshot> findTerminalNeedingReconciliation(int limit) {
+        int maxResults = Math.max(1, Math.min(limit, 10_000));
+        return readSnapshots(mapper.selectTerminalNeedingReconciliation(maxResults));
     }
 
     @Override

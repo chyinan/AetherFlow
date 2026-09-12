@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { Eye, EyeOff, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, reactive, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -20,6 +21,7 @@ const form = reactive({
   password: '',
 })
 const errorMessage = ref('')
+const successMessage = ref('')
 const oauthProviders = ref({ githubConfigured: false, googleConfigured: false })
 const showPassword = ref(false)
 const authMode = ref<'login' | 'register'>('login')
@@ -53,6 +55,9 @@ const modeActionText = computed(() =>
 )
 
 onMounted(() => {
+  if (route.query.passwordChanged === '1') {
+    successMessage.value = t('auth.passwordChanged')
+  }
   void loadOAuthProviders()
 })
 
@@ -264,6 +269,10 @@ function handleLegalDialogKeydown(event: KeyboardEvent) {
           aria-live="assertive"
         >
           {{ errorMessage }}
+        </p>
+
+        <p v-if="successMessage" class="mt-4 rounded-lg border border-status-success/20 bg-green-50 px-4 py-3 text-sm font-medium text-status-success" role="status" aria-live="polite">
+          {{ successMessage }}
         </p>
 
         <p class="mt-8 text-center text-sm font-medium text-[#667085]">

@@ -4,18 +4,45 @@ package com.aetherflow.workflow.mapper;
 
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshotEntity;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 public interface WorkflowRuntimeSnapshotMapper extends BaseMapper<WorkflowRuntimeSnapshotEntity> {
+
+    @Select("""
+            SELECT s.*
+              FROM af_workflow_runtime_snapshot s
+              LEFT JOIN af_workflow_instance i
+                ON i.id = CAST(s.workflow_id AS UNSIGNED)
+             WHERE s.runtime_state IN ('SUCCESS', 'FAILED', 'CANCELLED')
+               AND (
+                    i.id IS NULL
+                    OR i.status NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
+                    OR NOT EXISTS (
+                        SELECT 1
+                         FROM af_workflow_notification_outbox n
+                         WHERE n.workflow_instance_id = CAST(s.workflow_id AS UNSIGNED)
+                           AND BINARY n.event_id = BINARY CONCAT('workflow:', s.workflow_id, ':', s.runtime_state)
+                    )
+               )
+             ORDER BY s.updated_at ASC, s.id ASC
+             LIMIT #{limit}
+            """)
+    List<WorkflowRuntimeSnapshotEntity> selectTerminalNeedingReconciliation(@Param("limit") int limit);
 
     @Update("""
             UPDATE af_workflow_runtime_snapshot
                SET fencing_token = #{fencingToken}
              WHERE workflow_id = #{workflowId}
                AND runtime_state NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
+               AND ((fencing_token IS NULL AND #{expectedFencingToken} IS NULL)
+                    OR fencing_token = #{expectedFencingToken})
             """)
     int claimForLease(@Param("workflowId") String workflowId,
+                      @Param("expectedFencingToken") String expectedFencingToken,
                       @Param("fencingToken") String fencingToken);
 
     @Update("""

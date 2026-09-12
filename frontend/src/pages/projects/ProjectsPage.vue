@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -47,6 +48,28 @@ const showWorkflowPanel = ref(false)
 const workflowDraftName = ref('')
 const workflowDraftProjectId = ref('')
 const workflowDraftId = ref('')
+const projectsLoaded = ref(false)
+
+const firstProject = computed(() => projectStore.projects[0])
+const workflowCount = computed(() => {
+  if (projectStore.workflowSummaries.length > 0) {
+    return projectStore.workflowSummaries.length
+  }
+  return projectStore.projects.reduce((count, project) => count + workflowsFor(project).length, 0)
+})
+const showNoProjects = computed(() => (
+  projectsLoaded.value
+  && !projectStore.loading
+  && !projectStore.loadError
+  && projectStore.projects.length === 0
+))
+const showNoWorkflows = computed(() => (
+  projectsLoaded.value
+  && !projectStore.loading
+  && !projectStore.loadError
+  && projectStore.projects.length > 0
+  && workflowCount.value === 0
+))
 
 function metricsFor(project: ProjectSummary) {
   return projectStore.projectMetrics(project.id) ?? {
@@ -142,8 +165,20 @@ function openProject(project: ProjectSummary) {
 }
 
 onMounted(async () => {
-  await Promise.allSettled([projectStore.loadProjects(), runStore.loadRuns(), fileStore.loadFiles(), difyStore.loadSurface()])
+  await Promise.allSettled([
+    projectStore.loadProjects(),
+    runStore.loadRuns(),
+    fileStore.loadFiles(),
+    difyStore.loadSurface({ includeProviderTelemetry: false }),
+  ])
+  projectsLoaded.value = true
 })
+
+async function retryLoadProjects() {
+  projectsLoaded.value = false
+  await projectStore.loadProjects()
+  projectsLoaded.value = true
+}
 </script>
 
 <template>
@@ -164,9 +199,32 @@ onMounted(async () => {
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="w-full space-y-5">
-        <p v-if="projectStore.loadError" role="status" class="rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
-          {{ projectStore.loadError }}
-        </p>
+        <div v-if="projectStore.loadError" role="status" class="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
+          <span>{{ projectStore.loadError }}</span>
+          <button type="button" class="shrink-0 rounded border border-status-warning/40 bg-white px-2 py-1 text-xs font-medium hover:bg-amber-100 disabled:opacity-60" :disabled="projectStore.loading" @click="retryLoadProjects">
+            {{ projectStore.loading ? t('common.loading') : t('common.retry') }}
+          </button>
+        </div>
+        <section v-if="showNoProjects" data-state="no-projects" role="status" class="flex flex-col items-start justify-between gap-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-6 sm:flex-row sm:items-center">
+          <div>
+            <p class="text-base font-semibold text-text-primary">{{ t('projects.emptyProjectsTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('projects.emptyProjectsHint') }}</p>
+          </div>
+          <button data-action="create-project" type="button" class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateProject">
+            <Plus class="h-4 w-4" />
+            {{ t('projects.createProject') }}
+          </button>
+        </section>
+        <section v-else-if="showNoWorkflows" data-state="no-workflows" role="status" class="flex flex-col items-start justify-between gap-4 rounded-xl border border-dashed border-status-warning/35 bg-amber-50/70 p-6 sm:flex-row sm:items-center">
+          <div>
+            <p class="text-base font-semibold text-text-primary">{{ t('projects.emptyWorkflowsTitle') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('projects.emptyWorkflowsHint') }}</p>
+          </div>
+          <button v-if="firstProject" data-action="create-first-workflow" type="button" class="inline-flex shrink-0 items-center gap-2 rounded-md border border-primary/20 bg-white px-3 py-2 text-sm font-medium text-primary shadow-sm transition hover:border-primary/40 hover:bg-primary-soft" @click="openCreateWorkflow(firstProject)">
+            <Plus class="h-4 w-4" />
+            {{ t('projects.createFirstWorkflow') }}
+          </button>
+        </section>
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">

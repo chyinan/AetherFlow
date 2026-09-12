@@ -3,10 +3,7 @@ import { mapAiProviderData, type AiModelSnapshot } from '@/api/mappers/aiMapper'
 import {
   getAiStatus,
   getProviderCatalog,
-  getProviderLogs,
-  getProviderMetrics,
   getProviderPolicy,
-  getProviderStatus,
   recoverProvider as recoverProviderCircuit,
   updateProviderPolicy as updateProviderRoutingPolicy,
   type AiProviderType,
@@ -79,20 +76,14 @@ async function loadRealSnapshot(force = false) {
   }
 
   const currentPromise = (async () => {
-    const [serviceStatus, providerStatus, metricsResponse, catalogResponse, runtimeLogsResponse, policy] = await Promise.all([
+    const [serviceStatus, catalogResponse, policy] = await Promise.all([
       getAiStatus(),
-      getProviderStatus(),
-      getProviderMetrics(),
       getProviderCatalog(),
-      getProviderLogs(50),
       getProviderPolicy(),
     ])
     const snapshot = mapAiProviderData({
       serviceStatus,
-      providerStatus,
-      metricsResponse,
       catalogResponse,
-      runtimeLogsResponse,
       policy,
     })
 

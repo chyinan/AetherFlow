@@ -51,6 +51,7 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
+        "x-queue-type": "quorum",
         "x-dead-letter-exchange": "aetherflow.task.dlx",
         "x-dead-letter-routing-key": "task.dead"
       }
@@ -61,6 +62,7 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
+        "x-queue-type": "quorum",
         "x-dead-letter-exchange": "aetherflow.task.dlx",
         "x-dead-letter-routing-key": "task.dead"
       }
@@ -70,14 +72,14 @@
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
-      "arguments": {}
+      "arguments": {"x-queue-type": "quorum"}
     },
     {
       "name": "aetherflow.notify.queue",
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
-      "arguments": {}
+      "arguments": {"x-queue-type": "quorum"}
     },
     {
       "name": "aetherflow.workflow.ai-result.queue",
@@ -120,7 +122,7 @@
       "destination": "aetherflow.notify.queue",
       "destination_type": "queue",
       "routing_key": "notify.user",
-      "arguments": {}
+      "arguments": {"x-queue-type": "quorum"}
     },
     {
       "source": "aetherflow.notify.exchange",

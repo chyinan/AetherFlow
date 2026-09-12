@@ -30,6 +30,7 @@ import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import { settingsApi, type UrlFetchResponse, type VectorStoreConfig } from '@/services/api/settingsApi'
+import { useAuthStore } from '@/stores/authStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useModelStore } from '@/stores/modelStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -42,6 +43,7 @@ import { getStoredTimezone, setStoredTimezone } from '@/i18n/locale'
 type SettingsTab = 'provider' | 'members' | 'billing' | 'data-source' | 'api' | 'custom' | 'language'
 
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 const projectStore = useProjectStore()
 const runStore = useRunStore()
 const fileStore = useFileStore()
@@ -138,10 +140,18 @@ const timezoneOptions = [
 ] as const
 
 const memberRoleOptions: WorkspaceMember['role'][] = ['Owner', 'Admin', 'Operator', 'Viewer']
+const adminOnlyTabs = new Set<SettingsTab>(['members', 'billing', 'custom'])
+const canManageAdminSettings = computed(() => authStore.isAdmin)
+const visibleWorkspaceNav = computed(() => workspaceNav.filter((item) => (
+  canManageAdminSettings.value || !adminOnlyTabs.has(item.id)
+)))
 
 function readRouteTab(): SettingsTab {
   const tab = String(route.query.tab ?? 'provider')
-  return validTabs.includes(tab as SettingsTab) ? tab as SettingsTab : 'provider'
+  if (!validTabs.includes(tab as SettingsTab) || (!canManageAdminSettings.value && adminOnlyTabs.has(tab as SettingsTab))) {
+    return 'provider'
+  }
+  return tab as SettingsTab
 }
 
 const activeTab = ref<SettingsTab>(readRouteTab())
@@ -481,7 +491,7 @@ function markSaved() {
 
 async function retrySettingsLoad() {
   if (settingsStore.loading) return
-  await settingsStore.loadSettings()
+  await settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value })
 }
 
 async function saveSettings() {
@@ -780,12 +790,12 @@ function providerAvatarClass(provider: SettingsModelProvider) {
 onMounted(() => {
   setStoredTimezone(timezone.value)
   void Promise.allSettled([
-    settingsStore.loadSettings(),
+    settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value }),
     projectStore.loadProjects(),
     runStore.loadRuns({ selectDefault: false }),
     fileStore.loadFiles(),
     modelStore.loadModels(),
-    loadVectorStoreConfig(),
+    canManageAdminSettings ? loadVectorStoreConfig() : Promise.resolve(),
   ])
 })
 
@@ -865,7 +875,7 @@ watch(
             <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('settings.workspaceGroup') }}</p>
             <div class="space-y-1">
               <button
-                v-for="item in workspaceNav"
+                v-for="item in visibleWorkspaceNav"
                 :key="item.id"
                 type="button"
                 class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition"
@@ -936,6 +946,7 @@ watch(
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <button
+                  v-if="canManageAdminSettings"
                   type="button"
                   class="inline-flex h-8 items-center gap-2 rounded-md border border-app-border bg-white px-3 text-xs font-medium text-text-secondary transition hover:text-primary"
                   @click="openDefaultModelSettings"
@@ -981,6 +992,7 @@ watch(
                     {{ provider.apiKeyConfigured ? t('settings.apiKeyConfigured') : t('settings.apiKeyMissing') }}
                   </span>
                   <button
+                    v-if="canManageAdminSettings"
                     type="button"
                     class="inline-flex h-8 items-center gap-1.5 rounded-md border border-app-border bg-white px-3 text-xs font-medium text-text-secondary transition hover:text-primary"
                     @click="openProviderConfig(provider)"
@@ -1040,6 +1052,7 @@ watch(
                 <div class="mt-4 flex items-center justify-between gap-3">
                   <span class="truncate text-xs text-text-muted">{{ t('settings.providerPreset') }}</span>
                   <button
+                    v-if="canManageAdminSettings"
                     type="button"
                     class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-white hover:bg-primary-hover"
                     @click="installProvider(provider.id)"
@@ -1079,6 +1092,7 @@ watch(
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <button
+                  v-if="canManageAdminSettings"
                   type="button"
                   class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover"
                   @click="openMemberDialog"
@@ -1383,7 +1397,7 @@ watch(
               </div>
             </article>
 
-            <article class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+            <article v-if="canManageAdminSettings" class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p class="text-sm font-semibold text-text-primary">{{ t('settings.vectorStoreTitle') }}</p>
@@ -1526,7 +1540,7 @@ watch(
             </article>
           </section>
 
-          <section class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
+          <section v-if="canManageAdminSettings" class="rounded-xl border border-app-border bg-white p-4 shadow-sm">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="flex min-w-0 items-start gap-3">
                 <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">

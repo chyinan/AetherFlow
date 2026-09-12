@@ -43,7 +43,7 @@ const workflowNavTarget = computed(() => {
   if (currentProjectWorkflow?.id) {
     return `/workflows/${currentProjectWorkflow.id}`
   }
-  return '/projects'
+  return '/projects?notice=empty-workflows'
 })
 
 const routeActiveKey = computed(() => {

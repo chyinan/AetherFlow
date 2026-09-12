@@ -29,6 +29,7 @@ export interface UiNotification {
 
 const themeStorageKey = 'aetherflow.theme'
 const notificationStorageKeyPrefix = 'aetherflow.notifications'
+const realtimeNoticeCoalesceWindowMs = 5_000
 
 function notificationStorageKey(userId?: string | number | null) {
   const sessionUser = tokenManager.readSession()?.user as ({ userId?: unknown; id?: unknown } | undefined)
@@ -171,6 +172,8 @@ export const useUiStore = defineStore('ui', {
     notifications: readStoredNotifications() as UiNotification[],
     notificationsLoading: false,
     lastRealtimeNoticeState: 'online' as 'online' | 'reconnecting' | 'offline',
+    lastRealtimeNoticeAt: 0,
+    lastRealtimeNoticeId: null as string | null,
     statuses: [
       { name: 'Gateway', state: 'online', detail: 'mock gateway ready' },
       { name: 'Realtime', state: 'online', detail: 'mock stream connected' },
@@ -196,30 +199,48 @@ export const useUiStore = defineStore('ui', {
         realtime.detail = state === 'online' ? 'notify stream connected' : state
       }
       if (state !== this.lastRealtimeNoticeState) {
-        if (state === 'online' && this.lastRealtimeNoticeState !== 'online') {
-          this.notifications.unshift({
-            id: `notice-${Date.now()}`,
-            time: formatTime(new Date()),
-            title: 'Realtime',
-            messageKey: 'notifications.realtimeRestored',
-            source: 'realtime',
-            read: false,
-            tone: 'online',
-          })
-        } else if (state !== 'online') {
-          this.notifications.unshift({
-            id: `notice-${Date.now()}`,
-            time: formatTime(new Date()),
-            title: 'Realtime',
-            messageKey: 'notifications.connectionIssue',
-            messageParams: {
-              service: 'Realtime',
-            },
-            statusKey: state === 'offline' ? 'status.offline' : 'status.degraded',
-            source: 'realtime',
-            read: false,
-            tone: state === 'offline' ? 'offline' : 'degraded',
-          })
+        const now = Date.now()
+        const existingNoticeIndex = this.lastRealtimeNoticeId
+          ? this.notifications.findIndex((item) => item.id === this.lastRealtimeNoticeId)
+          : -1
+        const shouldCoalesce = existingNoticeIndex >= 0
+          && now - this.lastRealtimeNoticeAt <= realtimeNoticeCoalesceWindowMs
+        const noticeId = shouldCoalesce
+          ? this.notifications[existingNoticeIndex].id
+          : `notice-${now}-${Math.random().toString(36).slice(2, 8)}`
+        const notice = state === 'online' && this.lastRealtimeNoticeState !== 'online'
+          ? {
+              id: noticeId,
+              time: formatTime(new Date(now)),
+              title: 'Realtime',
+              messageKey: 'notifications.realtimeRestored',
+              source: 'realtime',
+              read: false,
+              tone: 'online' as const,
+            }
+          : state !== 'online'
+            ? {
+                id: noticeId,
+                time: formatTime(new Date(now)),
+                title: 'Realtime',
+                messageKey: 'notifications.connectionIssue',
+                messageParams: {
+                  service: 'Realtime',
+                },
+                statusKey: state === 'offline' ? 'status.offline' : 'status.degraded',
+                source: 'realtime',
+                read: false,
+                tone: state === 'offline' ? 'offline' as const : 'degraded' as const,
+              }
+            : null
+
+        if (shouldCoalesce) {
+          this.notifications.splice(existingNoticeIndex, 1)
+        }
+        if (notice) {
+          this.notifications.unshift(notice)
+          this.lastRealtimeNoticeId = noticeId
+          this.lastRealtimeNoticeAt = now
         }
         this.notifications = this.notifications.slice(0, 20)
         writeStoredNotifications(this.notifications)

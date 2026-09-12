@@ -10,6 +10,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import jakarta.annotation.PreDestroy;
 
 import java.util.List;
@@ -24,6 +25,7 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
 
     private final ObjectMapper objectMapper;
     private final Map<Long, List<WebSocketSession>> sessions = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSession> sendSessions = new ConcurrentHashMap<>();
     private final AtomicInteger connectionCount = new AtomicInteger();
 
     @Value("${aetherflow.notify.websocket.max-connections:2000}")
@@ -31,6 +33,12 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
 
     @Value("${aetherflow.notify.websocket.max-connections-per-user:10}")
     private int maxConnectionsPerUser = 10;
+
+    @Value("${aetherflow.notify.websocket.send-time-limit-ms:5000}")
+    private int sendTimeLimitMs = 5000;
+
+    @Value("${aetherflow.notify.websocket.send-buffer-size-bytes:65536}")
+    private int sendBufferSizeBytes = 65536;
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -60,6 +68,8 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
                 break;
             } while (true);
             userSessions.add(session);
+            sendSessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(
+                    session, Math.max(100, sendTimeLimitMs), Math.max(1024, sendBufferSizeBytes)));
         }
     }
 
@@ -75,6 +85,7 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
                 sessions.remove(userId, userSessions);
             }
         }
+        sendSessions.remove(session.getId());
     }
 
     public void send(Long userId, Object payload) {
@@ -86,8 +97,9 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
 
     private void sendOne(WebSocketSession session, Object payload) {
         try {
-            if (session.isOpen()) {
-                session.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
+            WebSocketSession outbound = sendSessions.getOrDefault(session.getId(), session);
+            if (outbound.isOpen()) {
+                outbound.sendMessage(new TextMessage(objectMapper.writeValueAsString(payload)));
             }
         } catch (Exception exception) {
             try {
@@ -112,6 +124,7 @@ public class NotificationWebSocketHandler extends TextWebSocketHandler {
                     }
                 });
         sessions.clear();
+        sendSessions.clear();
         connectionCount.set(0);
     }
 

@@ -41,7 +41,7 @@ class ImageWorkflowNodeExecutorTest {
     }
 
     @Test
-    void imageGenerationExecutorMapsPayloadAndReturnsImages() {
+    void imageGenerationExecutorStoresImagePayloadAsFencedArtifacts() {
         CapturingProvider provider = new CapturingProvider();
         ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(
                 new ImageProviderRegistry(List.of(provider))
@@ -72,8 +72,11 @@ class ImageWorkflowNodeExecutorTest {
 
         assertThat(result.nodeType()).isEqualTo("IMAGE_GENERATION");
         assertThat(result.status()).isEqualTo("SUCCEEDED");
-        assertThat(result.output()).containsKeys("provider", "mode", "images", "metadata");
-        assertThat(result.output().get("images")).asList().hasSize(1);
+        assertThat(result.output()).containsKeys("provider", "mode", "metadata");
+        assertThat(result.output()).doesNotContainKey("images");
+        assertThat(result.artifacts()).hasSize(1);
+        assertThat(result.artifacts().get(0).type()).isEqualTo("IMAGE");
+        assertThat(result.artifacts().get(0).content()).containsExactly((byte) 'i', (byte) 'm', (byte) 'a', (byte) 'g', (byte) 'e');
     }
 
     @Test

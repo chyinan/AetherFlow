@@ -6,7 +6,6 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiMediaTransformRequestDTO;
 import com.aetherflow.common.dto.AiMediaTransformResponseDTO;
 import com.aetherflow.common.exception.BusinessException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -14,11 +13,13 @@ import org.springframework.web.client.RestClient;
 import java.util.Base64;
 
 @Service
-@RequiredArgsConstructor
 public class PythonMediaClient {
 
-    @Qualifier("pythonAiRestClient")
     private final RestClient client;
+
+    public PythonMediaClient(@Qualifier("pythonAiRestClient") RestClient client) {
+        this.client = client;
+    }
 
     public AiMediaTransformResponseDTO transform(AiMediaTransformRequestDTO request) {
         AiMediaTransformResponseDTO response = client.post()

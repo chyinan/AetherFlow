@@ -17,6 +17,7 @@ spring:
       host: ${REDIS_HOST:192.168.101.68}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:}
       timeout: 3s
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -86,7 +87,14 @@ aetherflow:
   workflow:
     runtime-event-retention: ${WORKFLOW_RUNTIME_EVENT_RETENTION:30d}
     runtime-event-retention-batch-size: ${WORKFLOW_RUNTIME_EVENT_RETENTION_BATCH_SIZE:1000}
+    runtime-event-retention-max-batches: ${WORKFLOW_RUNTIME_EVENT_RETENTION_MAX_BATCHES:20}
     runtime-event-retention-fixed-delay: ${WORKFLOW_RUNTIME_EVENT_RETENTION_FIXED_DELAY:3600000}
+    terminal-notification-retention: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION:30d}
+    terminal-notification-retention-batch-size: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE:1000}
+    terminal-notification-retention-fixed-delay: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY:3600000}
+    start-outbox:
+      stale-after: ${WORKFLOW_START_OUTBOX_STALE_AFTER:30m}
+      batch-size: ${WORKFLOW_START_OUTBOX_BATCH_SIZE:50}
     websocket:
       allowed-origins: ${AETHERFLOW_WORKFLOW_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
       stream-timeout: ${WORKFLOW_RUNTIME_WS_STREAM_TIMEOUT:5m}
@@ -94,6 +102,8 @@ aetherflow:
       heartbeat-interval: ${WORKFLOW_RUNTIME_WS_HEARTBEAT_INTERVAL:15s}
       thread-pool-size: ${WORKFLOW_RUNTIME_WS_THREAD_POOL_SIZE:8}
       max-connections: ${WORKFLOW_RUNTIME_WS_MAX_CONNECTIONS:2000}
+      send-time-limit-ms: ${WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS:5000}
+      send-buffer-size-bytes: ${WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES:65536}
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
@@ -121,6 +131,7 @@ aetherflow:
       qdrant-base-url: ${WORKFLOW_QDRANT_BASE_URL:https://qdrant.example.com}
       qdrant-api-key: ${WORKFLOW_QDRANT_API_KEY:}
       qdrant-enabled: ${WORKFLOW_QDRANT_ENABLED:false}
+      qdrant-allow-private-networks: ${WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS:false}
       timeout: ${WORKFLOW_EMBEDDING_TIMEOUT:30s}
       thread-pool-size: ${WORKFLOW_EMBEDDING_THREAD_POOL_SIZE:2}
       queue-capacity: ${WORKFLOW_EMBEDDING_QUEUE_CAPACITY:20}

@@ -34,6 +34,7 @@ export type WorkflowRunInput = Record<string, unknown>
 
 interface RealBackendOptions {
   allowMockFallback?: boolean
+  idempotencyKey?: string
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -489,6 +490,7 @@ function mapDefinition(entity: WorkflowDefinitionEntity): WorkflowDefinition {
     nodes: graph.nodes,
     edges: graph.edges,
     backendDefinitionId: entity.id,
+    backendVersion: entity.version,
     projectId: entity.projectId,
     backendStatus: entity.status,
     savedAt: entity.updatedAt,
@@ -594,12 +596,15 @@ export const workflowApi = {
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     return emptyWorkflow(workflowId, workflowName)
   },
-  async saveWorkflow(workflow: WorkflowDefinition, _options: RealBackendOptions = {}) {
+  async saveWorkflow(workflow: WorkflowDefinition, options: RealBackendOptions = {}) {
     try {
       const definitionId = workflow.id === 'new'
         ? workflow.backendDefinitionId
         : workflow.backendDefinitionId ?? getBackendDefinitionId(workflow.id) ?? numericIdFromWorkflowId(workflow.id)
-      const payload = mapWorkflowToDefinitionDTO(workflow)
+      const payload = {
+        ...mapWorkflowToDefinitionDTO(workflow),
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+      }
       const entity = definitionId
         ? await updateDefinition(definitionId, payload)
         : await createDefinition(payload)
@@ -612,6 +617,7 @@ export const workflowApi = {
         ...savedWorkflow,
         id: String(entity.id),
         backendDefinitionId: entity.id,
+        backendVersion: entity.version,
         backendStatus: entity.status,
         savedAt: savedWorkflow.savedAt ?? new Date().toISOString(),
       }
@@ -641,6 +647,7 @@ export const workflowApi = {
       const instance = await startInstance(backendDefinitionId, {
         userId: currentUserId(),
         input: normalizedInput,
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
       })
       const runId = `run-${instance.id}`
       const link: StartedRunLink = {

@@ -19,6 +19,10 @@ public class ProviderStatusService {
     private final AiTaskProperties properties;
 
     public ProviderStatusResponse currentStatus() {
+        return currentStatus(true);
+    }
+
+    public ProviderStatusResponse currentStatus(boolean includeRecentLogs) {
         ProviderRoutingPolicy policy = policyService.currentPolicy();
         List<AiProviderType> providers = policy.getProviders();
         Map<AiProviderType, ProviderCircuitSnapshot> circuits = new LinkedHashMap<>();
@@ -33,7 +37,7 @@ public class ProviderStatusService {
                 circuits,
                 healths,
                 metricsService.snapshot(providers),
-                logService.recent(properties.getProviderRecentLogLimit())
+                includeRecentLogs ? logService.recent(properties.getProviderRecentLogLimit()) : List.of()
         );
     }
 

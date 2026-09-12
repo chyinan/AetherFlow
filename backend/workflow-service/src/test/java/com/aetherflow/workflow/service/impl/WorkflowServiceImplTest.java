@@ -31,7 +31,6 @@ import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.seata.spring.annotation.GlobalTransactional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -106,13 +105,10 @@ class WorkflowServiceImplTest {
     }
 
     @Test
-    void startInstanceStartsSeataGlobalTransactionForCrossServiceWrites() throws Exception {
+    void startInstanceUsesLocalTransactionAndDurableOutboxForCrossServiceDispatch() throws Exception {
         Method method = WorkflowServiceImpl.class.getMethod("startInstance", Long.class, StartWorkflowRequest.class);
 
-        GlobalTransactional globalTransactional = method.getAnnotation(GlobalTransactional.class);
-
-        assertThat(globalTransactional).isNotNull();
-        assertThat(globalTransactional.name()).isEqualTo("aetherflow-start-workflow-instance");
+        assertThat(method.getAnnotation(io.seata.spring.annotation.GlobalTransactional.class)).isNull();
         assertThat(method.getAnnotation(Transactional.class)).isNotNull();
     }
 
@@ -273,6 +269,35 @@ class WorkflowServiceImplTest {
         verify(instanceMapper, never()).insert(any(WorkflowInstance.class));
         verify(workflowStartOutboxMapper, never()).insert(any(WorkflowStartOutbox.class));
         verify(runtimeEngine, never()).execute(any(WorkflowRuntimeRequest.class));
+    }
+
+    @Test
+    void firstUseOfIdempotencyKeyCreatesStartOutbox() throws Exception {
+        WorkflowDefinition definition = definitionEntity();
+        WorkflowInstance persisted = new WorkflowInstance();
+        persisted.setId(99L);
+        persisted.setDefinitionId(10L);
+        persisted.setUserId(7L);
+        persisted.setIdempotencyKey("start-new");
+        persisted.setStatus(RuntimeState.PENDING.name());
+        StartWorkflowRequest request = request();
+        request.setIdempotencyKey("start-new");
+
+        when(definitionMapper.selectById(10L)).thenReturn(definition);
+        when(instanceMapper.findByUserIdAndIdempotencyKey(7L, "start-new")).thenReturn(null);
+        doAnswer(invocation -> {
+            WorkflowInstance instance = invocation.getArgument(0);
+            instance.setId(99L);
+            return 1;
+        }).when(instanceMapper).insertIdempotent(any(WorkflowInstance.class));
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(objectMapper.writeValueAsString(request.getInput())).thenReturn("{}");
+        when(workflowStartOutboxMapper.selectDue(any(), any(), eq(50))).thenReturn(List.of());
+
+        WorkflowInstance result = asUser(7L, () -> workflowService.startInstance(10L, request));
+
+        assertThat(result.getId()).isEqualTo(99L);
+        verify(workflowStartOutboxMapper).insert(any(WorkflowStartOutbox.class));
     }
 
     @Test
@@ -497,6 +522,8 @@ class WorkflowServiceImplTest {
         request.setDescription("updated description");
         when(definitionMapper.selectById(10L)).thenReturn(definition);
         when(objectMapper.writeValueAsString(request)).thenReturn("{\"name\":\"updated\"}");
+        when(definitionMapper.updateVersioned(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
 
         WorkflowDefinition result = asUser(7L, () -> workflowService.updateDefinition(10L, request));
 
@@ -504,7 +531,8 @@ class WorkflowServiceImplTest {
         assertThat(result.getDescription()).isEqualTo("updated description");
         assertThat(result.getDefinitionJson()).isEqualTo("{\"name\":\"updated\"}");
         assertThat(result.getVersion()).isEqualTo(3);
-        verify(definitionMapper).updateById(definition);
+        verify(definitionMapper).updateVersioned(eq(10L), eq(7L), eq("updated"), eq("updated description"),
+                any(), eq("{\"name\":\"updated\"}"), eq(3), eq(2), any());
     }
 
     @Test
@@ -560,7 +588,7 @@ class WorkflowServiceImplTest {
 
     private static WorkflowDefinitionDTO definitionDTO() {
         WorkflowNodeDTO input = node("node-input", "START");
-        WorkflowNodeDTO summary = node("node-summary", "SUMMARY");
+        WorkflowNodeDTO summary = node("node-summary", "SUMMARY", Map.of("textVariable", "input"));
         return definition(input, summary);
     }
 

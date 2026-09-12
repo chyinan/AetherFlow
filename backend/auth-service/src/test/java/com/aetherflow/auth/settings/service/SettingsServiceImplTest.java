@@ -123,6 +123,9 @@ class SettingsServiceImplTest {
         assertThat(created.id()).isEqualTo("2");
         assertThat(created.email()).isEqualTo("ops@aetherflow.mock");
         assertThat(created.status()).isEqualTo("invited");
+        ArgumentCaptor<SettingsMemberEntity> createdCaptor = ArgumentCaptor.forClass(SettingsMemberEntity.class);
+        verify(memberMapper).insert(createdCaptor.capture());
+        assertThat(createdCaptor.getValue().getOwnerUserId()).isEqualTo(0L);
 
         SettingsMemberEntity existing = member(2L, "Workflow Operator", "Operator", "invited");
         when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(existing);

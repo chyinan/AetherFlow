@@ -109,7 +109,11 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     }
 
     private boolean requiresAdminRole(String path) {
-        return pathMatcher.match("/ai/provider/**", path)
+        return pathMatcher.match("/ai/provider/config/**", path)
+                || pathMatcher.match("/ai/provider/policy", path)
+                || pathMatcher.match("/ai/provider/policy/recover/**", path)
+                || pathMatcher.match("/ai/provider/metrics", path)
+                || pathMatcher.match("/ai/provider/logs", path)
                 || pathMatcher.match("/knowledge/vector-stores/**", path)
                 || pathMatcher.match("/settings/members/**", path)
                 || pathMatcher.match("/settings/billing", path)

@@ -65,6 +65,12 @@ public final class AiWorkflowNodeResultAdapter {
                 variables.put("routeJson", routeJson.isEmpty() ? Map.of("route", route) : routeJson);
                 branchKey = String.valueOf(route);
             }
+            case "IMAGE_GENERATION", "UPSCALE" -> {
+                copy(safeOutput, variables, "artifactFiles", "imageFiles");
+                copy(safeOutput, variables, "imageFileIds", "imageFileIds");
+                copy(safeOutput, variables, "imageObjectKeys", "imageObjectKeys");
+                copy(safeOutput, variables, "imageUrls", "imageUrls");
+            }
             default -> {
                 // Common LLM variables are sufficient for node types without dedicated derived outputs.
             }

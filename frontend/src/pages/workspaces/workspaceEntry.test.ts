@@ -11,4 +11,10 @@ describe('workspace management entry', () => {
     expect(router).toContain("path: '/workspaces'")
     expect(sidebar).toContain("to: '/workspaces'")
   })
+
+  it('routes an empty workflow entry to an actionable projects state', () => {
+    const sidebar = readFileSync(fileURLToPath(new URL('../../components/layout/SidebarNav.vue', import.meta.url)), 'utf8')
+
+    expect(sidebar).toContain("return '/projects?notice=empty-workflows'")
+  })
 })

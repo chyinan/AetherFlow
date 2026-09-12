@@ -46,21 +46,22 @@ export const useSettingsStore = defineStore('settings', {
       state.integrations.filter((integration) => integration.status === 'connected').length,
   },
   actions: {
-    async loadSettings() {
+    async loadSettings(options: { includeAdmin?: boolean } = {}) {
+      const includeAdmin = options.includeAdmin !== false
       this.loading = true
       this.loadErrorCount = 0
       try {
         const results = await Promise.allSettled([
           settingsApi.getWorkspace(),
-          settingsApi.listMembers(),
-          settingsApi.listModelProviders(),
+          includeAdmin ? settingsApi.listMembers() : Promise.resolve(undefined),
+          settingsApi.listModelProviders({ includeConfig: includeAdmin }),
           settingsApi.listDataSources(),
           settingsApi.listApiExtensions(),
-          settingsApi.getBillingSnapshot(),
+          includeAdmin ? settingsApi.getBillingSnapshot() : Promise.resolve(undefined),
           settingsApi.listEnvironmentVariables(),
-          settingsApi.listIntegrations(),
-          settingsApi.getTelegramIntegration(),
-          settingsApi.listAuditEvents(),
+          includeAdmin ? settingsApi.listIntegrations() : Promise.resolve(undefined),
+          includeAdmin ? settingsApi.getTelegramIntegration() : Promise.resolve(undefined),
+          includeAdmin ? settingsApi.listAuditEvents() : Promise.resolve(undefined),
         ])
         this.loadErrorCount = results.filter((result) => result.status === 'rejected').length
 

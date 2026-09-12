@@ -1,6 +1,16 @@
 # Swarm production topology. Images are built and pushed by CI; stateful
 # dependencies (MySQL/Redis/RabbitMQ/MinIO/Nacos/Seata) are managed as HA
 # external services and addressed through the *_HOST variables.
+x-production-resources: &production-resources
+  resources:
+    limits:
+      cpus: "2.0"
+      memory: 1G
+      pids: 512
+    reservations:
+      cpus: "0.25"
+      memory: 256M
+
 services:
   gateway-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-gateway-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -16,6 +26,7 @@ services:
     networks: [aetherflow]
     deploy:
       replicas: 3
+      <<: *production-resources
       update_config: { parallelism: 1, order: start-first, failure_action: rollback }
       rollback_config: { order: stop-first }
       restart_policy: { condition: on-failure }
@@ -34,6 +45,7 @@ services:
         target: /etc/nginx/tls/privkey.pem
     deploy:
       replicas: 2
+      <<: *production-resources
       update_config: { parallelism: 1, order: start-first, failure_action: rollback }
       restart_policy: { condition: on-failure }
 
@@ -53,7 +65,10 @@ services:
       NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   workflow-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-workflow-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -83,10 +98,22 @@ services:
       WORKFLOW_QDRANT_BASE_URL: ${WORKFLOW_QDRANT_BASE_URL:?set WORKFLOW_QDRANT_BASE_URL}
       WORKFLOW_QDRANT_API_KEY: ${WORKFLOW_QDRANT_API_KEY:?set WORKFLOW_QDRANT_API_KEY}
       WORKFLOW_QDRANT_ENABLED: "true"
+      WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS: ${WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS:-false}
       WORKFLOW_RUNTIME_RECOVERY_ENABLED: "true"
       WORKFLOW_RUNTIME_RECOVERY_INTERVAL: ${WORKFLOW_RUNTIME_RECOVERY_INTERVAL:-10000}
+      WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS: ${WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS:-5000}
+      WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES: ${WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES:-65536}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION:-30d}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE:-1000}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY:-3600000}
+      WORKFLOW_START_OUTBOX_STALE_AFTER: ${WORKFLOW_START_OUTBOX_STALE_AFTER:-30m}
+      WORKFLOW_START_OUTBOX_BATCH_SIZE: ${WORKFLOW_START_OUTBOX_BATCH_SIZE:-50}
+      WORKFLOW_RUNTIME_EVENT_RETENTION_MAX_BATCHES: ${WORKFLOW_RUNTIME_EVENT_RETENTION_MAX_BATCHES:-20}
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   task-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-task-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -108,7 +135,10 @@ services:
       TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
       TASK_QUEUE_FAIL_CLOSED: "true"
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   ai-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-ai-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -128,11 +158,17 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?set AI_SERVICE_API_KEY}
+      AI_TASK_EVENT_RETENTION: ${AI_TASK_EVENT_RETENTION:-30d}
+      AI_TASK_EVENT_RETENTION_BATCH_SIZE: ${AI_TASK_EVENT_RETENTION_BATCH_SIZE:-1000}
+      AI_TASK_EVENT_RETENTION_FIXED_DELAY: ${AI_TASK_EVENT_RETENTION_FIXED_DELAY:-3600000}
       FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?set FILE_INTERNAL_TOKEN}
       TASK_INTERNAL_TOKEN: ${TASK_INTERNAL_TOKEN:?set TASK_INTERNAL_TOKEN}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?set AI_INTERNAL_TOKEN}
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   file-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-file-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -152,7 +188,10 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?set MINIO_SECRET_KEY}
       FILE_INTERNAL_TOKEN: ${FILE_INTERNAL_TOKEN:?set FILE_INTERNAL_TOKEN}
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   notify-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-notify-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
@@ -170,24 +209,38 @@ services:
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?set NOTIFY_INTERNAL_TOKEN}
       NOTIFY_MAX_WS_CONNECTIONS: ${NOTIFY_MAX_WS_CONNECTIONS:-2000}
       NOTIFY_MAX_WS_CONNECTIONS_PER_USER: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:-10}
+      NOTIFY_WS_SEND_TIME_LIMIT_MS: ${NOTIFY_WS_SEND_TIME_LIMIT_MS:-5000}
+      NOTIFY_WS_SEND_BUFFER_SIZE_BYTES: ${NOTIFY_WS_SEND_BUFFER_SIZE_BYTES:-65536}
       NOTIFY_MAX_SSE_CONNECTIONS_PER_USER: ${NOTIFY_MAX_SSE_CONNECTIONS_PER_USER:-20}
       NACOS_ADDR: ${NACOS_ADDR:?set NACOS_ADDR}
       SEATA_ADDR: ${SEATA_ADDR:?set SEATA_ADDR}
       NACOS_USERNAME: ${NACOS_USERNAME:?set NACOS_USERNAME}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?set NACOS_PASSWORD}
     networks: [aetherflow]
-    deploy: { replicas: 3, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 3
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
   python-ai-service:
     image: ${AETHERFLOW_REGISTRY:?set AETHERFLOW_REGISTRY}/aetherflow-python-ai-service:${AETHERFLOW_IMAGE_TAG:?set AETHERFLOW_IMAGE_TAG}
     environment:
       APP_ENV: prod
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?set AI_SERVICE_API_KEY}
+      AI_RUNTIME_CONFIG_REDIS_URL: ${AI_RUNTIME_CONFIG_REDIS_URL:-}
+      AI_RUNTIME_CONFIG_REDIS_HOST: ${AI_RUNTIME_CONFIG_REDIS_HOST:-redis}
+      AI_RUNTIME_CONFIG_REDIS_PORT: ${AI_RUNTIME_CONFIG_REDIS_PORT:-6379}
+      AI_RUNTIME_CONFIG_REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+      AI_RUNTIME_CONFIG_REDIS_REQUIRED: "true"
+      AI_RUNTIME_CONFIG_REDIS_KEY: ${AI_RUNTIME_CONFIG_REDIS_KEY:-aetherflow:ai:runtime-config:v1}
       WHISPER_MAX_CONCURRENCY: ${WHISPER_MAX_CONCURRENCY:-2}
       FFMPEG_MAX_CONCURRENCY: ${FFMPEG_MAX_CONCURRENCY:-2}
       LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-8}
     networks: [aetherflow]
-    deploy: { replicas: 2, restart_policy: { condition: on-failure } }
+    deploy:
+      replicas: 2
+      <<: *production-resources
+      restart_policy: { condition: on-failure }
 
 networks:
   aetherflow:

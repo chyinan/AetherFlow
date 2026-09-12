@@ -39,7 +39,8 @@ public class TaskStateService {
                 ? TaskStatus.PENDING.value()
                 : task.getStatus();
         LocalDateTime updatedAt = LocalDateTime.now();
-        if (taskMapper.updateStatusIfCurrent(task.getId(), expectedStatus, status.value(), nextRetryAt, updatedAt) != 1) {
+        if (taskMapper.updateStatusIfCurrent(task.getId(), expectedStatus, status.value(), nextRetryAt,
+                updatedAt, task.getRetryCount()) != 1) {
             log.info("task state CAS lost, taskId={}, expectedStatus={}, targetStatus={}",
                     task.getId(), expectedStatus, status.value());
             return false;

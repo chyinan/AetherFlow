@@ -34,6 +34,9 @@ public class WorkflowInstance {
     @Schema(description = "Serialized workflow input JSON.")
     private String inputJson;
 
+    @Schema(description = "Immutable workflow definition snapshot captured at submission.")
+    private String definitionJson;
+
     @Schema(description = "Current node id.", example = "node-summary-1")
     private String currentNodeId;
 

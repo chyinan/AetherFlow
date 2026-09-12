@@ -320,10 +320,13 @@ export const settingsApi = {
   async deleteMember(memberId: string) {
     await apiClient.delete(`/settings/members/${encodeURIComponent(memberId)}`, { source: 'auth' })
   },
-  async listModelProviders() {
+  async listModelProviders(options: { includeConfig?: boolean } = {}) {
+    const includeConfig = options.includeConfig !== false
     const [runtimeProviders, configCatalog] = await Promise.all([
       modelApi.listProviders().catch(() => [] as ModelProvider[]),
-      getProviderConfigCatalog().catch(() => ({ providers: [] })),
+      includeConfig
+        ? getProviderConfigCatalog().catch(() => ({ providers: [] }))
+        : Promise.resolve({ providers: [] }),
     ])
     const runtimeByProviderKey = new Map(runtimeProviders.map((provider) => [providerKeyFromRuntime(provider), provider]))
     const configProviders = configCatalog.providers ?? []

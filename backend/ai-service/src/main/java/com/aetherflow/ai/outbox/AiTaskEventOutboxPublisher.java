@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 // pattern: Imperative Shell
 @Slf4j
@@ -53,19 +54,25 @@ public class AiTaskEventOutboxPublisher {
             return false;
         }
         LocalDateTime now = LocalDateTime.now();
-        int claimed = mapper.claimForPublishing(event.getId(), now, now.minus(PROCESSING_TIMEOUT));
+        String leaseToken = UUID.randomUUID().toString();
+        int claimed = mapper.claimForPublishing(event.getId(), leaseToken, now, now.minus(PROCESSING_TIMEOUT));
         if (claimed != 1) {
             return false;
         }
         event.setStatus(AiTaskEventOutbox.PROCESSING);
+        event.setLeaseToken(leaseToken);
         event.setUpdatedAt(now);
         try {
             publishPayload(event);
+            LocalDateTime publishedAt = LocalDateTime.now();
+            if (mapper.markPublishedOwned(event.getId(), leaseToken, publishedAt) != 1) {
+                throw new IllegalStateException("AI task event outbox ownership lost before publish acknowledgement");
+            }
             event.setStatus(AiTaskEventOutbox.PUBLISHED);
-            event.setPublishedAt(LocalDateTime.now());
+            event.setPublishedAt(publishedAt);
             event.setLastError(null);
-            event.setUpdatedAt(event.getPublishedAt());
-            mapper.updateById(event);
+            event.setLeaseToken(null);
+            event.setUpdatedAt(publishedAt);
             return true;
         } catch (RuntimeException exception) {
             markForRetry(event, exception);
@@ -163,7 +170,9 @@ public class AiTaskEventOutboxPublisher {
         event.setNextAttemptAt(now.plus(backoff(attempts)));
         event.setLastError(safeError(null, exception));
         event.setUpdatedAt(now);
-        mapper.updateById(event);
+        mapper.markRetryOwned(event.getId(), event.getLeaseToken(), event.getNextAttemptAt(),
+                attempts, event.getLastError(), now);
+        event.setLeaseToken(null);
         log.warn("AI task outbox publish failed eventId={}, attemptCount={}, reason={}",
                 event.getEventId(), attempts, event.getLastError());
     }

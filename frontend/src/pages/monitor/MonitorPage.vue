@@ -6,11 +6,13 @@ import { useI18n } from 'vue-i18n'
 
 import { getGovernanceSnapshot, type GovernanceSnapshot } from '@/api/modules/governance'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useAuthStore } from '@/stores/authStore'
 import { useDifyStore } from '@/stores/difyStore'
 import type { ConversationLog } from '@/types/dify'
 import { formatDate, formatTime } from '@/utils/localeFormat'
 
 const difyStore = useDifyStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 const selectedConversationId = ref('')
 const governanceSnapshot = ref<GovernanceSnapshot | null>(null)
@@ -25,7 +27,7 @@ const summaryCards = computed(() => [
   { label: t('monitor.requests'), value: metricValue('provider-calls'), hint: t('monitor.hints.requests'), icon: BarChart3 },
   { label: t('monitor.latency'), value: metricValue('provider-latency'), hint: t('monitor.hints.latency'), icon: Timer },
   { label: t('monitor.cost'), value: metricValue('provider-cost'), hint: t('monitor.hints.cost'), icon: TrendingUp },
-  { label: t('monitor.errors'), value: metricValue('provider-error-rate', '0%'), hint: t('monitor.hints.errors'), icon: ShieldAlert },
+  { label: t('monitor.errors'), value: metricValue('provider-error-rate'), hint: t('monitor.hints.errors'), icon: ShieldAlert },
 ])
 
 function numericMetric(metricId: string, suffix = '') {
@@ -59,8 +61,10 @@ const alertRows = computed(() => {
     },
     {
       key: 'retries',
-      tone: failedEvents > 0 ? 'degraded' : 'online',
-      message: failedEvents > 0
+      tone: !difyStore.conversationsAvailable ? 'degraded' : failedEvents > 0 ? 'degraded' : 'online',
+      message: !difyStore.conversationsAvailable
+        ? t('monitor.alerts.failuresUnknown')
+        : failedEvents > 0
         ? t('monitor.alerts.failuresObserved', { count: failedEvents })
         : t('monitor.alerts.failuresHealthy'),
     },
@@ -282,7 +286,10 @@ async function loadGovernance() {
 }
 
 onMounted(async () => {
-  await Promise.allSettled([difyStore.loadSurface(), loadGovernance()])
+  await Promise.allSettled([
+    difyStore.loadSurface({ includeProviderTelemetry: authStore.isAdmin }),
+    loadGovernance(),
+  ])
   selectedConversationId.value = difyStore.reviewQueue[0]?.id ?? difyStore.conversations[0]?.id ?? ''
 })
 </script>

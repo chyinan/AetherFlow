@@ -204,6 +204,8 @@ export const useWorkflowStore = defineStore('workflow', {
     workflowId: 'new',
     workflowName: 'Untitled Workflow',
     backendDefinitionId: null as number | null,
+    backendVersion: null as number | null,
+    createIdempotencyKey: null as string | null,
     projectId: null as number | null,
     templates: nodeTemplates,
     workflowTemplates: [] as WorkflowDefinition[],
@@ -274,6 +276,8 @@ export const useWorkflowStore = defineStore('workflow', {
       this.workflowId = workflow.id
       this.workflowName = workflow.name
       this.backendDefinitionId = workflow.backendDefinitionId ?? null
+      this.backendVersion = workflow.backendVersion ?? null
+      this.createIdempotencyKey = workflow.backendDefinitionId || dirty ? null : this.createIdempotencyKey
       this.projectId = workflow.projectId ?? this.projectId ?? null
       this.nodes = structuredClone(workflow.nodes)
       this.edges = structuredClone(workflow.edges)
@@ -290,6 +294,7 @@ export const useWorkflowStore = defineStore('workflow', {
         ...workflow,
         id: 'new',
         backendDefinitionId: undefined,
+        backendVersion: undefined,
         projectId: this.projectId ?? workflow.projectId,
       }, true)
       return this.nodes
@@ -466,6 +471,8 @@ export const useWorkflowStore = defineStore('workflow', {
       this.workflowId = 'new'
       this.workflowName = 'Untitled Workflow'
       this.backendDefinitionId = null
+      this.backendVersion = null
+      this.createIdempotencyKey = null
       this.projectId = null
       this.nodes = cloneNodes()
       this.edges = cloneEdges()
@@ -567,6 +574,9 @@ export const useWorkflowStore = defineStore('workflow', {
       this.saving = true
       this.savingError = null
       try {
+        if (!this.backendDefinitionId && !this.createIdempotencyKey) {
+          this.createIdempotencyKey = crypto.randomUUID()
+        }
         const savedWorkflow = await workflowApi.saveWorkflow({
           id: this.workflowId,
           name: this.workflowName,
@@ -574,13 +584,18 @@ export const useWorkflowStore = defineStore('workflow', {
           backendDefinitionId: this.backendDefinitionId ?? undefined,
           nodes: this.nodes,
           edges: this.edges,
-        }, options)
+          backendVersion: this.backendVersion ?? undefined,
+        }, { ...options, idempotencyKey: this.createIdempotencyKey ?? undefined })
         if (loadRequestAtStart !== workflowLoadRequestCounter) {
           return
         }
         this.workflowId = savedWorkflow.id
         this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
+        this.backendVersion = savedWorkflow.backendVersion ?? this.backendVersion ?? null
+        if (this.backendDefinitionId) {
+          this.createIdempotencyKey = null
+        }
         this.projectId = savedWorkflow.projectId ?? this.projectId ?? null
         if (this.editRevision === editRevisionAtStart) {
           this.markSaved()

@@ -275,6 +275,24 @@ class FileInfoServiceImplReviewTest {
     }
 
     @Test
+    void staleStagedArtifactIsExpiredAndPhysicalObjectIsReconciled() throws Exception {
+        FileInfo stale = new FileInfo();
+        stale.setId(805L);
+        stale.setStatus("STAGED");
+        stale.setBucket("aetherflow");
+        stale.setObjectKey("workflow/exports/2002/users/1001/generated/stale.png");
+        when(fileInfoMapper.selectStaleGeneratedArtifacts(anyLong(), eq(200))).thenReturn(java.util.List.of(stale));
+        when(fileInfoMapper.expireStagedGeneratedArtifact(805L)).thenReturn(1);
+        when(fileInfoMapper.countAvailableByObject(stale.getBucket(), stale.getObjectKey())).thenReturn(0L);
+
+        assertThat(service.reconcileStaleGeneratedArtifacts()).isEqualTo(1);
+
+        verify(fileInfoMapper).expireStagedGeneratedArtifact(805L);
+        verify(fileInfoMapper, never()).failGeneratedArtifactClaim(anyLong(), anyString());
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
+    }
+
+    @Test
     void expiredUploadingArtifactCanBeClaimedAndReplayedAfterProcessRestart() throws Exception {
         CreateGeneratedFileRequestDTO request = generatedArtifactRequest();
         FileInfo existing = new FileInfo();

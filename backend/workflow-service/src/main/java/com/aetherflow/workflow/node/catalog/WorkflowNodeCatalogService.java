@@ -4,16 +4,27 @@ package com.aetherflow.workflow.node.catalog;
 
 import com.aetherflow.common.dto.WorkflowNodeConfigUiSchema;
 import com.aetherflow.workflow.document.DocumentFormatPolicy;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
+import com.aetherflow.workflow.ocr.provider.OCRProviderRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 // pattern: Functional Core
 @Service
 public class WorkflowNodeCatalogService {
+    @Autowired(required = false)
+    private WorkflowNodeProperties nodeProperties;
+    @Autowired(required = false)
+    private OCRProviderRegistry ocrProviderRegistry;
+    @Autowired(required = false)
+    private EmbeddingProperties embeddingProperties;
     private static final List<String> IMAGE_SAMPLERS = List.of(
             "Euler",
             "Euler a",
@@ -35,7 +46,7 @@ public class WorkflowNodeCatalogService {
     );
 
     public List<WorkflowNodeCatalogItem> catalog() {
-        return List.of(
+        List<WorkflowNodeCatalogItem> items = List.of(
                 start(),
                 end(),
                 upload(),
@@ -67,6 +78,7 @@ public class WorkflowNodeCatalogService {
                 variableAssigner(),
                 parameterExtractor()
         );
+        return items.stream().map(this::withRuntimeCapabilities).toList();
     }
 
     private WorkflowNodeCatalogItem start() {
@@ -150,6 +162,46 @@ public class WorkflowNodeCatalogService {
                 ),
                 mapOf("fileUrlVariable", "fileUrl", "operation", "extract-audio", "outputFormat", "wav")
         );
+    }
+
+    private WorkflowNodeCatalogItem withRuntimeCapabilities(WorkflowNodeCatalogItem item) {
+        Map<String, Object> capabilities = new LinkedHashMap<>(item.capabilities());
+        switch (item.type().toUpperCase(Locale.ROOT)) {
+            case "CODE" -> {
+                boolean executable = nodeProperties != null
+                        && nodeProperties.isCodeExecutionEnabled()
+                        && nodeProperties.isCodeRuntimeIsolationConfirmed();
+                capabilities.put("executable", executable);
+                capabilities.put("unavailableReason", executable ? "" : "isolated code runtime is not enabled and confirmed");
+            }
+            case "OCR" -> {
+                boolean executable = false;
+                String reason = "ocr provider is not ready";
+                if (ocrProviderRegistry != null) {
+                    try {
+                        ocrProviderRegistry.validateReady(Map.of());
+                        executable = true;
+                        reason = "";
+                    } catch (RuntimeException ignored) {
+                        // Keep the actionable reason in the catalog for the editor.
+                    }
+                }
+                capabilities.put("executable", executable);
+                capabilities.put("unavailableReason", reason);
+            }
+            case "EMBEDDING" -> {
+                boolean executable = embeddingProperties != null
+                        && "ollama".equalsIgnoreCase(embeddingProperties.getDefaultProvider())
+                        && (embeddingProperties.isInMemoryEnabled() || embeddingProperties.isQdrantEnabled());
+                capabilities.put("executable", executable);
+                capabilities.put("unavailableReason", executable ? "" : "embedding runtime is not configured");
+            }
+            default -> {
+                // Remote AI capabilities are supplied by ai-service and merged by the frontend.
+            }
+        }
+        return new WorkflowNodeCatalogItem(item.type(), item.displayName(), item.category(), item.description(),
+                item.configSchema(), item.inputVariables(), item.outputVariables(), item.exampleConfig(), capabilities);
     }
 
     private WorkflowNodeCatalogItem ocr() {
@@ -557,8 +609,7 @@ public class WorkflowNodeCatalogService {
                         field("format", "STRING", false, "Export format.", "MARKDOWN", List.of("MARKDOWN", "TXT", "JSON")),
                         field("sourceVariable", "STRING", false, "Workflow variable to export.", "summary"),
                         field("content", "OBJECT", false, "Fixed content. Usually omitted in favor of sourceVariable.", Map.of("summary", "text")),
-                        field("fileName", "STRING", false, "Output file name.", "workflow-summary.md"),
-                        field("objectKey", "STRING", false, "Optional explicit object storage key.", "workflow/exports/workflow-1/summary.md")
+                        field("fileName", "STRING", false, "Output file name.", "workflow-summary.md")
                 ),
                 List.of(variable("summary", "STRING", "Text generated by SUMMARY.", "Meeting action items")),
                 List.of(

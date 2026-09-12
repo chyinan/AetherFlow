@@ -1,0 +1,1660 @@
+{
+  "suites": 206,
+  "totals": {
+    "tests": 730,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "skipped": [],
+  "details": [
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.cache.AiTaskCacheKeysTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.callback.AiTaskCallbackServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.capability.AiWorkflowCapabilityEvaluatorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.capability.AiWorkflowCapabilityServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.config.ImageProviderConfigurationContractTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.controller.AiProviderControllerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.controller.AiWorkflowCapabilityControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.controller.AiWorkflowNodeControllerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.controller.InternalAiArtifactControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.copilot.controller.CopilotControllerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.copilot.db.CopilotSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.copilot.service.CopilotServiceImplTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.file.AiFileRegistrationServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.image.ComfyUiProviderTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.image.ImageProviderRegistryTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.image.StableDiffusionWebUiProviderTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.openapi.AiOpenApiContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.outbox.AiTaskEventOutboxPublisherTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.outbox.AiTaskOutboxMigrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.outbox.AiTaskTerminalPersistenceServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.prompt.PromptRenderServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.AiProviderRouterTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.ProviderCatalogServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.ProviderPricingSnapshotServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.ProviderRoutingPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.ProviderRuntimeCatalogMapperTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.provider.PythonAiInferenceClientFactoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.service.AiTaskListenerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiJobLeaseHeartbeatTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiJobLeaseMigrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiJobLeaseServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiJobMapperSqlContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiTaskDeferredRetryPublisherTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.task.AiTaskProcessingServiceImplTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.workflow.DefaultAiNodeExecutorRegistryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.workflow.executor.AsrNodeExecutorTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.workflow.executor.FfmpegNodeExecutorTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.workflow.ImageWorkflowNodeExecutorTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "ai-service",
+      "suite": "com.aetherflow.ai.workflow.LlmNodeExecutorTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.bootstrap.DemoUserInitializerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.config.AuthRedisConfigurationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.controller.OAuthProviderControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.controller.UserControllerTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.exception.AuthGlobalExceptionHandlerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.db.OAuthAccountSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.GithubOAuthServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.GithubOAuthStateServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.GoogleOAuthLoginServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.GoogleOAuthOpenApiConfigTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.GoogleOAuthSuccessHandlerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.oauth.RedisOAuth2AuthorizationRequestRepositoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.security.AuthTokenServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.security.LoginSecurityServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.service.impl.UserServiceImplTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.session.AuthRedisKeysTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.session.AuthSessionServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.settings.controller.SettingsCatalogControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.settings.controller.SettingsControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.settings.db.SettingsSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.settings.service.SettingsServiceImplTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "auth-service",
+      "suite": "com.aetherflow.auth.web.AuthTraceContextFilterTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.config.OpenApiConfigTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.core.MqEventTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.core.ResultTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.entity.BaseEntityTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.security.InternalServiceTokenServiceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "common",
+      "suite": "com.aetherflow.common.security.JwtTokenProviderTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.config.SeataConfigurationContractTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.controller.FileControllerTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.controller.FileGovernanceControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.controller.InternalFileControllerTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.db.FileServiceSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.db.GeneratedArtifactMapperSqlContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.health.MinioHealthIndicatorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.openapi.FileOpenApiContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.FileGovernanceCacheServiceImplTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.FileHashServiceImplTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.FileInfoServiceImplListTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.FileInfoServiceImplReviewTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.FileUploadGuardServiceImplTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.GeneratedArtifactAuthorityServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.GeneratedArtifactPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "file-service",
+      "suite": "com.aetherflow.file.service.impl.LocalChunkUploadServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.exception.GatewayGlobalExceptionHandlerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.filter.JwtAuthenticationFilterTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.filter.TraceLoggingFilterTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.GatewayRouteConfigurationTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.GatewayServiceApplicationContextTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.security.RedisTokenBlacklistServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "gateway-service",
+      "suite": "com.aetherflow.gateway.support.GatewayResponseWriterTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.controller.NotifyControllerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.openapi.NotifyOpenApiContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.service.impl.NotificationServiceImplTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.service.NotificationWebSocketHandlerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.service.SseEmitterRegistryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.service.StreamTokenHandshakeInterceptorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "notify-service",
+      "suite": "com.aetherflow.notify.service.StreamTokenServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.config.SeataConfigurationContractTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.controller.InternalTaskControllerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.controller.TaskControllerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.controller.TaskMetricsControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.db.TaskSchemaMigrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.guard.QueueBackpressureGuardTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.monitor.QueueMonitorServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.monitor.RabbitMqManagementQueueMetricsClientTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.service.impl.TaskDispatchServiceImplTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.service.RetryManagerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.service.TaskStateServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.service.TimeoutCheckerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "task-service",
+      "suite": "com.aetherflow.task.support.TaskMessageFactoryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-runtime-api",
+      "suite": "com.aetherflow.workflow.runtime.api.NodeRegistryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-runtime-api",
+      "suite": "com.aetherflow.workflow.runtime.api.NodeResultTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-runtime-api",
+      "suite": "com.aetherflow.workflow.runtime.api.NodeTypeTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-runtime-api",
+      "suite": "com.aetherflow.workflow.runtime.api.RetryPolicyTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-runtime-api",
+      "suite": "com.aetherflow.workflow.runtime.api.RuntimeEventTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.config.MybatisPlusConfigTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.controller.WorkflowControllerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.controller.WorkflowInstanceControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.demo.WorkflowSeataDemoServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.document.DocumentContentExtractionServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.document.DocumentTextExtractionServiceTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.controller.EmbeddingMetricsControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.db.VectorStoreSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.EmbeddingNodeConfigTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.provider.EmbeddingProviderRegistryTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.provider.OllamaEmbeddingProviderTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.SimpleTextSplitterTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.store.InMemoryVectorStoreTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.store.VectorStoreConfigServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.embedding.store.VectorStoreRegistryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.importer.ComfyUiWorkflowImportServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.importer.ComfyUiWorkflowImportServiceUiExportTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.controller.KnowledgeControllerTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.db.KnowledgeSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.dto.KnowledgeDtosValidationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobRunnerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionMigrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.service.impl.KnowledgeDocumentPreparationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.knowledge.service.KnowledgeServiceImplTest",
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.mapper.WorkflowInstanceMapperTransitionTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.config.WorkflowNodeConfigTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.controller.WorkflowNodeCatalogControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.controller.WorkflowNodeMetricsControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.AiNodeCallTimeoutGuardTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.AiWorkflowNodeExecutorTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.AiWorkflowNodeResultAdapterTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.AsyncAiTaskDispatcherTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.BaseNodeExecutorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.ConditionNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.DefaultImageWorkflowNodeResultFinisherTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.EmbeddingNodeExecutorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.ExportNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.ImageArtifactStorageTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.ImageWorkflowNodeExecutorTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.LlmPromptComposerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.MockNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.NotifyNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.OCRNodeExecutorTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.StructuralNodeExecutorTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.SummaryNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.UploadNodeExecutorTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.WhisperNodeExecutorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.executor.WorkflowUtilityNodeExecutorTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.node.validation.WorkflowNodeConfigValidatorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.ocr.controller.OCRMetricsControllerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.ocr.OCRNodeConfigTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.ocr.OCRProviderRegistryTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.ocr.provider.TesseractOCRProviderTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.openapi.CommonDtoOpenApiSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.openapi.WorkflowOpenApiContractTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.preflight.WorkflowAiCapabilityPolicyTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.preflight.WorkflowAiCapabilityPreflightServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.project.controller.ProjectWorkspaceControllerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.project.db.ProjectWorkspaceSchemaTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.project.service.ProjectWorkspaceServiceImplTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.async.WorkflowAiResultListenerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.async.WorkflowAsyncCompletionConcurrencyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.async.WorkflowAsyncCompletionServiceTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.config.WorkflowRuntimeConfigTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.controller.WorkflowRuntimeControllerTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.core.DefaultWorkflowContextTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.core.RuntimeStateMachineTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.dag.WorkflowDagTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngineLockTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngineTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRecoveryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.event.MybatisRuntimeEventStoreTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.event.PersistentRuntimeEventPublisherTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.event.RabbitRuntimeEventPublisherTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.lock.RedisWorkflowRuntimeLockTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.logging.RuntimeLogContextTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.metrics.WorkflowRuntimeMetricsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationRetentionJobTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationStoreTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.observability.RuntimeObservationRebuilderTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.persistence.MybatisRuntimeSnapshotRepositoryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.recovery.WorkflowRuntimeRecoveryRunnerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.recovery.WorkflowRuntimeRecoveryServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.recovery.WorkflowWaitingWatchdogTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.stream.RuntimeEventStreamServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.stream.RuntimeEventWebSocketHandlerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamHandshakeInterceptorTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.service.impl.WorkflowInstanceQueryServiceImplTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "workflow-service",
+      "suite": "com.aetherflow.workflow.service.impl.WorkflowServiceImplTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ]
+}

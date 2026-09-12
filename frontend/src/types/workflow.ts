@@ -115,6 +115,7 @@ export interface WorkflowDefinition {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
   backendDefinitionId?: number
+  backendVersion?: number
   projectId?: number
   backendStatus?: string
   savedAt?: string

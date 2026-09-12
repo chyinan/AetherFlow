@@ -206,6 +206,28 @@ public class WorkflowRuntimeEngine {
 
     private WorkflowExecutionSnapshot resumeLocked(WorkflowRuntimeRequest request,
                                                    WorkflowExecutionSnapshot recoverySnapshot) {
+        // Recovery scanners select a batch before taking each workflow lease.
+        // Re-read the authoritative snapshot after the lease is acquired so a
+        // stale batch item cannot roll back a concurrently completed node.
+        WorkflowRuntimeSnapshot latestDurable = snapshotRepository.findByWorkflowId(request.workflowId()).orElse(null);
+        WorkflowExecutionSnapshot latestSnapshot = latestDurable == null
+                ? recoverySnapshot
+                : latestDurable.toExecutionSnapshot();
+        if (stateMachine.isTerminal(latestSnapshot.runtimeState())) {
+            return latestSnapshot;
+        }
+        recoverySnapshot = latestSnapshot;
+        if (latestDurable != null) {
+            request = new WorkflowRuntimeRequest(
+                    request.workflowId(),
+                    request.traceId(),
+                    request.taskId(),
+                    latestDurable.definitionId(),
+                    latestDurable.definition(),
+                    latestDurable.variables(),
+                    request.retryPolicy()
+            );
+        }
         WorkflowDag dag = WorkflowDag.from(request.definition());
         DefaultWorkflowContext context = contextFromSnapshot(recoverySnapshot);
         context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
@@ -264,6 +286,13 @@ public class WorkflowRuntimeEngine {
         activeFencingToken.set(lease.token());
         ScheduledFuture<?> renewalFuture = null;
         try {
+            // Validate ownership immediately before the cross-store SQL claim.
+            // A paused JVM must not be allowed to claim after Redis has already
+            // handed the lease to another worker.
+            if (!workflowRuntimeLock.renew(lease)) {
+                throw new WorkflowRuntimeLeaseLostException(
+                        "workflow runtime lock was lost before durable claim");
+            }
             snapshotRepository.claimForLease(workflowId, lease.token());
             renewalFuture = startLockRenewal(lease, lockLost);
             ensureLockHealthy();
@@ -660,7 +689,7 @@ public class WorkflowRuntimeEngine {
             saveSnapshot(request, context, tracker);
             while (inFlight > 0) {
                 ensureNotCancelled(request);
-                NodeExecution execution = awaitCompletedNode(completionService);
+                NodeExecution execution = awaitCompletedNode(request, completionService);
                 inFlight--;
                 recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
 
@@ -994,9 +1023,17 @@ public class WorkflowRuntimeEngine {
         return Map.copyOf(result);
     }
 
-    private NodeExecution awaitCompletedNode(CompletionService<NodeExecution> completionService) {
+    private NodeExecution awaitCompletedNode(WorkflowRuntimeRequest request,
+                                             CompletionService<NodeExecution> completionService) {
         try {
-            return completionService.take().get();
+            while (true) {
+                ensureNotCancelled(request);
+                java.util.concurrent.Future<NodeExecution> completed =
+                        completionService.poll(250, TimeUnit.MILLISECONDS);
+                if (completed != null) {
+                    return completed.get();
+                }
+            }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("workflow runtime interrupted", exception);

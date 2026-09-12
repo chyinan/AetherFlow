@@ -6,6 +6,7 @@ import com.aetherflow.task.enums.TaskStatus;
 import com.aetherflow.task.mapper.TaskMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.LocalDateTime;
 
@@ -31,12 +32,35 @@ class TaskStateServiceTest {
         task.setStatus(TaskStatus.RETRYING.value());
 
         when(mapper.updateStatusIfCurrent(eq(7L), eq(TaskStatus.RETRYING.value()),
-                eq(TaskStatus.DISPATCHING.value()), any(), any())).thenReturn(0);
+                eq(TaskStatus.DISPATCHING.value()), any(), any(), any())).thenReturn(0);
 
         boolean updated = service.mark(task, TaskStatus.DISPATCHING, LocalDateTime.now());
 
         assertThat(updated).isFalse();
         assertThat(task.getStatus()).isEqualTo(TaskStatus.RETRYING.value());
         verify(redis, never()).opsForValue();
+    }
+
+    @Test
+    void persistsRetryCountTogetherWithRetryStateCas() {
+        TaskMapper mapper = mock(TaskMapper.class);
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        ValueOperations<String, String> operations = mock(ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(operations);
+        TaskProperties properties = new TaskProperties();
+        TaskStateService service = new TaskStateService(mapper, redis, properties);
+        Task task = new Task();
+        task.setId(8L);
+        task.setStatus(TaskStatus.DISPATCHED.value());
+        task.setRetryCount(3);
+
+        when(mapper.updateStatusIfCurrent(eq(8L), eq(TaskStatus.DISPATCHED.value()),
+                eq(TaskStatus.RETRYING.value()), any(), any(), eq(3))).thenReturn(1);
+
+        boolean updated = service.mark(task, TaskStatus.RETRYING, LocalDateTime.now());
+
+        assertThat(updated).isTrue();
+        verify(mapper).updateStatusIfCurrent(eq(8L), eq(TaskStatus.DISPATCHED.value()),
+                eq(TaskStatus.RETRYING.value()), any(), any(), eq(3));
     }
 }

@@ -680,6 +680,11 @@ class KnowledgeServiceImplTest {
         KnowledgeChunkEntity indexedChunk = chunk("indexed.md", "indexed semantic facts", 0.0D);
         indexedChunk.setVectorJson("[1.0,0.0]");
         when(chunkMapper.selectBatchIds(List.of(indexedChunk.getId()))).thenReturn(List.of(indexedChunk));
+        KnowledgeDocumentEntity indexedDocument = new KnowledgeDocumentEntity();
+        indexedDocument.setId(21L);
+        indexedDocument.setDatasetId(11L);
+        indexedDocument.setStatus("ready");
+        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(indexedDocument));
 
         EmbeddingProvider provider = new EmbeddingProvider() {
             @Override

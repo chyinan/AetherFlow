@@ -28,6 +28,20 @@ function New-SecureSecret {
     return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
+function New-StandardBase64Secret {
+    param([int]$ByteLength = 48)
+
+    $bytes = New-Object byte[] $ByteLength
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    } finally {
+        $generator.Dispose()
+    }
+
+    return [Convert]::ToBase64String($bytes)
+}
+
 function Set-EnvValue {
     param(
         [string]$Content,
@@ -71,6 +85,28 @@ function Set-SecureEnvValue {
     return Set-EnvValue $Content $Name (New-SecureSecret)
 }
 
+function Set-StandardBase64EnvValue {
+    param(
+        [string]$Content,
+        [string]$Name,
+        [string[]]$WeakValues
+    )
+
+    $currentValue = Get-EnvValue $Content $Name
+    $isValid = $false
+    if ($currentValue -and $WeakValues -notcontains $currentValue) {
+        try {
+            $isValid = ([Convert]::FromBase64String($currentValue)).Length -ge 32
+        } catch [FormatException] {
+            $isValid = $false
+        }
+    }
+    if ($isValid) {
+        return $Content
+    }
+    return Set-EnvValue $Content $Name (New-StandardBase64Secret)
+}
+
 if (Test-Path -LiteralPath $envPath) {
     $content = Get-Content -Raw -Encoding UTF8 -LiteralPath $envPath
 } elseif (Test-Path -LiteralPath $examplePath) {
@@ -90,11 +126,11 @@ $content = Set-SecureEnvValue $content 'RABBITMQ_PASSWORD' @('aetherflow', 'chan
 $content = Set-EnvValue $content 'RABBITMQ_MANAGEMENT_PASSWORD' (Get-EnvValue $content 'RABBITMQ_PASSWORD')
 $content = Set-SecureEnvValue $content 'MINIO_ACCESS_KEY' @('minioadmin', 'aetherflow')
 $content = Set-SecureEnvValue $content 'MINIO_SECRET_KEY' @('minioadmin', 'change-me-minio-secret-key')
-$content = Set-SecureEnvValue $content 'ELASTIC_PASSWORD' @('aetherflow', 'change-me-elastic-strong-password')
 $content = Set-SecureEnvValue $content 'GRAFANA_ADMIN_PASSWORD' @()
-$content = Set-SecureEnvValue $content 'NACOS_AUTH_TOKEN' @('SecretKey012345678901234567890123456789012345678901234567890123456789')
+$content = Set-StandardBase64EnvValue $content 'NACOS_AUTH_TOKEN' @('SecretKey012345678901234567890123456789012345678901234567890123456789')
 $content = Set-SecureEnvValue $content 'NACOS_AUTH_IDENTITY_VALUE' @('nacos', 'change-me-server-identity-value')
 $content = Set-SecureEnvValue $content 'NACOS_PASSWORD' @('nacos', 'change-me-nacos-password')
+$content = Set-SecureEnvValue $content 'NACOS_MYSQL_PASSWORD' @('nacos', 'change-me-nacos-mysql-password')
 $content = Set-SecureEnvValue $content 'FILE_INTERNAL_TOKEN' @('aetherflow-file-internal-dev-token')
 $content = Set-SecureEnvValue $content 'TASK_INTERNAL_TOKEN' @('aetherflow-task-internal-dev-token')
 $content = Set-SecureEnvValue $content 'AI_INTERNAL_TOKEN' @('aetherflow-ai-internal-dev-token')

@@ -26,6 +26,9 @@ public class WorkflowDefinitionDTO {
     @Schema(description = "Operation-level idempotency key scoped to the authenticated owner.", example = "workflow-definition:media-digest-v1")
     private String idempotencyKey;
 
+    @Schema(description = "Optimistic concurrency version returned by the last read.", example = "3")
+    private Integer version;
+
     @NotEmpty
     @Schema(description = "Workflow nodes in DAG order or graph declaration.")
     private List<WorkflowNodeDTO> nodes;

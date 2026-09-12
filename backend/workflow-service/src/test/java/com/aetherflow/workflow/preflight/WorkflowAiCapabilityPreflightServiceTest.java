@@ -49,6 +49,23 @@ class WorkflowAiCapabilityPreflightServiceTest {
         verify(client, never()).capabilities();
     }
 
+    @Test
+    void rejectsCodeNodeWhenIsolatedRuntimeIsNotExplicitlyEnabled() {
+        AiWorkflowNodeClient client = mock(AiWorkflowNodeClient.class);
+        WorkflowNodeDTO code = new WorkflowNodeDTO();
+        code.setNodeId("code");
+        code.setNodeType("CODE");
+        code.setConfig(Map.of("code", "return 1"));
+        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
+        definition.setName("preflight");
+        definition.setNodes(List.of(code));
+        WorkflowAiCapabilityPreflightService service = new WorkflowAiCapabilityPreflightService(client);
+
+        assertThatThrownBy(() -> service.validate(definition))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("isolated code runtime is not enabled");
+    }
+
     private static WorkflowDefinitionDTO definition(String nodeType) {
         WorkflowNodeDTO node = new WorkflowNodeDTO();
         node.setNodeId("node-1");

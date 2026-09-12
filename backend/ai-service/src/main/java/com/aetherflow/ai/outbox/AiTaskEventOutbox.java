@@ -24,6 +24,7 @@ public class AiTaskEventOutbox {
     private String eventType;
     private String payloadJson;
     private String status;
+    private String leaseToken;
     private Integer attemptCount;
     private LocalDateTime nextAttemptAt;
     private LocalDateTime publishedAt;

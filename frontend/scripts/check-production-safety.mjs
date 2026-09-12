@@ -23,6 +23,7 @@ const codeRuntimeDockerfile = readFileSync(resolve(root, 'python-ai-service', 'C
 const javaServiceDockerfile = readFileSync(resolve(root, 'docker', 'java-service.Dockerfile'), 'utf8')
 const taskProd = readFileSync(resolve(root, 'backend', 'task-service', 'src', 'main', 'resources', 'application-prod.yml'), 'utf8')
 const prometheus = readFileSync(resolve(root, 'deploy', 'observability', 'prometheus.yml'), 'utf8')
+const alertmanager = readFileSync(resolve(root, 'deploy', 'observability', 'alertmanager.yml'), 'utf8')
 const productionStack = readFileSync(resolve(root, 'docker-stack.yml'), 'utf8')
 const productionProfiles = [
   'workflow-service',
@@ -68,7 +69,6 @@ for (const secretName of [
   'RABBITMQ_PASSWORD',
   'MINIO_ACCESS_KEY',
   'MINIO_SECRET_KEY',
-  'ELASTIC_PASSWORD',
   'NACOS_AUTH_TOKEN',
   'NACOS_AUTH_IDENTITY_VALUE',
   'FILE_INTERNAL_TOKEN',
@@ -88,7 +88,13 @@ assertIncludes(rabbitDefinitions, '"x-queue-type": "quorum"', 'workflow AI resul
 assertIncludes(rabbitDefinitions, '"routing_key": "notify.user"', 'RabbitMQ definitions must bind workflow AI results to the notify exchange')
 assertIncludes(taskProd, 'fail-closed-on-monitor-error: ${TASK_QUEUE_FAIL_CLOSED:true}', 'task admission must fail closed when RabbitMQ health is unknown')
 assertIncludes(javaServiceDockerfile, 'tesseract-ocr-chi-sim', 'workflow production image must include the Chinese OCR language model')
+assertIncludes(javaServiceDockerfile, 'HEALTHCHECK', 'Java production image must expose an actuator healthcheck')
+assertIncludes(productionStack, 'resources:', 'production Swarm stack must define resource limits')
 assertIncludes(prometheus, 'alertmanager:9093', 'Prometheus must forward fired alerts to Alertmanager')
+assertIncludes(compose, 'ALERTMANAGER_WEBHOOK_URL', 'production compose must expose an explicit Alertmanager receiver')
+assertIncludes(alertmanager, '__ALERTMANAGER_WEBHOOK_URL__', 'Alertmanager config must reserve a deploy-time receiver URL')
+assertExcludes(compose, 'elasticsearch:', 'default Compose must not bundle an unused Elasticsearch service')
+assertExcludes(compose, 'kibana:', 'default Compose must not bundle an unused Kibana service')
 assertIncludes(productionStack, 'TASK_QUEUE_FAIL_CLOSED: "true"', 'production stack must fail closed when queue health is unknown')
 assertIncludes(productionStack, 'NOTIFY_MAX_WS_CONNECTIONS_PER_USER', 'production stack must bound notification WebSocket fan-out per user')
 assertIncludes(productionStack, 'WORKFLOW_KNOWLEDGE_VECTOR_INDEX_REQUIRED: "true"', 'production stack must require external vector index')

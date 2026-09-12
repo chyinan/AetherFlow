@@ -10,7 +10,7 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiArtifactAuthorityRequestDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.common.security.InternalServiceTokenService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -22,12 +22,12 @@ import java.time.Instant;
 
 @RestController
 @RequestMapping("/internal/ai/artifacts")
-@RequiredArgsConstructor
 public class InternalAiArtifactController {
 
     private final AiJobMapper aiJobMapper;
     private final InternalServiceTokenService tokenService;
 
+    @Autowired
     public InternalAiArtifactController(AiJobMapper aiJobMapper, AiInternalProperties properties) {
         this.aiJobMapper = aiJobMapper;
         this.tokenService = new InternalServiceTokenService(

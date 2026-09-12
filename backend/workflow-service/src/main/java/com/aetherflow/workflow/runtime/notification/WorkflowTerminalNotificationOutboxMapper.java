@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -49,4 +50,11 @@ public interface WorkflowTerminalNotificationOutboxMapper extends BaseMapper<Wor
                   @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
                   @Param("lastError") String lastError,
                   @Param("now") LocalDateTime now);
+
+    @Delete("""
+            DELETE FROM af_workflow_notification_outbox
+             WHERE status = 'DISPATCHED' AND published_at < #{before}
+             LIMIT #{limit}
+            """)
+    int deletePublishedBefore(@Param("before") LocalDateTime before, @Param("limit") int limit);
 }

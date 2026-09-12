@@ -7,7 +7,7 @@
 - Windows 11 本机是开发、AI Runtime、Ollama、FFmpeg 验证入口。
 - CentOS 7 VM `192.168.101.68` 是 Docker 基础设施与 Java 微服务部署入口。
 - Java 微服务与 Vue3 前端 Nginx 已部署在 VM Docker 内；Windows 本机不需要再手动启动 Java 微服务。
-- 已有容器包含 MySQL、Nacos、Seata、Elasticsearch、Kibana；本次统一补齐 Redis、RabbitMQ、Nginx、Sentinel Dashboard、最终 compose 和检查脚本。
+- 已有容器包含 MySQL、Nacos、Seata；Redis、RabbitMQ、Nginx、Sentinel Dashboard、Prometheus、Alertmanager、Grafana 由最终 Compose 统一管理。Elasticsearch/Kibana 不属于默认业务依赖。
 - 生产化演示配置以 `.env`、`docker-compose.yml`、`application-prod.yml` 为准。
 
 ## 2. 缺失组件列表
@@ -106,7 +106,7 @@
 ## 14. docker-compose.yml
 
 - 最终 compose 位于仓库根目录 `docker-compose.yml`。
-- 包含：MySQL、Redis、RabbitMQ、Nacos、Seata、Sentinel Dashboard、Elasticsearch、Kibana、MinIO、Python AI Service、Nginx、Gateway、Auth、Workflow、Task、AI、File、Notify。
+- 包含：MySQL、Redis、RabbitMQ、Nacos、Seata、Sentinel Dashboard、MinIO、Python AI Service、Nginx、Gateway、Auth、Workflow、Task、AI、File、Notify 及 Prometheus/Alertmanager/Grafana 观测组件。
 - 统一网络：`aetherflow-network`。
 - 关键服务已设置 healthcheck 与 `restart: unless-stopped`。
 
@@ -129,7 +129,7 @@
 7. 启动 Nacos：`docker compose up -d nacos`。
 8. 导入 Seata Nacos 配置：`powershell -File scripts/aetherflow-import-seata-nacos.ps1`。
 9. 启动 Seata 与 Sentinel：`docker compose up -d seata sentinel-dashboard`。
-10. 启动 Elasticsearch/Kibana/MinIO：`docker compose up -d elasticsearch kibana minio`。
+10. 启动 MinIO 与观测组件：`docker compose up -d minio prometheus alertmanager grafana`。日志检索使用现有集中式日志平台，不在 AetherFlow 默认 Compose 中捆绑 Elasticsearch/Kibana。
 11. 启动 Python AI：VM 容器模式执行 `docker compose up -d python-ai-service`；Windows 本机模式执行 `powershell -File scripts/aetherflow-start-python-ai-service.ps1 -StopExisting -InstallRequirements` 并保持反向 SSH tunnel。
 12. 启动后端服务：`docker compose up -d auth-service file-service task-service notify-service ai-service workflow-service`。
 13. 启动 Gateway：`docker compose up -d gateway-service`。

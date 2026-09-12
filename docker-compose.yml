@@ -86,6 +86,7 @@ services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: aetherflow-rabbitmq
+    entrypoint: ["/bin/sh", "/usr/local/bin/aetherflow-rabbitmq-entrypoint.sh"]
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-aetherflow}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
@@ -98,6 +99,7 @@ services:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
       - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - ./docker/rabbitmq/entrypoint.sh:/usr/local/bin/aetherflow-rabbitmq-entrypoint.sh:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -136,6 +138,14 @@ services:
     environment:
       MODE: standalone
       PREFER_HOST_MODE: hostname
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: nacos_config
+      MYSQL_SERVICE_USER: ${NACOS_MYSQL_USERNAME:-nacos}
+      MYSQL_SERVICE_PASSWORD: ${NACOS_MYSQL_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      MYSQL_DATABASE_NUM: 1
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
       NACOS_AUTH_ENABLE: "true"
       NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_AUTH_TOKEN_EXPIRE_SECONDS: ${NACOS_AUTH_TOKEN_EXPIRE_SECONDS:-18000}
@@ -154,6 +164,11 @@ services:
       timeout: 5s
       retries: 20
       start_period: 45s
+    depends_on:
+      mysql:
+        condition: service_healthy
+      nacos-schema-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     networks:
       - aetherflow
@@ -176,6 +191,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      mysql-migrate:
+        condition: service_completed_successfully
       nacos:
         condition: service_healthy
       nacos-init:
@@ -191,46 +208,6 @@ services:
       - "127.0.0.1:8858:8858"
     environment:
       JAVA_OPTS: "-Dserver.port=8858 -Dcsp.sentinel.dashboard.server=127.0.0.1:8858 -Dproject.name=sentinel-dashboard"
-    restart: unless-stopped
-    networks:
-      - aetherflow
-
-  elasticsearch:
-    image: elasticsearch:7.17.7
-    container_name: aetherflow-elasticsearch
-    environment:
-      discovery.type: single-node
-      ES_JAVA_OPTS: -Xms1g -Xmx1g
-      xpack.security.enabled: "true"
-      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
-      TZ: Asia/Shanghai
-    ports:
-      - "127.0.0.1:9200:9200"
-    volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health | grep -E 'green|yellow'"]
-      interval: 20s
-      timeout: 5s
-      retries: 12
-      start_period: 40s
-    restart: unless-stopped
-    networks:
-      - aetherflow
-
-  kibana:
-    image: kibana:7.17.7
-    container_name: aetherflow-kibana
-    environment:
-      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
-      ELASTICSEARCH_USERNAME: elastic
-      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
-      TZ: Asia/Shanghai
-    ports:
-      - "127.0.0.1:5601:5601"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - aetherflow
@@ -251,6 +228,12 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      AI_RUNTIME_CONFIG_REDIS_URL: ${AI_RUNTIME_CONFIG_REDIS_URL:-}
+      AI_RUNTIME_CONFIG_REDIS_HOST: ${AI_RUNTIME_CONFIG_REDIS_HOST:-redis}
+      AI_RUNTIME_CONFIG_REDIS_PORT: ${AI_RUNTIME_CONFIG_REDIS_PORT:-6379}
+      AI_RUNTIME_CONFIG_REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      AI_RUNTIME_CONFIG_REDIS_REQUIRED: "true"
+      AI_RUNTIME_CONFIG_REDIS_KEY: ${AI_RUNTIME_CONFIG_REDIS_KEY:-aetherflow:ai:runtime-config:v1}
       ENABLE_CODE_RUNTIME_ENDPOINT: "false"
       FILE_URL_REWRITE_FROM: ${FILE_URL_REWRITE_FROM:-http://localhost:9000}
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
@@ -264,7 +247,14 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
     restart: unless-stopped
+    networks:
+      - aetherflow
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -288,9 +278,21 @@ services:
   alertmanager:
     image: prom/alertmanager:v0.27.0
     container_name: aetherflow-alertmanager
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-}
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - --config.file=/etc/alertmanager/alertmanager.yml
-      - --storage.path=/alertmanager
+      - >-
+        if [ "$${APP_ENV}" = "prod" ] && [ -z "$${ALERTMANAGER_WEBHOOK_URL}" ]; then
+          echo 'ALERTMANAGER_WEBHOOK_URL is required in production' >&2; exit 1;
+        fi;
+        if [ -n "$${ALERTMANAGER_WEBHOOK_URL}" ]; then
+          sed "s|__ALERTMANAGER_WEBHOOK_URL__|$${ALERTMANAGER_WEBHOOK_URL}|g" /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml;
+        else
+          sed '/webhook_configs:/,+1d' /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml;
+        fi;
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --storage.path=/alertmanager
     ports:
       - "127.0.0.1:9093:9093"
     volumes:
@@ -359,6 +361,7 @@ services:
       NACOS_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_INIT_DEFAULT_PASSWORD: ${NACOS_INIT_DEFAULT_PASSWORD:-nacos}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     command:
       - sh
       - -ec
@@ -375,21 +378,31 @@ services:
         current_token="$$(extract_token "$${current_response}")"
         if [ -n "$${current_token}" ]; then
           echo 'Nacos admin password already initialized.'
-          exit 0
+        else
+          initial_response="$$(login "$${NACOS_INIT_DEFAULT_PASSWORD}" 2>/dev/null || true)"
+          initial_token="$$(extract_token "$${initial_response}")"
+          if [ -z "$${initial_token}" ]; then
+            echo 'Unable to authenticate to Nacos with either configured or initial credentials.' >&2
+            exit 1
+          fi
+          curl -fsS -X PUT "$${NACOS_ADDR}/nacos/v1/auth/users?accessToken=$${initial_token}" \
+            --data-urlencode "username=$${NACOS_USERNAME}" \
+            --data-urlencode "newPassword=$${NACOS_PASSWORD}"
+          current_token="$${initial_token}"
+          echo 'Nacos admin password initialized.'
         fi
-        initial_response="$$(login "$${NACOS_INIT_DEFAULT_PASSWORD}" 2>/dev/null || true)"
-        initial_token="$$(extract_token "$${initial_response}")"
-        if [ -z "$${initial_token}" ]; then
-          echo 'Unable to authenticate to Nacos with either configured or initial credentials.' >&2
-          exit 1
-        fi
-        curl -fsS -X PUT "$${NACOS_ADDR}/nacos/v1/auth/users?accessToken=$${initial_token}" \
-          --data-urlencode "username=$${NACOS_USERNAME}" \
-          --data-urlencode "newPassword=$${NACOS_PASSWORD}"
-        echo 'Nacos admin password initialized.'
+        seata_content="$$(sed "s|store.db.password=mysql|store.db.password=$${MYSQL_ROOT_PASSWORD}|g" /seata/seataServer.properties)"
+        curl -fsS -X POST "$${NACOS_ADDR}/nacos/v1/cs/configs?accessToken=$${current_token}" \
+          --data-urlencode 'dataId=seataServer.properties' \
+          --data-urlencode 'group=SEATA_GROUP' \
+          --data-urlencode 'type=properties' \
+          --data-urlencode "content=$${seata_content}"
+        echo 'Seata Nacos configuration published.'
     depends_on:
       nacos:
         condition: service_healthy
+    volumes:
+      - ./docker/seata/seataServer.properties:/seata/seataServer.properties:ro
     restart: "no"
     networks:
       - aetherflow
@@ -494,7 +507,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       JWT_SECRET: ${JWT_SECRET:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       SENTINEL_DASHBOARD: sentinel-dashboard:8858
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${OTEL_SAMPLING_PROBABILITY:-1.0}
@@ -536,10 +553,14 @@ services:
         SERVICE: auth-service
     deploy: *java-service-deploy
     environment: &java-service-env
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
       NACOS_ADDR: nacos:8848
       NACOS_USERNAME: ${NACOS_USERNAME:-nacos}
       NACOS_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_CLOUD_NACOS_DISCOVERY_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_DISCOVERY_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_CLOUD_NACOS_CONFIG_USERNAME: ${NACOS_USERNAME:-nacos}
+      SPRING_CLOUD_NACOS_CONFIG_PASSWORD: ${NACOS_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-aetherflow}
@@ -550,6 +571,15 @@ services:
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      RABBITMQ_MANAGEMENT_URL: ${RABBITMQ_MANAGEMENT_URL:-http://rabbitmq:15672}
+      RABBITMQ_MANAGEMENT_USERNAME: ${RABBITMQ_MANAGEMENT_USERNAME:-aetherflow}
+      RABBITMQ_MANAGEMENT_PASSWORD: ${RABBITMQ_MANAGEMENT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      RABBITMQ_MANAGEMENT_VHOST: ${RABBITMQ_MANAGEMENT_VHOST:-/}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-aetherflow}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      SPRING_RABBITMQ_VIRTUAL_HOST: ${RABBITMQ_VHOST:-/}
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
@@ -619,6 +649,15 @@ services:
       WORKFLOW_QDRANT_BASE_URL: ${WORKFLOW_QDRANT_BASE_URL:-https://qdrant.example.com}
       WORKFLOW_QDRANT_API_KEY: ${WORKFLOW_QDRANT_API_KEY:-}
       WORKFLOW_QDRANT_ENABLED: ${WORKFLOW_QDRANT_ENABLED:-true}
+      WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS: ${WORKFLOW_QDRANT_ALLOW_PRIVATE_NETWORKS:-false}
+      WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS: ${WORKFLOW_RUNTIME_WS_SEND_TIME_LIMIT_MS:-5000}
+      WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES: ${WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES:-65536}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION:-30d}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE:-1000}
+      WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY:-3600000}
+      WORKFLOW_START_OUTBOX_STALE_AFTER: ${WORKFLOW_START_OUTBOX_STALE_AFTER:-30m}
+      WORKFLOW_START_OUTBOX_BATCH_SIZE: ${WORKFLOW_START_OUTBOX_BATCH_SIZE:-50}
+      WORKFLOW_RUNTIME_EVENT_RETENTION_MAX_BATCHES: ${WORKFLOW_RUNTIME_EVENT_RETENTION_MAX_BATCHES:-20}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
@@ -643,7 +682,31 @@ services:
     restart: unless-stopped
     networks:
       - aetherflow
-      - aetherflow-code-runtime
+
+  nacos-schema-init:
+    image: mysql:8.0.26
+    container_name: aetherflow-nacos-schema-init
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+      NACOS_MYSQL_USERNAME: ${NACOS_MYSQL_USERNAME:-nacos}
+      NACOS_MYSQL_PASSWORD: ${NACOS_MYSQL_PASSWORD:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
+    command:
+      - sh
+      - -ec
+      - |
+        until mysqladmin ping -h mysql -uroot -p"$${MYSQL_ROOT_PASSWORD}" --silent; do sleep 2; done
+        mysql -h mysql -uroot -p"$${MYSQL_ROOT_PASSWORD}" -e "CREATE DATABASE IF NOT EXISTS nacos_config DEFAULT CHARACTER SET utf8 COLLATE utf8_bin; CREATE USER IF NOT EXISTS '$${NACOS_MYSQL_USERNAME}'@'%' IDENTIFIED BY '$${NACOS_MYSQL_PASSWORD}'; ALTER USER '$${NACOS_MYSQL_USERNAME}'@'%' IDENTIFIED BY '$${NACOS_MYSQL_PASSWORD}'; GRANT ALL PRIVILEGES ON nacos_config.* TO '$${NACOS_MYSQL_USERNAME}'@'%'; FLUSH PRIVILEGES;"
+        if [ "$$(mysql -h mysql -uroot -p"$${MYSQL_ROOT_PASSWORD}" -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='nacos_config' AND table_name='config_info'")" -eq 0 ]; then
+          mysql -h mysql -uroot -p"$${MYSQL_ROOT_PASSWORD}" nacos_config < /schema/mysql-schema.sql
+        fi
+    volumes:
+      - ./docker/nacos/mysql-schema.sql:/schema/mysql-schema.sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - aetherflow
 
   task-service:
     build:
@@ -694,6 +757,9 @@ services:
       AI_IMAGE_DEFAULT_TIMEOUT: ${AI_IMAGE_DEFAULT_TIMEOUT:-5m}
       AI_IMAGE_HEALTH_TIMEOUT: ${AI_IMAGE_HEALTH_TIMEOUT:-2s}
       AI_IMAGE_HEALTH_CACHE_TTL: ${AI_IMAGE_HEALTH_CACHE_TTL:-10s}
+      AI_TASK_EVENT_RETENTION: ${AI_TASK_EVENT_RETENTION:-30d}
+      AI_TASK_EVENT_RETENTION_BATCH_SIZE: ${AI_TASK_EVENT_RETENTION_BATCH_SIZE:-1000}
+      AI_TASK_EVENT_RETENTION_FIXED_DELAY: ${AI_TASK_EVENT_RETENTION_FIXED_DELAY:-3600000}
       SD_WEBUI_ENABLED: ${SD_WEBUI_ENABLED:-false}
       SD_WEBUI_BASE_URL: ${SD_WEBUI_BASE_URL:-http://host.docker.internal:7860}
       COMFYUI_ENABLED: ${COMFYUI_ENABLED:-false}
@@ -764,6 +830,8 @@ services:
       NOTIFY_MAX_SSE_CONNECTIONS_PER_USER: ${NOTIFY_MAX_SSE_CONNECTIONS_PER_USER:-20}
       NOTIFY_MAX_WS_CONNECTIONS: ${NOTIFY_MAX_WS_CONNECTIONS:-2000}
       NOTIFY_MAX_WS_CONNECTIONS_PER_USER: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:-10}
+      NOTIFY_WS_SEND_TIME_LIMIT_MS: ${NOTIFY_WS_SEND_TIME_LIMIT_MS:-5000}
+      NOTIFY_WS_SEND_BUFFER_SIZE_BYTES: ${NOTIFY_WS_SEND_BUFFER_SIZE_BYTES:-65536}
       NOTIFY_INTERNAL_TOKEN: ${NOTIFY_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
       - "8106"
@@ -795,7 +863,6 @@ volumes:
   rabbitmq-data:
   minio-data:
   frontend-dist:
-  elasticsearch-data:
   prometheus-data:
   grafana-data:
   alertmanager-data:

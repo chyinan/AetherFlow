@@ -21,4 +21,15 @@ class AiTaskOutboxMigrationTest {
             assertThat(sql).contains("KEY idx_af_ai_task_outbox_due (status, next_attempt_at)");
         }
     }
+
+    @Test
+    void followUpMigrationAddsPublishingLeaseOwnership() throws Exception {
+        try (InputStream input = getClass().getClassLoader().getResourceAsStream(
+                "db/migration/V4__add_ai_task_event_outbox_lease.sql")) {
+            assertThat(input).isNotNull();
+            String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(sql).contains("ADD COLUMN lease_token VARCHAR(64)");
+            assertThat(sql).contains("idx_af_ai_task_outbox_processing");
+        }
+    }
 }

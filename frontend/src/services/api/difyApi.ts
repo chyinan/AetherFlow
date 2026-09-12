@@ -126,6 +126,10 @@ const KNOWLEDGE_RETRIEVAL_REQUEST_TIMEOUT_MS = 60 * 1000
 type MetricTone = MonitorMetric['tone']
 type ProviderRuntimeLog = NonNullable<Awaited<ReturnType<typeof getProviderLogs>>['logs']>[number]
 
+interface MonitorDataOptions {
+  includeProviderTelemetry?: boolean
+}
+
 function stringOr(value: unknown, fallback: string) {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
@@ -328,16 +332,20 @@ export const difyApi = {
     )
     return numberOr(response)
   },
-  async listMonitorMetrics() {
+  async listMonitorMetrics(options: MonitorDataOptions = {}) {
+    const includeProviderTelemetry = options.includeProviderTelemetry !== false
     const [runtimeResult, providerMetricsResult, providerLogsResult] = await Promise.allSettled([
       getRuntimeMetrics(),
-      getProviderMetrics(),
-      getProviderLogs(50),
+      includeProviderTelemetry ? getProviderMetrics() : Promise.resolve(null),
+      includeProviderTelemetry ? getProviderLogs(50) : Promise.resolve(null),
     ])
     const runtimeMetrics = runtimeResult.status === 'fulfilled' ? runtimeResult.value : {}
     const providerMetrics = providerMetricsResult.status === 'fulfilled' ? providerMetricsResult.value : { metrics: {} }
     const providerLogs = providerLogsResult.status === 'fulfilled' ? providerLogsResult.value : { logs: [] }
-    const metrics = providerMetrics.metrics ?? {}
+    const providerTelemetryAvailable = includeProviderTelemetry
+      && providerMetricsResult.status === 'fulfilled'
+      && providerLogsResult.status === 'fulfilled'
+    const metrics = providerMetrics?.metrics ?? {}
     const providerTotals = Object.values(metrics).reduce<{ calls: number; failures: number; latency: number }>(
       (acc, item) => {
         acc.calls += numberOr(item.calls)
@@ -347,7 +355,7 @@ export const difyApi = {
       },
       { calls: 0, failures: 0, latency: 0 },
     )
-    const logs = providerLogs.logs ?? []
+    const logs = providerLogs?.logs ?? []
     const failedLogCount = logs.filter(isFailedProviderLog).length
     const observedCalls = Math.max(providerTotals.calls, logs.length)
     const observedFailures = Math.max(providerTotals.failures, failedLogCount)
@@ -363,14 +371,17 @@ export const difyApi = {
       : '0%'
 
     return [
-      metric('provider-calls', 'AI provider calls', observedCalls, '', 'online'),
-      metric('provider-latency', 'Max provider latency', `${providerTotals.latency}ms`, '', providerTotals.latency > 3000 ? 'degraded' : 'online'),
-      metric('provider-cost', 'Observed estimated cost', observedCost, '', observedCosts.length > 0 ? 'online' : 'degraded'),
-      metric('provider-error-rate', 'Provider error rate', errorRate, '', observedFailures > 0 ? 'degraded' : 'online'),
+      metric('provider-calls', 'AI provider calls', providerTelemetryAvailable ? observedCalls : '--', '', providerTelemetryAvailable ? 'online' : 'degraded'),
+      metric('provider-latency', 'Max provider latency', providerTelemetryAvailable ? `${providerTotals.latency}ms` : '--', '', providerTelemetryAvailable && providerTotals.latency <= 3000 ? 'online' : 'degraded'),
+      metric('provider-cost', 'Observed estimated cost', providerTelemetryAvailable ? observedCost : '--', '', providerTelemetryAvailable && observedCosts.length > 0 ? 'online' : 'degraded'),
+      metric('provider-error-rate', 'Provider error rate', providerTelemetryAvailable ? errorRate : '--', '', providerTelemetryAvailable && observedFailures === 0 ? 'online' : 'degraded'),
       metric('runtime-workflows', 'Runtime workflows', numberOr(runtimeMetrics.currentWorkflowCount), '', 'online'),
     ]
   },
-  async listConversationLogs() {
+  async listConversationLogs(options: MonitorDataOptions = {}) {
+    if (options.includeProviderTelemetry === false) {
+      return []
+    }
     const response = await getProviderLogs(50)
     return (response.logs ?? []).map((log, index): ConversationLog => {
       const estimatedCostUsd = logMetadataNumber(log, 'estimatedCostUsd')

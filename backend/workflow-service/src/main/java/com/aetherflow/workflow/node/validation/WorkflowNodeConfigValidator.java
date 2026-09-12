@@ -89,6 +89,38 @@ public final class WorkflowNodeConfigValidator {
                 && isBlank(config.get("prompt")) && isBlank(config.get("promptVariable"))) {
             violations.add(prefix + "one of prompt or promptVariable is required");
         }
+        switch (type) {
+            case "UPLOAD", "OCR" -> requireAny(violations, prefix, config,
+                    "fileId", "fileIdVariable");
+            case "FFMPEG" -> requireAny(violations, prefix, config,
+                    "fileUrl", "fileUrlVariable");
+            case "WHISPER" -> requireAny(violations, prefix, config,
+                    "fileUrl", "fileUrlVariable", "fileId", "fileIdVariable");
+            case "CODE" -> {
+                if (isBlank(config.get("code"))) {
+                    violations.add(prefix + "config field 'code' is required");
+                }
+            }
+            case "LLM" -> requireAny(violations, prefix, config,
+                    "prompt", "promptVariable", "context");
+            case "SUMMARY" -> requireAny(violations, prefix, config,
+                    "text", "textVariable");
+            case "EMBEDDING" -> requireAny(violations, prefix, config,
+                    "text", "textVariable");
+            case "URL_FETCH" -> requireAny(violations, prefix, config,
+                    "url", "urlVariable");
+            case "TRANSLATE" -> requireAny(violations, prefix, config,
+                    "text", "textVariable");
+            case "AGENT" -> requireAny(violations, prefix, config,
+                    "task", "taskVariable");
+            case "QUESTION_UNDERSTAND", "QUESTION_CLASSIFIER", "PARAMETER_EXTRACTOR" -> requireAny(
+                    violations, prefix, config, "input", "inputVariable");
+            case "KNOWLEDGE_RETRIEVAL" -> requireAny(violations, prefix, config,
+                    "queryText", "queryVariable");
+            default -> {
+                // Nodes with no external payload keep their catalog-only rules.
+            }
+        }
         config.forEach((key, value) -> {
             if (key != null && key.endsWith("Variable") && value != null
                     && !String.valueOf(value).trim().matches("[A-Za-z_][A-Za-z0-9_]*")) {
@@ -96,6 +128,15 @@ public final class WorkflowNodeConfigValidator {
             }
         });
         return List.copyOf(violations);
+    }
+
+    private static void requireAny(List<String> violations,
+                                   String prefix,
+                                   Map<String, Object> config,
+                                   String... names) {
+        if (first(config, names) == null) {
+            violations.add(prefix + "one of " + String.join(", ", names) + " is required");
+        }
     }
 
     private static boolean isPositiveLong(Object value) {

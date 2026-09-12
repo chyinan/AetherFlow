@@ -77,6 +77,33 @@ jobs:
       - name: Type check + build
         run: npm run build
 
+      - name: Frontend unit tests
+        run: npm test
+
+      - name: Frontend contract checks
+        shell: bash
+        run: |
+          for check in \
+            check:workflow-mapping \
+            check:workflow-branch-routing \
+            check:workflow-editor-p0 \
+            check:workflow-model-options \
+            check:workflow-knowledge-entry \
+            check:sidebar-motion \
+            check:settings-data-access-badges \
+            check:knowledge-delete \
+            check:model-local-quota \
+            check:model-local-runtime \
+            check:copilot-actions \
+            check:notifications \
+            check:public-home \
+            check:production-safety; do
+            npm run "$check"
+          done
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
   python:
     name: Python AI Service
     runs-on: ubuntu-latest
@@ -96,8 +123,21 @@ jobs:
 
       - name: Install deps
         run: |
-          pip install -r requirements.txt 2>/dev/null || true
-          pip install ruff
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest ruff
+          python -m pip check
 
       - name: Lint
         run: ruff check app/ --select E,F,W --ignore E501
+
+      - name: Unit tests
+        run: python -m pytest -q
+
+      - name: AI runtime tests
+        working-directory: ai-runtime
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pytest
+          python -m pip check
+          python -m pytest -q

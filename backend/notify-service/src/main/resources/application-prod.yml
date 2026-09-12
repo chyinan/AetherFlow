@@ -47,5 +47,7 @@ aetherflow:
       allowed-origins: ${AETHERFLOW_NOTIFY_ALLOWED_ORIGINS:}
       max-connections: ${NOTIFY_MAX_WS_CONNECTIONS:2000}
       max-connections-per-user: ${NOTIFY_MAX_WS_CONNECTIONS_PER_USER:10}
+      send-time-limit-ms: ${NOTIFY_WS_SEND_TIME_LIMIT_MS:5000}
+      send-buffer-size-bytes: ${NOTIFY_WS_SEND_BUFFER_SIZE_BYTES:65536}
   swagger-ui:
     enabled: false

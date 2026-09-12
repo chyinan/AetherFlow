@@ -6,13 +6,13 @@ import base64
 import ipaddress
 import json
 import logging
+import math
 import os
 import secrets
 import shutil
+import signal
 import socket
 import subprocess
-import signal
-import math
 import tempfile
 import threading
 import time
@@ -20,7 +20,7 @@ import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0", lifespan=lifespan)
 
 
-def _require_runtime_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
+def _require_runtime_api_key(x_api_key: str | None = Header(default=None)) -> None:
     expected = os.getenv("AI_SERVICE_API_KEY", "").strip()
     environment = os.getenv("APP_ENV", "dev").strip().lower()
     if not expected:
@@ -93,7 +93,9 @@ def _configure_telemetry() -> None:
         return
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
         from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -119,15 +121,15 @@ _configure_telemetry()
 
 class TranscriptionRequest(BaseModel):
     fileUrl: str = Field(..., min_length=1, max_length=2048)
-    language: Optional[str] = Field(default=None, max_length=32)
-    prompt: Optional[str] = Field(default=None, max_length=8_000)
+    language: str | None = Field(default=None, max_length=32)
+    prompt: str | None = Field(default=None, max_length=8_000)
 
 
 class TranscriptionResponse(BaseModel):
     text: str
-    srtContent: Optional[str] = None
-    srtFileName: Optional[str] = None
-    durationSeconds: Optional[float] = None
+    srtContent: str | None = None
+    srtFileName: str | None = None
+    durationSeconds: float | None = None
 
 
 class LlmRequest(BaseModel):
@@ -168,7 +170,7 @@ class MediaTransformResponse(BaseModel):
     contentType: str
     contentBase64: str
     size: int
-    durationSeconds: Optional[float] = None
+    durationSeconds: float | None = None
 
 
 class CodeExecutionRequest(BaseModel):
@@ -188,9 +190,9 @@ class CodeExecutionResponse(BaseModel):
 
 class ProviderConfigUpdate(BaseModel):
     enabled: bool = True
-    apiKey: Optional[str] = None
-    baseUrl: Optional[str] = None
-    defaultModel: Optional[str] = None
+    apiKey: str | None = None
+    baseUrl: str | None = None
+    defaultModel: str | None = None
 
 
 PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
@@ -236,17 +238,6 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
         "defaultModel": "qwen/qwen3.5-9b",
         "description": "OpenAI-compatible gateway for multiple hosted and open models.",
         "tags": ["chat", "router", "openai-compatible"],
-        "region": "global",
-    },
-    "anthropic": {
-        "name": "Anthropic",
-        "providerType": "openai-compatible",
-        "envPrefix": "ANTHROPIC",
-        "routeProvider": "openai",
-        "defaultBaseUrl": "https://api.anthropic.com/v1",
-        "defaultModel": "claude-3-5-sonnet-latest",
-        "description": "Anthropic Claude models through a compatible gateway.",
-        "tags": ["chat", "reasoning", "global"],
         "region": "global",
     },
     "gemini": {
@@ -340,6 +331,8 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 _RUNTIME_ENV_LOADED = False
+_RUNTIME_REDIS_REFRESHED_AT = 0.0
+_RUNTIME_REDIS_REFRESH_INTERVAL_SECONDS = 5.0
 
 
 def _is_dev_env() -> bool:
@@ -363,7 +356,7 @@ def sanitize_error_message(exc: Exception) -> str:
     return "internal error"
 
 
-def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
+def _require_admin_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
     """Protect provider config endpoints. In non-dev environments a valid X-API-Key is required."""
     if _is_dev_env():
         return
@@ -375,7 +368,7 @@ def _require_admin_api_key(x_api_key: Optional[str] = Header(default=None, alias
         raise HTTPException(status_code=401, detail="missing or invalid X-API-Key")
 
 
-def _require_code_execution_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> None:
+def _require_code_execution_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
     """Keep the arbitrary-code endpoint private even on the container network."""
     if _is_dev_env():
         return
@@ -462,8 +455,7 @@ async def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
     if not _whisper_slots.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="whisper runtime is busy; retry later")
     try:
-        source = _materialize_source(request.fileUrl)
-        audio_source = _ensure_audio_source(source)
+        source, audio_source = await asyncio.to_thread(_prepare_transcription_source, request.fileUrl)
     except Exception:
         _whisper_slots.release()
         raise
@@ -491,6 +483,11 @@ async def transcribe(request: TranscriptionRequest) -> TranscriptionResponse:
             cleanup()
 
 
+def _prepare_transcription_source(file_url: str) -> tuple[Path, Path]:
+    source = _materialize_source(file_url)
+    return source, _ensure_audio_source(source)
+
+
 def _transcribe_blocking(request: TranscriptionRequest, audio_source: Path) -> TranscriptionResponse:
     segments, info = _whisper_model.transcribe(
         str(audio_source),
@@ -513,6 +510,8 @@ async def llm_chat(request: LlmRequest) -> LlmResponse:
     logger.info("LLM request provider=%s model=%s", provider, request.model)
     if not _enabled("ENABLE_LLM"):
         raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
+    _ensure_runtime_env_loaded()
+    request = _resolve_provider_model(request, provider)
     if not _llm_slots.acquire(blocking=False):
         raise HTTPException(status_code=429, detail="llm runtime is busy; retry later")
     timeout = _effective_timeout_seconds(request)
@@ -535,6 +534,8 @@ def llm_chat_stream(request: LlmRequest, http_request: Request) -> StreamingResp
     logger.info("LLM stream request provider=%s model=%s", provider, request.model)
     if not _enabled("ENABLE_LLM"):
         raise HTTPException(status_code=503, detail="LLM service disabled. Set ENABLE_LLM=true to enable.")
+    _ensure_runtime_env_loaded()
+    request = _resolve_provider_model(request, provider)
     if provider not in {"openai", "ollama"}:
         raise HTTPException(status_code=400, detail=f"unsupported llm provider: {request.provider}")
     if not _llm_slots.acquire(blocking=False):
@@ -606,7 +607,8 @@ def ffmpeg_transform(request: MediaTransformRequest) -> MediaTransformResponse:
         command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source)]
         if operation == "extract-audio":
             command.extend(["-vn", "-ac", "1", "-ar", "16000"])
-        command.extend(["-f", output_format, str(output)])
+        muxer = {"m4a": "ipod", "aac": "adts"}.get(output_format, output_format)
+        command.extend(["-f", muxer, str(output)])
         try:
             subprocess.run(command, check=True, capture_output=True, timeout=request.timeoutSeconds)
         except subprocess.TimeoutExpired as exc:
@@ -701,8 +703,11 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
         env=env,
         start_new_session=(os.name != "nt"),
         creationflags=(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0),
-        preexec_fn=(lambda: _set_code_resource_limits(timeout_seconds)) if os.name != "nt" else None,
+        # 仅 POSIX 在 exec 前设置资源限制，用于隔离代码执行工作进程。
+        preexec_fn=(lambda: _set_code_resource_limits(timeout_seconds)) if os.name != "nt" else None,  # noqa: PLW1509
     )
+
+
     try:
         stdout, stderr = process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
@@ -724,6 +729,23 @@ def _run_code_process(command: list[str], *, cwd: str, env: dict[str, str], time
         process.wait(timeout=2)
         raise subprocess.TimeoutExpired(command, timeout_seconds, output=exc.output, stderr=exc.stderr) from exc
     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _resolve_provider_model(request: LlmRequest, provider: str) -> LlmRequest:
+    if provider != "ollama":
+        return request
+    requested = request.model.strip().lower()
+    remote_model = (not requested or "/" in requested
+                    or requested.startswith(("gpt-", "claude-", "gemini-", "command-", "sonnet-")))
+    if not remote_model:
+        return request
+    available = [name for name in _ollama_model_names()
+                 if "embed" not in name.lower() and "whisper" not in name.lower()]
+    if not available or request.model in available:
+        return request
+    # Failover from a cloud model (for example gpt-4o-mini) must select an
+    # actually installed local model instead of forwarding the foreign name.
+    return request.model_copy(update={"model": available[0]})
 
 
 def _set_code_resource_limits(timeout_seconds: float) -> None:
@@ -1038,7 +1060,7 @@ def _effective_timeout_seconds(request: Any) -> float:
     return max(0.1, min(requested, configured, 1800.0))
 
 
-def _ollama_client(timeout_seconds: Optional[float] = None):
+def _ollama_client(timeout_seconds: float | None = None):
     import ollama
 
     options: dict[str, Any] = {
@@ -1056,7 +1078,7 @@ def _ollama_model_name(model: Any) -> str:
     return str(getattr(model, "name", None) or getattr(model, "model", None) or "").strip()
 
 
-def _runtime_config_file() -> Optional[Path]:
+def _runtime_config_file() -> Path | None:
     configured = os.getenv("AI_RUNTIME_CONFIG_FILE", "").strip()
     if configured.lower() in {"", "none", "false"}:
         return Path(__file__).resolve().parents[1] / ".env.runtime"
@@ -1066,14 +1088,81 @@ def _runtime_config_file() -> Optional[Path]:
 def _ensure_runtime_env_loaded() -> None:
     global _RUNTIME_ENV_LOADED
     if _RUNTIME_ENV_LOADED:
+        if not _refresh_runtime_env_from_redis() and _runtime_redis_required():
+            raise RuntimeError("shared Redis is required for AI runtime configuration")
         return
     config_file = _runtime_config_file()
-    if config_file and config_file.exists():
+    if not _runtime_redis_required() and config_file and config_file.exists():
         for line in config_file.read_text(encoding="utf-8").splitlines():
             key, value = _parse_env_line(line)
             if key:
                 os.environ.setdefault(key, value)
+    if not _refresh_runtime_env_from_redis(force=True) and _runtime_redis_required():
+        raise RuntimeError("shared Redis is required for AI runtime configuration")
     _RUNTIME_ENV_LOADED = True
+
+
+def _runtime_redis_client():
+    configured_url = os.getenv("AI_RUNTIME_CONFIG_REDIS_URL", "").strip()
+    redis_host = os.getenv("AI_RUNTIME_CONFIG_REDIS_HOST", os.getenv("REDIS_HOST", "")).strip()
+    if not configured_url and not redis_host:
+        return None
+    try:
+        import redis
+    except ImportError as exc:
+        logger.warning("AI runtime Redis client is unavailable: %s", exc)
+        return None
+    try:
+        if configured_url:
+            return redis.Redis.from_url(
+                configured_url,
+                decode_responses=True,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+        return redis.Redis(
+            host=redis_host,
+            port=int(os.getenv("AI_RUNTIME_CONFIG_REDIS_PORT", os.getenv("REDIS_PORT", "6379"))),
+            password=os.getenv("AI_RUNTIME_CONFIG_REDIS_PASSWORD", os.getenv("REDIS_PASSWORD", "")) or None,
+            db=int(os.getenv("AI_RUNTIME_CONFIG_REDIS_DB", "0")),
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+        )
+    except (OSError, ValueError, redis.exceptions.RedisError) as exc:
+        logger.warning("AI runtime Redis config is unavailable: %s", exc)
+        return None
+
+
+def _runtime_redis_required() -> bool:
+    return os.getenv("AI_RUNTIME_CONFIG_REDIS_REQUIRED", "").strip().lower() == "true" \
+        or os.getenv("APP_ENV", "dev").strip().lower() == "prod"
+
+
+def _refresh_runtime_env_from_redis(force: bool = False) -> bool:
+    global _RUNTIME_REDIS_REFRESHED_AT
+    if not force and time.monotonic() - _RUNTIME_REDIS_REFRESHED_AT < _RUNTIME_REDIS_REFRESH_INTERVAL_SECONDS:
+        return True
+    client = _runtime_redis_client()
+    if client is None:
+        return False
+    key = os.getenv("AI_RUNTIME_CONFIG_REDIS_KEY", "aetherflow:ai:runtime-config:v1").strip()
+    try:
+        import redis
+    except ImportError as exc:
+        logger.warning("AI runtime Redis client is unavailable: %s", exc)
+        return False
+    try:
+        values = client.hgetall(key)
+        allowed = set(_runtime_env_keys())
+        for name, value in values.items():
+            if name in allowed:
+                os.environ[name] = value
+        _RUNTIME_REDIS_REFRESHED_AT = time.monotonic()
+        return True
+    except (OSError, ValueError, redis.exceptions.RedisError) as exc:
+        logger.warning("AI runtime Redis config refresh failed: %s", exc)
+        return False
 
 
 def _parse_env_line(line: str) -> tuple[str, str]:
@@ -1174,12 +1263,23 @@ def _set_or_clear_env(key: str, value: str) -> None:
 
 def _persist_runtime_env() -> None:
     config_file = _runtime_config_file()
-    if config_file is None:
-        return
     keys = _runtime_env_keys()
-    lines = [f"{key}={_quote_env_value(os.getenv(key, ''))}" for key in keys if key in os.environ]
-    config_file.parent.mkdir(parents=True, exist_ok=True)
-    config_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    client = _runtime_redis_client()
+    if client is None and _runtime_redis_required():
+        raise RuntimeError("shared Redis is required for AI runtime configuration")
+    if client is None and config_file is not None:
+        lines = [f"{key}={_quote_env_value(os.getenv(key, ''))}" for key in keys if key in os.environ]
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        config_file.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    if client is not None:
+        key = os.getenv("AI_RUNTIME_CONFIG_REDIS_KEY", "aetherflow:ai:runtime-config:v1").strip()
+        values = {key_name: os.getenv(key_name, "") for key_name in keys if key_name in os.environ}
+        try:
+            client.delete(key)
+            if values:
+                client.hset(key, mapping=values)
+        except Exception as exc:
+            raise RuntimeError("AI runtime config could not be persisted to shared Redis") from exc
 
 
 def _runtime_env_keys() -> list[str]:
@@ -1260,7 +1360,7 @@ def is_internal_url(url: str) -> bool:
 
 
 def _materialize_source(file_url: str) -> Path:
-    if file_url.startswith("http://") or file_url.startswith("https://"):
+    if file_url.startswith(("http://", "https://")):
         download_url = _rewrite_file_url(file_url)
         rewritten = download_url != file_url
         if not rewritten and is_internal_url(download_url):
@@ -1326,8 +1426,7 @@ def _ensure_audio_source(source: Path) -> Path:
         subprocess.run(
             ["ffmpeg", "-y", "-i", str(source), "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", str(target)],
             check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             timeout=int(os.getenv("FFMPEG_TIMEOUT_SECONDS", "120")),
         )
         return target
@@ -1388,6 +1487,8 @@ def _enabled(name: str) -> bool:
 
 
 def _whisper_runtime_ready() -> bool:
+    if _whisper_model is None:
+        return False
     try:
         from faster_whisper import WhisperModel  # noqa: F401
     except ImportError as exc:

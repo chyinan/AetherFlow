@@ -558,6 +558,9 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         requireDataset(document.getDatasetId());
         int deletedChunks = nvl(document.getChunkCount());
         boolean processing = "processing".equalsIgnoreCase(document.getStatus());
+        if (knowledgeVectorIndex != null) {
+            knowledgeVectorIndex.deleteDocument(documentId);
+        }
         if (ingestionJobMapper != null) {
             ingestionJobMapper.deleteByDocumentId(documentId);
         }
@@ -929,12 +932,25 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toMap(KnowledgeChunkEntity::getId, chunk -> chunk,
                         (left, right) -> left));
+        Set<Long> documentIds = records.stream()
+                .filter(Objects::nonNull)
+                .map(KnowledgeChunkEntity::getDocumentId)
+                .filter(Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<Long> readyDocumentIds = documentIds.isEmpty()
+                ? Set.of()
+                : documentMapper.selectBatchIds(documentIds).stream()
+                .filter(Objects::nonNull)
+                .filter(document -> STATUS_READY.equalsIgnoreCase(defaultText(document.getStatus(), "")))
+                .map(KnowledgeDocumentEntity::getId)
+                .collect(java.util.stream.Collectors.toSet());
         return ids.stream()
                 .map(byId::get)
                 .filter(Objects::nonNull)
                 .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
                 .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
                 .filter(chunk -> Objects.equals(chunk.getDatasetId(), datasetId))
+                .filter(chunk -> readyDocumentIds.contains(chunk.getDocumentId()))
                 .filter(chunk -> metadataMatches(chunk, metadataFilter))
                 .filter(chunk -> matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true))
                 .toList();

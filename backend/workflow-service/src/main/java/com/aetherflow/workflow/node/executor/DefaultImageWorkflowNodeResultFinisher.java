@@ -9,6 +9,7 @@ import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -42,6 +43,10 @@ public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNode
         if (!supports(nodeType)) {
             throw new IllegalArgumentException("unsupported image node type: " + nodeType);
         }
+        NodeResult alreadyStored = fromStoredArtifacts(nodeType, output);
+        if (alreadyStored != null) {
+            return alreadyStored;
+        }
         List<ImageWorkflowDtos.GeneratedImage> images = ImageWorkflowNodeSupport.imagesFromOutput(output);
         if (images.isEmpty()) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
@@ -74,6 +79,37 @@ public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNode
                 NodeValueSupport.objectMap(output == null ? null : output.get("metadata")),
                 files);
         return NodeResult.success(stored, stored);
+    }
+
+    private NodeResult fromStoredArtifacts(String nodeType, Map<String, Object> output) {
+        Object artifactFiles = output == null ? null : output.get("artifactFiles");
+        if (!(artifactFiles instanceof List<?> files) || files.isEmpty()) {
+            return null;
+        }
+        String normalized = nodeType == null ? "" : nodeType.trim().toUpperCase(Locale.ROOT);
+        String prefix = switch (normalized) {
+            case "UPSCALE" -> "upscaledImage";
+            case "SAVE_IMAGE" -> "savedImage";
+            default -> "image";
+        };
+        String metadataKey = switch (normalized) {
+            case "UPSCALE" -> "upscaleMetadata";
+            case "SAVE_IMAGE" -> "saveImageMetadata";
+            default -> "imageGenerationMetadata";
+        };
+        Map<String, Object> stored = new LinkedHashMap<>();
+        stored.put("provider", stringValue(output, "provider"));
+        stored.put("mode", stringValue(output, "mode"));
+        stored.put(metadataKey, NodeValueSupport.objectMap(output.get("metadata")));
+        stored.put(prefix + "Files", List.copyOf(files));
+        stored.put(prefix + "FileIds", valueOrEmptyList(output.get("imageFileIds")));
+        stored.put(prefix + "ObjectKeys", valueOrEmptyList(output.get("imageObjectKeys")));
+        stored.put(prefix + "Urls", valueOrEmptyList(output.get("imageUrls")));
+        return NodeResult.success(Map.copyOf(stored), Map.copyOf(stored));
+    }
+
+    private List<?> valueOrEmptyList(Object value) {
+        return value instanceof List<?> list ? List.copyOf(list) : List.of();
     }
 
     private String stringValue(Map<String, Object> output, String key) {

@@ -10,6 +10,9 @@ const REQUIRED_CAPABILITY_BY_KIND: Partial<Record<WorkflowNodeKind, string>> = {
   'question-understand': 'LLM',
   'question-classifier': 'LLM',
   'parameter-extractor': 'LLM',
+  'document-extractor': 'OCR',
+  embedding: 'EMBEDDING',
+  code: 'CODE',
   whisper: 'WHISPER',
   'image-generation': 'IMAGE_GENERATION',
   upscale: 'UPSCALE',
@@ -38,6 +41,16 @@ function unavailableReason(
   capabilities: Readonly<AiWorkflowCapabilities>,
 ): string | null {
   const executableTypes = new Set(capabilities.executableNodeTypes.map((type) => type.toUpperCase()))
+  if (capabilityType === 'OCR' || capabilityType === 'EMBEDDING' || capabilityType === 'CODE') {
+    const localExecutable = template.capabilities?.executable
+    if (localExecutable === false) {
+      return typeof template.capabilities?.unavailableReason === 'string'
+        && template.capabilities.unavailableReason.trim()
+        ? template.capabilities.unavailableReason
+        : `${capabilityType.toLowerCase()} runtime is not executable in the current environment`
+    }
+    return null
+  }
   if (!executableTypes.has(capabilityType)) {
     return capabilities.unavailableReasons[capabilityType]
       ?? `${capabilityType.toLowerCase()} capability is not executable in the current environment`

@@ -104,7 +104,7 @@ public interface FileInfoMapper extends BaseMapper<FileInfo> {
                 claim_expires_at = NULL,
                 updated_at = CURRENT_TIMESTAMP(6)
             WHERE id = #{id}
-              AND status = 'UPLOADING'
+              AND status IN ('UPLOADING', 'STAGED')
               AND claim_token = #{claimToken}
             """)
     int failGeneratedArtifactClaim(@Param("id") Long id, @Param("claimToken") String claimToken);

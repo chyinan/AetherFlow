@@ -24,6 +24,10 @@ public class WorkflowRuntimeWebSocketProperties {
     private int threadPoolSize = 8;
     @Min(1)
     private int maxConnections = 2_000;
+    @Min(100)
+    private int sendTimeLimitMs = 5_000;
+    @Min(1_024)
+    private int sendBufferSizeBytes = 65_536;
 
     @AssertTrue(message = "workflow WebSocket durations must be positive and heartbeat must be shorter than stream timeout")
     public boolean isTimingValid() {

@@ -102,6 +102,14 @@ export const useAuthStore = defineStore('auth', {
     roles: (state) => {
       return state.user?.roles ?? []
     },
+    isAdmin: (state) => {
+      const roles = [
+        ...(state.user?.rawRoles ?? []),
+        ...(state.user?.roles ?? []),
+        state.user?.role ?? '',
+      ]
+      return roles.some((role) => ['ADMIN', 'OWNER'].includes(String(role).toUpperCase()))
+    },
   },
   actions: {
     setActiveSession(session: AuthSession | null) {
@@ -218,6 +226,7 @@ export const useAuthStore = defineStore('auth', {
       return profile
     },
     async updateProfile(payload: UserProfileUpdateRequest) {
+      const usernameChanged = Boolean(payload.username && payload.username !== this.user?.username)
       const profile = await authApi.updateProfile(payload)
       if (payload.newPassword) {
         this.clearLocalSession()
@@ -227,6 +236,12 @@ export const useAuthStore = defineStore('auth', {
           const nextSession = { ...current, user: profile }
           tokenManager.setSession(nextSession)
           this.setActiveSession(nextSession)
+        }
+        // JWT ownerName/username claims are immutable. Rotate the access token
+        // after a username change so downstream audit records do not retain a
+        // stale identity claim.
+        if (usernameChanged) {
+          await this.refreshSession()
         }
       }
       return profile

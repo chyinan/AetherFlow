@@ -76,6 +76,15 @@ public class WorkflowAiCapabilityPreflightService {
                     });
         }
         definition.getNodes().stream()
+                .filter(node -> node != null && "CODE".equalsIgnoreCase(node.getNodeType()))
+                .forEach(node -> {
+                    if (nodeProperties == null || !nodeProperties.isCodeExecutionEnabled()
+                            || !nodeProperties.isCodeRuntimeIsolationConfirmed()) {
+                        violations.add("node " + node.getNodeId()
+                                + " (CODE): isolated code runtime is not enabled and confirmed");
+                    }
+                });
+        definition.getNodes().stream()
                 .filter(node -> node != null && "EMBEDDING".equalsIgnoreCase(node.getNodeType()))
                 .forEach(node -> validateEmbedding(node, violations));
         return List.copyOf(violations);

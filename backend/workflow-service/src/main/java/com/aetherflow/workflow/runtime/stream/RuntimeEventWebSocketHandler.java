@@ -4,11 +4,13 @@ package com.aetherflow.workflow.runtime.stream;
 import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -32,7 +34,9 @@ public class RuntimeEventWebSocketHandler extends TextWebSocketHandler {
     private final WorkflowRuntimeWebSocketProperties properties;
     private final ScheduledExecutorService executor;
     private final Map<String, ConnectionState> connections = new ConcurrentHashMap<>();
+    private final Map<String, WebSocketSession> outboundSessions = new ConcurrentHashMap<>();
 
+    @Autowired
     public RuntimeEventWebSocketHandler(RuntimeEventStreamService streamService,
                                         ObjectMapper objectMapper,
                                         WorkflowRuntimeWebSocketProperties properties) {
@@ -62,6 +66,8 @@ public class RuntimeEventWebSocketHandler extends TextWebSocketHandler {
         }
         ConnectionState state = new ConnectionState(workflowId, attribute(session, "cursor"));
         connections.put(session.getId(), state);
+        outboundSessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(
+                session, properties.getSendTimeLimitMs(), properties.getSendBufferSizeBytes()));
         ScheduledFuture<?> future = executor.scheduleWithFixedDelay(
                 () -> poll(session, state),
                 0,
@@ -88,6 +94,7 @@ public class RuntimeEventWebSocketHandler extends TextWebSocketHandler {
     public void shutdown() {
         connections.values().forEach(ConnectionState::cancel);
         connections.clear();
+        outboundSessions.clear();
         executor.shutdownNow();
     }
 
@@ -129,7 +136,8 @@ public class RuntimeEventWebSocketHandler extends TextWebSocketHandler {
         frame.put("event", event);
         frame.put("cursor", cursor == null ? "" : cursor);
         frame.put("data", data);
-        session.sendMessage(new TextMessage(objectMapper.writeValueAsString(frame)));
+        WebSocketSession outbound = outboundSessions.getOrDefault(session.getId(), session);
+        outbound.sendMessage(new TextMessage(objectMapper.writeValueAsString(frame)));
     }
 
     private void close(WebSocketSession session, CloseStatus status) {
@@ -148,6 +156,7 @@ public class RuntimeEventWebSocketHandler extends TextWebSocketHandler {
         if (state != null) {
             state.cancel();
         }
+        outboundSessions.remove(sessionId);
     }
 
     private String attribute(WebSocketSession session, String name) {

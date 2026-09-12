@@ -4,13 +4,16 @@ import com.aetherflow.workflow.runtime.api.RuntimeEvent;
 import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
+import com.aetherflow.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -88,6 +91,23 @@ class RuntimeEventStreamServiceTest {
     }
 
     @Test
+    void continuesFromCursorAtEndOfFirstPersistentPage() {
+        List<RuntimeEvent> firstPage = java.util.stream.IntStream.rangeClosed(1, 500)
+                .mapToObj(index -> event("event-" + index, RuntimeEventType.NODE_COMPLETED))
+                .toList();
+        RuntimeEvent terminal = event("event-501", RuntimeEventType.WORKFLOW_COMPLETED);
+        RuntimeEventStore store = mock(RuntimeEventStore.class);
+        when(store.supportsIncrementalQuery()).thenReturn(true);
+        when(store.findByWorkflowId("workflow-1", 500)).thenReturn(firstPage);
+        when(store.findByWorkflowIdAfter("workflow-1", "event-500", 500)).thenReturn(List.of(terminal));
+
+        RuntimeEventStreamService service = new RuntimeEventStreamService(store);
+
+        assertThat(service.eventsAfterCursor("workflow-1", "event-500")).containsExactly(terminal);
+        verify(store).findByWorkflowIdAfter("workflow-1", "event-500", 500);
+    }
+
+    @Test
     void sharesAWorkflowEventPollAcrossConnectionsWithinOnePollInterval() {
         RuntimeEventStore store = mock(RuntimeEventStore.class);
         when(store.supportsIncrementalQuery()).thenReturn(true);
@@ -100,6 +120,20 @@ class RuntimeEventStreamServiceTest {
         assertThat(service.eventsAfterCursor("workflow-1", null)).hasSize(1);
 
         verify(store, times(1)).findByWorkflowId("workflow-1", 500);
+    }
+
+    @Test
+    void rejectsSseConnectionWhenGlobalCapacityIsReached() {
+        RuntimeEventStreamService service = new RuntimeEventStreamService(RuntimeEventStore.noop());
+        ReflectionTestUtils.setField(service, "maxConnections", 1);
+
+        var first = service.stream("workflow-1", null, null);
+        assertThatThrownBy(() -> service.stream("workflow-2", null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("stream capacity");
+
+        first.complete();
+        service.shutdown();
     }
 
     private static RuntimeEvent event(String eventId, RuntimeEventType eventType) {

@@ -39,6 +39,7 @@ public class RabbitMqConfig {
     @Bean
     public Queue taskDispatchQueue(TaskProperties properties) {
         return QueueBuilder.durable(properties.getMq().getDispatchQueue())
+                .withArgument("x-queue-type", "quorum")
                 .withArgument("x-dead-letter-exchange", RabbitMqNames.TASK_DEAD_LETTER_EXCHANGE)
                 .withArgument("x-dead-letter-routing-key", RabbitMqNames.TASK_DEAD_LETTER_ROUTING_KEY)
                 .build();
@@ -47,6 +48,7 @@ public class RabbitMqConfig {
     @Bean
     public Queue aiTaskQueue() {
         return QueueBuilder.durable(RabbitMqNames.AI_TASK_QUEUE)
+                .withArgument("x-queue-type", "quorum")
                 .withArgument("x-dead-letter-exchange", RabbitMqNames.TASK_DEAD_LETTER_EXCHANGE)
                 .withArgument("x-dead-letter-routing-key", RabbitMqNames.TASK_DEAD_LETTER_ROUTING_KEY)
                 .build();
@@ -54,7 +56,9 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue taskDeadLetterQueue() {
-        return QueueBuilder.durable(RabbitMqNames.TASK_DEAD_LETTER_QUEUE).build();
+        return QueueBuilder.durable(RabbitMqNames.TASK_DEAD_LETTER_QUEUE)
+                .withArgument("x-queue-type", "quorum")
+                .build();
     }
 
     @Bean

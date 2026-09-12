@@ -70,6 +70,8 @@ export const useDifyStore = defineStore('difySurface', {
     segments: [] as KnowledgeSegment[],
     metrics: [] as MonitorMetric[],
     conversations: [] as ConversationLog[],
+    metricsAvailable: false,
+    conversationsAvailable: false,
     retrievalResults: [] as KnowledgeSegment[],
     selectedDatasetId: 'kb-product-docs',
     loading: false,
@@ -107,7 +109,8 @@ export const useDifyStore = defineStore('difySurface', {
     failedConversationCount: (state) => state.conversations.filter((conversation) => conversation.status === 'failed').length,
   },
   actions: {
-    async loadSurface() {
+    async loadSurface(options: { includeProviderTelemetry?: boolean } = {}) {
+      const includeProviderTelemetry = options.includeProviderTelemetry !== false
       const requestId = ++this.surfaceRequestId
       const isCurrent = () => this.surfaceRequestId === requestId
       this.loading = true
@@ -115,8 +118,8 @@ export const useDifyStore = defineStore('difySurface', {
       try {
         const [datasetsResult, metricsResult, conversationsResult] = await Promise.allSettled([
           difyApi.listKnowledgeDatasets(),
-          difyApi.listMonitorMetrics(),
-          difyApi.listConversationLogs(),
+          difyApi.listMonitorMetrics({ includeProviderTelemetry }),
+          difyApi.listConversationLogs({ includeProviderTelemetry }),
         ])
         if (!isCurrent()) {
           return
@@ -130,6 +133,8 @@ export const useDifyStore = defineStore('difySurface', {
         this.datasets = datasets
         this.metrics = metrics
         this.conversations = conversations
+        this.metricsAvailable = includeProviderTelemetry && metricsResult.status === 'fulfilled'
+        this.conversationsAvailable = includeProviderTelemetry && conversationsResult.status === 'fulfilled'
         this.selectedDatasetId = datasets.find((dataset) => dataset.id === this.selectedDatasetId)?.id || datasets[0]?.id || ''
         const datasetIds = new Set(datasets.map((dataset) => dataset.id))
         this.documents = this.documents.filter((document) => datasetIds.has(document.datasetId))

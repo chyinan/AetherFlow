@@ -13,6 +13,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
@@ -35,7 +37,9 @@ class AiTaskEventOutboxPublisherTest {
                 "LLM", "SUCCEEDED", Map.of("completionText", "done"), List.of());
         AiTaskEventOutbox event = event(objectMapper.writeValueAsString(
                 new AiTaskEventPayload(message, result, null)));
-        when(mapper.claimForPublishing(eq(501L), any(LocalDateTime.class), any(LocalDateTime.class)))
+        when(mapper.claimForPublishing(eq(501L), anyString(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(mapper.markPublishedOwned(eq(501L), anyString(), any(LocalDateTime.class)))
                 .thenReturn(1);
 
         boolean published = publisher.publish(event);
@@ -44,7 +48,7 @@ class AiTaskEventOutboxPublisherTest {
         verify(callbackService).notifySuccess(eq(message), any(AiNodeResult.class));
         assertThat(event.getStatus()).isEqualTo(AiTaskEventOutbox.PUBLISHED);
         assertThat(event.getPublishedAt()).isNotNull();
-        verify(mapper).updateById(event);
+        verify(mapper).markPublishedOwned(eq(501L), anyString(), any(LocalDateTime.class));
     }
 
     @Test
@@ -59,7 +63,9 @@ class AiTaskEventOutboxPublisherTest {
                 "LLM", "SUCCEEDED", Map.of("completionText", "done"), List.of());
         AiTaskEventOutbox event = event(objectMapper.writeValueAsString(
                 new AiTaskEventPayload(message, result, null)));
-        when(mapper.claimForPublishing(eq(501L), any(LocalDateTime.class), any(LocalDateTime.class)))
+        when(mapper.claimForPublishing(eq(501L), anyString(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(mapper.markPublishedOwned(eq(501L), anyString(), any(LocalDateTime.class)))
                 .thenReturn(1);
         doThrow(new IllegalStateException()).when(callbackService).notifySuccess(any(), any());
         LocalDateTime beforePublish = LocalDateTime.now();
@@ -72,7 +78,7 @@ class AiTaskEventOutboxPublisherTest {
         assertThat(event.getNextAttemptAt()).isAfter(beforePublish);
         assertThat(event.getLastError()).isEqualTo(
                 "AI task outbox publish failed: IllegalStateException");
-        verify(mapper).updateById(event);
+        verify(mapper).markRetryOwned(eq(501L), anyString(), any(LocalDateTime.class), anyInt(), anyString(), any(LocalDateTime.class));
     }
 
     @Test
@@ -89,7 +95,7 @@ class AiTaskEventOutboxPublisherTest {
                 "ai-task:59:node-1:artifacts", 1);
         AiTaskEventOutbox event = event(objectMapper.writeValueAsString(
                 new AiTaskEventPayload(message, result, null)));
-        when(mapper.claimForPublishing(eq(501L), any(LocalDateTime.class), any(LocalDateTime.class)))
+        when(mapper.claimForPublishing(eq(501L), anyString(), any(LocalDateTime.class), any(LocalDateTime.class)))
                 .thenReturn(1);
 
         publisher.publish(event);

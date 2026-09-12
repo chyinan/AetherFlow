@@ -9,8 +9,9 @@ import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeRequest;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +19,6 @@ import java.util.List;
 import java.time.Instant;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 // pattern: Imperative Shell
 public class WorkflowRuntimeRecoveryService {
@@ -27,11 +27,32 @@ public class WorkflowRuntimeRecoveryService {
     private final WorkflowRuntimeEngine runtimeEngine;
     private final WorkflowRuntimeProperties runtimeProperties;
     private final WorkflowInstanceMapper instanceMapper;
+    private final WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService;
 
     public WorkflowRuntimeRecoveryService(RuntimeSnapshotRepository snapshotRepository,
                                           WorkflowRuntimeEngine runtimeEngine,
                                           WorkflowRuntimeProperties runtimeProperties) {
-        this(snapshotRepository, runtimeEngine, runtimeProperties, null);
+        this(snapshotRepository, runtimeEngine, runtimeProperties, null, null);
+    }
+
+    public WorkflowRuntimeRecoveryService(RuntimeSnapshotRepository snapshotRepository,
+                                          WorkflowRuntimeEngine runtimeEngine,
+                                          WorkflowRuntimeProperties runtimeProperties,
+                                          WorkflowInstanceMapper instanceMapper) {
+        this(snapshotRepository, runtimeEngine, runtimeProperties, instanceMapper, null);
+    }
+
+    @Autowired
+    public WorkflowRuntimeRecoveryService(RuntimeSnapshotRepository snapshotRepository,
+                                          WorkflowRuntimeEngine runtimeEngine,
+                                          WorkflowRuntimeProperties runtimeProperties,
+                                          WorkflowInstanceMapper instanceMapper,
+                                          WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService) {
+        this.snapshotRepository = snapshotRepository;
+        this.runtimeEngine = runtimeEngine;
+        this.runtimeProperties = runtimeProperties;
+        this.instanceMapper = instanceMapper;
+        this.terminalNotificationOutboxService = terminalNotificationOutboxService;
     }
 
     public List<WorkflowExecutionSnapshot> recoverRunnableWorkflows() {
@@ -104,7 +125,7 @@ public class WorkflowRuntimeRecoveryService {
             return 0;
         }
         int reconciled = 0;
-        for (WorkflowRuntimeSnapshot snapshot : snapshotRepository.findTerminal(limit)) {
+        for (WorkflowRuntimeSnapshot snapshot : snapshotRepository.findTerminalNeedingReconciliation(limit)) {
             try {
                 Long instanceId = Long.valueOf(snapshot.workflowId());
                 java.time.LocalDateTime now = java.time.LocalDateTime.now();
@@ -114,7 +135,15 @@ public class WorkflowRuntimeRecoveryService {
                         snapshot.toExecutionSnapshot().currentNodeId(),
                         now,
                         now);
-                if (updated == 1) {
+                if (terminalNotificationOutboxService != null) {
+                    terminalNotificationOutboxService.enqueue(
+                            instanceId,
+                            userId(snapshot.variables()),
+                            snapshot.traceId(),
+                            snapshot.runtimeState(),
+                            snapshot.toExecutionSnapshot().currentNodeId());
+                }
+                if (updated == 1 || terminalNotificationOutboxService != null) {
                     reconciled++;
                 }
             } catch (NumberFormatException ignored) {
@@ -123,4 +152,5 @@ public class WorkflowRuntimeRecoveryService {
         }
         return reconciled;
     }
+
 }

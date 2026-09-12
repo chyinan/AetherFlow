@@ -19,6 +19,8 @@ import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
+import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 class WorkflowRuntimeRecoveryServiceTest {
 
@@ -102,6 +105,31 @@ class WorkflowRuntimeRecoveryServiceTest {
         assertThatThrownBy(() -> recoveryService.recover(snapshotWithoutUser("missing-user", definition)))
                 .isInstanceOf(com.aetherflow.common.exception.BusinessException.class)
                 .hasMessageContaining("authenticated user is required");
+    }
+
+    @Test
+    void reconcilesOnlyTerminalSnapshotsStillMissingTheirInstanceOrNotification() {
+        RuntimeSnapshotRepository repository = Mockito.mock(RuntimeSnapshotRepository.class);
+        WorkflowRuntimeEngine runtimeEngine = Mockito.mock(WorkflowRuntimeEngine.class);
+        WorkflowInstanceMapper instanceMapper = Mockito.mock(WorkflowInstanceMapper.class);
+        WorkflowTerminalNotificationOutboxService notificationOutbox =
+                Mockito.mock(WorkflowTerminalNotificationOutboxService.class);
+        WorkflowDefinitionDTO definition = definition(node("node-end", "END", Map.of()));
+        WorkflowRuntimeSnapshot snapshot = new WorkflowRuntimeSnapshot(
+                "42", "trace-42", "task-42", 7L, definition, RuntimeState.SUCCESS,
+                List.of("node-end"), List.of("node-end"), List.of(),
+                Map.of("userId", 7L, "username", "alice"),
+                Map.of(), Instant.parse("2026-09-01T10:00:00Z"));
+        when(repository.findTerminalNeedingReconciliation(10)).thenReturn(List.of(snapshot));
+        when(instanceMapper.transitionRuntimeState(any(Long.class), any(String.class), any(), any(), any()))
+                .thenReturn(1);
+
+        WorkflowRuntimeRecoveryService recoveryService = new WorkflowRuntimeRecoveryService(
+                repository, runtimeEngine, new WorkflowRuntimeProperties(), instanceMapper, notificationOutbox);
+
+        assertThat(recoveryService.reconcileTerminalWorkflows(10)).isEqualTo(1);
+        verify(repository).findTerminalNeedingReconciliation(10);
+        verify(notificationOutbox).enqueue(42L, 7L, "trace-42", RuntimeState.SUCCESS, "node-end");
     }
 
     private static WorkflowRuntimeSnapshot snapshot(String workflowId,

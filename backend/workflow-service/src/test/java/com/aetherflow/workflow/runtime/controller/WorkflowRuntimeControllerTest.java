@@ -14,6 +14,7 @@ import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationS
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -215,6 +218,28 @@ class WorkflowRuntimeControllerTest {
 
         assertThat(response.workflowId()).isEqualTo("1001");
         verify(tokenService).issue(7L, "alice", "1001");
+    }
+
+    @Test
+    void enqueuesTerminalNotificationWhenUserCancelsOwnedWorkflow() {
+        WorkflowRuntimeMetrics metrics = new WorkflowRuntimeMetrics();
+        InMemoryRuntimeObservationStore store = new InMemoryRuntimeObservationStore();
+        RuntimeEventStore eventStore = emptyEventStore();
+        WorkflowInstanceMapper instanceMapper = mock(WorkflowInstanceMapper.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(7L);
+        when(instanceMapper.selectById(1001L)).thenReturn(instance);
+        when(instanceMapper.cancelIfActive(eq(1001L), eq(7L), any())).thenReturn(1);
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                metrics, store, eventStore, mock(RuntimeEventStreamService.class), instanceMapper, null);
+        WorkflowTerminalNotificationOutboxService notificationOutbox =
+                mock(WorkflowTerminalNotificationOutboxService.class);
+        controller.terminalNotificationOutboxService = notificationOutbox;
+
+        controller.cancel(1001L, 7L);
+
+        verify(notificationOutbox).enqueue(1001L, 7L, null, RuntimeState.CANCELLED, null);
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

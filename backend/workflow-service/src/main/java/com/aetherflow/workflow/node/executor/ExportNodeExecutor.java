@@ -182,13 +182,40 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
     private String objectKey(WorkflowContext context, Map<String, Object> config, String fileName, String contentHash) {
         String configured = stringValue(config.get("objectKey"), "");
         if (!configured.isBlank()) {
-            return trimSlashes(configured);
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "export objectKey is server managed; use outputDirectory instead");
         }
-        String outputDirectory = trimSlashes(stringValue(config.get("outputDirectory"), ""));
+        String outputDirectory = safeOutputDirectory(stringValue(config.get("outputDirectory"), ""));
+        if (!outputDirectory.isBlank()) {
+            Long userId = longValue(context.variables().get("userId"));
+            if (userId == null || userId <= 0) {
+                throw new BusinessException(ResultCode.UNAUTHORIZED,
+                        "export owner identity is required");
+            }
+        }
         String prefix = outputDirectory.isBlank()
                 ? trimSlashes(properties.getExportObjectPrefix()) + "/" + context.workflowId() + "/" + context.currentNodeId()
-                : outputDirectory;
+                : outputDirectory + "/user-" + userId(context) + "/workflow-"
+                + sanitize(context.workflowId()) + "/node-" + sanitize(context.currentNodeId());
         return prefix + "/" + contentHash.substring(0, 24) + "-" + sanitize(fileName);
+    }
+
+    private Long userId(WorkflowContext context) {
+        return longValue(context.variables().get("userId"));
+    }
+
+    private String safeOutputDirectory(String value) {
+        String normalized = trimSlashes(value).replace('\\', '/');
+        if (normalized.isBlank()) {
+            return "";
+        }
+        for (String segment : normalized.split("/")) {
+            if (segment.isBlank() || ".".equals(segment) || "..".equals(segment)
+                    || !segment.matches("[a-zA-Z0-9._-]+")) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "export outputDirectory is invalid");
+            }
+        }
+        return normalized;
     }
 
     private String sha256(byte[] bytes) {

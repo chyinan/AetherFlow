@@ -16,7 +16,7 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
     @Select("""
             SELECT * FROM af_workflow_start_outbox
             WHERE (status = 'PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= #{now}))
-               OR (status IN ('DISPATCHING', 'DISPATCHED') AND updated_at <= #{staleBefore})
+               OR (status = 'DISPATCHING' AND updated_at <= #{staleBefore})
             ORDER BY id ASC
             LIMIT #{limit}
             """)
@@ -29,7 +29,7 @@ public interface WorkflowStartOutboxMapper extends BaseMapper<WorkflowStartOutbo
             SET status = 'DISPATCHING', lease_token = UUID(), attempt_count = attempt_count + 1, updated_at = #{now}
             WHERE id = #{id}
               AND ((status = 'PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= #{now}))
-                OR (status IN ('DISPATCHING', 'DISPATCHED') AND updated_at <= #{staleBefore}))
+                OR (status = 'DISPATCHING' AND updated_at <= #{staleBefore}))
             """)
     int claim(@Param("id") Long id,
               @Param("now") LocalDateTime now,

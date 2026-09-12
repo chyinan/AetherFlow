@@ -11,6 +11,15 @@ public interface RuntimeSnapshotRepository {
 
     /** Claims the durable snapshot row for the currently held distributed lease. */
     default void claimForLease(String workflowId, String fencingToken) {
+        claimForLease(workflowId, null, fencingToken);
+    }
+
+    /**
+     * Claims the durable snapshot only when its fencing token still equals the
+     * value observed immediately before the claim. Implementations may use a
+     * null expected token for an unclaimed row.
+     */
+    default void claimForLease(String workflowId, String expectedFencingToken, String fencingToken) {
     }
 
     /** Saves only when the caller still owns the durable fencing token. */
@@ -28,6 +37,16 @@ public interface RuntimeSnapshotRepository {
 
     default List<WorkflowRuntimeSnapshot> findTerminal(int limit) {
         return List.of();
+    }
+
+    /**
+     * Returns terminal snapshots whose workflow projection or terminal notification
+     * still needs reconciliation. Implementations with durable projections should
+     * filter already reconciled rows in the database so an old batch cannot starve
+     * newer terminal workflows.
+     */
+    default List<WorkflowRuntimeSnapshot> findTerminalNeedingReconciliation(int limit) {
+        return findTerminal(limit);
     }
 
     default List<WorkflowRuntimeSnapshot> findWaiting(int limit, Instant before) {

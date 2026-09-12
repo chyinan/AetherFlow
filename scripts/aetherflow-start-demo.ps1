@@ -191,14 +191,14 @@ start_if_exists() {
 }
 
 start_if_exists mysql aetherflow-redis aetherflow-rabbitmq nacos2.4.0.1
-start_if_exists elasticsearch7.17.7 kibana7.17.7 aetherflow-minio
+start_if_exists aetherflow-minio
 start_if_exists seata1.5.2 aetherflow-sentinel-dashboard
 sleep 8
 start_if_exists aetherflow-auth-service aetherflow-file-service aetherflow-task-service aetherflow-notify-service aetherflow-ai-service aetherflow-workflow-service
 sleep 8
 start_if_exists aetherflow-gateway-service aetherflow-nginx
 
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | egrep '^(NAMES|mysql|nacos2.4.0.1|seata1.5.2|elasticsearch7.17.7|kibana7.17.7|aetherflow-)'
+docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | egrep '^(NAMES|mysql|nacos2.4.0.1|seata1.5.2|aetherflow-)'
 '@
 
     $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))

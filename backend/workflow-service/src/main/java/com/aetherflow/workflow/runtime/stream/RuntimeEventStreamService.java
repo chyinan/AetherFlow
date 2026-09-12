@@ -8,6 +8,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -44,6 +45,10 @@ public class RuntimeEventStreamService {
     private final long pollIntervalMs;
     private final long heartbeatIntervalMs;
     private final ConcurrentMap<String, CachedEvents> workflowEventCache = new ConcurrentHashMap<>();
+    private final AtomicInteger activeStreams = new AtomicInteger();
+
+    @Value("${aetherflow.workflow.websocket.max-connections:2000}")
+    private int maxConnections = 2_000;
 
     @Autowired
     public RuntimeEventStreamService(RuntimeEventStore runtimeEventStore) {
@@ -66,6 +71,10 @@ public class RuntimeEventStreamService {
         if (!hasText(workflowId)) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow id is required");
         }
+        if (activeStreams.incrementAndGet() > Math.max(1, maxConnections)) {
+            activeStreams.decrementAndGet();
+            throw new BusinessException(ResultCode.TOO_MANY_REQUESTS, "workflow runtime stream capacity reached");
+        }
         SseEmitter emitter = new SseEmitter(streamTimeoutMs);
         StreamState state = new StreamState(effectiveCursor(lastEventId, cursor));
         AtomicReference<ScheduledFuture<?>> futureRef = new AtomicReference<>();
@@ -74,7 +83,13 @@ public class RuntimeEventStreamService {
         ScheduledFuture<?> future = executor.scheduleWithFixedDelay(task, 0, pollIntervalMs, TimeUnit.MILLISECONDS);
         futureRef.set(future);
 
-        Runnable cleanup = () -> cancel(futureRef.get());
+        java.util.concurrent.atomic.AtomicBoolean released = new java.util.concurrent.atomic.AtomicBoolean();
+        Runnable cleanup = () -> {
+            cancel(futureRef.get());
+            if (released.compareAndSet(false, true)) {
+                activeStreams.decrementAndGet();
+            }
+        };
         emitter.onCompletion(cleanup);
         emitter.onTimeout(() -> {
             cleanup.run();
@@ -102,7 +117,14 @@ public class RuntimeEventStreamService {
         List<RuntimeEvent> cached = cachedEvents(workflowId);
         for (int index = 0; index < cached.size(); index++) {
             if (cursor.trim().equals(cached.get(index).eventId())) {
-                return boundedEvents(cached.subList(index + 1, cached.size()));
+                List<RuntimeEvent> cachedTail = cached.subList(index + 1, cached.size());
+                if (!cachedTail.isEmpty()) {
+                    return boundedEvents(cachedTail);
+                }
+                // The cache is the first page, not the complete event log. A
+                // cursor at its end must continue with the durable incremental
+                // query so terminal events beyond the first page are visible.
+                break;
             }
         }
         List<RuntimeEvent> events = runtimeEventStore.findByWorkflowIdAfter(workflowId, cursor.trim(), MAX_EVENTS_PER_POLL);
@@ -133,6 +155,7 @@ public class RuntimeEventStreamService {
     @PreDestroy
     public void shutdown() {
         workflowEventCache.clear();
+        activeStreams.set(0);
         executor.shutdownNow();
     }
 

@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.embedding.store;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.embedding.config.EmbeddingProperties;
@@ -181,12 +183,13 @@ public class VectorStoreConfigService {
         if (host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        if (host.equalsIgnoreCase("localhost") || host.endsWith(".localhost")) {
+        if (!properties.isQdrantAllowPrivateNetworks()
+                && (host.equalsIgnoreCase("localhost") || host.endsWith(".localhost"))) {
             rejectPrivateNetwork();
         }
         try {
             for (InetAddress address : InetAddress.getAllByName(host)) {
-                if (isPrivateAddress(address)) {
+                if (!properties.isQdrantAllowPrivateNetworks() && isPrivateAddress(address)) {
                     rejectPrivateNetwork();
                 }
             }

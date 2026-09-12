@@ -64,7 +64,7 @@ public class TaskProperties {
 
     @Data
     public static class ManagementApi {
-        private String baseUrl = "http://192.168.101.68:15672";
+        private String baseUrl = "http://rabbitmq:15672";
         private String username = "aetherflow";
         private String password = "aetherflow";
         private String virtualHost = "/";

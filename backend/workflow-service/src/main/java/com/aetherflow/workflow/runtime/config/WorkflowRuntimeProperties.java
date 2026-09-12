@@ -17,6 +17,7 @@ public class WorkflowRuntimeProperties {
     private Observability observability = new Observability();
     private Recovery recovery = new Recovery();
     private Lock lock = new Lock();
+    private StartOutbox startOutbox = new StartOutbox();
 
     @Data
     public static class Retry {
@@ -61,5 +62,14 @@ public class WorkflowRuntimeProperties {
         private boolean enabled = true;
         private Duration ttl = Duration.ofSeconds(60);
         private String keyPrefix = "aetherflow:workflow:runtime:lock:";
+    }
+
+    @Data
+    public static class StartOutbox {
+        /**
+         * 处理器租约多久未续期后才允许其他副本抢占，避免把固定时长散落在业务代码中。
+         */
+        private Duration staleAfter = Duration.ofMinutes(30);
+        private int batchSize = 50;
     }
 }

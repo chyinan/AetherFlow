@@ -105,6 +105,7 @@ public class AiFileRegistrationService {
     private String artifactKind(String artifactType) {
         return switch (artifactType) {
             case "SRT", "VTT" -> "subtitle";
+            case "IMAGE" -> "image";
             default -> "document";
         };
     }

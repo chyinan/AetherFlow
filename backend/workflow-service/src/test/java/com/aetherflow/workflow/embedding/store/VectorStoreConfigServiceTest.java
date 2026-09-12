@@ -81,6 +81,24 @@ class VectorStoreConfigServiceTest {
                 .hasMessageContaining("private network");
     }
 
+    @Test
+    void allowsExplicitlyConfiguredPrivateQdrantEndpointForVpcs() {
+        EmbeddingProperties properties = new EmbeddingProperties();
+        properties.setQdrantBaseUrl("http://localhost:6333");
+        properties.setQdrantAllowPrivateNetworks(true);
+        properties.setDefaultVectorCollection("workflow-embeddings");
+        properties.setTimeout(Duration.ofSeconds(1));
+        VectorStoreConfigService privateNetworkService = new VectorStoreConfigService(properties, mapper);
+        VectorStoreConfigRequest request = new VectorStoreConfigRequest();
+        request.setEnabled(true);
+        request.setProvider("qdrant");
+        request.setBaseUrl("http://qdrant.internal:6333");
+        request.setCollection("production-embeddings");
+
+        assertThat(privateNetworkService.update(request).baseUrl())
+                .isEqualTo("http://qdrant.internal:6333");
+    }
+
     private static VectorStoreConfigEntity entity(String apiKey) {
         VectorStoreConfigEntity entity = new VectorStoreConfigEntity();
         entity.setId(1L);

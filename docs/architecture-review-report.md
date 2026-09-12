@@ -14,7 +14,7 @@
 - 工作流运行事件以 SSE 为主，并提供绑定单一工作流的 60 秒令牌 WebSocket 备用通道；两种通道共享持久事件游标、心跳和终态语义。
 - JMeter 核心计划已移除启用的空白采样器和 GUI 监听器，改用本地节点工作流；错误率、P95、P99 和最小样本数由 PowerShell 门禁自动判定。
 - Run API、实时事件和知识库导入在正式模式下不再回退到演示数据。
-- Compose 的 MySQL、Redis、RabbitMQ、MinIO、Elasticsearch、Nacos identity 和服务间 token 均由初始化脚本生成，缺失时拒绝启动；RabbitMQ definitions 不再写死公开密码。
+- Compose 的 MySQL、Redis、RabbitMQ、MinIO、Nacos identity 和服务间 token 均由初始化脚本生成，缺失时拒绝启动；RabbitMQ definitions 不再写死公开密码。默认部署不再捆绑未被业务消费的 Elasticsearch/Kibana。
 - Whisper 与本地 LLM 改为显式启用，普通开发机启动 Compose 或 Python 服务时不会默认加载高负载模型。
 - Seata 演示端点只在 `dev` profile 注册并且仍需认证；Mock 工作流节点不进入生产节点目录或生产执行器注册表。
 - 浏览器刷新令牌迁移到 HttpOnly、SameSite=Strict Cookie，不进入 Web Storage 或 OAuth URL。

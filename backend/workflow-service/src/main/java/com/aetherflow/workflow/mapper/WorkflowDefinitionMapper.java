@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 public interface WorkflowDefinitionMapper extends BaseMapper<WorkflowDefinition> {
 
@@ -31,5 +32,22 @@ public interface WorkflowDefinitionMapper extends BaseMapper<WorkflowDefinition>
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertIdempotent(WorkflowDefinition definition);
+
+    @Update("""
+            UPDATE af_workflow_definition
+               SET name = #{name}, description = #{description}, project_id = #{projectId},
+                   definition_json = #{definitionJson}, version = #{version}, updated_at = #{updatedAt}
+             WHERE id = #{id} AND owner_user_id = #{ownerUserId}
+               AND version = #{expectedVersion} AND status <> 'DELETED'
+            """)
+    int updateVersioned(@Param("id") Long id,
+                        @Param("ownerUserId") Long ownerUserId,
+                        @Param("name") String name,
+                        @Param("description") String description,
+                        @Param("projectId") Long projectId,
+                        @Param("definitionJson") String definitionJson,
+                        @Param("version") Integer version,
+                        @Param("expectedVersion") Integer expectedVersion,
+                        @Param("updatedAt") java.time.LocalDateTime updatedAt);
 }
 

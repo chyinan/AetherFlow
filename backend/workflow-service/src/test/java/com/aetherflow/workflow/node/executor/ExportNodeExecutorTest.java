@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -114,6 +115,23 @@ class ExportNodeExecutorTest {
         verify(fileClient).createMetadata(any(String.class), metadataCaptor.capture());
         assertThat(metadataCaptor.getValue().getObjectKey())
                 .startsWith("workflow/exports/meeting-summary/");
+    }
+
+    @Test
+    void rejectsCallerSuppliedObjectKey() {
+        ExportNodeExecutor executor = new ExportNodeExecutor(
+                new WorkflowNodeMetrics(),
+                mock(MinioClient.class),
+                mock(FileMetadataClient.class),
+                new WorkflowNodeProperties(),
+                new WorkflowNodeConfig.MinioProperties()
+        );
+
+        assertThatThrownBy(() -> executor.execute(context(
+                Map.of("format", "MARKDOWN", "objectKey", "other-user/private.md"),
+                Map.of("summary", "Done")
+        ))).isInstanceOf(com.aetherflow.common.exception.BusinessException.class)
+                .hasMessageContaining("objectKey is server managed");
     }
 
     private static DefaultWorkflowContext context(Map<String, Object> config, Map<String, Object> variables) {

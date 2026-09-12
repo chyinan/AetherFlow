@@ -25,13 +25,12 @@ public interface WorkflowInstanceMapper extends BaseMapper<WorkflowInstance> {
                                                    @Param("idempotencyKey") String idempotencyKey);
 
     @Insert("""
-            INSERT INTO af_workflow_instance
-                (definition_id, user_id, idempotency_key, status, input_json, current_node_id,
+            INSERT IGNORE INTO af_workflow_instance
+                (definition_id, user_id, idempotency_key, status, input_json, definition_json, current_node_id,
                  started_at, completed_at, updated_at)
             VALUES
-                (#{definitionId}, #{userId}, #{idempotencyKey}, #{status}, #{inputJson}, #{currentNodeId},
+                (#{definitionId}, #{userId}, #{idempotencyKey}, #{status}, #{inputJson}, #{definitionJson}, #{currentNodeId},
                  #{startedAt}, #{completedAt}, #{updatedAt})
-            ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertIdempotent(WorkflowInstance instance);

@@ -388,14 +388,12 @@ function normalizeExportConfig(
       ? 'workflow-summary.txt'
       : 'workflow-summary.md'
   const outputDirectory = optionalString(deliveryConfig.outputDirectory) ?? optionalString(config.outputDirectory)
-  const objectKey = optionalString(deliveryConfig.objectKey) ?? optionalString(config.objectKey)
 
   return withNextNodes({
     format,
     sourceVariable: stringValue(config.sourceVariable, 'summary'),
     fileName: stringValue(config.fileName, defaultFileName),
     ...(outputDirectory ? { outputDirectory } : {}),
-    ...(objectKey ? { objectKey } : {}),
   }, nextNodes)
 }
 
@@ -790,7 +788,6 @@ function buildExportDeliveryConfigIndex(workflow: WorkflowDefinition) {
     const outputConfig = toRecord(targetNode.data.config)
     acc[sourceNode.id] = {
       ...(optionalString(outputConfig.outputDirectory) ? { outputDirectory: optionalString(outputConfig.outputDirectory) } : {}),
-      ...(optionalString(outputConfig.objectKey) ? { objectKey: optionalString(outputConfig.objectKey) } : {}),
     }
     return acc
   }, {})
@@ -806,6 +803,9 @@ export function mapWorkflowToDefinitionDTO(workflow: WorkflowDefinition): Workfl
     description: workflow.description,
     ...(typeof workflow.projectId === 'number' && Number.isInteger(workflow.projectId) && workflow.projectId > 0
       ? { projectId: workflow.projectId }
+      : {}),
+    ...(typeof workflow.backendVersion === 'number' && Number.isInteger(workflow.backendVersion) && workflow.backendVersion > 0
+      ? { version: workflow.backendVersion }
       : {}),
     nodes: workflow.nodes.map((node) => {
       const nodeType = toBackendNodeType(node)

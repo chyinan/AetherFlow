@@ -47,7 +47,7 @@ Invoke-Remote "docker network ls; docker network inspect aetherflow-network 2>/d
 
 if ($ApplyNetwork) {
     Section "Apply Docker Network"
-    $containers = "aetherflow-mysql aetherflow-nacos aetherflow-seata aetherflow-elasticsearch aetherflow-kibana aetherflow-redis aetherflow-rabbitmq aetherflow-nginx aetherflow-gateway-service aetherflow-auth-service aetherflow-workflow-service aetherflow-task-service aetherflow-ai-service aetherflow-file-service aetherflow-notify-service aetherflow-python-ai-service"
+    $containers = "aetherflow-mysql aetherflow-nacos aetherflow-seata aetherflow-redis aetherflow-rabbitmq aetherflow-nginx aetherflow-gateway-service aetherflow-auth-service aetherflow-workflow-service aetherflow-task-service aetherflow-ai-service aetherflow-file-service aetherflow-notify-service aetherflow-python-ai-service"
     Invoke-Remote "docker network create aetherflow-network 2>/dev/null || true; for c in $containers; do docker inspect `$c >/dev/null 2>&1 && docker network connect aetherflow-network `$c 2>/dev/null || true; done"
 }
 

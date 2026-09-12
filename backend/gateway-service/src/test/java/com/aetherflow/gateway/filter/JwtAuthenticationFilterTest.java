@@ -92,6 +92,26 @@ class JwtAuthenticationFilterTest {
     }
 
     @Test
+    void permitsApplicationOauthDiscoveryAndGithubCallbackWithoutToken() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+
+        List.of("/auth/oauth/providers", "/auth/oauth/github/authorize", "/auth/oauth/github/callback")
+                .forEach(path -> {
+                    MockServerWebExchange exchange = MockServerWebExchange.from(
+                            MockServerHttpRequest.get(path).build());
+                    AtomicBoolean called = new AtomicBoolean(false);
+
+                    filter.filter(exchange, chain(exchange1 -> {
+                        called.set(true);
+                        return Mono.empty();
+                    })).block(Duration.ofSeconds(1));
+
+                    assertThat(called).as(path).isTrue();
+                    assertThat(exchange.getResponse().getStatusCode()).as(path).isNull();
+                });
+    }
+
+    @Test
     void permitsNotifyWebSocketPathWithoutBearerTokenForStreamTokenHandshake() {
         JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
         MockServerWebExchange exchange = MockServerWebExchange.from(
@@ -233,6 +253,26 @@ class JwtAuthenticationFilterTest {
 
         assertThat(called).isFalse();
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void permitsUserScopedProviderPolicyForAuthenticatedOperator() {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+        String token = jwtTokenProvider.createToken(new JwtUserClaims(7L, "alice", List.of("USER")));
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/ai/provider/policy/user")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .build()
+        );
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.filter(exchange, chain(exchange1 -> {
+            called.set(true);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        assertThat(called).isTrue();
+        assertThat(exchange.getResponse().getStatusCode()).isNull();
     }
 
     private JwtAuthenticationFilter newFilter(TokenBlacklistService tokenBlacklistService) {

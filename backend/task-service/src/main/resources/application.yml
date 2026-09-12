@@ -109,7 +109,7 @@ aetherflow:
       cache-ttl: ${TASK_QUEUE_CACHE_TTL:30s}
       monitor-interval-ms: ${TASK_QUEUE_MONITOR_INTERVAL_MS:10000}
       management-api:
-        base-url: ${RABBITMQ_MANAGEMENT_URL:http://192.168.101.68:15672}
+        base-url: ${RABBITMQ_MANAGEMENT_URL:http://rabbitmq:15672}
         username: ${RABBITMQ_MANAGEMENT_USERNAME:${RABBITMQ_USERNAME:aetherflow}}
         password: ${RABBITMQ_MANAGEMENT_PASSWORD:${RABBITMQ_PASSWORD:aetherflow}}
         virtual-host: ${RABBITMQ_MANAGEMENT_VHOST:${RABBITMQ_VHOST:/}}

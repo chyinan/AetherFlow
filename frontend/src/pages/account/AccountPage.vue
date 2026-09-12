@@ -1,7 +1,9 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
 import { BadgeCheck, Building2, Clock3, KeyRound, ShieldCheck, UserRound } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -10,6 +12,7 @@ import { formatDateTime } from '@/utils/localeFormat'
 const authStore = useAuthStore()
 const settingsStore = useSettingsStore()
 const { t } = useI18n()
+const router = useRouter()
 
 const user = computed(() => authStore.user)
 const displayName = computed(() => user.value?.name ?? user.value?.username ?? 'aether.operator')
@@ -85,6 +88,7 @@ async function saveProfile() {
   profileError.value = null
   profileSaved.value = false
   try {
+    const passwordChanged = Boolean(newPassword.value)
     await authStore.updateProfile({
       username: usernameInput.value.trim() || undefined,
       email: emailInput.value.trim() || undefined,
@@ -94,6 +98,9 @@ async function saveProfile() {
     profileSaved.value = true
     currentPassword.value = ''
     newPassword.value = ''
+    if (passwordChanged) {
+      await router.replace({ path: '/login', query: { passwordChanged: '1' } })
+    }
   } catch (error) {
     profileError.value = error instanceof Error ? error.message : t('account.updateFailed')
   } finally {

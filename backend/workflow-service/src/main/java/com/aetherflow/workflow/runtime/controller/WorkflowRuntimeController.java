@@ -21,6 +21,7 @@ import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
+import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -63,6 +64,9 @@ public class WorkflowRuntimeController {
 
     @Autowired(required = false)
     private TaskClientProperties taskClientProperties;
+
+    @Autowired(required = false)
+    WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -249,6 +253,11 @@ public class WorkflowRuntimeController {
             workflowRuntimeSnapshotMapper.markCancelled(String.valueOf(workflowInstanceId));
         }
         cancelActiveTasks(workflowInstanceId);
+        if (terminalNotificationOutboxService != null) {
+            terminalNotificationOutboxService.enqueue(
+                    workflowInstanceId, userId, null,
+                    com.aetherflow.workflow.runtime.api.RuntimeState.CANCELLED, null);
+        }
         return Result.success();
     }
 

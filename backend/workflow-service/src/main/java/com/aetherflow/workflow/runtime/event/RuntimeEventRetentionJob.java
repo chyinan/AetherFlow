@@ -22,9 +22,21 @@ public class RuntimeEventRetentionJob {
     @Value("${aetherflow.workflow.runtime-event-retention-batch-size:1000}")
     private int batchSize = 1000;
 
+    @Value("${aetherflow.workflow.runtime-event-retention-max-batches:20}")
+    private int maxBatches = 20;
+
     @Scheduled(fixedDelayString = "${aetherflow.workflow.runtime-event-retention-fixed-delay:3600000}")
     public int purgeExpiredEvents() {
         LocalDateTime before = LocalDateTime.now().minus(retention);
-        return mapper.deleteBefore(before, Math.max(1, Math.min(batchSize, 10_000)));
+        int safeBatchSize = Math.max(1, Math.min(batchSize, 10_000));
+        int total = 0;
+        for (int batch = 0; batch < Math.max(1, Math.min(maxBatches, 100)); batch++) {
+            int deleted = mapper.deleteBefore(before, safeBatchSize);
+            total += deleted;
+            if (deleted < safeBatchSize) {
+                break;
+            }
+        }
+        return total;
     }
 }

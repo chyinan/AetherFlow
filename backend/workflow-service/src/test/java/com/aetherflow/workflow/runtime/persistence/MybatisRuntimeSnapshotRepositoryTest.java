@@ -7,6 +7,7 @@ import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -87,6 +88,31 @@ class MybatisRuntimeSnapshotRepositoryTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("fencing token lost");
         verify(mapper).updateIfOwned(any(WorkflowRuntimeSnapshotEntity.class));
+    }
+
+    @Test
+    void claimsSnapshotWithCompareAndSwapFencingToken() throws Exception {
+        WorkflowRuntimeSnapshotEntity existing = entity(snapshot("workflow-claim", RuntimeState.RUNNING));
+        existing.setFencingToken("lease-a");
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(existing);
+        when(mapper.claimForLease("workflow-claim", "lease-a", "lease-b")).thenReturn(1);
+
+        repository.claimForLease("workflow-claim", "lease-b");
+
+        verify(mapper).claimForLease("workflow-claim", "lease-a", "lease-b");
+    }
+
+    @Test
+    void rejectsStaleSnapshotClaimWhenAnotherWorkerWonTheCompareAndSwap() throws Exception {
+        WorkflowRuntimeSnapshotEntity existing = entity(snapshot("workflow-claim-stale", RuntimeState.RUNNING));
+        existing.setFencingToken("lease-b");
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(existing);
+        when(mapper.claimForLease("workflow-claim-stale", "lease-b", "lease-a")).thenReturn(0);
+
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                repository.claimForLease("workflow-claim-stale", "lease-a")))
+                .isInstanceOf(WorkflowRuntimeLeaseLostException.class)
+                .hasMessageContaining("claim lost");
     }
 
     private WorkflowRuntimeSnapshotEntity entity(WorkflowRuntimeSnapshot snapshot) throws Exception {

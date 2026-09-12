@@ -43,6 +43,7 @@ public class AiRabbitConfig {
     @Bean
     public Queue aiTaskQueue() {
         return QueueBuilder.durable(RabbitMqNames.AI_TASK_QUEUE)
+                .withArgument("x-queue-type", "quorum")
                 .withArgument("x-dead-letter-exchange", RabbitMqNames.TASK_DEAD_LETTER_EXCHANGE)
                 .withArgument("x-dead-letter-routing-key", RabbitMqNames.TASK_DEAD_LETTER_ROUTING_KEY)
                 .build();
@@ -90,6 +91,7 @@ public class AiRabbitConfig {
 
     private Queue retryQueue(String name, long ttlMillis) {
         return QueueBuilder.durable(name)
+                .withArgument("x-queue-type", "quorum")
                 .withArgument("x-message-ttl", ttlMillis)
                 .withArgument("x-dead-letter-exchange", RabbitMqNames.TASK_EXCHANGE)
                 .withArgument("x-dead-letter-routing-key", RabbitMqNames.AI_TASK_ROUTING_KEY)

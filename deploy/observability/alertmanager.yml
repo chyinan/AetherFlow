@@ -9,7 +9,9 @@ route:
   repeat_interval: 4h
 
 receivers:
-  # Configure a real webhook/SMTP receiver through the operations deployment
-  # process before production. Keeping a named receiver here makes alert routing
-  # explicit and prevents Prometheus from silently dropping fired alerts.
   - name: aetherflow-operations
+    # The compose entrypoint substitutes this URL from ALERTMANAGER_WEBHOOK_URL.
+    # In production the process exits if it is missing, so alerts cannot be
+    # silently accepted by an empty receiver.
+    webhook_configs:
+      - url: "__ALERTMANAGER_WEBHOOK_URL__"

@@ -53,6 +53,9 @@ aetherflow:
     status-timeout-millis: ${PYTHON_AI_STATUS_TIMEOUT_MILLIS:3000}
   ai:
     internal-token: ${AI_INTERNAL_TOKEN}
+    task-event-retention: ${AI_TASK_EVENT_RETENTION:30d}
+    task-event-retention-batch-size: ${AI_TASK_EVENT_RETENTION_BATCH_SIZE:1000}
+    task-event-retention-fixed-delay: ${AI_TASK_EVENT_RETENTION_FIXED_DELAY:3600000}
     image:
       default-timeout: ${AI_IMAGE_DEFAULT_TIMEOUT:5m}
       health-timeout: ${AI_IMAGE_HEALTH_TIMEOUT:2s}

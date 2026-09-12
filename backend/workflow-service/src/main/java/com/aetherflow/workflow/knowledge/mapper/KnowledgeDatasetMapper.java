@@ -50,6 +50,7 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
             UPDATE af_knowledge_dataset
             SET processing_document_count = GREATEST(COALESCE(processing_document_count, 0) - 1, 0),
                 failed_chunk_count = COALESCE(failed_chunk_count, 0) + 1,
+                status = CASE WHEN COALESCE(processing_document_count, 0) <= 1 THEN 'ready' ELSE status END,
                 updated_at = #{updatedAt}
             WHERE id = #{datasetId}
             """)
@@ -59,6 +60,7 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
     @Update("""
             UPDATE af_knowledge_dataset
             SET processing_document_count = GREATEST(COALESCE(processing_document_count, 0) - 1, 0),
+                status = CASE WHEN COALESCE(processing_document_count, 0) <= 1 THEN 'ready' ELSE status END,
                 updated_at = #{updatedAt}
             WHERE id = #{datasetId}
             """)
@@ -68,7 +70,7 @@ public interface KnowledgeDatasetMapper extends BaseMapper<KnowledgeDatasetEntit
     @Update("""
             UPDATE af_knowledge_dataset
             SET processing_document_count = COALESCE(processing_document_count, 0) + 1,
-                status = 'processing',
+                status = CASE WHEN COALESCE(document_count, 0) > 0 THEN status ELSE 'processing' END,
                 updated_at = #{updatedAt}
             WHERE id = #{datasetId}
             """)

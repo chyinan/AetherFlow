@@ -17,6 +17,7 @@ import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationS
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,14 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class WorkflowRuntimeConfigTest {
+
+    @Test
+    void startOutboxLeaseWindowIsConfigurableAndBoundedByServiceDefaults() {
+        WorkflowRuntimeProperties properties = new WorkflowRuntimeProperties();
+
+        assertThat(properties.getStartOutbox().getStaleAfter()).isEqualTo(Duration.ofMinutes(30));
+        assertThat(properties.getStartOutbox().getBatchSize()).isEqualTo(50);
+    }
 
     @Test
     void createsNodeRegistryFromSpringDiscoveredExecutors() {

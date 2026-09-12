@@ -24,6 +24,6 @@ describe('模型供应商配置入口', () => {
     const source = readFileSync(fileURLToPath(new URL('./SettingsPage.vue', import.meta.url)), 'utf8')
 
     expect(source).toContain('data-action="retry-settings"')
-    expect(source).toContain('settingsStore.loadSettings()')
+    expect(source).toContain('settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value })')
   })
 })

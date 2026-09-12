@@ -22,7 +22,9 @@ public class NotifyRabbitConfig {
 
     @Bean
     public Queue notifyQueue() {
-        return QueueBuilder.durable(RabbitMqNames.NOTIFY_QUEUE).build();
+        return QueueBuilder.durable(RabbitMqNames.NOTIFY_QUEUE)
+                .withArgument("x-queue-type", "quorum")
+                .build();
     }
 
     @Bean

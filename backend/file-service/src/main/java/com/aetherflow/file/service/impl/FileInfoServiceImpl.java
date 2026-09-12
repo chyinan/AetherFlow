@@ -519,7 +519,9 @@ public class FileInfoServiceImpl implements FileInfoService {
                 micros(generatedArtifactStaleMillis), 200);
         int recovered = 0;
         for (FileInfo file : stale) {
-            int changed = fileInfoMapper.failGeneratedArtifactClaim(file.getId(), file.getClaimToken());
+            int changed = "STAGED".equalsIgnoreCase(file.getStatus())
+                    ? fileInfoMapper.expireStagedGeneratedArtifact(file.getId())
+                    : fileInfoMapper.failGeneratedArtifactClaim(file.getId(), file.getClaimToken());
             if (changed == 1) {
                 recovered++;
                 removeGeneratedObjectIfNoReferences(file.getBucket(), file.getObjectKey());

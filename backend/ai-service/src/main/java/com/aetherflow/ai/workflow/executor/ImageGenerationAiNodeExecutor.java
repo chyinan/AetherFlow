@@ -11,12 +11,14 @@ import com.aetherflow.ai.provider.ProviderFailureType;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
+import com.aetherflow.ai.workflow.AiArtifact;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.stereotype.Component;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +27,9 @@ import java.util.Map;
 @Component
 @Slf4j
 public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
+
+    private static final int MAX_IMAGES_PER_RESULT = 8;
+    private static final int MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
     private final ImageProviderRegistry providerRegistry;
 
@@ -115,9 +120,39 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("provider", response.provider());
         output.put("mode", response.mode());
-        output.put("images", response.images());
         output.put("metadata", response.metadata());
-        return new AiNodeResult(nodeType, "SUCCEEDED", output, List.of());
+        List<AiArtifact> artifacts = response.images() == null ? List.of()
+                : response.images().stream()
+                .limit(MAX_IMAGES_PER_RESULT)
+                .map(this::toArtifact)
+                .toList();
+        output.put("imageCount", artifacts.size());
+        return new AiNodeResult(nodeType, "SUCCEEDED", output, artifacts);
+    }
+
+    private AiArtifact toArtifact(com.aetherflow.ai.image.GeneratedImagePayload image) {
+        if (image == null || image.base64Data() == null || image.base64Data().isBlank()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned blank image");
+        }
+        String encoded = image.base64Data().trim();
+        if (encoded.regionMatches(true, 0, "data:", 0, 5)) {
+            int comma = encoded.indexOf(',');
+            if (comma < 0) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned an invalid data URI");
+            }
+            encoded = encoded.substring(comma + 1);
+        }
+        try {
+            byte[] content = Base64.getDecoder().decode(encoded);
+            if (content.length == 0 || content.length > MAX_IMAGE_BYTES) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "image provider returned an image outside the 20 MB limit");
+            }
+            return new AiArtifact("IMAGE", image.fileName(), image.contentType(), content);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned invalid base64 image data");
+        }
     }
 
     protected Long contextUserId(AiNodeExecutionContext context) {

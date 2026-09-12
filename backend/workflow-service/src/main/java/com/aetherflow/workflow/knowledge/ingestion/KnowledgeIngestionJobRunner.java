@@ -2,8 +2,8 @@ package com.aetherflow.workflow.knowledge.ingestion;
 
 import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -14,15 +14,23 @@ import java.util.concurrent.Executor;
 /** 扫描并认领持久摄取作业，服务重启后可继续未完成任务。 */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 // pattern: Imperative Shell
 public class KnowledgeIngestionJobRunner {
 
     private final KnowledgeIngestionJobMapper jobMapper;
     private final KnowledgeIngestionProperties properties;
     private final KnowledgeService knowledgeService;
-    @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
     private final Executor executor;
+
+    public KnowledgeIngestionJobRunner(KnowledgeIngestionJobMapper jobMapper,
+                                       KnowledgeIngestionProperties properties,
+                                       KnowledgeService knowledgeService,
+                                       @Qualifier("knowledgeIngestionTaskExecutor") Executor executor) {
+        this.jobMapper = jobMapper;
+        this.properties = properties;
+        this.knowledgeService = knowledgeService;
+        this.executor = executor;
+    }
 
     @Scheduled(fixedDelayString = "${aetherflow.workflow.knowledge.ingestion.poll-interval-millis:2000}")
     public int dispatchDueJobs() {

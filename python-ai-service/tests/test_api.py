@@ -1,7 +1,8 @@
-import unittest
 import sys
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -32,6 +33,12 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("whisper", body["capabilities"])
         self.assertIn("openai", body["providers"])
         self.assertIn("ollama", body["providers"])
+
+    def test_whisper_readiness_requires_loaded_model_instance(self):
+        with patch("app.main._whisper_model", None):
+            from app.main import _whisper_runtime_ready
+
+            self.assertFalse(_whisper_runtime_ready())
 
     def test_status_reports_installed_ollama_models_from_runtime(self):
         with (
@@ -113,6 +120,12 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("openai", status.json()["providers"])
         self.assertIn("qwen/qwen3.5-9b", status.json()["models"]["openai"])
 
+    def test_provider_catalog_does_not_advertise_unsupported_anthropic_openai_adapter(self):
+        response = self.client.get("/ai/provider/config")
+
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn("anthropic", {entry["id"] for entry in response.json()["providers"]})
+
     def test_llm_chat_returns_503_when_runtime_is_disabled(self):
         with patch.dict("os.environ", {"ENABLE_LLM": "false"}):
             response = self.client.post(
@@ -143,6 +156,15 @@ class PythonAiServiceApiTest(unittest.TestCase):
 
         self.assertEqual(503, response.status_code)
         self.assertIn("LLM service disabled", response.json()["detail"])
+
+    def test_ollama_failover_resolves_cloud_model_to_installed_local_model(self):
+        from app.main import LlmRequest, _resolve_provider_model
+
+        request = LlmRequest(provider="ollama", model="gpt-4o-mini", prompt="hello")
+        with patch("app.main._ollama_model_names", return_value=["nomic-embed-text:latest", "qwen3.5:9b"]):
+            resolved = _resolve_provider_model(request, "ollama")
+
+        self.assertEqual("qwen3.5:9b", resolved.model)
 
     def test_subtitle_endpoint_returns_srt_text(self):
         response = self.client.post(
@@ -197,6 +219,32 @@ class PythonAiServiceApiTest(unittest.TestCase):
 
         self.assertEqual(400, response.status_code)
         run.assert_not_called()
+
+    def test_ffmpeg_endpoint_maps_container_formats_to_real_muxers(self):
+        def fake_run(command, **_kwargs):
+            Path(command[-1]).write_bytes(b"encoded")
+            return SimpleNamespace(returncode=0, stderr=b"")
+
+        source = Path("input.wav")
+        with (
+            patch("app.main.shutil.which", return_value="ffmpeg"),
+            patch("app.main._materialize_source", return_value=source),
+            patch("app.main.subprocess.run", side_effect=fake_run) as run,
+            patch.dict("os.environ", {"APP_ENV": "dev"}, clear=False),
+        ):
+            response = self.client.post(
+                "/v1/media/ffmpeg",
+                json={
+                    "fileUrl": "http://minio/input.wav",
+                    "operation": "convert",
+                    "outputFormat": "m4a",
+                },
+            )
+
+        self.assertEqual(200, response.status_code)
+        command = run.call_args.args[0]
+        self.assertEqual("ipod", command[command.index("-f") + 1])
+        Path(command[-1]).unlink(missing_ok=True)
 
     def test_provider_usage_metadata_preserves_real_token_counts(self):
         from app.main import _ollama_usage_metadata, _openai_usage_metadata
@@ -374,7 +422,7 @@ class PythonAiServiceApiTest(unittest.TestCase):
         rewritten = "http://minio:9000/aetherflow/audio.mp3"
 
         class FakeResponse:
-            headers = {}
+            headers: ClassVar[dict[str, str]] = {}
 
             def __enter__(self):
                 return self

@@ -39,7 +39,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.seata.spring.annotation.GlobalTransactional;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -156,6 +155,12 @@ public class WorkflowServiceImpl implements WorkflowService {
     @Transactional(rollbackFor = Exception.class)
     public WorkflowDefinition updateDefinition(Long definitionId, WorkflowDefinitionDTO request) {
         WorkflowDefinition definition = getExistingDefinition(definitionId);
+        int currentVersion = definition.getVersion() == null ? 1 : definition.getVersion();
+        int expectedVersion = request.getVersion() == null ? currentVersion : request.getVersion();
+        if (expectedVersion != currentVersion) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "workflow definition changed; reload before saving");
+        }
         validateDag(request);
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
@@ -163,9 +168,16 @@ public class WorkflowServiceImpl implements WorkflowService {
             definition.setProjectId(requireOwnedProjectId(request.getProjectId()));
         }
         definition.setDefinitionJson(writeJson(request));
-        definition.setVersion(nextVersion(definition.getVersion()));
+        definition.setVersion(nextVersion(currentVersion));
         definition.setUpdatedAt(LocalDateTime.now());
-        definitionMapper.updateById(definition);
+        int updated = definitionMapper.updateVersioned(
+                definition.getId(), currentUserId(), definition.getName(), definition.getDescription(),
+                definition.getProjectId(), definition.getDefinitionJson(), definition.getVersion(),
+                expectedVersion, definition.getUpdatedAt());
+        if (updated != 1) {
+            throw new BusinessException(ResultCode.CONFLICT,
+                    "workflow definition changed; reload before saving");
+        }
         return definition;
     }
 
@@ -180,7 +192,6 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    @GlobalTransactional(name = "aetherflow-start-workflow-instance", rollbackFor = Exception.class)
     public WorkflowInstance startInstance(Long definitionId, StartWorkflowRequest request) {
         Long userId = currentUserId();
         WorkflowDefinition definition = getExistingDefinition(definitionId);
@@ -203,6 +214,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         instance.setUserId(userId);
         instance.setIdempotencyKey(idempotencyKey);
         instance.setInputJson(writeJson(input));
+        instance.setDefinitionJson(writeJson(definitionDTO));
         // The instance is not running until the durable start outbox has been
         // claimed. This prevents an in-flight HTTP transaction from racing the
         // recovery scanner and makes the outbox the single dispatch authority.
@@ -212,10 +224,17 @@ public class WorkflowServiceImpl implements WorkflowService {
         if (idempotencyKey == null) {
             instanceMapper.insert(instance);
         } else {
-            instanceMapper.insertIdempotent(instance);
-            WorkflowInstance persisted = instanceMapper.selectById(instance.getId());
-            if (persisted != null) {
-                return persisted;
+            int affectedRows = instanceMapper.insertIdempotent(instance);
+            // INSERT IGNORE reports one row only for a new insert. A duplicate
+            // key is resolved by the idempotency lookup below, so Connector/J's
+            // affected-row mode cannot accidentally create a second outbox.
+            if (affectedRows != 1) {
+                WorkflowInstance persisted = instanceMapper.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
+                if (persisted != null) {
+                    return persisted;
+                }
+                throw new BusinessException(ResultCode.INTERNAL_ERROR,
+                        "idempotent workflow instance could not be resolved");
             }
         }
 
@@ -269,9 +288,15 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     public int dispatchPendingStarts() {
         LocalDateTime now = LocalDateTime.now();
+        WorkflowRuntimeProperties.StartOutbox startOutboxProperties = runtimeProperties.getStartOutbox();
+        java.time.Duration staleAfter = startOutboxProperties == null || startOutboxProperties.getStaleAfter() == null
+                ? java.time.Duration.ofMinutes(30) : startOutboxProperties.getStaleAfter();
+        int batchSize = startOutboxProperties == null || startOutboxProperties.getBatchSize() <= 0
+                ? 50 : Math.min(startOutboxProperties.getBatchSize(), 500);
+        LocalDateTime staleBefore = now.minus(staleAfter);
         int dispatched = 0;
-        for (WorkflowStartOutbox outbox : workflowStartOutboxMapper.selectDue(now, now.minusMinutes(30), 50)) {
-            if (workflowStartOutboxMapper.claim(outbox.getId(), now, now.minusMinutes(30)) != 1) {
+        for (WorkflowStartOutbox outbox : workflowStartOutboxMapper.selectDue(now, staleBefore, batchSize)) {
+            if (workflowStartOutboxMapper.claim(outbox.getId(), now, staleBefore) != 1) {
                 continue;
             }
             WorkflowStartOutbox claimedOutbox = workflowStartOutboxMapper.selectById(outbox.getId());
@@ -299,16 +324,30 @@ public class WorkflowServiceImpl implements WorkflowService {
                     }
                     continue;
                 }
-                WorkflowDefinition definition = getExistingDefinitionForRecovery(instance.getDefinitionId());
-                WorkflowDefinitionDTO definitionDTO = readDefinition(definition.getDefinitionJson());
+                WorkflowDefinition definition = null;
+                if (!hasText(instance.getDefinitionJson())) {
+                    definition = getExistingDefinitionForRecovery(instance.getDefinitionId());
+                } else {
+                    try {
+                        definition = getExistingDefinitionForRecovery(instance.getDefinitionId());
+                    } catch (BusinessException ignored) {
+                        // A deleted definition cannot invalidate an already
+                        // accepted run whose immutable snapshot is present.
+                    }
+                }
+                WorkflowDefinitionDTO definitionDTO = hasText(instance.getDefinitionJson())
+                        ? readDefinition(instance.getDefinitionJson())
+                        : readDefinition(definition.getDefinitionJson());
+                String ownerName = definition == null || !hasText(definition.getOwnerName())
+                        ? currentUsername() : definition.getOwnerName();
                 Map<String, Object> input = readInput(instance.getInputJson());
                 WorkflowRuntimeRequest runtimeRequest = new WorkflowRuntimeRequest(
                         String.valueOf(instance.getId()), newTraceId(), String.valueOf(instance.getId()),
-                        definition.getId(), definitionDTO,
+                        instance.getDefinitionId(), definitionDTO,
                         runtimeVariables(definitionDTO, input, instance.getUserId()),
                         runtimeProperties.getRetry().toRetryPolicy());
                 workflowRuntimeTaskExecutor.execute(() -> AuthenticatedUserContext.runAs(
-                        instance.getUserId(), definition.getOwnerName(), () -> {
+                        instance.getUserId(), ownerName, () -> {
                             executeRuntime(instance.getId(), outbox.getId(), runtimeRequest, leaseToken);
                             return null;
                         }));
@@ -703,6 +742,10 @@ public class WorkflowServiceImpl implements WorkflowService {
 
     private static boolean owns(Long ownerUserId) {
         return ownerUserId != null && ownerUserId.equals(currentUserId());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private WorkflowDefinitionDTO readDefinition(String definitionJson) {
