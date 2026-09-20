@@ -51,12 +51,13 @@ class WorkflowTerminalNotificationOutboxServiceTest {
         row.setEventId(message.getEventId());
         row.setPayloadJson(objectMapper.writeValueAsString(message));
         when(mapper.selectDue(any(), any(), eq(100))).thenReturn(List.of(row));
-        when(mapper.claim(eq(9L), any(), any())).thenReturn(1);
+        when(mapper.claim(eq(9L), any(String.class), any(), any())).thenReturn(1);
+        when(mapper.markDispatched(eq(9L), any(String.class), any())).thenReturn(1);
         when(client.send(any(NotifyMessageDTO.class))).thenReturn(Result.success());
 
         assertThat(service.dispatchDue()).isEqualTo(1);
 
         verify(client).send(any(NotifyMessageDTO.class));
-        verify(mapper).markDispatched(eq(9L), any());
+        verify(mapper).markDispatched(eq(9L), any(String.class), any());
     }
 }

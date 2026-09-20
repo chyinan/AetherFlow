@@ -30,6 +30,15 @@ public class CreateFileMetadataRequestDTO {
     @Schema(description = "Owner user id for generated artifacts.", example = "10001")
     private Long userId;
 
+    @Schema(description = "Workflow instance id associated with the artifact.", example = "workflow-1")
+    private String workflowId;
+
+    @Schema(description = "Metadata source classification.", example = "artifact")
+    private String source;
+
+    @Schema(description = "Artifact kind classification.", example = "summary")
+    private String artifactKind;
+
     @Schema(description = "Operation-level idempotency key scoped to the owner user.", example = "workflow-export:99:node-end:hash")
     private String idempotencyKey;
 }

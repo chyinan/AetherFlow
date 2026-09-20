@@ -22,6 +22,7 @@ public class WorkflowTerminalNotificationOutbox {
     private Long userId;
     private String eventId;
     private String status;
+    private String leaseToken;
     private Integer attemptCount;
     private String payloadJson;
     private LocalDateTime nextAttemptAt;

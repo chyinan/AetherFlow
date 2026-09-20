@@ -137,6 +137,9 @@ public class ExportNodeExecutor extends BaseNodeExecutor {
         request.setContentType(format.contentType);
         request.setSize(size);
         request.setIdempotencyKey(idempotencyKey);
+        request.setWorkflowId(context.workflowId());
+        request.setSource("artifact");
+        request.setArtifactKind("summary");
         Long userId = longValue(context.variables().get("userId"));
         if (userId != null && userId > 0) {
             request.setUserId(userId);

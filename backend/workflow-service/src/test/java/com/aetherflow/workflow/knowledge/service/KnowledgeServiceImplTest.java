@@ -35,6 +35,8 @@ import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobMapper;
 import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionJobEntity;
+import com.aetherflow.workflow.knowledge.ingestion.KnowledgeIngestionProperties;
+import com.aetherflow.workflow.knowledge.service.KnowledgeService;
 import com.aetherflow.workflow.security.AuthenticatedUserContext;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -83,6 +85,9 @@ class KnowledgeServiceImplTest {
 
     @Mock
     private KnowledgeIngestionJobMapper ingestionJobMapper;
+
+    @Mock
+    private KnowledgeService transactionalKnowledgeService;
 
     @Mock
     private DocumentContentExtractionService documentContentExtractionService;
@@ -267,6 +272,38 @@ class KnowledgeServiceImplTest {
         assertThat(result.status()).isEqualTo("processing");
         verify(ingestionJobMapper).insert(any(KnowledgeIngestionJobEntity.class));
         verify(datasetMapper).startIngestion(eq(11L), any());
+    }
+
+    @Test
+    void submitsAfterCommitThroughTransactionalKnowledgeServiceProxy() {
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(datasetMapper.startIngestion(eq(11L), any())).thenReturn(1);
+        ReflectionTestUtils.setField(service, "ingestionJobMapper", ingestionJobMapper);
+        ReflectionTestUtils.setField(service, "ingestionExecutor", (java.util.concurrent.Executor) Runnable::run);
+        ReflectionTestUtils.setField(service, "transactionalKnowledgeService", transactionalKnowledgeService);
+        KnowledgeIngestionProperties properties = new KnowledgeIngestionProperties();
+        properties.setEnabled(true);
+        ReflectionTestUtils.setField(service, "ingestionProperties", properties);
+        doAnswer(invocation -> {
+            KnowledgeDocumentEntity document = invocation.getArgument(0);
+            document.setId(23L);
+            return 1;
+        }).when(documentMapper).insert(any(KnowledgeDocumentEntity.class));
+        doAnswer(invocation -> {
+            KnowledgeIngestionJobEntity job = invocation.getArgument(0);
+            job.setId(31L);
+            return 1;
+        }).when(ingestionJobMapper).insert(any(KnowledgeIngestionJobEntity.class));
+        when(ingestionJobMapper.claim(eq(31L), any())).thenReturn(1);
+
+        DocumentCreateRequest request = new DocumentCreateRequest();
+        request.setFileId("91");
+        request.setSourceName("queued.md");
+        request.setIdempotencyKey("proxy-op-1");
+
+        asUser(7L, () -> service.enqueueDocument(11L, request));
+
+        verify(transactionalKnowledgeService).processQueuedDocument(31L);
     }
 
     @Test

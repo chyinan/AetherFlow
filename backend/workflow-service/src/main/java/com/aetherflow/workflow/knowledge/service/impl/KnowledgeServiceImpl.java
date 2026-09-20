@@ -53,6 +53,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -133,6 +134,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     @Autowired(required = false)
     @org.springframework.beans.factory.annotation.Qualifier("knowledgeIngestionTaskExecutor")
     private Executor ingestionExecutor;
+
+    @Autowired
+    @Lazy
+    private KnowledgeService transactionalKnowledgeService;
 
     @Autowired
     public KnowledgeServiceImpl(KnowledgeDatasetMapper datasetMapper,
@@ -1435,7 +1440,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                     || ingestionJobMapper.claim(jobId, LocalDateTime.now()) != 1) {
                 return;
             }
-            processQueuedDocument(jobId);
+            if (transactionalKnowledgeService == null) {
+                throw new IllegalStateException("knowledge transactional service unavailable");
+            }
+            transactionalKnowledgeService.processQueuedDocument(jobId);
         } catch (RuntimeException exception) {
             log.error("knowledge ingestion job crashed outside transaction, jobId={}, reason={}",
                     jobId, exception.getMessage(), exception);

@@ -25,28 +25,35 @@ public interface WorkflowTerminalNotificationOutboxMapper extends BaseMapper<Wor
 
     @Update("""
             UPDATE af_workflow_notification_outbox
-               SET status = 'DISPATCHING', attempt_count = attempt_count + 1, updated_at = #{now}
+               SET status = 'DISPATCHING', lease_token = #{leaseToken},
+                   attempt_count = attempt_count + 1, updated_at = #{now}
              WHERE id = #{id}
                AND ((status = 'PENDING' AND (next_attempt_at IS NULL OR next_attempt_at <= #{now}))
                  OR (status = 'DISPATCHING' AND updated_at <= #{staleBefore}))
             """)
     int claim(@Param("id") Long id,
+              @Param("leaseToken") String leaseToken,
               @Param("now") LocalDateTime now,
               @Param("staleBefore") LocalDateTime staleBefore);
 
     @Update("""
             UPDATE af_workflow_notification_outbox
-               SET status = 'DISPATCHED', published_at = #{publishedAt}, last_error = NULL, updated_at = #{publishedAt}
-             WHERE id = #{id} AND status = 'DISPATCHING'
+               SET status = 'DISPATCHED', lease_token = NULL, published_at = #{publishedAt},
+                   last_error = NULL, updated_at = #{publishedAt}
+             WHERE id = #{id} AND status = 'DISPATCHING' AND lease_token = #{leaseToken}
             """)
-    int markDispatched(@Param("id") Long id, @Param("publishedAt") LocalDateTime publishedAt);
+    int markDispatched(@Param("id") Long id,
+                       @Param("leaseToken") String leaseToken,
+                       @Param("publishedAt") LocalDateTime publishedAt);
 
     @Update("""
             UPDATE af_workflow_notification_outbox
-               SET status = 'PENDING', next_attempt_at = #{nextAttemptAt}, last_error = #{lastError}, updated_at = #{now}
-             WHERE id = #{id} AND status = 'DISPATCHING'
+               SET status = 'PENDING', lease_token = NULL, next_attempt_at = #{nextAttemptAt},
+                   last_error = #{lastError}, updated_at = #{now}
+             WHERE id = #{id} AND status = 'DISPATCHING' AND lease_token = #{leaseToken}
             """)
     int markRetry(@Param("id") Long id,
+                  @Param("leaseToken") String leaseToken,
                   @Param("nextAttemptAt") LocalDateTime nextAttemptAt,
                   @Param("lastError") String lastError,
                   @Param("now") LocalDateTime now);

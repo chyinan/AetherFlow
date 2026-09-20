@@ -312,6 +312,22 @@ public class FileInfoServiceImpl implements FileInfoService {
                 null,
                 null
         );
+        String source = normalize(request.getSource());
+        if (unsupportedSource(source)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file source is invalid");
+        }
+        String artifactKind = normalize(request.getArtifactKind());
+        if (unsupportedArtifactKind(artifactKind)) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file artifact kind is invalid");
+        }
+        String workflowId = request.getWorkflowId() == null ? null : request.getWorkflowId().trim();
+        if (StringUtils.hasText(workflowId)
+                && (workflowId.length() > 128 || !workflowId.matches("[A-Za-z0-9._-]+"))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "file workflow id is invalid");
+        }
+        fileInfo.setSource(source);
+        fileInfo.setArtifactKind(artifactKind);
+        fileInfo.setWorkflowId(StringUtils.hasText(workflowId) ? workflowId : null);
         String idempotencyKey = normalizeIdempotencyKey(request.getIdempotencyKey());
         fileInfo.setIdempotencyKey(idempotencyKey);
         if (idempotencyKey == null) {

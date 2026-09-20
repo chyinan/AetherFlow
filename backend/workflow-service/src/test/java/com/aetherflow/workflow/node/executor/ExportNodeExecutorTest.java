@@ -75,6 +75,9 @@ class ExportNodeExecutorTest {
                 .startsWith("workflow/exports/workflow-1/export/");
         assertThat(metadataCaptor.getValue().getOriginalName()).isEqualTo("summary.md");
         assertThat(metadataCaptor.getValue().getContentType()).isEqualTo("text/markdown");
+        assertThat(metadataCaptor.getValue().getWorkflowId()).isEqualTo("workflow-1");
+        assertThat(metadataCaptor.getValue().getSource()).isEqualTo("artifact");
+        assertThat(metadataCaptor.getValue().getArtifactKind()).isEqualTo("summary");
         assertThat(metadataCaptor.getValue().getUserId()).isEqualTo(1001L);
     }
 

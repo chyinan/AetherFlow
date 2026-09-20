@@ -1,6 +1,7 @@
 package com.aetherflow.file.service.impl;
 
 import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.dto.CreateFileMetadataRequestDTO;
 import com.aetherflow.common.dto.CreateGeneratedFileRequestDTO;
 import com.aetherflow.common.dto.GeneratedArtifactBatchRequestDTO;
 import com.aetherflow.common.exception.BusinessException;
@@ -200,6 +201,34 @@ class FileInfoServiceImplReviewTest {
 
         assertThat(metadata.getUrl()).startsWith("https://signed.example/");
         verify(minioClient, never()).setBucketPolicy(any(SetBucketPolicyArgs.class));
+    }
+
+    @Test
+    void createMetadataPersistsWorkflowArtifactClassifications() throws Exception {
+        CreateFileMetadataRequestDTO request = new CreateFileMetadataRequestDTO();
+        request.setBucket("aetherflow");
+        request.setObjectKey("archive/user-1001/workflow-42/node-export/hash-summary.md");
+        request.setOriginalName("summary.md");
+        request.setContentType("text/markdown");
+        request.setSize(16L);
+        request.setWorkflowId("workflow-42");
+        request.setSource("artifact");
+        request.setArtifactKind("summary");
+        doAnswer(invocation -> {
+            FileInfo fileInfo = invocation.getArgument(0);
+            fileInfo.setId(901L);
+            return 1;
+        }).when(fileInfoMapper).insert(any(FileInfo.class));
+        when(minioClient.getPresignedObjectUrl(any(GetPresignedObjectUrlArgs.class)))
+                .thenReturn("https://files.example/summary.md");
+
+        service.createMetadata(1001L, request);
+
+        ArgumentCaptor<FileInfo> captor = ArgumentCaptor.forClass(FileInfo.class);
+        verify(fileInfoMapper).insert(captor.capture());
+        assertThat(captor.getValue().getWorkflowId()).isEqualTo("workflow-42");
+        assertThat(captor.getValue().getSource()).isEqualTo("artifact");
+        assertThat(captor.getValue().getArtifactKind()).isEqualTo("summary");
     }
 
     @Test

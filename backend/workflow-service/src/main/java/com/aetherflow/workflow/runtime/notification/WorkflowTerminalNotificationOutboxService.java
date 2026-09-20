@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -77,7 +78,8 @@ public class WorkflowTerminalNotificationOutboxService {
         }
         int dispatched = 0;
         for (WorkflowTerminalNotificationOutbox outbox : due) {
-            if (outbox == null || mapper.claim(outbox.getId(), now, now.minusMinutes(10)) != 1) {
+            String leaseToken = UUID.randomUUID().toString();
+            if (outbox == null || mapper.claim(outbox.getId(), leaseToken, now, now.minusMinutes(10)) != 1) {
                 continue;
             }
             try {
@@ -85,10 +87,12 @@ public class WorkflowTerminalNotificationOutboxService {
                 if (result == null || !result.isSuccess()) {
                     throw new IllegalStateException(result == null ? "notify service returned no result" : result.getMessage());
                 }
-                mapper.markDispatched(outbox.getId(), LocalDateTime.now());
+                if (mapper.markDispatched(outbox.getId(), leaseToken, LocalDateTime.now()) != 1) {
+                    throw new IllegalStateException("workflow terminal notification lease ownership lost");
+                }
                 dispatched++;
             } catch (RuntimeException exception) {
-                mapper.markRetry(outbox.getId(), LocalDateTime.now().plusSeconds(10),
+                mapper.markRetry(outbox.getId(), leaseToken, LocalDateTime.now().plusSeconds(10),
                         truncate(exception.getMessage()), LocalDateTime.now());
                 log.warn("workflow terminal notification dispatch failed, eventId={}", outbox.getEventId(), exception);
             }
