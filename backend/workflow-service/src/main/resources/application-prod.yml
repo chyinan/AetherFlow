@@ -73,6 +73,10 @@ aetherflow:
   notify:
     internal-token: ${NOTIFY_INTERNAL_TOKEN}
   workflow:
+    ingestion:
+      url:
+        require-host-allowlist: ${WORKFLOW_URL_INGESTION_REQUIRE_HOST_ALLOWLIST:true}
+        allowed-hosts: ${WORKFLOW_URL_INGESTION_ALLOWED_HOSTS:}
     terminal-notification-retention: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION:30d}
     terminal-notification-retention-batch-size: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_BATCH_SIZE:1000}
     terminal-notification-retention-fixed-delay: ${WORKFLOW_TERMINAL_NOTIFICATION_RETENTION_FIXED_DELAY:3600000}

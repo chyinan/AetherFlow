@@ -1,3 +1,5 @@
+# pattern: Imperative Shell
+
 import sys
 import unittest
 from pathlib import Path
@@ -33,6 +35,21 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("whisper", body["capabilities"])
         self.assertIn("openai", body["providers"])
         self.assertIn("ollama", body["providers"])
+
+    def test_source_host_allowlist_fails_closed_in_production(self):
+        from app.main import _source_host_allowed
+
+        with patch.dict(
+            "os.environ",
+            {
+                "APP_ENV": "prod",
+                "FILE_URL_REQUIRE_HOST_ALLOWLIST": "true",
+                "FILE_URL_ALLOWED_HOSTS": "minio",
+            },
+            clear=False,
+        ):
+            self.assertTrue(_source_host_allowed("minio", rewritten=True))
+            self.assertFalse(_source_host_allowed("attacker.example", rewritten=False))
 
     def test_whisper_readiness_requires_loaded_model_instance(self):
         with patch("app.main._whisper_model", None):

@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 import { toApiError } from '@/api/client/apiError'
 import { tokenManager, type AuthSession, type AuthSessionUserSnapshot } from '@/api/client/tokenManager'
 import {
@@ -7,6 +9,7 @@ import {
   profile as authProfile,
   updateProfile as authUpdateProfile,
   oauthProviders as authOAuthProviders,
+  completeOAuthSession as authCompleteOAuthSession,
   refresh as authRefresh,
   register as authRegister,
   status as authStatus,
@@ -260,5 +263,8 @@ export const authApi = {
   },
   async getOAuthProviders(): Promise<OAuthProviderAvailability> {
     return authOAuthProviders()
+  },
+  async completeOAuthSession(payload: Parameters<typeof authCompleteOAuthSession>[0]) {
+    return authCompleteOAuthSession(payload)
   },
 }

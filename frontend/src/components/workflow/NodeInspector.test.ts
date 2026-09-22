@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -143,6 +145,7 @@ describe('节点配置与后端执行语义一致', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
 
     expect(source).toContain("value === '' ? '' : Number(value)")
+    expect(source).toContain("rawValue === '' ? '' : Number(rawValue)")
   })
 
   it('使用后端实际字段编辑知识检索查询和知识库', () => {

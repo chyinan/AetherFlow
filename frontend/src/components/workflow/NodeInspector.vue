@@ -475,6 +475,9 @@ function isTextareaField(field: WorkflowNodeConfigSchema) {
 
 function parseDynamicFieldValue(field: WorkflowNodeConfigSchema, rawValue: string) {
   if (field.type === 'NUMBER') {
+    if (rawValue === '') {
+      return ''
+    }
     const numericValue = Number(rawValue)
     return Number.isFinite(numericValue) ? numericValue : fieldDefaultValue(field)
   }

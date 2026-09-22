@@ -1,6 +1,9 @@
 package com.aetherflow.auth.oauth;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,6 +30,7 @@ public class RedisOAuth2AuthorizationRequestRepository
     private final ObjectMapper objectMapper;
     private final AuthProperties authProperties;
     private final GoogleOAuthRedirectStateService redirectStateService;
+    private final OAuthBrowserStateService browserStateService;
 
     @Override
     public OAuth2AuthorizationRequest loadAuthorizationRequest(HttpServletRequest request) {
@@ -53,6 +57,7 @@ public class RedisOAuth2AuthorizationRequestRepository
                 serialize(authorizationRequest),
                 Duration.ofMinutes(authProperties.getOauth().getGoogle().getStateTtlMinutes()));
         redirectStateService.storeRedirectPath(authorizationRequest.getState(), request.getParameter("redirect"));
+        browserStateService.write("google", authorizationRequest.getState(), request, response);
     }
 
     @Override

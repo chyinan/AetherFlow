@@ -1,5 +1,7 @@
 package com.aetherflow.ai.provider;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.config.AiTaskProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,6 +40,20 @@ public class ProviderStatusService {
                 healths,
                 metricsService.snapshot(providers),
                 includeRecentLogs ? logService.recent(properties.getProviderRecentLogLimit()) : List.of()
+        );
+    }
+
+    public ProviderStatusResponse currentStatusForUser(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new IllegalArgumentException("authenticated user is required");
+        }
+        return new ProviderStatusResponse(
+                null,
+                policyService.currentPolicy(userId),
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                List.of()
         );
     }
 

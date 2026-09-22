@@ -1,9 +1,13 @@
 package com.aetherflow.auth.oauth;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.web.RefreshTokenCookieService;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -36,7 +40,7 @@ class GoogleOAuthSuccessHandlerTest {
         authProperties.getOauth().getGoogle().setFrontendBaseUrl("http://localhost:5173");
         authProperties.getOauth().getGoogle().setSuccessPath("/auth/oauth/callback");
         successHandler = new GoogleOAuthSuccessHandler(loginService, authProperties, redirectStateService,
-                new RefreshTokenCookieService());
+                new RefreshTokenCookieService(), new OAuthBrowserStateService());
     }
 
     @Test
@@ -56,6 +60,7 @@ class GoogleOAuthSuccessHandlerTest {
 
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/login/oauth2/code/google");
         request.setParameter("state", "state-1");
+        request.setCookies(new Cookie(OAuthBrowserStateService.GOOGLE_COOKIE_NAME, "state-1"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         successHandler.onAuthenticationSuccess(request, response, googleAuthentication());
@@ -71,6 +76,8 @@ class GoogleOAuthSuccessHandlerTest {
                 .contains("userId=7")
                 .contains("username=alice")
                 .contains("roles=USER")
+                .contains("provider=google")
+                .contains("state=state-1")
                 .contains("redirect=%2Fprojects");
         assertThat(response.getHeader("Set-Cookie"))
                 .contains("aetherflow_refresh=refresh-token")

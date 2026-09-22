@@ -1359,6 +1359,30 @@ def is_internal_url(url: str) -> bool:
     return False
 
 
+def _source_host_allowed(hostname: str, *, rewritten: bool) -> bool:
+    normalized_host = hostname.strip().lower().rstrip(".")
+    configured_hosts = {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("FILE_URL_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    }
+    require_allowlist = os.getenv(
+        "FILE_URL_REQUIRE_HOST_ALLOWLIST",
+        "false" if _is_dev_env() else "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if require_allowlist and not configured_hosts:
+        return False
+    if configured_hosts:
+        return any(
+            normalized_host == allowed
+            or normalized_host.endswith(f".{allowed}")
+            for allowed in configured_hosts
+        )
+    # Development keeps public URL ingestion available. Production must set
+    # FILE_URL_ALLOWED_HOSTS and FILE_URL_REQUIRE_HOST_ALLOWLIST.
+    return not require_allowlist or rewritten
+
+
 def _materialize_source(file_url: str) -> Path:
     if file_url.startswith(("http://", "https://")):
         download_url = _rewrite_file_url(file_url)
@@ -1370,6 +1394,10 @@ def _materialize_source(file_url: str) -> Path:
             raise HTTPException(status_code=400, detail="file URL is invalid")
         if parsed_download_url.username or parsed_download_url.password:
             raise HTTPException(status_code=400, detail="file URL user info is not allowed")
+        if not _source_host_allowed(parsed_download_url.hostname, rewritten=rewritten):
+            raise HTTPException(status_code=400, detail="file URL host is not allowed")
+        if is_internal_url(download_url) and not rewritten:
+            raise HTTPException(status_code=400, detail="access to internal/private URLs is not allowed")
         suffix = Path(file_url.split("?")[0]).suffix or ".bin"
         target = Path(tempfile.gettempdir()) / f"aetherflow-input-{uuid.uuid4().hex}{suffix}"
         if download_url != file_url:

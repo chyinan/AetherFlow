@@ -1,9 +1,13 @@
 package com.aetherflow.workflow.ingestion.url;
 
+// pattern: Imperative Shell
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 @Component
 @ConfigurationProperties(prefix = "aetherflow.workflow.ingestion.url")
@@ -13,6 +17,8 @@ public class UrlIngestionProperties {
     private int maxTextChars = 120_000;
     private Duration timeout = Duration.ofSeconds(15);
     private boolean allowPrivateNetworks = false;
+    private boolean requireHostAllowlist = false;
+    private List<String> allowedHosts = new ArrayList<>();
     private String userAgent = "AetherFlow-UrlIngestion/1.0";
 
     public int getMaxBytes() {
@@ -45,6 +51,22 @@ public class UrlIngestionProperties {
 
     public void setAllowPrivateNetworks(boolean allowPrivateNetworks) {
         this.allowPrivateNetworks = allowPrivateNetworks;
+    }
+
+    public boolean isRequireHostAllowlist() {
+        return requireHostAllowlist;
+    }
+
+    public void setRequireHostAllowlist(boolean requireHostAllowlist) {
+        this.requireHostAllowlist = requireHostAllowlist;
+    }
+
+    public List<String> getAllowedHosts() {
+        return allowedHosts;
+    }
+
+    public void setAllowedHosts(List<String> allowedHosts) {
+        this.allowedHosts = allowedHosts == null ? new ArrayList<>() : new ArrayList<>(allowedHosts);
     }
 
     public String getUserAgent() {

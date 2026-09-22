@@ -1,5 +1,7 @@
 package com.aetherflow.gateway.filter;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.security.JwtProperties;
 import com.aetherflow.common.security.JwtTokenProvider;
 import com.aetherflow.common.security.JwtUserClaims;
@@ -89,6 +91,27 @@ class JwtAuthenticationFilterTest {
             assertThat(called).as(path).isTrue();
             assertThat(exchange.getResponse().getStatusCode()).as(path).isNull();
         });
+    }
+
+    @Test
+    void permitsOnlyActuatorHealthWithoutToken() throws Exception {
+        JwtAuthenticationFilter filter = newFilter(token -> Mono.just(false));
+
+        MockServerWebExchange health = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/actuator/health").build());
+        AtomicBoolean healthForwarded = new AtomicBoolean(false);
+        filter.filter(health, chain(exchange -> {
+            healthForwarded.set(true);
+            return Mono.empty();
+        })).block(Duration.ofSeconds(1));
+
+        MockServerWebExchange metrics = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/actuator/metrics").build());
+        filter.filter(metrics, chain(exchange -> Mono.empty())).block(Duration.ofSeconds(1));
+
+        assertThat(healthForwarded).isTrue();
+        assertThat(health.getResponse().getStatusCode()).isNull();
+        assertThat(metrics.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test

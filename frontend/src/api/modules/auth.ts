@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 import { apiClient } from '@/api/client/apiClient'
 import type { AuthSession, AuthSessionUserSnapshot } from '@/api/client/tokenManager'
 
@@ -54,6 +56,14 @@ export interface AuthRefreshRequest {
 export interface AuthLogoutRequest {
   accessToken: string
   refreshToken?: string
+}
+
+export type OAuthProvider = 'github' | 'google'
+
+export type OAuthSessionCompletionRequest = {
+  provider: OAuthProvider
+  state: string
+  accessToken: string
 }
 
 export interface AuthSessionUser extends AuthSessionUserSnapshot {
@@ -250,4 +260,13 @@ export async function oauthProviders(): Promise<OAuthProviderAvailability> {
     githubConfigured: response.githubConfigured === true,
     googleConfigured: response.googleConfigured === true,
   }
+}
+
+export async function completeOAuthSession(
+  payload: OAuthSessionCompletionRequest,
+): Promise<AuthSessionResult> {
+  const response = await apiClient.post<unknown>('/auth/oauth/complete', payload, {
+    source: 'auth',
+  })
+  return mapTokenResponse(response)
 }

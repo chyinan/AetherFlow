@@ -23,7 +23,7 @@ public class GatewaySecurityProperties {
             "/auth/oauth/**",
             "/oauth2/**",
             "/login/oauth2/**",
-            "/actuator/**",
+            "/actuator/health",
             "/health",
             "/gateway/status",
             "/notify/ws",

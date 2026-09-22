@@ -1,6 +1,9 @@
 package com.aetherflow.auth.oauth;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -19,10 +22,12 @@ import java.nio.charset.StandardCharsets;
 public class GoogleOAuthFailureHandler implements AuthenticationFailureHandler {
 
     private final AuthProperties authProperties;
+    private final OAuthBrowserStateService browserStateService;
 
     @Override
     public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
                                         AuthenticationException exception) throws IOException, ServletException {
+        browserStateService.clear("google", request, response);
         response.sendRedirect(frontendBaseUrl()
                 + authProperties.getOauth().getGoogle().getFailurePath()
                 + "?oauth=failed&reason="

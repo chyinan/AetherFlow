@@ -1,11 +1,14 @@
 package com.aetherflow.auth.controller;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.oauth.GithubOAuthLoginResult;
 import com.aetherflow.auth.oauth.GithubOAuthService;
 import com.aetherflow.auth.oauth.GithubOAuthStateService;
 import com.aetherflow.auth.web.AuthRequestContext;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import com.aetherflow.auth.web.RefreshTokenCookieService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -35,6 +38,7 @@ public class GithubOAuthController {
     private final GithubOAuthStateService stateService;
     private final AuthProperties authProperties;
     private final RefreshTokenCookieService refreshTokenCookieService;
+    private final OAuthBrowserStateService browserStateService;
 
     @GetMapping("/authorize")
     public ResponseEntity<Void> authorize(
@@ -62,23 +66,17 @@ public class GithubOAuthController {
             GithubOAuthLoginResult result = githubOAuthService.completeLogin(code, state, AuthRequestContext.from(request));
             AuthTokenResponse token = result.tokenResponse();
             refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
-            return redirectWithClearedStateCookie(successRedirectUrl(result), request);
+            return redirectWithStateCookie(successRedirectUrl(result, state), state, request);
         } catch (RuntimeException exception) {
             return redirectWithClearedStateCookie(failureRedirectUrl(exception), request);
         }
     }
 
     private boolean stateMatchesBrowserCookie(HttpServletRequest request, String state) {
-        if (!StringUtils.hasText(state) || request.getCookies() == null) {
-            return false;
-        }
-        return java.util.Arrays.stream(request.getCookies())
-                .filter(cookie -> GithubOAuthStateService.BROWSER_COOKIE_NAME.equals(cookie.getName()))
-                .map(jakarta.servlet.http.Cookie::getValue)
-                .anyMatch(state::equals);
+        return browserStateService.matches("github", state, request);
     }
 
-    private String successRedirectUrl(GithubOAuthLoginResult result) {
+    private String successRedirectUrl(GithubOAuthLoginResult result, String state) {
         AuthTokenResponse token = result.tokenResponse();
         StringJoiner fragment = new StringJoiner("&");
         fragment.add("accessToken=" + encode(token.getAccessToken()));
@@ -88,6 +86,8 @@ public class GithubOAuthController {
         fragment.add("userId=" + token.getUserId());
         fragment.add("username=" + encode(token.getUsername()));
         fragment.add("roles=" + encode(String.join(",", token.getRoles())));
+        fragment.add("provider=github");
+        fragment.add("state=" + encode(state));
         fragment.add("redirect=" + encode(result.redirectPath()));
         return frontendBaseUrl() + authProperties.getOauth().getGithub().getSuccessPath() + "#" + fragment;
     }
@@ -144,7 +144,7 @@ public class GithubOAuthController {
                 .httpOnly(true)
                 .secure(request.isSecure())
                 .sameSite("Lax")
-                .path("/auth/oauth/github")
+                .path("/")
                 .maxAge(java.time.Duration.ofMinutes(authProperties.getOauth().getGithub().getStateTtlMinutes()))
                 .build();
         return ResponseEntity.status(HttpStatus.FOUND)
@@ -158,7 +158,7 @@ public class GithubOAuthController {
                 .httpOnly(true)
                 .secure(request.isSecure())
                 .sameSite("Lax")
-                .path("/auth/oauth/github")
+                .path("/")
                 .maxAge(Duration.ZERO)
                 .build();
         return ResponseEntity.status(HttpStatus.FOUND)

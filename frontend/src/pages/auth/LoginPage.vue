@@ -9,6 +9,7 @@ import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import { authApi } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
+import { safeInternalRedirect } from '@/utils/safeRedirectPath'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -80,7 +81,7 @@ async function submitCredentials() {
     } else {
       await authStore.login(form.username.trim(), form.password)
     }
-    await router.push((route.query.redirect as string) || '/projects')
+    await router.push(safeInternalRedirect(route.query.redirect))
   } catch {
     errorMessage.value =
       authMode.value === 'register' ? t('auth.registerUnavailable') : t('auth.loginUnavailable')
@@ -88,13 +89,13 @@ async function submitCredentials() {
 }
 
 function submitGithubProvider() {
-  const redirectPath = (route.query.redirect as string) || '/projects'
+  const redirectPath = safeInternalRedirect(route.query.redirect)
   const authorizeUrl = `${runtimeEnv.apiBase}/auth/oauth/github/authorize?redirect=${encodeURIComponent(redirectPath)}`
   window.location.assign(authorizeUrl)
 }
 
 function submitGoogleProvider() {
-  const redirectPath = (route.query.redirect as string) || '/projects'
+  const redirectPath = safeInternalRedirect(route.query.redirect)
   const authorizeUrl = `${runtimeEnv.apiBase}/oauth2/authorization/google?redirect=${encodeURIComponent(redirectPath)}`
   window.location.assign(authorizeUrl)
 }

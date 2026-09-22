@@ -1,5 +1,7 @@
 package com.aetherflow.ai.controller;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.config.AiTaskProperties;
 import com.aetherflow.ai.provider.AiProviderType;
 import com.aetherflow.ai.provider.ProviderCatalogResponse;
@@ -63,12 +65,15 @@ public class AiProviderController {
     })
     @GetMapping("/status")
     public Result<ProviderStatusResponse> status(
-            @RequestHeader(value = "X-Roles", required = false, defaultValue = "") String roles) {
+            @RequestHeader(value = "X-Roles", required = false, defaultValue = "") String roles,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         boolean includeRecentLogs = java.util.Arrays.stream(roles.split(","))
                 .map(String::trim)
                 .anyMatch(role -> "ADMIN".equalsIgnoreCase(role) || "OWNER".equalsIgnoreCase(role));
         return Result.success(sentinelAiGuard.execute("ai-provider-status",
-                () -> statusService.currentStatus(includeRecentLogs)));
+                () -> includeRecentLogs
+                        ? statusService.currentStatus(true)
+                        : statusService.currentStatusForUser(userId)));
     }
 
     @Operation(summary = "Get AI provider status",

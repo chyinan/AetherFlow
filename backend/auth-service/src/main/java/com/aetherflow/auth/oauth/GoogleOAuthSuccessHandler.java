@@ -1,8 +1,11 @@
 package com.aetherflow.auth.oauth;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
 import com.aetherflow.auth.dto.AuthTokenResponse;
 import com.aetherflow.auth.web.RefreshTokenCookieService;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import jakarta.servlet.ServletException;
@@ -30,17 +33,22 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
     private final AuthProperties authProperties;
     private final GoogleOAuthRedirectStateService redirectStateService;
     private final RefreshTokenCookieService refreshTokenCookieService;
+    private final OAuthBrowserStateService browserStateService;
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) throws IOException, ServletException {
         try {
+            String state = request.getParameter("state");
+            if (!browserStateService.matches("google", state, request)) {
+                throw new BusinessException(ResultCode.UNAUTHORIZED, "invalid google oauth browser state");
+            }
             GoogleOAuthUser googleUser = toGoogleUser(authentication);
             GoogleOAuthLoginResult result = googleOAuthLoginService.loginOrRegister(googleUser);
             AuthTokenResponse token = result.tokenResponse();
             refreshTokenCookieService.write(request, response, token.getRefreshToken(), token.getRefreshExpiresIn());
             response.sendRedirect(successRedirectUrl(result.tokenResponse(),
-                    redirectStateService.consumeRedirectPath(request.getParameter("state"))));
+                    redirectStateService.consumeRedirectPath(state), state));
         } catch (RuntimeException exception) {
             response.sendRedirect(failureRedirectUrl(exception));
         }
@@ -64,7 +72,7 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
         );
     }
 
-    private String successRedirectUrl(AuthTokenResponse token, String redirectPath) {
+    private String successRedirectUrl(AuthTokenResponse token, String redirectPath, String state) {
         StringJoiner fragment = new StringJoiner("&");
         fragment.add("accessToken=" + encode(token.getAccessToken()));
         fragment.add("tokenType=" + encode(token.getTokenType()));
@@ -73,6 +81,8 @@ public class GoogleOAuthSuccessHandler implements AuthenticationSuccessHandler {
         fragment.add("userId=" + token.getUserId());
         fragment.add("username=" + encode(token.getUsername()));
         fragment.add("roles=" + encode(String.join(",", token.getRoles())));
+        fragment.add("provider=google");
+        fragment.add("state=" + encode(state));
         fragment.add("redirect=" + encode(redirectPath));
         return frontendBaseUrl() + authProperties.getOauth().getGoogle().getSuccessPath() + "#" + fragment;
     }

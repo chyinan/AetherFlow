@@ -39,6 +39,7 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import type { SettingsModelProvider, WorkspaceMember, WorkspaceSettings } from '@/types/settings'
 import { formatTime } from '@/utils/localeFormat'
 import { getStoredTimezone, setStoredTimezone } from '@/i18n/locale'
+import { safeInternalRedirect } from '@/utils/safeRedirectPath'
 
 type SettingsTab = 'provider' | 'members' | 'billing' | 'data-source' | 'api' | 'custom' | 'language'
 
@@ -481,8 +482,7 @@ function selectTab(tab: SettingsTab) {
 }
 
 function closeSettings() {
-  const from = typeof route.query.from === 'string' && route.query.from.startsWith('/') ? route.query.from : '/projects'
-  void router.push(from)
+  void router.push(safeInternalRedirect(route.query.from))
 }
 
 function markSaved() {

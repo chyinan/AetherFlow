@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.ingestion.url;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.ingestion.url.UrlIngestionDtos.UrlFetchRequest;
@@ -20,6 +22,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -95,32 +98,24 @@ public class UrlIngestionServiceImpl implements UrlIngestionService {
     }
 
     private void validateHost(String host) {
-        String asciiHost = IDN.toASCII(host);
-        if (asciiHost.equalsIgnoreCase("localhost")) {
-            rejectPrivateNetwork();
+        String asciiHost;
+        try {
+            asciiHost = IDN.toASCII(host);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "url host is invalid");
         }
         try {
-            for (InetAddress address : InetAddress.getAllByName(asciiHost)) {
-                if (isPrivateAddress(address)) {
-                    rejectPrivateNetwork();
-                }
+            var addresses = Arrays.asList(InetAddress.getAllByName(asciiHost));
+            if (!UrlHostPolicy.isAllowedHost(
+                    asciiHost,
+                    addresses,
+                    properties.getAllowedHosts(),
+                    properties.isRequireHostAllowlist(),
+                    properties.isAllowPrivateNetworks())) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "url host is not allowed");
             }
         } catch (IOException exception) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "url host cannot be resolved");
-        }
-    }
-
-    private boolean isPrivateAddress(InetAddress address) {
-        return !properties.isAllowPrivateNetworks()
-                && (address.isAnyLocalAddress()
-                || address.isLoopbackAddress()
-                || address.isLinkLocalAddress()
-                || address.isSiteLocalAddress());
-    }
-
-    private void rejectPrivateNetwork() {
-        if (!properties.isAllowPrivateNetworks()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url private network targets are not allowed");
         }
     }
 

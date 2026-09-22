@@ -1,6 +1,7 @@
 package com.aetherflow.auth.oauth;
 
 import com.aetherflow.auth.config.AuthProperties;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -24,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GithubOAuthStateService {
 
     private static final String HMAC_SHA256 = "HmacSHA256";
-    public static final String BROWSER_COOKIE_NAME = "aetherflow_github_oauth_state";
+    public static final String BROWSER_COOKIE_NAME = OAuthBrowserStateService.GITHUB_COOKIE_NAME;
     private static final String STATE_PREFIX = "auth:oauth2:github:state:";
     private static final DefaultRedisScript<Long> CONSUME_SCRIPT = new DefaultRedisScript<>(
             "if redis.call('get', KEYS[1]) == ARGV[1] then "

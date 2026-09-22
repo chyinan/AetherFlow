@@ -1,71 +1,40 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
+
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
-import { tokenManager, type AuthSession } from '@/api/client/tokenManager'
-import { mapBackendRoles } from '@/api/modules/auth'
+import { tokenManager } from '@/api/client/tokenManager'
 import { useAuthStore } from '@/stores/authStore'
+import { authApi } from '@/services/api/authApi'
+import { safeInternalRedirect } from '@/utils/safeRedirectPath'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const errorMessage = ref('')
 const { t } = useI18n()
 
-function readRequired(params: URLSearchParams, field: string) {
-  const value = params.get(field)
-  if (!value) {
-    throw new Error(`Missing OAuth field: ${field}`)
-  }
-  return value
-}
-
-function expiresAt(seconds: string) {
-  const ttlSeconds = Number(seconds)
-  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
-    throw new Error('Invalid OAuth token lifetime')
-  }
-  return Date.now() + ttlSeconds * 1000
-}
-
-function buildSession(params: URLSearchParams): AuthSession {
-  const rawRoles = readRequired(params, 'roles').split(',').filter(Boolean)
-  const roles = mapBackendRoles(rawRoles)
-  const userId = Number(readRequired(params, 'userId'))
-  const username = readRequired(params, 'username')
-
-  if (!Number.isFinite(userId) || roles.length === 0) {
-    throw new Error('Invalid OAuth user payload')
-  }
-
-  return {
-    accessToken: readRequired(params, 'accessToken'),
-    tokenType: params.get('tokenType') || 'Bearer',
-    expiresAt: expiresAt(readRequired(params, 'expiresIn')),
-    refreshExpiresAt: expiresAt(readRequired(params, 'refreshExpiresIn')),
-    user: {
-      id: String(userId),
-      userId,
-      name: username,
-      username,
-      role: roles.includes('owner') ? 'owner' : 'operator',
-      roles,
-      rawRoles,
-      workspace: 'AetherFlow Lab',
-    },
-  }
-}
-
 onMounted(async () => {
   try {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-    const session = buildSession(params)
-    const redirectPath = params.get('redirect') || '/projects'
+    const accessToken = params.get('accessToken')
+    const state = params.get('state')
+    const provider = params.get('provider')
+    const redirectPath = safeInternalRedirect(params.get('redirect'))
+    if (!accessToken || !state || (provider !== 'github' && provider !== 'google')) {
+      throw new Error(t('auth.oauthLoginFailed'))
+    }
 
     window.history.replaceState(null, '', window.location.pathname)
+    const session = await authApi.completeOAuthSession({
+      accessToken,
+      state,
+      provider,
+    })
     tokenManager.setSession(session)
     authStore.setActiveSession(session)
-    await router.replace(redirectPath.startsWith('/') ? redirectPath : '/projects')
+    await router.replace(redirectPath)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t('auth.oauthLoginFailed')
     authStore.clearLocalSession()

@@ -1,6 +1,9 @@
 package com.aetherflow.auth.oauth;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.auth.config.AuthProperties;
+import com.aetherflow.auth.web.OAuthBrowserStateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +46,8 @@ class RedisOAuth2AuthorizationRequestRepositoryTest {
                 redisTemplate,
                 new ObjectMapper(),
                 authProperties,
-                redirectStateService);
+                redirectStateService,
+                new OAuthBrowserStateService());
     }
 
     @Test
