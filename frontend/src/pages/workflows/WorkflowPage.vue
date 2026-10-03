@@ -13,6 +13,7 @@ import { toApiError } from '@/api/client/apiError'
 import { importComfyUiWorkflow } from '@/api/modules/workflow'
 import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
 import type { WorkflowCopilotCanvasAction } from '@/services/copilot/workflowCopilotActions'
+import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
 import { workflowApi } from '@/services/api/workflowApi'
 import { useFileStore } from '@/stores/fileStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -71,6 +72,9 @@ const copilotContext = computed(() => ({
   workflowId: workflowStore.workflowId,
   workflowName: workflowStore.workflowName,
   backendDefinitionId: workflowStore.backendDefinitionId,
+  backendVersion: workflowStore.backendVersion,
+  editRevision: workflowStore.editRevision,
+  projectId: workflowStore.projectId,
   selectedNodeId: uiStore.selectedNodeId,
   nodes: workflowStore.nodes,
   edges: workflowStore.edges,
@@ -454,14 +458,6 @@ function templateByKind(kind: WorkflowNodeKind) {
 }
 
 function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
-  if (action.type === 'apply-media-summary-draft') {
-    const graph = workflowStore.applyMediaSummaryWorkflowDraft()
-    if (graph) {
-      uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
-    }
-    return
-  }
-
   const template = templateByKind(action.nodeKind)
   if (!template) {
     return
@@ -477,6 +473,10 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
   if (node) {
     uiStore.setSelectedNode(node.id)
   }
+}
+
+function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
+  return workflowStore.applyCopilotWorkflowDraft(request)
 }
 </script>
 
@@ -667,6 +667,7 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
         <div v-if="showCopilot" class="absolute inset-y-0 right-0 z-30 w-[min(390px,calc(100%-1rem))] border-l border-app-border bg-white shadow-panel">
           <AICopilotPanel
             :context="copilotContext"
+            :apply-workflow-draft="handleCopilotWorkflowDraft"
             @apply-canvas-action="handleCopilotCanvasAction"
             @close="showCopilot = false"
           />

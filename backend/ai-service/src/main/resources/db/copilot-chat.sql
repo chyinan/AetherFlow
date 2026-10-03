@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS af_copilot_message (
     conversation_id BIGINT NOT NULL,
     role VARCHAR(32) NOT NULL,
     content LONGTEXT NOT NULL,
+    plan_json LONGTEXT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     KEY idx_af_copilot_message_conversation (conversation_id)

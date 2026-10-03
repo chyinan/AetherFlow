@@ -82,4 +82,53 @@ describe('copilotApi', () => {
     }))
     vi.unstubAllGlobals()
   })
+
+  it('sends a non-streaming structured planner request and returns persisted plan metadata', async () => {
+    const plan = {
+      status: 'NEEDS_CLARIFICATION',
+      requirements: {
+        goal: 'Summarize content', inputKind: 'UNKNOWN', inputDescription: 'Source not specified',
+        outputFormat: '', language: '', audience: '', instruction: '', constraints: [],
+      },
+      recipe: null,
+      steps: [],
+      explanation: 'I need one detail.',
+      clarifyingQuestion: 'Will it be a file or URL?',
+      assumptions: [],
+    }
+    const signal = new AbortController().signal
+    post.mockResolvedValueOnce({
+      id: 'msg-plan-1', conversationId: 'conv-11', role: 'assistant', content: plan.explanation,
+      createdAt: '19:36', plan, planBaseRevision: 4, planBaseVersion: 2, planBaseFingerprint: '7a1b2c3d',
+    })
+
+    await expect(copilotApi.planWorkflow('summarize a webpage', {
+      conversationId: 'conv-11', workflowId: 'wf-1001',
+      context: { editRevision: 4, graphFingerprint: '7a1b2c3d' }, signal,
+    })).resolves.toMatchObject({
+      id: 'msg-plan-1', plan, planBaseRevision: 4, planBaseVersion: 2, planBaseFingerprint: '7a1b2c3d',
+    })
+    expect(post).toHaveBeenCalledWith('/copilot/workflow-plan', expect.objectContaining({
+      prompt: 'summarize a webpage', conversationId: 'conv-11', workflowId: 'wf-1001',
+    }), expect.objectContaining({ source: 'ai', signal }))
+  })
+
+  it('restores structured requirements and base guards from conversation history', async () => {
+    const plan = {
+      status: 'UNSUPPORTED',
+      requirements: {
+        goal: 'Generate video', inputKind: 'UNKNOWN', inputDescription: 'Requested generated video',
+        outputFormat: '', language: '', audience: '', instruction: '', constraints: [],
+      },
+      recipe: null, steps: [], explanation: 'That task is outside the supported recipes.',
+      clarifyingQuestion: null, assumptions: [],
+    }
+    get.mockResolvedValueOnce([{
+      id: 'msg-plan-2', role: 'assistant', content: plan.explanation, createdAt: '19:36',
+      plan, planBaseRevision: 10, planBaseVersion: 3, planBaseFingerprint: '01abcdea',
+    }])
+    await expect(copilotApi.listMessages('conv-12')).resolves.toMatchObject([{
+      id: 'msg-plan-2', plan, planBaseRevision: 10, planBaseVersion: 3, planBaseFingerprint: '01abcdea',
+    }])
+  })
 })

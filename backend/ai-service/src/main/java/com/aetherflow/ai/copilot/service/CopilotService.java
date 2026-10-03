@@ -12,6 +12,8 @@ public interface CopilotService {
 
     CopilotChatResponse chat(Long userId, CopilotChatRequest request);
 
+    CopilotChatResponse planWorkflow(Long userId, CopilotChatRequest request);
+
     CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta);
 
     List<CopilotConversationSummary> listConversations(Long userId, int limit);

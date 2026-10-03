@@ -6,6 +6,7 @@ import type {
   WorkflowGraphNode,
   WorkflowNodeKind,
 } from '@/types/workflow'
+import type { CopilotWorkflowPlan, CopilotWorkflowRecipe } from '@/types/copilotWorkflowPlan'
 
 export type WorkflowCopilotIntent =
   | 'freeform-workflow-question'
@@ -23,9 +24,6 @@ export type WorkflowCopilotCanvasAction =
       sourceNodeId: string
       nodeKind: WorkflowNodeKind
     }
-  | {
-      type: 'apply-media-summary-draft'
-    }
 
 export interface WorkflowCopilotActionMessage {
   type: WorkflowCopilotCanvasAction['type']
@@ -38,6 +36,9 @@ export interface WorkflowCopilotSnapshot {
   workflowId: string
   workflowName: string
   backendDefinitionId?: number | null
+  backendVersion?: number | null
+  editRevision?: number
+  projectId?: number | null
   selectedNodeId?: string | null
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
@@ -54,6 +55,7 @@ export interface WorkflowDraftGraph {
 
 export const MEDIA_SUMMARY_WORKFLOW_KINDS = [
   'start',
+  'upload',
   'ffmpeg',
   'whisper',
   'summary',
@@ -69,7 +71,7 @@ const INTENT_PROMPTS: Record<WorkflowCopilotIntent, string> = {
   'explain-latest-error':
     'Please explain the latest workflow run error. Use only the provided run status, failed nodes, and error logs. If there is no failure context, say that no current error is available and suggest what to inspect next.',
   'draft-media-summary-workflow':
-    'Please draft a media summary workflow. Use the deterministic media summary chain in context, explain what it will create, and mention that the user can apply the draft from the action button.',
+    'Use the workflow planner for supported media or public URL summaries. Ask one clear question if the input type is unclear, or state when the requested workflow is outside those supported recipes.',
 }
 
 function templateByKind(templates: NodeTemplate[]) {
@@ -84,8 +86,8 @@ function nodeSummary(node: WorkflowGraphNode) {
     status: node.data.status,
     inputs: node.data.inputs,
     outputs: node.data.outputs,
-    config: node.data.config,
-    runtime: node.data.runtime,
+    config: redactCopilotValue(node.data.config),
+    runtime: redactCopilotValue(node.data.runtime),
   }
 }
 
@@ -196,7 +198,7 @@ export function buildWorkflowCopilotContext(
           progress: snapshot.currentRun.progress,
           traceId: snapshot.currentRun.traceId,
           currentNodeId: snapshot.currentRun.currentNodeId,
-          nodeStates: snapshot.currentRun.nodeStates,
+      nodeStates: redactCopilotValue(snapshot.currentRun.nodeStates),
         }
       : null,
     runError: snapshot.runError,
@@ -206,16 +208,146 @@ export function buildWorkflowCopilotContext(
   }
 }
 
-export function actionMessageFor(action: WorkflowCopilotCanvasAction): WorkflowCopilotActionMessage {
-  if (action.type === 'apply-media-summary-draft') {
-    return {
-      type: action.type,
-      labelKey: 'copilot.actions.applyMediaDraft',
-      descriptionKey: 'copilot.actions.applyMediaDraftHint',
-      payload: action,
+export function buildWorkflowPlannerContext(
+  snapshot: WorkflowCopilotSnapshot,
+  userLocale: string,
+) {
+  return {
+    workflowName: snapshot.workflowName.slice(0, 160),
+    existingNodeKinds: snapshot.nodes.map((node) => node.data.kind).slice(0, 32),
+    availableNodeKinds: snapshot.templates
+      .filter((template) => template.availability?.available !== false)
+      .map((template) => template.kind)
+      .slice(0, 32),
+    hasExistingGraph: snapshot.nodes.length > 0,
+    userLocale: userLocale.slice(0, 20),
+    editRevision: snapshot.editRevision,
+    backendVersion: snapshot.backendVersion,
+    graphFingerprint: workflowGraphFingerprint(snapshot),
+  }
+}
+
+export function workflowGraphFingerprint(snapshot: WorkflowCopilotSnapshot) {
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stable)
+    if (typeof value === 'object' && value !== null) {
+      return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, stable(nested)]))
+    }
+    return value
+  }
+  const graph = {
+    nodes: [...snapshot.nodes].map((node) => ({
+      id: node.id,
+      kind: node.data.kind,
+      label: node.data.label,
+      position: node.position,
+      config: stable(node.data.config),
+    })).sort((left, right) => left.id.localeCompare(right.id)),
+    edges: [...snapshot.edges].map((edge) => ({ source: edge.source, target: edge.target, label: edge.label ?? '' }))
+      .sort((left, right) => `${left.source}/${left.target}`.localeCompare(`${right.source}/${right.target}`)),
+  }
+  const text = JSON.stringify(graph)
+  let hash = 0x811c9dc5
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+const WORKFLOW_RECIPE_KINDS: Record<CopilotWorkflowRecipe, readonly WorkflowNodeKind[]> = {
+  MEDIA_SUMMARY: ['start', 'upload', 'ffmpeg', 'whisper', 'summary', 'export', 'output'],
+  URL_SUMMARY: ['start', 'url-fetch', 'summary', 'export', 'output'],
+}
+
+export function buildCopilotWorkflowPlanGraph(
+  plan: CopilotWorkflowPlan,
+  templates: NodeTemplate[],
+  options: { idPrefix?: string; startPosition?: CanvasPosition } = {},
+): WorkflowDraftGraph {
+  if (plan.status !== 'READY' || !plan.recipe) {
+    throw new Error('A ready supported plan is required')
+  }
+  const kinds = WORKFLOW_RECIPE_KINDS[plan.recipe]
+  const templatesByKind = templateByKind(templates)
+  const missingKinds = kinds.filter((kind) => !templatesByKind.has(kind))
+  const unavailableKinds = kinds.filter((kind) => templatesByKind.get(kind)?.availability?.available === false)
+  if (missingKinds.length || unavailableKinds.length) {
+    throw new Error(`Unavailable node capabilities: ${[...missingKinds, ...unavailableKinds].join(', ')}`)
+  }
+  const idPrefix = options.idPrefix ?? `copilot-plan-${Date.now()}`
+  const position = options.startPosition ?? { x: 80, y: 180 }
+  const nodes = kinds.map((kind, index) =>
+    draftNode(templatesByKind.get(kind) as NodeTemplate, idPrefix, index, position),
+  )
+  const byKind = new Map(nodes.map((node) => [node.data.kind, node]))
+  const outputFormat = normalizePlanOutputFormat(plan.requirements.outputFormat)
+
+  byKind.get('start')!.data.config = { variables: {}, output: {} }
+  if (plan.recipe === 'URL_SUMMARY') {
+    byKind.get('start')!.data.outputs = ['websiteUrl']
+  }
+  if (plan.recipe === 'MEDIA_SUMMARY') {
+    byKind.get('upload')!.data.config = { fileIdVariable: 'fileId' }
+    byKind.get('ffmpeg')!.data.config = {
+      fileUrlVariable: 'fileUrl', operation: 'extract-audio', outputFormat: 'wav', timeoutSeconds: 120,
+    }
+    byKind.get('whisper')!.data.config = { fileUrlVariable: 'fileUrl', language: 'auto', prompt: '' }
+    byKind.get('summary')!.data.config = {
+      textVariable: 'transcription', language: plan.requirements.language, prompt: plan.requirements.instruction,
+    }
+  } else {
+    byKind.get('url-fetch')!.data.config = { urlVariable: 'websiteUrl', maxChars: 20000, outputVariable: 'urlText' }
+    byKind.get('summary')!.data.config = {
+      textVariable: 'urlText', language: plan.requirements.language, prompt: plan.requirements.instruction,
     }
   }
+  byKind.get('export')!.data.config = { sourceVariable: 'summary', format: outputFormat, fileName: 'summary.md' }
+  byKind.get('output')!.data.config = { outputName: 'summary', outputValue: 'summary' }
 
+  const edgeLabels = plan.recipe === 'MEDIA_SUMMARY'
+    ? ['fileId', 'fileUrl', 'fileUrl', 'transcription', 'summary', 'summary']
+    : ['websiteUrl', 'urlText', 'summary', 'summary']
+  const edges = nodes.slice(0, -1).map((node, index) => ({
+    id: `${idPrefix}-edge-${index}`,
+    source: node.id,
+    target: nodes[index + 1].id,
+    animated: true,
+    label: edgeLabels[index] ?? node.data.outputs[0],
+  }))
+  return { nodes, edges }
+}
+
+function normalizePlanOutputFormat(value: string) {
+  const format = value.trim().toUpperCase()
+  if (format === 'MARKDOWN' || format === 'MD') return 'MARKDOWN'
+  if (format === 'TXT' || format === 'TEXT' || format === 'PLAIN TEXT') return 'TXT'
+  if (format === 'JSON') return 'JSON'
+  throw new Error(`Unsupported output format: ${value}`)
+}
+
+function redactCopilotValue(value: unknown, key = '', depth = 0): unknown {
+  if (/secret|password|token|api.?key|credential|authorization|private.?key|access.?key/i.test(key)) {
+    return '[redacted]'
+  }
+  if (typeof value === 'string') {
+    return value.length <= 400 ? value : `${value.slice(0, 400)}...`
+  }
+  if (Array.isArray(value)) {
+    return depth >= 3 ? '[nested data omitted]' : value.slice(0, 20).map((item) => redactCopilotValue(item, '', depth + 1))
+  }
+  if (typeof value === 'object' && value !== null) {
+    if (depth >= 3) return '[nested data omitted]'
+    return Object.fromEntries(Object.entries(value).slice(0, 20).map(([childKey, childValue]) => [
+      childKey,
+      redactCopilotValue(childValue, childKey, depth + 1),
+    ]))
+  }
+  return value
+}
+
+export function actionMessageFor(action: WorkflowCopilotCanvasAction): WorkflowCopilotActionMessage {
   return {
     type: action.type,
     labelKey: action.type === 'add-node'
@@ -250,34 +382,4 @@ function draftNode(
       runtime: { lastResult: 'drafted by copilot' },
     },
   }
-}
-
-export function buildMediaSummaryDraftGraph(
-  templates: NodeTemplate[],
-  options: {
-    idPrefix?: string
-    startPosition?: CanvasPosition
-  } = {},
-): WorkflowDraftGraph {
-  const templatesByKind = templateByKind(templates)
-  const idPrefix = options.idPrefix ?? `copilot-media-${Date.now()}`
-  const startPosition = options.startPosition ?? { x: 80, y: 180 }
-  const missingKinds = MEDIA_SUMMARY_WORKFLOW_KINDS.filter((kind) => !templatesByKind.has(kind))
-
-  if (missingKinds.length > 0) {
-    throw new Error(`Missing node templates: ${missingKinds.join(', ')}`)
-  }
-
-  const nodes = MEDIA_SUMMARY_WORKFLOW_KINDS.map((kind, index) =>
-    draftNode(templatesByKind.get(kind) as NodeTemplate, idPrefix, index, startPosition),
-  )
-  const edges = nodes.slice(0, -1).map((node, index) => ({
-    id: `${idPrefix}-edge-${node.data.kind}-${nodes[index + 1].data.kind}`,
-    source: node.id,
-    target: nodes[index + 1].id,
-    animated: true,
-    label: node.data.outputs[0],
-  }))
-
-  return { nodes, edges }
 }

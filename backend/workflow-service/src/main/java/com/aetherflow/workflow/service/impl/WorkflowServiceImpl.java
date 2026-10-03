@@ -8,6 +8,8 @@ import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.controller.WorkflowCopyRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationResponse;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowDefinitionMapper;
@@ -458,6 +460,164 @@ public class WorkflowServiceImpl implements WorkflowService {
         return List.of(mediaDigestTemplate(), textSummaryTemplate());
     }
 
+    @Override
+    public WorkflowDraftValidationResponse validateDraft(WorkflowDraftValidationRequest request) {
+        currentUserId();
+        if (request == null || request.definition() == null || request.recipe() == null
+                || request.recipe().isBlank()) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow draft and supported recipe are required");
+        }
+        WorkflowDefinitionDTO definition = request.definition();
+        if (request.definitionId() != null) {
+            WorkflowDefinition persisted = getExistingDefinition(request.definitionId());
+            int actualVersion = persisted.getVersion() == null ? 1 : persisted.getVersion();
+            if (request.expectedVersion() == null || request.expectedVersion() != actualVersion) {
+                throw new BusinessException(ResultCode.CONFLICT,
+                        "workflow definition changed; reload before applying the copilot plan");
+            }
+        } else if (request.expectedVersion() != null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "a workflow version requires an owned workflow definition id");
+        }
+        if (definition.getProjectId() != null) {
+            requireOwnedProjectId(definition.getProjectId());
+        }
+
+        try {
+            validateDag(definition);
+            List<String> recipeViolations = validatePlannerRecipe(definition, request.recipe());
+            if (!recipeViolations.isEmpty()) {
+                return new WorkflowDraftValidationResponse(false, false, recipeViolations);
+            }
+        } catch (BusinessException exception) {
+            return new WorkflowDraftValidationResponse(false, false, List.of(exception.getMessage()));
+        }
+
+        try {
+            validateRuntimePreflight(definition);
+            aiCapabilityPreflightService.validate(definition);
+        } catch (BusinessException exception) {
+            return new WorkflowDraftValidationResponse(true, false, List.of(exception.getMessage()));
+        }
+        return new WorkflowDraftValidationResponse(true, true, List.of());
+    }
+
+    private List<String> validatePlannerRecipe(WorkflowDefinitionDTO definition, String recipe) {
+        List<String> expectedTypes = switch (recipe) {
+            case "MEDIA_SUMMARY" -> List.of("START", "UPLOAD", "FFMPEG", "WHISPER", "SUMMARY", "EXPORT", "END");
+            case "URL_SUMMARY" -> List.of("START", "URL_FETCH", "SUMMARY", "EXPORT", "END");
+            default -> throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported copilot workflow recipe");
+        };
+        List<WorkflowNodeDTO> nodes = definition.getNodes();
+        if (nodes == null || nodes.size() != expectedTypes.size()) {
+            return List.of("workflow nodes do not match the selected supported recipe");
+        }
+        WorkflowDag dag = WorkflowDag.from(definition);
+        List<String> violations = new java.util.ArrayList<>();
+        for (int index = 0; index < expectedTypes.size(); index++) {
+            WorkflowNodeDTO node = nodes.get(index);
+            String expectedType = expectedTypes.get(index);
+            if (!expectedType.equalsIgnoreCase(node.getNodeType())) {
+                violations.add("workflow node " + index + " must be " + expectedType);
+                continue;
+            }
+            List<String> expectedNext = index + 1 < nodes.size()
+                    ? List.of(nodes.get(index + 1).getNodeId())
+                    : List.of();
+            if (!dag.declaredNextNodeIds(node.getNodeId()).equals(expectedNext)) {
+                violations.add("workflow edges must follow the supported recipe in order");
+            }
+            validatePlannerNodeConfig(node, expectedType, recipe, violations);
+        }
+        return List.copyOf(violations);
+    }
+
+    private void validatePlannerNodeConfig(WorkflowNodeDTO node, String type, String recipe, List<String> violations) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        String expectedInput = switch (type) {
+            case "UPLOAD" -> "fileIdVariable";
+            case "FFMPEG", "WHISPER" -> "fileUrlVariable";
+            case "URL_FETCH" -> "urlVariable";
+            case "SUMMARY" -> "textVariable";
+            case "EXPORT" -> "sourceVariable";
+            default -> null;
+        };
+        if (expectedInput != null) {
+            String expectedVariable = switch (type) {
+                case "UPLOAD" -> "fileId";
+                case "FFMPEG", "WHISPER" -> "fileUrl";
+                case "URL_FETCH" -> "websiteUrl";
+                case "SUMMARY" -> "MEDIA_SUMMARY".equals(recipe) ? "transcription" : "urlText";
+                case "EXPORT" -> "summary";
+                default -> "";
+            };
+            Object actual = config.get(expectedInput);
+            if (actual == null || !expectedVariable.equals(String.valueOf(actual))) {
+                violations.add("node " + node.getNodeId() + " must read the recipe's declared upstream variable");
+            }
+        }
+        if ("START".equals(type)) {
+            if (!asMap(config.get("variables")).isEmpty()) {
+                violations.add("copilot recipe start node may not contain fixed runtime values");
+            }
+        }
+        Object summaryInstruction = config.get("prompt");
+        boolean invalidInstruction = summaryInstruction != null
+                && (!(summaryInstruction instanceof String instruction) || instruction.length() > 600);
+        if ("SUMMARY".equals(type) && (!hasBoundedString(config.get("language"), 80) || invalidInstruction)) {
+            violations.add("summary language or instruction exceeds the supported limit");
+        }
+        if ("URL_FETCH".equals(type) && config.containsKey("url")) {
+            violations.add("copilot URL summaries must use the runtime URL input, not a fixed URL");
+        }
+        if ("UPLOAD".equals(type) && config.containsKey("fileId")) {
+            violations.add("copilot media summaries must use the run-time file input");
+        }
+        if ("WHISPER".equals(type) && (config.containsKey("fileUrl") || config.containsKey("fileId"))) {
+            violations.add("copilot transcription must use the upstream file URL");
+        }
+        if ("FFMPEG".equals(type) && (!"extract-audio".equals(config.getOrDefault("operation", "extract-audio"))
+                || !"wav".equalsIgnoreCase(String.valueOf(config.getOrDefault("outputFormat", "wav"))))) {
+            violations.add("copilot media summaries must use the supported audio extraction settings");
+        }
+        if ("EXPORT".equals(type)) {
+            String format = String.valueOf(config.getOrDefault("format", "MARKDOWN"));
+            String fileName = String.valueOf(config.getOrDefault("fileName", "summary.md"));
+            if (!List.of("MARKDOWN", "TXT", "JSON").contains(format.toUpperCase())
+                    || !fileName.matches("[A-Za-z0-9_.-]{1,80}")) {
+                violations.add("export format or file name is outside the supported recipe limits");
+            }
+        }
+        if ("END".equals(type)) {
+            Map<?, ?> output = config.get("output") instanceof Map<?, ?> map ? map : Map.of();
+            if (output.size() != 1 || !output.containsValue("summary")) {
+                violations.add("copilot output must return the generated summary");
+            }
+        }
+        Set<String> allowedFields = new java.util.HashSet<>(List.of("nextNodes"));
+        switch (type) {
+            case "START" -> allowedFields.addAll(List.of("variables", "output"));
+            case "UPLOAD" -> allowedFields.add("fileIdVariable");
+            case "FFMPEG" -> allowedFields.addAll(List.of("fileUrlVariable", "operation", "outputFormat", "timeoutSeconds"));
+            case "WHISPER" -> allowedFields.addAll(List.of("fileUrlVariable", "language", "prompt"));
+            case "URL_FETCH" -> allowedFields.addAll(List.of("urlVariable", "maxChars", "outputVariable"));
+            case "SUMMARY" -> allowedFields.addAll(List.of("textVariable", "language", "prompt"));
+            case "EXPORT" -> allowedFields.addAll(List.of("sourceVariable", "format", "fileName"));
+            case "END" -> allowedFields.addAll(List.of("output", "variables"));
+            default -> { }
+        }
+        config.keySet().stream().filter(key -> !allowedFields.contains(key))
+                .forEach(key -> violations.add("node " + node.getNodeId() + " contains unsupported planner config field: " + key));
+    }
+
+    private boolean hasBoundedString(Object value, int maxLength) {
+        return value instanceof String text && !text.isBlank() && text.length() <= maxLength;
+    }
+
+    private Map<?, ?> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? map : Map.of();
+    }
+
     private WorkflowDefinitionDTO mediaDigestTemplate() {
         return template("Media digest", "Upload media, transcribe and summarize the content.", List.of(
                 templateNode("start", "START", "Start", Map.of("nextNodes", List.of("upload"))),
@@ -764,4 +924,3 @@ public class WorkflowServiceImpl implements WorkflowService {
         }
     }
 }
-

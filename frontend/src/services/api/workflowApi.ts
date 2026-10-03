@@ -10,8 +10,10 @@ import {
   listWorkflowTemplates as fetchWorkflowTemplates,
   startInstance,
   updateDefinition,
+  validateWorkflowDraft,
   type WorkflowDefinitionEntity,
 } from '@/api/modules/workflow'
+import type { CopilotWorkflowRecipe } from '@/types/copilotWorkflowPlan'
 
 export { cancelWorkflowInstance }
 import { useAuthStore } from '@/stores/authStore'
@@ -592,6 +594,14 @@ export const workflowApi = {
         edges: graph.edges,
       }
     })
+  },
+  async validateCopilotDraft(workflow: WorkflowDefinition, recipe: CopilotWorkflowRecipe, signal?: AbortSignal) {
+    return validateWorkflowDraft({
+      ...(workflow.backendDefinitionId ? { definitionId: workflow.backendDefinitionId } : {}),
+      ...(workflow.backendVersion ? { expectedVersion: workflow.backendVersion } : {}),
+      recipe,
+      definition: mapWorkflowToDefinitionDTO(workflow),
+    }, signal)
   },
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     return emptyWorkflow(workflowId, workflowName)

@@ -6,6 +6,8 @@ import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationResponse;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.entity.WorkflowStartOutbox;
@@ -88,7 +90,9 @@ class WorkflowServiceImplTest {
     @BeforeEach
     void setUp() {
         runtimeProperties = new WorkflowRuntimeProperties();
-        nodeRegistry = new NodeRegistry(List.of(executor("START"), executor("SUMMARY"), executor("EXPORT"), executor("END")));
+        nodeRegistry = new NodeRegistry(List.of(
+                executor("START"), executor("UPLOAD"), executor("FFMPEG"), executor("WHISPER"),
+                executor("URL_FETCH"), executor("SUMMARY"), executor("EXPORT"), executor("END")));
         workflowService = new WorkflowServiceImpl(
                 definitionMapper,
                 instanceMapper,
@@ -576,6 +580,52 @@ class WorkflowServiceImplTest {
         verify(definitionMapper).updateById(definition);
     }
 
+    @Test
+    void validatesSupportedPlannerRecipeWithoutSavingOrStarting() {
+        WorkflowDraftValidationResponse response = asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(null, null, "MEDIA_SUMMARY", mediaSummaryDefinition())));
+
+        assertThat(response.structurallyValid()).isTrue();
+        assertThat(response.runtimeReady()).isTrue();
+        assertThat(response.issues()).isEmpty();
+        verify(definitionMapper, never()).insert(any(WorkflowDefinition.class));
+        verify(instanceMapper, never()).insert(any(WorkflowInstance.class));
+    }
+
+    @Test
+    void rejectsPlannerDraftWithMissingUpstreamVariable() {
+        WorkflowDefinitionDTO candidate = mediaSummaryDefinition();
+        Map<String, Object> summaryConfig = new java.util.LinkedHashMap<>(candidate.getNodes().get(4).getConfig());
+        summaryConfig.put("textVariable", "inventedTranscript");
+        candidate.getNodes().get(4).setConfig(summaryConfig);
+
+        WorkflowDraftValidationResponse response = asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(null, null, "MEDIA_SUMMARY", candidate)));
+
+        assertThat(response.structurallyValid()).isFalse();
+        assertThat(response.runtimeReady()).isFalse();
+        assertThat(response.issues()).anyMatch(issue -> issue.contains("declared upstream variable"));
+    }
+
+    @Test
+    void rejectsStaleOrWrongOwnerPlannerDraftBeforeValidation() {
+        WorkflowDefinition persisted = definitionEntity();
+        persisted.setVersion(4);
+        when(definitionMapper.selectById(10L)).thenReturn(persisted);
+
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(10L, 3, "MEDIA_SUMMARY", mediaSummaryDefinition()))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("changed");
+
+        persisted.setOwnerUserId(99L);
+        assertThatThrownBy(() -> asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(10L, 4, "MEDIA_SUMMARY", mediaSummaryDefinition()))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not found");
+        verify(aiCapabilityPreflightService, never()).validate(any());
+    }
+
     private static WorkflowDefinition definitionEntity() {
         WorkflowDefinition definition = new WorkflowDefinition();
         definition.setId(10L);
@@ -609,6 +659,22 @@ class WorkflowServiceImplTest {
         definition.setName("test");
         definition.setNodes(List.of(nodes));
         return definition;
+    }
+
+    private static WorkflowDefinitionDTO mediaSummaryDefinition() {
+        return definition(
+                node("node-start", "START", Map.of("variables", Map.of(), "output", Map.of(), "nextNodes", List.of("node-upload"))),
+                node("node-upload", "UPLOAD", Map.of("fileIdVariable", "fileId", "nextNodes", List.of("node-ffmpeg"))),
+                node("node-ffmpeg", "FFMPEG", Map.of("fileUrlVariable", "fileUrl", "operation", "extract-audio",
+                        "outputFormat", "wav", "timeoutSeconds", 120, "nextNodes", List.of("node-whisper"))),
+                node("node-whisper", "WHISPER", Map.of("fileUrlVariable", "fileUrl", "language", "auto", "prompt", "",
+                        "nextNodes", List.of("node-summary"))),
+                node("node-summary", "SUMMARY", Map.of("textVariable", "transcription", "language", "Chinese", "prompt", "",
+                        "nextNodes", List.of("node-export"))),
+                node("node-export", "EXPORT", Map.of("sourceVariable", "summary", "format", "MARKDOWN", "fileName", "meeting.md",
+                        "nextNodes", List.of("node-output"))),
+                node("node-output", "END", Map.of("output", Map.of("summary", "summary"), "variables", Map.of()))
+        );
     }
 
     private static NodeExecutor executor(String type) {

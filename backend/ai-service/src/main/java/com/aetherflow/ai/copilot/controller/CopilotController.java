@@ -38,6 +38,12 @@ public class CopilotController {
         return Result.success(copilotService.chat(userId, request));
     }
 
+    @PostMapping("/workflow-plan")
+    public Result<CopilotChatResponse> planWorkflow(@Valid @RequestBody CopilotChatRequest request,
+                                                     @RequestHeader("X-User-Id") Long userId) {
+        return Result.success(copilotService.planWorkflow(userId, request));
+    }
+
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@Valid @RequestBody CopilotChatRequest request,
                              @RequestHeader("X-User-Id") Long userId) {

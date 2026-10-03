@@ -18,6 +18,27 @@ export interface WorkflowDefinitionDTO {
   nodes: WorkflowDefinitionNodeDTO[]
 }
 
+export interface WorkflowDraftValidationRequest {
+  definitionId?: number
+  expectedVersion?: number
+  recipe: 'MEDIA_SUMMARY' | 'URL_SUMMARY'
+  definition: WorkflowDefinitionDTO
+}
+
+export interface WorkflowDraftValidationResponse {
+  structurallyValid: boolean
+  runtimeReady: boolean
+  issues: string[]
+}
+
+export function validateWorkflowDraft(payload: WorkflowDraftValidationRequest, signal?: AbortSignal) {
+  return apiClient.post<WorkflowDraftValidationResponse>('/workflows/drafts/validate', payload, {
+    source: 'workflow',
+    timeout: 30_000,
+    signal,
+  })
+}
+
 export interface WorkflowCopyRequest {
   name?: string
 }

@@ -143,9 +143,14 @@ describe('节点配置与后端执行语义一致', () => {
 
   it('清空数字输入时保留空值而不是写入零', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const dynamicNumberParser = source.slice(
+      source.indexOf('function parseDynamicFieldValue'),
+      source.indexOf('function handleDynamicFieldInput'),
+    )
 
     expect(source).toContain("value === '' ? '' : Number(value)")
-    expect(source).toContain("rawValue === '' ? '' : Number(rawValue)")
+    expect(dynamicNumberParser).toMatch(/if \(rawValue === ''\)\s*\{\s*return ''\s*\}/)
+    expect(dynamicNumberParser).toContain('Number(rawValue)')
   })
 
   it('使用后端实际字段编辑知识检索查询和知识库', () => {
