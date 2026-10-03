@@ -191,6 +191,156 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void workflowPlannerPersistsStrictStructuredPlanAndRedactsUnapprovedContext() {
+        stubAiReply(validMediaPlanJson("Chinese", "Focus on decisions"));
+        stubNewConversationAndMessages();
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("帮我规划一个会议录音摘要流程");
+        request.setWorkflowId("wf-1001");
+        request.setContext(java.util.Map.of(
+                "workflowName", "Meeting notes",
+                "availableNodeKinds", List.of("start", "upload", "summary"),
+                "config", java.util.Map.of("apiKey", "should-not-reach-provider"),
+                "password", "should-not-reach-provider"
+        ));
+
+        CopilotChatResponse response = service.planWorkflow(7L, request);
+
+        assertThat(response.plan()).isNotNull();
+        assertThat(response.plan().status().name()).isEqualTo("READY");
+        assertThat(response.plan().recipe().name()).isEqualTo("MEDIA_SUMMARY");
+        assertThat(response.conversationId()).isEqualTo("conv-11");
+        ArgumentCaptor<AiProviderRequest> providerRequest = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(providerRequest.capture());
+        assertThat(providerRequest.getValue().prompt())
+                .contains("Latest user turn", "Meeting notes", "MEDIA_SUMMARY")
+                .doesNotContain("should-not-reach-provider", "apiKey", "password");
+        ArgumentCaptor<CopilotMessageEntity> messages = ArgumentCaptor.forClass(CopilotMessageEntity.class);
+        verify(messageMapper, org.mockito.Mockito.times(2)).insert(messages.capture());
+        CopilotMessageEntity persistedPlan = messages.getAllValues().get(1);
+        assertThat(persistedPlan.getRole()).isEqualTo("assistant");
+        assertThat(persistedPlan.getPlanJson()).contains("MEDIA_SUMMARY", "Focus on decisions");
+        verify(messageMapper).updateById(persistedPlan);
+    }
+
+    @Test
+    void workflowPlannerCarriesForwardTheLatestPersistedRequirements() {
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation);
+        CopilotMessageEntity previous = message(22L, 11L, "assistant", "已生成会议摘要计划");
+        previous.setPlanJson(validMediaPlanJson("Chinese", "Keep decisions and owners"));
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(previous));
+        stubAiReply(validMediaPlanJson("English", "Keep decisions and owners"));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 24L : 23L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-1001");
+        request.setPrompt("把摘要语言改成 English");
+
+        CopilotChatResponse response = service.planWorkflow(7L, request);
+
+        assertThat(response.plan().requirements().language()).isEqualTo("English");
+        ArgumentCaptor<AiProviderRequest> providerRequest = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(providerRequest.capture());
+        assertThat(providerRequest.getValue().prompt())
+                .contains("Latest persisted structured plan", "Keep decisions and owners", "把摘要语言改成 English");
+    }
+
+    @Test
+    void workflowPlannerLoadsTheLatestPlanOutsideTheBoundedChatHistoryWindow() {
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation);
+        List<CopilotMessageEntity> recent = new java.util.ArrayList<>();
+        for (long id = 40; id < 60; id++) {
+            recent.add(message(id, 11L, id % 2 == 0 ? "assistant" : "user", "ordinary chat turn"));
+        }
+        CopilotMessageEntity latestPlan = message(22L, 11L, "assistant", "Plan from before the chat window");
+        latestPlan.setPlanJson(validMediaPlanJson("Chinese", "Preserve the current requirements"));
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(recent, List.of(latestPlan));
+        stubAiReply(validMediaPlanJson("English", "Preserve the current requirements"));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 62L : 61L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-1001");
+        request.setPrompt("Change the output language to English");
+
+        service.planWorkflow(7L, request);
+
+        ArgumentCaptor<AiProviderRequest> providerRequest = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(providerRequest.capture());
+        assertThat(providerRequest.getValue().prompt())
+                .contains("Latest persisted structured plan", "Preserve the current requirements");
+    }
+
+    @Test
+    void workflowPlannerRejectsOutOfOrderConcurrentCompletion() {
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation);
+        CopilotMessageEntity basePlan = message(22L, 11L, "assistant", "Plan before concurrent turns");
+        basePlan.setPlanJson(validMediaPlanJson("Chinese", "Keep existing fields"));
+        CopilotMessageEntity concurrentPlan = message(25L, 11L, "assistant", "Newer planner response");
+        concurrentPlan.setPlanJson(validMediaPlanJson("English", "Keep existing fields"));
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(basePlan), List.of(concurrentPlan));
+        stubAiReply(validMediaPlanJson("French", "Keep existing fields"));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId(23L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-1001");
+        request.setPrompt("Change the summary language to French");
+
+        assertThatThrownBy(() -> service.planWorkflow(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("state changed");
+
+        verify(messageMapper, org.mockito.Mockito.times(1)).insert(any(CopilotMessageEntity.class));
+        verify(messageMapper, never()).updateById(any(CopilotMessageEntity.class));
+    }
+
+    @Test
+    void workflowPlannerRejectsMalformedOrUnboundedModelOutputBeforePersistingAssistantPlan() {
+        stubAiReply("```json\n{\"status\":\"READY\", \"recipe\":\"CODE\"}\n```");
+        stubNewConversationAndMessages();
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("Create a safe summary flow");
+
+        assertThatThrownBy(() -> service.planWorkflow(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("malformed structured output");
+
+        verify(messageMapper, org.mockito.Mockito.times(1)).insert(any(CopilotMessageEntity.class));
+        verify(messageMapper, never()).updateById(any(CopilotMessageEntity.class));
+    }
+
+    @Test
+    void workflowPlannerRejectsMissingSchemaFieldsAndBlankPlanSteps() {
+        stubAiReply("{\"status\":\"READY\",\"requirements\":{},\"recipe\":\"MEDIA_SUMMARY\",\"steps\":[\"\",\"\",\"\"],\"explanation\":\"Plan\",\"clarifyingQuestion\":null,\"assumptions\":[]}");
+        stubNewConversationAndMessages();
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("Create a media summary flow");
+
+        assertThatThrownBy(() -> service.planWorkflow(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("invalid structured plan");
+        verify(messageMapper, org.mockito.Mockito.times(1)).insert(any(CopilotMessageEntity.class));
+        verify(messageMapper, never()).updateById(any(CopilotMessageEntity.class));
+    }
+
+    @Test
     void streamPersistsTheCombinedAssistantReplyAndForwardsEachDelta() {
         doAnswer(invocation -> {
             java.util.function.Consumer<AiProviderResponse> consumer = invocation.getArgument(1);
@@ -289,5 +439,27 @@ class CopilotServiceImplTest {
     private void stubAiReply(String text) {
         when(aiProviderRouter.complete(any(AiProviderRequest.class)))
                 .thenReturn(new AiProviderResponse(AiProviderType.OLLAMA, "qwen3.5:9b", text, java.util.Map.of()));
+    }
+
+    private void stubNewConversationAndMessages() {
+        doAnswer(invocation -> {
+            CopilotConversationEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
+        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation(11L));
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        AtomicLong ids = new AtomicLong(20);
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId(ids.incrementAndGet());
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+    }
+
+    private String validMediaPlanJson(String language, String instruction) {
+        return """
+                {"status":"READY","requirements":{"goal":"Summarize a meeting recording","inputKind":"MEDIA_FILE","inputDescription":"Audio or video supplied at run time","outputFormat":"Markdown","language":"%s","audience":"Project team","instruction":"%s","constraints":["Keep decisions and action owners"]},"recipe":"MEDIA_SUMMARY","steps":["Accept a media file at workflow start","Load its metadata and extract audio","Transcribe the recording","Create a readable summary","Export the summary and return it"],"explanation":"I’ll create a media summary flow with a run-time file input.","clarifyingQuestion":null,"assumptions":["The source file is supplied when the workflow runs"]}
+                """.formatted(language, instruction);
     }
 }

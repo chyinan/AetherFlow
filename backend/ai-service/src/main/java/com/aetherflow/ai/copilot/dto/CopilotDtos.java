@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 import java.util.Map;
+import java.util.List;
 
 public final class CopilotDtos {
 
@@ -27,8 +28,15 @@ public final class CopilotDtos {
             String conversationId,
             String role,
             String content,
-            String createdAt
+            String createdAt,
+            CopilotWorkflowPlan plan,
+            Long planBaseRevision,
+            Integer planBaseVersion,
+            String planBaseFingerprint
     ) {
+        public CopilotChatResponse(String id, String conversationId, String role, String content, String createdAt) {
+            this(id, conversationId, role, content, createdAt, null, null, null, null);
+        }
     }
 
     public record CopilotConversationSummary(
@@ -45,7 +53,68 @@ public final class CopilotDtos {
             String id,
             String role,
             String content,
-            String createdAt
+            String createdAt,
+            CopilotWorkflowPlan plan,
+            Long planBaseRevision,
+            Integer planBaseVersion,
+            String planBaseFingerprint
+    ) {
+        public CopilotMessageResponse(String id, String role, String content, String createdAt) {
+            this(id, role, content, createdAt, null, null, null, null);
+        }
+    }
+
+    public enum CopilotWorkflowPlanStatus {
+        READY,
+        NEEDS_CLARIFICATION,
+        UNSUPPORTED
+    }
+
+    public enum CopilotWorkflowInputKind {
+        MEDIA_FILE,
+        PUBLIC_URL,
+        UNKNOWN
+    }
+
+    public enum CopilotWorkflowRecipe {
+        MEDIA_SUMMARY,
+        URL_SUMMARY
+    }
+
+    /**
+     * The planner contract is deliberately smaller than the workflow node catalog. The model
+     * can choose only a supported recipe and provide bounded user-facing requirements; the
+     * canvas compiler still creates nodes from trusted templates.
+     */
+    public record CopilotWorkflowRequirements(
+            String goal,
+            CopilotWorkflowInputKind inputKind,
+            String inputDescription,
+            String outputFormat,
+            String language,
+            String audience,
+            String instruction,
+            List<String> constraints
+    ) {
+    }
+
+    public record CopilotWorkflowPlan(
+            CopilotWorkflowPlanStatus status,
+            CopilotWorkflowRequirements requirements,
+            CopilotWorkflowRecipe recipe,
+            List<String> steps,
+            String explanation,
+            String clarifyingQuestion,
+            List<String> assumptions
+    ) {
+    }
+
+    /** Internal persistence envelope. The client-provided edit revision is an optimistic UI guard only. */
+    public record CopilotWorkflowPlanPersistence(
+            CopilotWorkflowPlan plan,
+            Long baseEditRevision,
+            Integer baseBackendVersion,
+            String baseGraphFingerprint
     ) {
     }
 }

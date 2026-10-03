@@ -16,6 +16,7 @@ const requiredIntents = [
 
 const requiredMediaChain = [
   'start',
+  'upload',
   'ffmpeg',
   'whisper',
   'summary',
@@ -40,7 +41,8 @@ for (const kind of requiredMediaChain) {
 for (const token of [
   'buildWorkflowCopilotContext',
   'recommendNextNodeAction',
-  'buildMediaSummaryDraftGraph',
+  'buildWorkflowPlannerContext',
+  'buildCopilotWorkflowPlanGraph',
 ]) {
   if (!actionFile.includes(token)) {
     missing.push(`workflowCopilotActions missing ${token}`)
@@ -51,6 +53,10 @@ for (const token of [
   'message.action',
   'apply-canvas-action',
   'runQuickAction',
+  'copilotApi.planWorkflow',
+  'applyWorkflowPlan',
+  'cancelWorkflowPlan',
+  'planPreview',
 ]) {
   if (!panelFile.includes(token)) {
     missing.push(`AICopilotPanel missing ${token}`)
@@ -61,14 +67,15 @@ for (const token of [
   'copilotContext',
   'handleCopilotCanvasAction',
   ':context="copilotContext"',
+  'handleCopilotWorkflowDraft',
 ]) {
   if (!pageFile.includes(token)) {
     missing.push(`WorkflowPage missing ${token}`)
   }
 }
 
-if (!storeFile.includes('applyMediaSummaryWorkflowDraft')) {
-  missing.push('workflowStore missing applyMediaSummaryWorkflowDraft')
+if (!storeFile.includes('applyCopilotWorkflowDraft')) {
+  missing.push('workflowStore missing applyCopilotWorkflowDraft')
 }
 
 if (missing.length > 0) {
@@ -76,4 +83,4 @@ if (missing.length > 0) {
   process.exit(1)
 }
 
-console.log('workflow copilot actions are wired for context, suggestions, error analysis, and media draft application')
+console.log('workflow copilot actions are wired for chat, structured planning, validation, and guarded application')

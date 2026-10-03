@@ -49,6 +49,14 @@ public class WorkflowController {
         return Result.success(workflowService.createDefinition(request));
     }
 
+    @PostMapping("/drafts/validate")
+    @Operation(summary = "Validate a Copilot workflow draft",
+            description = "Validates one of the supported Copilot recipes without saving it or starting a run. Existing definitions are owner- and version-checked.")
+    public Result<WorkflowDraftValidationResponse> validateDraft(
+            @Valid @RequestBody WorkflowDraftValidationRequest request) {
+        return Result.success(workflowService.validateDraft(request));
+    }
+
     @Operation(summary = "List workflow definitions",
             description = "Lists non-deleted workflow definitions for dashboard and workflow builder reload.")
     @ApiResponses({
@@ -153,4 +161,3 @@ public class WorkflowController {
         return Result.success(workflowService.startInstance(definitionId, request));
     }
 }
-

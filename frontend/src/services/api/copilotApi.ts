@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client/apiClient'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import type { CopilotMessage } from '@/types/copilot'
+import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
 import { tokenManager } from '@/api/client/tokenManager'
 
 export interface CopilotAskOptions {
@@ -14,6 +15,7 @@ export interface CopilotAskOptions {
 
 export interface CopilotStreamOptions extends CopilotAskOptions {
   onDelta?: (content: string) => void
+  signal?: AbortSignal
 }
 
 export interface CopilotConversationSummary {
@@ -30,6 +32,10 @@ interface CopilotMessageResponse {
   role: 'user' | 'assistant'
   content: string
   createdAt: string
+  plan?: CopilotWorkflowPlan | null
+  planBaseRevision?: number | null
+  planBaseVersion?: number | null
+  planBaseFingerprint?: string | null
 }
 
 interface CopilotChatResponse {
@@ -38,6 +44,10 @@ interface CopilotChatResponse {
   role: 'assistant'
   content: string
   createdAt: string
+  plan?: CopilotWorkflowPlan | null
+  planBaseRevision?: number | null
+  planBaseVersion?: number | null
+  planBaseFingerprint?: string | null
 }
 
 type CopilotSseEvent = {
@@ -88,6 +98,10 @@ function toAssistantMessage(response: CopilotChatResponse): CopilotMessage {
     role: 'assistant',
     content: response.content,
     createdAt: response.createdAt,
+    ...(response.plan ? { plan: response.plan } : {}),
+    ...(response.planBaseRevision != null ? { planBaseRevision: response.planBaseRevision } : {}),
+    ...(response.planBaseVersion != null ? { planBaseVersion: response.planBaseVersion } : {}),
+    ...(response.planBaseFingerprint ? { planBaseFingerprint: response.planBaseFingerprint } : {}),
   }
 }
 
@@ -98,6 +112,14 @@ export const copilotApi = {
       timeout: 65_000,
     })
 
+    return toAssistantMessage(response)
+  },
+  async planWorkflow(prompt: string, options: CopilotAskOptions & { signal?: AbortSignal } = {}) {
+    const response = await apiClient.post<CopilotChatResponse>('/copilot/workflow-plan', requestPayload(prompt, options), {
+      source: 'ai',
+      timeout: 65_000,
+      signal: options.signal,
+    })
     return toAssistantMessage(response)
   },
   async stream(prompt: string, options: CopilotStreamOptions = {}) {
@@ -111,6 +133,7 @@ export const copilotApi = {
       },
       body: JSON.stringify(requestPayload(prompt, options)),
       credentials: 'include',
+      signal: options.signal,
     })
     if (!response.ok) {
       throw new Error(`copilot stream request failed: ${response.status}`)
@@ -172,6 +195,10 @@ export const copilotApi = {
       role: message.role,
       content: message.content,
       createdAt: message.createdAt,
+      ...(message.plan ? { plan: message.plan } : {}),
+      ...(message.planBaseRevision != null ? { planBaseRevision: message.planBaseRevision } : {}),
+      ...(message.planBaseVersion != null ? { planBaseVersion: message.planBaseVersion } : {}),
+      ...(message.planBaseFingerprint ? { planBaseFingerprint: message.planBaseFingerprint } : {}),
     } satisfies CopilotMessage))
   },
 }

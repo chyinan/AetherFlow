@@ -6,13 +6,13 @@ import { toRaw } from 'vue'
 import { getWorkflowCapabilities } from '@/api/modules/ai'
 import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node'
 import { i18n } from '@/i18n'
-import { buildMediaSummaryDraftGraph } from '@/services/copilot/workflowCopilotActions'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
+import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
 
 function cloneNodes() {
   return [] as WorkflowGraphNode[]
@@ -289,6 +289,26 @@ export const useWorkflowStore = defineStore('workflow', {
       this.savingError = null
       this.runError = null
     },
+    applyCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
+      const baseMatches = this.workflowId === request.baseWorkflowId
+        && this.editRevision === request.baseEditRevision
+        && this.backendDefinitionId === request.baseDefinitionId
+        && this.backendVersion === request.baseVersion
+      const nodesAreAvailable = request.nodes.every((node) => {
+        const template = this.templates.find((item) => item.kind === node.data.kind)
+        return Boolean(template) && template?.availability?.available !== false
+      })
+      const hasOneStart = request.nodes.filter((node) => node.data.kind === 'start').length === 1
+      const idsAreUnique = new Set(request.nodes.map((node) => node.id)).size === request.nodes.length
+      if (!baseMatches || !nodesAreAvailable || !hasOneStart || !idsAreUnique) {
+        return false
+      }
+      this.recordHistory()
+      this.nodes = structuredClone(request.nodes)
+      this.edges = structuredClone(request.edges)
+      this.markDirty()
+      return true
+    },
     useWorkflowTemplate(workflow: WorkflowDefinition) {
       this.applyWorkflowDefinition({
         ...workflow,
@@ -381,28 +401,6 @@ export const useWorkflowStore = defineStore('workflow', {
       })
       this.markDirty()
       return node
-    },
-    applyMediaSummaryWorkflowDraft() {
-      const unavailableTemplate = this.templates.find((template) =>
-        ['whisper', 'summary'].includes(template.kind)
-        && template.availability?.available === false)
-      if (unavailableTemplate) {
-        this.runError = `${i18n.global.t('workflow.capabilityUnavailable')}：${unavailableTemplate.availability?.reason ?? unavailableTemplate.kind}`
-        return null
-      }
-      this.recordHistory()
-      const maxX = this.nodes.reduce((value, node) => Math.max(value, node.position.x), 0)
-      const graph = buildMediaSummaryDraftGraph(this.templates, {
-        idPrefix: `copilot-media-${Date.now()}`,
-        startPosition: {
-          x: this.nodes.length === 0 ? 80 : maxX + 360,
-          y: this.nodes.length === 0 ? 180 : 140,
-        },
-      })
-      this.nodes.push(...graph.nodes)
-      this.edges.push(...graph.edges)
-      this.markDirty()
-      return graph
     },
     duplicateNode(nodeId: string) {
       const source = this.nodes.find((node) => node.id === nodeId)
@@ -543,6 +541,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.workflowId = workflow.id
         this.workflowName = nextWorkflowName
         this.backendDefinitionId = nextBackendDefinitionId
+        this.backendVersion = workflow.backendVersion ?? null
         this.projectId = workflow.projectId ?? null
         this.nodes = nextNodes
         this.edges = nextEdges

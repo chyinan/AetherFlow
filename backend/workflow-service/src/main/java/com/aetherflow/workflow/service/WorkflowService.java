@@ -3,6 +3,8 @@ package com.aetherflow.workflow.service;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.workflow.controller.StartWorkflowRequest;
 import com.aetherflow.workflow.controller.WorkflowCopyRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationRequest;
+import com.aetherflow.workflow.controller.WorkflowDraftValidationResponse;
 import com.aetherflow.workflow.entity.WorkflowDefinition;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 
@@ -25,5 +27,6 @@ public interface WorkflowService {
     WorkflowDefinition copyDefinition(Long definitionId, WorkflowCopyRequest request);
 
     List<WorkflowDefinitionDTO> listTemplates();
-}
 
+    WorkflowDraftValidationResponse validateDraft(WorkflowDraftValidationRequest request);
+}

@@ -13,4 +13,5 @@ public class CopilotMessageEntity extends BaseEntity {
     private Long conversationId;
     private String role;
     private String content;
+    private String planJson;
 }

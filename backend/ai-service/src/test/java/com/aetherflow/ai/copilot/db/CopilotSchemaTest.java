@@ -19,14 +19,19 @@ class CopilotSchemaTest {
         assertThat(moduleSql)
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_conversation")
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_message")
+                .contains("plan_json LONGTEXT NULL")
                 .contains("user_id BIGINT NOT NULL")
                 .contains("KEY idx_af_copilot_conversation_updated")
                 .contains("KEY idx_af_copilot_message_conversation");
         assertThat(dockerInitSql)
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_conversation")
                 .contains("CREATE TABLE IF NOT EXISTS af_copilot_message")
+                .contains("plan_json LONGTEXT NULL")
                 .contains("user_id BIGINT NOT NULL")
                 .contains("conversation_id BIGINT NOT NULL");
+        assertThat(Files.readString(root.resolve("backend/ai-service/src/main/resources/db/migration/V5__add_copilot_workflow_plan_json.sql")))
+                .contains("af_copilot_message")
+                .contains("plan_json");
     }
 
     private Path repositoryRoot() {
