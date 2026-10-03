@@ -38,11 +38,16 @@ settings, and response bounds); it does not add a new fetch implementation.
 
 ## Deployment note
 
-This change adds `V26__add_copilot_workflow_plan_json.sql` for the Docker MySQL
-migration path. The current tree already contains two different Docker
-migrations numbered V25. Flyway rejects duplicate versions before it can apply
-V26. This feature intentionally does not renumber or rewrite existing
-migrations because deployed migration history/checksums are unknown. Before
-using that migration path, the migration owners must resolve the V25 collision
-with a deployment-compatible strategy. No database was modified as part of
-this implementation.
+The Docker MySQL migrations now have a unique sequence: V25 adds the workflow
+instance definition snapshot, V26 adds the workflow notification outbox lease,
+and V27 adds the Copilot plan JSON column. The two renumbered SQL files retain
+their original contents.
+
+For the target database confirmed for this change, neither of the colliding
+V25 migrations has been applied. After deploying this revision, run the
+existing `mysql-migrate` service normally; no history-table edits, checksum
+repair, or database rebuild are needed for that database. This does not cover
+other databases where an earlier V25 may already have been applied. If one
+has, stop before running these renumbered files and review that database's
+Flyway history and schema with its owner. No database was accessed or changed
+as part of this implementation.

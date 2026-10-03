@@ -121,6 +121,12 @@ jobs:
           cache: pip
           cache-dependency-path: python-ai-service/requirements.txt
 
+      - name: Check Flyway migration versions
+        run: |
+          python -m unittest discover -s scripts -p 'test_flyway_migration_versions.py' -v
+          python scripts/flyway_migration_versions.py
+        working-directory: .
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
