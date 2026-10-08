@@ -1,0 +1,4 @@
+# Shell 脚本会在 Linux 容器（/bin/sh）和 CentOS/ECS 主机中执行，
+# 必须始终保持 LF 行尾。Windows 工作区默认 core.autocrlf=true 会把 *.sh
+# 检出为 CRLF，导致容器内报 "set: Illegal option -" 而反复重启。
+*.sh text eol=lf
