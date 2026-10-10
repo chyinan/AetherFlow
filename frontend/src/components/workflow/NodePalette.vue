@@ -4,6 +4,7 @@ import { Search } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate } from '@/types/workflow'
@@ -25,7 +26,7 @@ const filteredTemplates = computed(() => {
 })
 
 function onDragStart(event: DragEvent, template: NodeTemplate) {
-  if (template.availability?.available === false) {
+  if (isNodeTemplateBlocked(template)) {
     event.preventDefault()
     return
   }
@@ -44,7 +45,7 @@ function onDragEnd() {
 }
 
 function addTemplate(template: NodeTemplate) {
-  if (suppressNextClick.value || template.availability?.available === false) {
+  if (suppressNextClick.value || isNodeTemplateBlocked(template)) {
     return
   }
   const offset = workflowStore.nodes.length * 24
@@ -74,11 +75,11 @@ function addTemplate(template: NodeTemplate) {
         v-for="template in filteredTemplates"
         :key="template.kind"
         type="button"
-        :disabled="template.availability?.available === false"
-        :draggable="template.availability?.available !== false"
+        :disabled="isNodeTemplateBlocked(template)"
+        :draggable="!isNodeTemplateBlocked(template)"
         :title="template.availability?.reason ?? undefined"
         class="w-full rounded-lg border border-app-border bg-white p-3 text-left shadow-sm transition hover:border-primary/30 hover:shadow-node"
-        :class="template.availability?.available === false ? 'cursor-not-allowed opacity-55 hover:border-app-border hover:shadow-sm' : ''"
+        :class="isNodeTemplateBlocked(template) ? 'cursor-not-allowed opacity-55 hover:border-app-border hover:shadow-sm' : ''"
         @click="addTemplate(template)"
         @dragstart="onDragStart($event, template)"
         @dragend="onDragEnd"

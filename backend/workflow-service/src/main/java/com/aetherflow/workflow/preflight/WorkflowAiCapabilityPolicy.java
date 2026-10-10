@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 // pattern: Functional Core
 public final class WorkflowAiCapabilityPolicy {
@@ -17,12 +18,18 @@ public final class WorkflowAiCapabilityPolicy {
 
     public static List<String> validate(WorkflowDefinitionDTO definition,
                                         AiWorkflowCapabilitiesDTO capabilities) {
+        return validate(definition, capabilities, Set.of());
+    }
+
+    public static List<String> validate(WorkflowDefinitionDTO definition,
+                                        AiWorkflowCapabilitiesDTO capabilities,
+                                        Set<String> validatedConnectionNodes) {
         if (definition == null || definition.getNodes() == null || capabilities == null) {
             return List.of();
         }
         List<String> violations = new ArrayList<>();
         for (WorkflowNodeDTO node : definition.getNodes()) {
-            validateNode(node, capabilities, violations);
+            validateNode(node, capabilities, validatedConnectionNodes, violations);
         }
         return List.copyOf(violations);
     }
@@ -54,10 +61,19 @@ public final class WorkflowAiCapabilityPolicy {
 
     private static void validateNode(WorkflowNodeDTO node,
                                      AiWorkflowCapabilitiesDTO capabilities,
+                                     Set<String> validatedConnectionNodes,
                                      List<String> violations) {
         String nodeType = normalize(node == null ? null : node.getNodeType());
         String requiredCapability = requiredCapability(nodeType);
         if (requiredCapability == null) {
+            return;
+        }
+        // 显式连接必须先经过独立的真实连接预检，不能受部署默认开关误拦截。
+        if (("IMAGE_GENERATION".equals(requiredCapability) || "UPSCALE".equals(requiredCapability))
+                && validatedConnectionNodes.contains(node.getNodeId())) {
+            if (!capabilities.supportedNodeTypes().contains(requiredCapability)) {
+                violations.add(prefix(node, nodeType) + "image executor is unavailable");
+            }
             return;
         }
         if (!isExecutable(requiredCapability, capabilities)) {

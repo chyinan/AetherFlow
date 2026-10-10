@@ -30,6 +30,7 @@ final class ImageWorkflowNodeSupport {
         Map<String, Object> payload = new LinkedHashMap<>();
         putResolved(payload, "sourceImage", config, context, "sourceImage", "sourceImageVariable", "sourceImage");
         NodeValueSupport.putIfPresent(payload, "provider", config.get("provider"));
+        NodeValueSupport.putIfPresent(payload, "connectionId", config.get("connectionId"));
         NodeValueSupport.putIfPresent(payload, "upscaler", config.get("upscaler"));
         NodeValueSupport.putIfPresent(payload, "workflow", config.get("workflow"));
         NodeValueSupport.putIfPresent(payload, "workflowJson", config.get("workflowJson"));
@@ -115,6 +116,7 @@ final class ImageWorkflowNodeSupport {
 
     private static void copyGenerationConfig(Map<String, Object> payload, Map<String, Object> config) {
         NodeValueSupport.putIfPresent(payload, "provider", config.get("provider"));
+        NodeValueSupport.putIfPresent(payload, "connectionId", config.get("connectionId"));
         NodeValueSupport.putIfPresent(payload, "mode", config.get("mode"));
         putLong(payload, "seed", config.get("seed"));
         putPositiveNumber(payload, "steps", config.get("steps"), 0);

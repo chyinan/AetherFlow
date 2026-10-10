@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from './workflowCapability'
+import { applyWorkflowCapabilities, isNodeTemplateBlocked, unavailableWorkflowCapabilities } from './workflowCapability'
 import type { NodeTemplate } from '@/types/workflow'
 
 function template(kind: NodeTemplate['kind'], provider?: string): NodeTemplate {
@@ -71,5 +71,17 @@ describe('工作流 AI 能力映射', () => {
     expect(result.find((item) => item.kind === 'summary')?.availability?.available).toBe(false)
     expect(result.find((item) => item.kind === 'document-extractor')?.availability?.available).toBe(true)
     expect(result.find((item) => item.kind === 'output')?.availability?.available).toBe(true)
+  })
+})
+
+
+describe('节点配置入口与运行能力分离', () => {
+  it('允许添加图像和 Whisper 节点进行配置，仍保留运行不可用信息', () => {
+    for (const kind of ['image-generation', 'upscale', 'whisper'] as const) {
+      const item = { ...template(kind), availability: { available: false, reason: 'runtime disabled' } }
+      expect(isNodeTemplateBlocked(item)).toBe(false)
+      expect(item.availability.available).toBe(false)
+    }
+    expect(isNodeTemplateBlocked({ ...template('llm'), availability: { available: false, reason: 'runtime disabled' } })).toBe(true)
   })
 })

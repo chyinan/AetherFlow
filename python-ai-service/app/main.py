@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import base64
+import importlib.util
 import ipaddress
 import json
 import logging
@@ -31,6 +32,11 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("aetherflow.python-ai")
 
 _whisper_model = None
+# 只记录启动时的实际结果；状态读取不能构造模型或触发模型下载。
+_whisper_startup_config: dict[str, Any] | None = None
+_whisper_loaded_config: dict[str, Any] | None = None
+_whisper_startup_failure: str | None = None
+_whisper_dependency_loaded: bool | None = None
 
 def _bounded_slots(name: str, default: int):
     try:
@@ -53,24 +59,46 @@ _code_execution_slots = threading.BoundedSemaphore(_code_execution_max_concurren
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _whisper_model
+    global _whisper_model, _whisper_startup_config, _whisper_loaded_config
+    global _whisper_startup_failure, _whisper_dependency_loaded
     _ensure_runtime_env_loaded()
-    if _enabled("ENABLE_WHISPER") and _whisper_runtime_ready():
+    _whisper_model = None
+    _whisper_loaded_config = None
+    _whisper_startup_failure = None
+    _whisper_dependency_loaded = None
+    _whisper_startup_config = _whisper_config()
+    if _whisper_startup_config["enabled"]:
         try:
             from faster_whisper import WhisperModel
-
-            model_name = os.getenv("WHISPER_MODEL", "small")
-            _whisper_model = WhisperModel(
-                model_name,
-                device=os.getenv("WHISPER_DEVICE", "cpu"),
-                compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8"),
-            )
-            logger.info("Whisper model '%s' loaded at startup", model_name)
         except (OSError, RuntimeError, ImportError) as exc:
-            logger.warning("Failed to load Whisper model at startup: %s", exc)
-            _whisper_model = None
-    yield
-    _whisper_model = None
+            _whisper_dependency_loaded = False
+            _whisper_startup_failure = "dependency"
+            logger.warning("Whisper startup dependency unavailable: %s", type(exc).__name__)
+        else:
+            _whisper_dependency_loaded = True
+            try:
+                _whisper_model = WhisperModel(
+                    _whisper_startup_config["model"],
+                    device=_whisper_startup_config["device"],
+                    compute_type=_whisper_startup_config["computeType"],
+                )
+                _whisper_loaded_config = dict(_whisper_startup_config)
+                logger.info("Whisper model loaded at startup")
+            except FileNotFoundError:
+                _whisper_startup_failure = "missing_model"
+                logger.warning("Whisper startup model file is missing")
+            except ImportError:
+                _whisper_dependency_loaded = False
+                _whisper_startup_failure = "dependency"
+                logger.warning("Whisper model startup dependency unavailable")
+            except (OSError, RuntimeError, ValueError) as exc:
+                _whisper_startup_failure = "load_failure"
+                logger.warning("Whisper startup model load failed: %s", type(exc).__name__)
+    try:
+        yield
+    finally:
+        _whisper_model = None
+        _whisper_loaded_config = None
 
 
 app = FastAPI(title="AetherFlow Python AI Service", version="0.2.0", lifespan=lifespan)
@@ -424,6 +452,58 @@ def ai_status() -> dict[str, Any]:
         "whisperModel": os.getenv("WHISPER_MODEL", "small"),
         "llmEnabled": _enabled("ENABLE_LLM"),
         "ffmpegAvailable": shutil.which("ffmpeg") is not None,
+    }
+
+
+@app.get("/ai/whisper/environment", dependencies=[Depends(_require_runtime_api_key)])
+def whisper_environment() -> dict[str, Any]:
+    # 环境配置只在服务启动时应用；此处不刷新配置、不读取模型路径、不加载模型。
+    config = _whisper_config()
+    loaded = _whisper_loaded_config if _whisper_model is not None else None
+    dependency_available = _whisper_dependency_available()
+    ffmpeg_available = shutil.which("ffmpeg") is not None
+    config_changed = _whisper_startup_config is not None and config != _whisper_startup_config
+    restart_required = config_changed or (config["enabled"] and _whisper_model is None)
+
+    if not config["enabled"]:
+        status = "unconfigured"
+        message = "Whisper 未启用。设置 ENABLE_WHISPER=true，并手动重启 Python AI 服务。"
+    elif _whisper_runtime_ready():
+        if ffmpeg_available:
+            status = "usable"
+            message = "Whisper 已加载且 FFmpeg 可用，满足 Whisper 工作流节点的环境前置条件。"
+        else:
+            status = "unconfigured"
+            message = "Whisper 模型已加载，但工作流节点缺少 FFmpeg 环境前置条件。请在 Python AI 服务环境中补齐 FFmpeg 后重新检测；修改部署环境后需手动重启服务。"
+    elif _whisper_startup_failure == "missing_model" and not config_changed:
+        status = "missing_model"
+        message = "启动加载时缺少模型文件。请检查 WHISPER_MODEL 的模型名称或部署路径，然后手动重启 Python AI 服务。"
+    elif not dependency_available:
+        status = "unloaded"
+        message = "Whisper 运行依赖不可用。请按服务依赖清单安装 faster-whisper，然后手动重启 Python AI 服务。"
+    else:
+        status = "unloaded"
+        message = "Whisper 尚未加载。请检查启动日志及模型、设备、计算类型配置，然后手动重启 Python AI 服务。"
+    if config_changed:
+        message += " 当前环境配置与启动配置不同，需手动重启后生效。"
+    if not ffmpeg_available and _whisper_model is None:
+        message += " 未检测到 FFmpeg，Whisper 工作流节点所需的环境前置条件尚未满足。"
+
+    return {
+        "status": status,
+        **config,
+        "loadedModel": loaded["model"] if loaded else None,
+        "dependencyAvailable": dependency_available,
+        "ffmpegAvailable": ffmpeg_available,
+        "detectedFrom": "backend",
+        "restartRequired": restart_required,
+        "message": message,
+        "environmentVariables": {
+            "ENABLE_WHISPER": str(config["enabled"]).lower(),
+            "WHISPER_MODEL": config["model"],
+            "WHISPER_DEVICE": config["device"],
+            "WHISPER_COMPUTE_TYPE": config["computeType"],
+        },
     }
 
 
@@ -1520,11 +1600,23 @@ def _enabled(name: str) -> bool:
 
 
 def _whisper_runtime_ready() -> bool:
-    if _whisper_model is None:
-        return False
+    return _whisper_model is not None
+
+
+def _whisper_config() -> dict[str, Any]:
+    return {
+        "enabled": _enabled("ENABLE_WHISPER"),
+        "model": os.getenv("WHISPER_MODEL", "small"),
+        "device": os.getenv("WHISPER_DEVICE", "cpu"),
+        "computeType": os.getenv("WHISPER_COMPUTE_TYPE", "int8"),
+    }
+
+
+def _whisper_dependency_available() -> bool:
+    if _whisper_dependency_loaded is not None:
+        return _whisper_dependency_loaded
+    # 尚未尝试启动时只检查包是否可发现，不导入运行时或访问配置模型路径。
     try:
-        from faster_whisper import WhisperModel  # noqa: F401
-    except ImportError as exc:
-        logger.warning("Whisper runtime is enabled but unavailable: %s", exc)
+        return importlib.util.find_spec("faster_whisper") is not None
+    except (ImportError, ValueError):
         return False
-    return True

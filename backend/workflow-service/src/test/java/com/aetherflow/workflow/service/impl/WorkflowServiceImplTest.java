@@ -419,7 +419,7 @@ class WorkflowServiceImplTest {
         org.mockito.Mockito.doThrow(new BusinessException(
                         com.aetherflow.common.core.ResultCode.SERVICE_UNAVAILABLE,
                         "llm runtime is disabled"))
-                .when(aiCapabilityPreflightService).validate(definitionDTO);
+                .when(aiCapabilityPreflightService).validate(definitionDTO, 7L);
 
         assertThatThrownBy(() -> asUser(7L, () -> workflowService.startInstance(10L, request())))
                 .isInstanceOf(BusinessException.class)
@@ -642,7 +642,7 @@ class WorkflowServiceImplTest {
                 new WorkflowDraftValidationRequest(10L, 4, "MEDIA_SUMMARY", mediaSummaryDefinition()))))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("not found");
-        verify(aiCapabilityPreflightService, never()).validate(any());
+        verify(aiCapabilityPreflightService, never()).validate(any(), any());
     }
 
     private static WorkflowDefinition definitionEntity() {

@@ -35,6 +35,9 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import NodeConnectionSelector from './NodeConnectionSelector.vue'
+import WhisperEnvironmentDialog from './WhisperEnvironmentDialog.vue'
+import type { ImageConnectionProvider } from '@/api/modules/nodeConnections'
 import {
   getNodeCatalog,
   type WorkflowNodeCatalogItem,
@@ -119,6 +122,7 @@ const selectedUnavailableReason = computed(() => {
   if (!kind) {
     return null
   }
+  if (['image-generation', 'upscale'].includes(kind) && String(selectedNode.value?.data.config?.connectionId ?? '').trim()) return null
   const template = workflowStore.templates.find((item) => item.kind === kind)
   return template?.availability?.available === false
     ? template.availability.reason
@@ -155,7 +159,10 @@ const selectedCatalogItem = computed(() => {
 const hasDynamicConfigPanel = computed(() =>
   Boolean(selectedNode.value && imageSchemaKinds.has(selectedNode.value.data.kind) && selectedCatalogItem.value?.configSchema?.length),
 )
-const dynamicConfigFields = computed(() => selectedCatalogItem.value?.configSchema ?? [])
+const isImageConnectionNode = computed(() => selectedKind.value === 'image-generation' || selectedKind.value === 'upscale')
+const connectionFields = new Set(['connectionId', 'provider', 'checkpoint', 'vae', 'lora', 'sampler', 'scheduler', 'upscaler'])
+const dynamicConfigFields = computed(() => (selectedCatalogItem.value?.configSchema ?? [])
+  .filter((field) => !isImageConnectionNode.value || !connectionFields.has(field.name)))
 const visibleDynamicConfigFields = computed(() =>
   dynamicConfigFields.value.filter((field) => fieldMode(field) === dynamicMode.value),
 )
@@ -267,7 +274,7 @@ function ensureSelectedNodeConfig() {
 
 function selectedConfigEntries() {
   const config = selectedNode.value?.data.config
-  return isConfigRecord(config) ? Object.entries(config) : []
+  return isConfigRecord(config) ? Object.entries(config).filter(([key]) => !isImageConnectionNode.value || !connectionFields.has(key)) : []
 }
 
 function updateConfig(key: string, value: ConfigValue) {
@@ -279,6 +286,10 @@ function updateConfig(key: string, value: ConfigValue) {
     return
   }
   workflowStore.updateNodeConfig(selectedNode.value.id, key, value)
+}
+
+function applyImageConnection(connection: { connectionId: string | undefined; provider: ImageConnectionProvider }, nodeId: string) {
+  if (selectedNode.value?.id === nodeId) workflowStore.updateNodeConfigValues(nodeId, connection)
 }
 
 function configValue(key: string, fallback: ConfigValue = '') {
@@ -629,6 +640,17 @@ onMounted(() => {
       </div>
 
       <div v-if="activeTab === 'settings'" class="min-h-0 flex-1 overflow-y-auto">
+        <div v-if="isImageConnectionNode" class="px-5 pt-5">
+          <NodeConnectionSelector
+            :key="selectedNode.id"
+            :node-id="selectedNode.id"
+            :node-type="selectedKind === 'upscale' ? 'UPSCALE' : 'IMAGE_GENERATION'"
+            :config="selectedNode.data.config"
+            @apply="applyImageConnection"
+            @update-config="updateConfig"
+            @saved="workflowStore.loadNodeTemplates()"
+          />
+        </div>
         <section v-if="selectedKind === 'start'" class="space-y-5 p-5">
           <div v-if="!workflowNeedsFileInput" class="rounded-xl border border-status-success/25 bg-green-50 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.noFileInputTitle') }}</p>
@@ -725,6 +747,7 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'whisper'" class="space-y-5 p-5">
+          <WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
             <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />

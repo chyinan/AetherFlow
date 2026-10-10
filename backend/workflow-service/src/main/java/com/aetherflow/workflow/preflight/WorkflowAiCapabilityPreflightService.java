@@ -6,6 +6,8 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.common.dto.NodeConnectionValidationRequest;
+import com.aetherflow.common.dto.NodeConnectionValidationResponse;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
@@ -18,6 +20,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Locale;
+import java.util.stream.Collectors;
 
 // pattern: Imperative Shell
 @Service
@@ -38,6 +44,10 @@ public class WorkflowAiCapabilityPreflightService {
     private VectorStoreConfigService vectorStoreConfigService;
 
     public void validate(WorkflowDefinitionDTO definition) {
+        validate(definition, null);
+    }
+
+    public void validate(WorkflowDefinitionDTO definition, Long userId) {
         List<String> localViolations = validateLocalCapabilities(definition);
         if (!WorkflowAiCapabilityPolicy.requiresRemoteCapabilities(definition)) {
             if (!localViolations.isEmpty()) {
@@ -48,7 +58,8 @@ public class WorkflowAiCapabilityPreflightService {
         }
         AiWorkflowCapabilitiesDTO capabilities = loadCapabilities();
         List<String> violations = new java.util.ArrayList<>(localViolations);
-        violations.addAll(WorkflowAiCapabilityPolicy.validate(definition, capabilities));
+        Set<String> validatedConnectionNodes = validateConnections(definition, userId, violations);
+        violations.addAll(WorkflowAiCapabilityPolicy.validate(definition, capabilities, validatedConnectionNodes));
         if (nodeProperties != null && !nodeProperties.isAsyncAiEnabled()) {
             violations = new java.util.ArrayList<>(violations);
             violations.addAll(WorkflowAiCapabilityPolicy.validateAsyncRequirement(definition));
@@ -57,6 +68,42 @@ public class WorkflowAiCapabilityPreflightService {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "workflow AI capability preflight failed: " + String.join("; ", violations));
         }
+    }
+
+    private Set<String> validateConnections(WorkflowDefinitionDTO definition, Long userId, List<String> violations) {
+        List<NodeConnectionValidationRequest.NodeSelection> nodes = definition.getNodes().stream()
+                .filter(node -> node != null && node.getNodeType() != null
+                        && Set.of("IMAGE_GENERATION", "UPSCALE").contains(node.getNodeType().toUpperCase(Locale.ROOT)))
+                .filter(node -> node.getConfig() != null && !text(node.getConfig().get("connectionId")).isBlank())
+                .map(node -> {
+                    Map<String, Object> config = node.getConfig();
+                    List<String> loras = config.get("lora") instanceof List<?> entries
+                            ? entries.stream().filter(Map.class::isInstance)
+                            .map(entry -> text(((Map<?, ?>) entry).get("name"))).filter(name -> !name.isBlank()).toList()
+                            : List.of();
+                    return new NodeConnectionValidationRequest.NodeSelection(node.getNodeId(), node.getNodeType(),
+                            text(config.get("connectionId")), text(config.get("provider")),
+                            text(config.get("checkpoint")), text(config.get("upscaler")),
+                            text(config.get("vae")), text(config.get("sampler")), text(config.get("scheduler")), loras);
+                }).toList();
+        if (nodes.isEmpty()) return Set.of();
+        try {
+            Result<NodeConnectionValidationResponse> response = aiClient.validateConnections(
+                    new NodeConnectionValidationRequest(userId, nodes));
+            if (response == null || !response.isSuccess() || response.getData() == null) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image connection preflight returned no usable result");
+            }
+            violations.addAll(response.getData().violations());
+            return nodes.stream().map(NodeConnectionValidationRequest.NodeSelection::nodeId).collect(Collectors.toSet());
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image connection preflight is unavailable");
+        }
+    }
+
+    private static String text(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
 
     private List<String> validateLocalCapabilities(WorkflowDefinitionDTO definition) {

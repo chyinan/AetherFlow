@@ -463,8 +463,10 @@ public class WorkflowNodeCatalogService {
                 "Image",
                 "Runs Stable Diffusion WebUI or ComfyUI generation with model, sampler, LoRA and workflow parameters, then stores results in MinIO.",
                 List.of(
+                        field("connectionId", "STRING", false, "Saved connection reference. Empty retains deployment defaults.", "",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
                         field("provider", "STRING", false, "Image provider.", "SD_WEBUI",
-                                List.of("SD_WEBUI", "COMFYUI"), WorkflowNodeConfigUiSchema.basic("select")),
+                                List.of("SD_WEBUI", "STABLE_DIFFUSION_WEBUI", "COMFYUI"), WorkflowNodeConfigUiSchema.basic("select")),
                         field("mode", "STRING", false, "Generation mode.", "txt2img",
                                 List.of("txt2img", "img2img", "workflow"), WorkflowNodeConfigUiSchema.basic("segmented")),
                         field("prompt", "STRING", false, "Fixed positive prompt. Prefer promptVariable when chained from PROMPT.",
@@ -545,8 +547,10 @@ public class WorkflowNodeCatalogService {
                 "Image",
                 "Upscales an image through the selected image provider and stores the upscaled result in MinIO.",
                 List.of(
+                        field("connectionId", "STRING", false, "Saved connection reference. Empty retains deployment defaults.", "",
+                                List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
                         field("provider", "STRING", false, "Image provider.", "COMFYUI",
-                                List.of("COMFYUI", "SD_WEBUI"), WorkflowNodeConfigUiSchema.basic("select")),
+                                List.of("COMFYUI", "SD_WEBUI", "STABLE_DIFFUSION_WEBUI"), WorkflowNodeConfigUiSchema.basic("select")),
                         field("sourceImage", "STRING", false, "Base64 source image.", "",
                                 List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
                         field("sourceImageVariable", "STRING", false, "Workflow variable containing the source image base64.",

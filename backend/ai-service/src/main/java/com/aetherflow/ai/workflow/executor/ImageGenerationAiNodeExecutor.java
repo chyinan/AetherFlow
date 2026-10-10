@@ -6,6 +6,8 @@ import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageProviderRegistry;
 import com.aetherflow.ai.image.ImageProviderType;
+import com.aetherflow.ai.connection.NodeConnectionService;
+import com.aetherflow.common.dto.NodeConnectionValidationRequest.NodeSelection;
 import com.aetherflow.ai.provider.ProviderFailureClassifier;
 import com.aetherflow.ai.provider.ProviderFailureType;
 import com.aetherflow.ai.provider.ProviderRoutingPolicyService;
@@ -36,6 +38,9 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ProviderRoutingPolicyService policyService;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private NodeConnectionService connectionService;
+
     public ImageGenerationAiNodeExecutor(ImageProviderRegistry providerRegistry) {
         this.providerRegistry = providerRegistry;
     }
@@ -48,8 +53,33 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         ImageGenerationRequest request = request(context.payload(), string(context.payload(), "mode", "txt2img"));
-        ImageGenerationResponse response = executeWithFailover(request, false, contextUserId(context));
+        ImageGenerationResponse response = executeConfigured(context, request, false);
         return result(nodeType(), response);
+    }
+
+    protected ImageGenerationResponse executeConfigured(AiNodeExecutionContext context,
+                                                         ImageGenerationRequest request, boolean upscale) {
+        String connectionId = string(context.payload(), "connectionId", "");
+        if (connectionId.isBlank()) {
+            return executeWithFailover(request, upscale, contextUserId(context));
+        }
+        if (connectionService == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "节点连接服务不可用");
+        }
+        List<String> loras = request.lora().stream().map(item -> string(item, "name", ""))
+                .filter(name -> !name.isBlank()).toList();
+        NodeSelection selection = new NodeSelection(
+                context.taskMessage() == null ? null : context.taskMessage().getNodeId(),
+                nodeType(), connectionId, string(context.payload(), "provider", ""), request.checkpoint(),
+                string(request.options(), "upscaler", ""), request.vae(), request.sampler(), request.scheduler(), loras);
+        var provider = connectionService.resolveForExecution(contextUserId(context), selection);
+        ImageGenerationRequest routed = withProvider(request, provider.type());
+        // 显式连接失败直接报告，不回退到部署默认或另一个 Provider。
+        ImageGenerationResponse response = upscale ? provider.upscale(routed) : provider.generate(routed);
+        if (response == null) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned no response");
+        }
+        return response;
     }
 
     protected ImageGenerationResponse executeWithFailover(ImageGenerationRequest request, boolean upscale) {
@@ -167,6 +197,9 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         if (payload.containsKey("scale")) {
             options.put("scale", payload.get("scale"));
         }
+        if (payload.containsKey("upscaler")) {
+            options.put("upscaler", payload.get("upscaler"));
+        }
         return new ImageGenerationRequest(
                 provider(payload),
                 mode,
@@ -184,7 +217,7 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
                 string(payload, "checkpoint", ""),
                 string(payload, "vae", ""),
                 listOfMaps(payload.get("lora")),
-                string(payload, "sourceImageBase64", ""),
+                string(payload, "sourceImageBase64", string(payload, "sourceImage", "")),
                 string(payload, "sourceImageContentType", ""),
                 map(payload.get("workflowJson")),
                 options,
