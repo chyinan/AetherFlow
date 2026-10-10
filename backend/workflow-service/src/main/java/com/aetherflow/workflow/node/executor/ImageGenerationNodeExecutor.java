@@ -20,12 +20,15 @@ import java.util.Map;
 public class ImageGenerationNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     private final ImageArtifactStorage storage;
+    private final ImageSourceResolver sourceResolver;
 
     public ImageGenerationNodeExecutor(WorkflowNodeMetrics metrics,
                                        AiWorkflowNodeClient aiClient,
-                                       ImageArtifactStorage storage) {
+                                       ImageArtifactStorage storage,
+                                       ImageSourceResolver sourceResolver) {
         super(WorkflowNodeTypes.IMAGE_GENERATION, metrics, aiClient);
         this.storage = storage;
+        this.sourceResolver = sourceResolver;
     }
 
     @Override
@@ -33,7 +36,8 @@ public class ImageGenerationNodeExecutor extends AbstractAiWorkflowNodeExecutor 
         AiWorkflowNodeResponseDTO response = executeAi(
                 context,
                 "IMAGE_GENERATION",
-                ImageWorkflowNodeSupport.imageGenerationPayload(config, context)
+                sourceResolver.resolve(ImageWorkflowNodeSupport.imageGenerationPayload(config, context), context,
+                        "img2img".equalsIgnoreCase(NodeValueSupport.stringValue(config.get("mode"))))
         );
         Map<String, Object> aiOutput = response.getOutput() == null ? Map.of() : response.getOutput();
         List<ImageWorkflowDtos.GeneratedImage> images = ImageWorkflowNodeSupport.imagesFromOutput(aiOutput);

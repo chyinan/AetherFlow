@@ -22,6 +22,7 @@ final class ImageWorkflowNodeSupport {
         putResolved(payload, "prompt", config, context, "prompt", "promptVariable", "prompt");
         putResolved(payload, "negativePrompt", config, context, "negativePrompt", "negativePromptVariable", "negativePrompt");
         putResolved(payload, "sourceImage", config, context, "sourceImage", "sourceImageVariable", "sourceImage");
+        NodeValueSupport.putIfPresent(payload, "sourceImageContentType", config.get("sourceImageContentType"));
         copyGenerationConfig(payload, config);
         return payload;
     }
@@ -29,6 +30,7 @@ final class ImageWorkflowNodeSupport {
     static Map<String, Object> upscalePayload(Map<String, Object> config, WorkflowContext context) {
         Map<String, Object> payload = new LinkedHashMap<>();
         putResolved(payload, "sourceImage", config, context, "sourceImage", "sourceImageVariable", "sourceImage");
+        NodeValueSupport.putIfPresent(payload, "sourceImageContentType", config.get("sourceImageContentType"));
         NodeValueSupport.putIfPresent(payload, "provider", config.get("provider"));
         NodeValueSupport.putIfPresent(payload, "connectionId", config.get("connectionId"));
         NodeValueSupport.putIfPresent(payload, "upscaler", config.get("upscaler"));

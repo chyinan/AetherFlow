@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { workflowNodeLabel } from '@/utils/workflowNodeLabel'
+import { focusNodeConfigField } from '@/utils/focusNodeConfig'
 // pattern: Mixed (needs refactoring)
 import {
   BookOpen,
@@ -30,12 +31,13 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
+import ImageInputPicker from './ImageInputPicker.vue'
 import WhisperEnvironmentDialog from './WhisperEnvironmentDialog.vue'
 import type { ImageConnectionProvider } from '@/api/modules/nodeConnections'
 import {
@@ -160,9 +162,10 @@ const hasDynamicConfigPanel = computed(() =>
   Boolean(selectedNode.value && imageSchemaKinds.has(selectedNode.value.data.kind) && selectedCatalogItem.value?.configSchema?.length),
 )
 const isImageConnectionNode = computed(() => selectedKind.value === 'image-generation' || selectedKind.value === 'upscale')
+const imageInputFields = new Set(['sourceImage', 'sourceImageVariable'])
 const connectionFields = new Set(['connectionId', 'provider', 'checkpoint', 'vae', 'lora', 'sampler', 'scheduler', 'upscaler'])
 const dynamicConfigFields = computed(() => (selectedCatalogItem.value?.configSchema ?? [])
-  .filter((field) => !isImageConnectionNode.value || !connectionFields.has(field.name)))
+  .filter((field) => !isImageConnectionNode.value || (!connectionFields.has(field.name) && !imageInputFields.has(field.name))))
 const visibleDynamicConfigFields = computed(() =>
   dynamicConfigFields.value.filter((field) => fieldMode(field) === dynamicMode.value),
 )
@@ -274,7 +277,7 @@ function ensureSelectedNodeConfig() {
 
 function selectedConfigEntries() {
   const config = selectedNode.value?.data.config
-  return isConfigRecord(config) ? Object.entries(config).filter(([key]) => !isImageConnectionNode.value || !connectionFields.has(key)) : []
+  return isConfigRecord(config) ? Object.entries(config).filter(([key]) => !isImageConnectionNode.value || (!connectionFields.has(key) && !imageInputFields.has(key))) : []
 }
 
 function updateConfig(key: string, value: ConfigValue) {
@@ -290,6 +293,28 @@ function updateConfig(key: string, value: ConfigValue) {
 
 function applyImageConnection(connection: { connectionId: string | undefined; provider: ImageConnectionProvider }, nodeId: string) {
   if (selectedNode.value?.id === nodeId) workflowStore.updateNodeConfigValues(nodeId, connection)
+}
+
+function handleConfigFocus(event: Event) {
+  const field: unknown = (event as CustomEvent<{ field?: unknown }>).detail?.field
+  const nodeId = (event.currentTarget as HTMLElement | null)?.dataset.nodeInspector
+  if (typeof field === 'string' && nodeId && nodeId === selectedNode.value?.id) void locateImageConfig(field, nodeId)
+}
+
+async function locateImageConfig(field: string, nodeId: string) {
+  if (selectedNode.value?.id !== nodeId) return
+  activeTab.value = 'settings'
+  const schema = dynamicConfigFields.value.find((item) => item.name === field)
+  if (schema) dynamicMode.value = fieldMode(schema)
+  await nextTick()
+  if (selectedNode.value?.id !== nodeId) return
+  if (!focusNodeConfigField(nodeId, field) && connectionFields.has(field)) {
+    focusNodeConfigField(nodeId, 'connectionId')
+  }
+}
+
+function applyImageInput(values: Record<string, unknown>, nodeId: string) {
+  if (selectedNode.value?.id === nodeId) workflowStore.updateNodeConfigValues(nodeId, values)
 }
 
 function configValue(key: string, fallback: ConfigValue = '') {
@@ -572,7 +597,7 @@ onMounted(() => {
 
 <template>
   <aside class="relative z-20 flex h-full min-h-0 w-full flex-col border-l border-app-border bg-white lg:w-[420px]">
-    <div v-if="selectedNode" class="flex min-h-0 flex-1 flex-col">
+    <div v-if="selectedNode" :data-node-inspector="selectedNode.id" class="flex min-h-0 flex-1 flex-col" @aetherflow-focus-config="handleConfigFocus">
       <header class="border-b border-app-border bg-white">
         <div class="flex items-start justify-between gap-3 px-5 pt-5">
           <div class="flex min-w-0 items-center gap-3">
@@ -647,8 +672,19 @@ onMounted(() => {
             :node-type="selectedKind === 'upscale' ? 'UPSCALE' : 'IMAGE_GENERATION'"
             :config="selectedNode.data.config"
             @apply="applyImageConnection"
+            @locate-config="locateImageConfig"
             @update-config="updateConfig"
             @saved="workflowStore.loadNodeTemplates()"
+          />
+          <ImageInputPicker
+            v-if="selectedKind === 'upscale' || textConfig('mode', 'txt2img') === 'img2img' || textConfig('sourceImage', '') || textConfig('sourceImageVariable', '')"
+            :key="`image-${selectedNode.id}`"
+            class="mt-4"
+            :node-id="selectedNode.id"
+            :config="selectedNode.data.config"
+            :nodes="workflowStore.nodes"
+            :edges="workflowStore.edges"
+            @apply="applyImageInput"
           />
         </div>
         <section v-if="selectedKind === 'start'" class="space-y-5 p-5">
@@ -1335,6 +1371,7 @@ onMounted(() => {
 
             <select
               v-if="isSelectField(field)"
+              :data-config-field="field.name"
               class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
               :value="fieldSelectValue(field)"
               @change="handleDynamicFieldInput(field, $event)"
@@ -1350,6 +1387,7 @@ onMounted(() => {
               <button
                 v-for="option in selectOptions(field)"
                 :key="option"
+                :data-config-field="field.name"
                 type="button"
                 class="rounded-md px-3 py-2 text-sm font-semibold transition"
                 :class="fieldSelectValue(field) === option ? 'bg-white text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary'"
@@ -1361,6 +1399,7 @@ onMounted(() => {
 
             <input
               v-else-if="isNumberField(field)"
+              :data-config-field="field.name"
               type="number"
               class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
               :min="field.ui?.min"
@@ -1372,11 +1411,12 @@ onMounted(() => {
 
             <label v-else-if="isBooleanField(field)" class="flex items-center justify-between rounded-lg border border-app-border bg-white px-3 py-3 text-sm font-medium text-text-primary">
               <span>{{ String(fieldCurrentValue(field) ?? false) }}</span>
-              <input type="checkbox" class="accent-primary" :checked="boolConfig(field.name, Boolean(fieldDefaultValue(field)))" @change="handleDynamicFieldToggle(field, $event)" />
+              <input type="checkbox" :data-config-field="field.name" class="accent-primary" :checked="boolConfig(field.name, Boolean(fieldDefaultValue(field)))" @change="handleDynamicFieldToggle(field, $event)" />
             </label>
 
             <textarea
               v-else-if="isTextareaField(field)"
+              :data-config-field="field.name"
               class="min-h-28 w-full resize-y rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary"
               :value="fieldStringValue(field)"
               @input="handleDynamicFieldInput(field, $event)"
@@ -1384,6 +1424,7 @@ onMounted(() => {
 
             <input
               v-else
+              :data-config-field="field.name"
               class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
               :value="fieldStringValue(field)"
               @input="handleDynamicFieldInput(field, $event)"

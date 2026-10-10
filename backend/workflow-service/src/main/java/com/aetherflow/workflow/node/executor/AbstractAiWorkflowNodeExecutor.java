@@ -58,10 +58,19 @@ abstract class AbstractAiWorkflowNodeExecutor extends BaseNodeExecutor {
         request.setNodeId(context.currentNodeId());
         request.setNodeType(nodeType);
         request.setPayload(payload == null ? Map.of() : Map.copyOf(payload));
-        Result<AiWorkflowNodeResponseDTO> result = callAiWithTimeout(request, nodeType);
+        Result<AiWorkflowNodeResponseDTO> result;
+        try {
+            result = callAiWithTimeout(request, nodeType);
+        } catch (RuntimeException exception) {
+            if (!ImageNodeFailureMessage.appliesTo(nodeType)) throw exception;
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    ImageNodeFailureMessage.fromException(exception, payload, nodeType));
+        }
         if (result == null || !result.isSuccess() || result.getData() == null) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    nodeType.toLowerCase() + " node ai execution failed");
+                    ImageNodeFailureMessage.appliesTo(nodeType)
+                            ? ImageNodeFailureMessage.fromResult(result == null ? null : result.getMessage(), payload, nodeType)
+                            : nodeType.toLowerCase() + " node ai execution failed");
         }
         return result.getData();
     }

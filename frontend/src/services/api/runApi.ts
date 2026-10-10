@@ -18,6 +18,7 @@ import { getRuntimeEvents, getRuntimeObservation, type RuntimeState } from '@/ap
 import { runtimeEnv } from '@/config/runtimeEnv'
 import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime } from '@/utils/localeFormat'
 import { getStartedRunLink } from '@/services/api/workflowApi'
+import { parseImageExecutionFailure } from '@/utils/imageExecutionFailure'
 import type { ApiErrorSource } from '@/types/api'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 
@@ -198,12 +199,14 @@ function createBackendRunPlaceholder(runId: string): WorkflowRun {
 }
 
 function mapBackendLog(frame: WorkflowRunLogFrameDTO, index = 0): RunLogEntry {
+  const imageFailure = parseImageExecutionFailure(frame.attributes?.error)
   return {
     id: frame.id || frame.eventId || `${frame.workflowId ?? 'runtime'}-${frame.eventType ?? 'event'}-${index}`,
     time: formatTime(frame.occurredAt),
     level: normalizeLogLevel(frame.level),
     message: frame.message || `${frame.eventType ?? 'Runtime event'} for ${frame.nodeId ?? frame.workflowId ?? 'workflow'}.`,
     nodeId: frame.nodeId,
+    ...(imageFailure ? { imageFailure } : {}),
   }
 }
 

@@ -20,18 +20,21 @@ import java.util.Map;
 public class UpscaleNodeExecutor extends AbstractAiWorkflowNodeExecutor {
 
     private final ImageArtifactStorage storage;
+    private final ImageSourceResolver sourceResolver;
 
     public UpscaleNodeExecutor(WorkflowNodeMetrics metrics,
                                AiWorkflowNodeClient aiClient,
-                               ImageArtifactStorage storage) {
+                               ImageArtifactStorage storage,
+                               ImageSourceResolver sourceResolver) {
         super(WorkflowNodeTypes.UPSCALE, metrics, aiClient);
         this.storage = storage;
+        this.sourceResolver = sourceResolver;
     }
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) {
         AiWorkflowNodeResponseDTO response = executeAi(context, "UPSCALE",
-                ImageWorkflowNodeSupport.upscalePayload(config, context));
+                sourceResolver.resolve(ImageWorkflowNodeSupport.upscalePayload(config, context), context, true));
         Map<String, Object> aiOutput = response.getOutput() == null ? Map.of() : response.getOutput();
         List<ImageWorkflowDtos.GeneratedImage> images = ImageWorkflowNodeSupport.imagesFromOutput(aiOutput);
         if (images.isEmpty()) {

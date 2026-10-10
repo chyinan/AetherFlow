@@ -2,13 +2,16 @@ package com.aetherflow.ai.image;
 
 // pattern: Imperative Shell
 import com.aetherflow.ai.config.ImageProviderProperties;
-import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -25,6 +28,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
+
+import static com.aetherflow.ai.image.ImageExecutionFailure.*;
+import static com.aetherflow.ai.image.ImageExecutionFailure.Provider.COMFYUI;
 
 @Component
 @ConditionalOnProperty(prefix = "aetherflow.ai.image.comfy", name = "enabled", havingValue = "true")
@@ -86,49 +93,47 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
         String mode = normalizeMode(request.mode());
-        try {
-            RestClient client = restClient(request);
-            ComfyUploadResponse upload = "img2img".equals(mode) ? uploadSourceImage(client, request) : null;
-            Map<String, Object> queuePayload = queuePayload(request, mode, upload);
-            return executeQueuedWorkflow(client, request, mode, queuePayload);
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (RestClientException exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui request failed");
-        }
+        RestClient client = restClient(request);
+        ComfyUploadResponse upload = "img2img".equals(mode) ? uploadSourceImage(client, request) : null;
+        Map<String, Object> queuePayload = queuePayload(request, mode, upload);
+        return executeQueuedWorkflow(client, request, mode, queuePayload);
     }
 
     @Override
     public ImageGenerationResponse upscale(ImageGenerationRequest request) {
-        try {
-            RestClient client = restClient(request);
-            ComfyUploadResponse upload = uploadSourceImage(client, request);
-            Map<String, Object> queuePayload = new LinkedHashMap<>(request.options());
-            queuePayload.put("prompt", upscaleWorkflow(request, upload));
-            queuePayload.putIfAbsent("client_id", "aetherflow");
-            return executeQueuedWorkflow(client, request, "upscale", queuePayload);
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (RestClientException exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui request failed");
-        }
+        RestClient client = restClient(request);
+        ComfyUploadResponse upload = uploadSourceImage(client, request);
+        Map<String, Object> queuePayload = new LinkedHashMap<>(request.options());
+        queuePayload.put("prompt", upscaleWorkflow(request, upload));
+        queuePayload.putIfAbsent("client_id", "aetherflow");
+        return executeQueuedWorkflow(client, request, "upscale", queuePayload);
     }
 
     private ImageGenerationResponse executeQueuedWorkflow(RestClient client, ImageGenerationRequest request, String mode,
                                                          Map<String, Object> queuePayload) {
-        QueueResponse queue = client.post()
+        JsonNode queue = atStage(Stage.QUEUE, () -> client.post()
                 .uri("/prompt")
                 .body(queuePayload)
                 .retrieve()
-                .body(QueueResponse.class);
-        if (queue == null || queue.prompt_id() == null || queue.prompt_id().isBlank()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui queue returned no prompt id");
+                .body(JsonNode.class));
+        if (queue == null || !queue.isObject()) {
+            throw failure(COMFYUI, Stage.QUEUE, Field.workflow, Reason.INVALID_RESPONSE);
         }
-
-        HistoryResult history = waitForHistory(client, queue.prompt_id(), timeout(request));
-        List<ComfyImageRef> refs = imageRefs(queue.prompt_id(), history.history());
+        JsonNode promptIdNode = queue.path("prompt_id");
+        boolean accepted = promptIdNode.isTextual() && !promptIdNode.asText().isBlank();
+        // 部分输出节点无效时仍可能成功入队；已有任务交由 history 判断，避免误报并诱发重复提交。
+        BusinessException rejected = !accepted || queue.hasNonNull("error") ? queueRejection(queue) : null;
+        if (rejected != null) {
+            throw rejected;
+        }
+        if (!accepted) {
+            throw failure(COMFYUI, Stage.QUEUE, Field.workflow, Reason.INVALID_RESPONSE);
+        }
+        String promptId = promptIdNode.asText();
+        HistoryResult history = waitForHistory(client, promptId, timeout(request));
+        List<ComfyImageRef> refs = imageRefs(promptId, history.history());
         if (refs.isEmpty()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui history returned no images");
+            throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
         }
 
         List<GeneratedImagePayload> images = new ArrayList<>(refs.size());
@@ -137,7 +142,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
 
         Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("promptId", queue.prompt_id());
+        metadata.put("promptId", promptId);
         metadata.put("imageCount", images.size());
         metadata.put("queue", history.queue() == null ? Map.of() : history.queue());
         return new ImageGenerationResponse(type().name(), mode, images, metadata);
@@ -152,7 +157,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private Map<String, Object> workflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
         if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+            throw input(COMFYUI, Field.sourceImage);
         }
         Long seed = resolveSeed(request.seed());
         if (request.workflowJson().isEmpty()) {
@@ -165,7 +170,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private Long resolveSeed(Long seed) {
         if (seed != null && seed < -1L) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "ComfyUI 种子必须为 -1 或非负整数");
+            throw input(COMFYUI, Field.seed);
         }
         // 每次生成只解析一次随机哨兵，保证同一工作流中的采样与噪声节点使用一致的合法种子。
         if (seed != null && seed == -1L) {
@@ -179,7 +184,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         if ("txt2img".equals(normalized) || "img2img".equals(normalized) || "workflow".equals(normalized)) {
             return normalized;
         }
-        throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported comfyui mode: " + mode);
+        throw input(COMFYUI, Field.mode);
     }
 
     private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload,
@@ -268,7 +273,24 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
         Object configured = request.options().get("sourceImageName");
         String name = configured == null ? "" : String.valueOf(configured).trim();
-        return name.isBlank() ? "source.png" : name;
+        if (!name.isBlank()) {
+            return name;
+        }
+        return switch (sourceImageContentType(request).toString()) {
+            case "image/jpeg" -> "source.jpg";
+            case "image/webp" -> "source.webp";
+            default -> "source.png";
+        };
+    }
+
+    private MediaType sourceImageContentType(ImageGenerationRequest request) {
+        String type = request.sourceImageContentType() == null ? ""
+                : request.sourceImageContentType().trim().toLowerCase(Locale.ROOT);
+        return switch (type) {
+            case "image/jpeg" -> MediaType.IMAGE_JPEG;
+            case "image/webp" -> MediaType.parseMediaType("image/webp");
+            default -> MediaType.IMAGE_PNG;
+        };
     }
 
     private void addDefaultLoraAndVae(Map<String, Object> workflow, ImageGenerationRequest request,
@@ -437,34 +459,37 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private ComfyUploadResponse uploadSourceImage(RestClient client, ImageGenerationRequest request) {
         if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+            throw input(COMFYUI, Field.sourceImage);
         }
         byte[] bytes;
         try {
             bytes = Base64.getDecoder().decode(request.sourceImageBase64());
         } catch (IllegalArgumentException exception) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is not valid base64");
+            throw input(COMFYUI, Field.sourceImage);
         }
         if (bytes.length == 0) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+            throw input(COMFYUI, Field.sourceImage);
         }
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("image", new ByteArrayResource(bytes) {
+        ByteArrayResource source = new ByteArrayResource(bytes) {
             @Override
             public String getFilename() {
                 return sourceImageName(request, null);
             }
-        });
+        };
+        HttpHeaders imageHeaders = new HttpHeaders();
+        imageHeaders.setContentType(sourceImageContentType(request));
+        body.add("image", new HttpEntity<>(source, imageHeaders));
         body.add("type", "input");
         body.add("overwrite", "true");
-        ComfyUploadResponse response = client.post()
+        ComfyUploadResponse response = atStage(Stage.UPLOAD, () -> client.post()
                 .uri("/upload/image")
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(body)
                 .retrieve()
-                .body(ComfyUploadResponse.class);
+                .body(ComfyUploadResponse.class));
         if (response == null || response.name() == null || response.name().isBlank()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui upload returned no image name");
+            throw failure(COMFYUI, Stage.UPLOAD, Field.sourceImage, Reason.INVALID_RESPONSE);
         }
         return response;
     }
@@ -473,14 +498,25 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         Instant deadline = Instant.now().plus(timeout);
         Map<String, Object> lastQueue = Map.of();
         while (!Instant.now().isAfter(deadline)) {
-            lastQueue = queue(client);
-            Map<String, Object> history = history(client, promptId);
+            if (Thread.currentThread().isInterrupted()) {
+                throw failure(COMFYUI, Stage.POLL, Field.workflow, Reason.INTERRUPTED);
+            }
+            lastQueue = atStage(Stage.POLL, () -> queue(client));
+            Map<String, Object> history = atStage(Stage.POLL, () -> history(client, promptId));
             if (history.containsKey(promptId)) {
+                Object rawPrompt = history.get(promptId);
+                if (!(rawPrompt instanceof Map<?, ?> promptHistory)) {
+                    throw failure(COMFYUI, Stage.POLL, Field.workflow, Reason.INVALID_RESPONSE);
+                }
+                BusinessException generationFailure = historyFailure(promptHistory);
+                if (generationFailure != null) {
+                    throw generationFailure;
+                }
                 return new HistoryResult(history, lastQueue);
             }
             sleep(properties.getComfy().getPollInterval());
         }
-        throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui generation timed out");
+        throw failure(COMFYUI, Stage.POLL, Field.timeoutSeconds, Reason.TIMEOUT);
     }
 
     @SuppressWarnings("unchecked")
@@ -517,7 +553,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             Thread.sleep(duration.toMillis());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui polling interrupted");
+            throw failure(COMFYUI, Stage.POLL, Field.workflow, Reason.INTERRUPTED);
         }
     }
 
@@ -558,24 +594,35 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     private GeneratedImagePayload download(RestClient client, ComfyImageRef ref) {
-        ResponseEntity<byte[]> response = client.get()
+        ResponseEntity<byte[]> response = atStage(Stage.DOWNLOAD, () -> client.get()
                 .uri(uriBuilder -> uriBuilder.path("/view")
                         .queryParam("filename", ref.filename())
                         .queryParam("subfolder", ref.subfolder())
                         .queryParam("type", ref.type())
                         .build())
                 .retrieve()
-                .toEntity(byte[].class);
+                .toEntity(byte[].class));
         byte[] bytes = response.getBody() == null ? new byte[0] : response.getBody();
         if (bytes.length == 0) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "comfyui returned blank image");
+            throw failure(COMFYUI, Stage.DOWNLOAD, Field.workflow, Reason.EMPTY);
         }
-        String contentType = response.getHeaders().getContentType() == null
+        String contentType = atStage(Stage.DOWNLOAD, () -> response.getHeaders().getContentType() == null
                 ? "image/png"
-                : response.getHeaders().getContentType().toString();
+                : response.getHeaders().getContentType().toString());
         return new GeneratedImagePayload(ref.filename(), contentType,
                 Base64.getEncoder().encodeToString(bytes), (long) bytes.length,
                 Map.of("subfolder", ref.subfolder(), "type", ref.type()));
+    }
+
+    private <T> T atStage(Stage stage, Supplier<T> operation) {
+        try {
+            return operation.get();
+        } catch (RestClientException exception) {
+            throw fromRest(COMFYUI, stage, exception);
+        } catch (HttpMessageConversionException | IllegalArgumentException exception) {
+            // URI、媒体类型和消息转换错误也可能包含服务器原文，只返回固定阶段提示。
+            throw failure(COMFYUI, stage, Field.workflow, Reason.INVALID_RESPONSE);
+        }
     }
 
     private void put(Map<String, Object> values, String key, Object value) {
@@ -637,9 +684,6 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             return 1;
         }
         return Math.toIntExact(Math.min(millis, Integer.MAX_VALUE));
-    }
-
-    record QueueResponse(String prompt_id) {
     }
 
     record ComfyUploadResponse(String name, String subfolder, String type) {
