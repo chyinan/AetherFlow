@@ -542,30 +542,35 @@ def llm_chat_stream(request: LlmRequest, http_request: Request) -> StreamingResp
         raise HTTPException(status_code=429, detail="llm runtime is busy; retry later")
 
     async def events():
-        deadline = asyncio.get_running_loop().time() + _effective_timeout_seconds(request)
-        chunks = _stream_openai_async(request) if provider == "openai" else _stream_ollama_async(request)
-        iterator = chunks.__aiter__()
+        iterator = None
         try:
+            deadline = asyncio.get_running_loop().time() + _effective_timeout_seconds(request)
+            chunks = _stream_openai_async(request) if provider == "openai" else _stream_ollama_async(request)
+            iterator = chunks.__aiter__()
             while True:
                 if await http_request.is_disconnected():
-                    break
+                    return
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
-                    break
+                    raise TimeoutError
                 try:
                     chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
                 except StopAsyncIteration:
-                    break
-                except TimeoutError:
-                    break
+                    if not await http_request.is_disconnected():
+                        yield "data: [DONE]\n\n"
+                    return
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+        except TimeoutError:
             if not await http_request.is_disconnected():
-                yield "data: [DONE]\n\n"
+                error = {"error": {"code": "deadline_exceeded", "message": "LLM provider deadline exceeded"}}
+                yield f"event: error\ndata: {json.dumps(error)}\n\n"
         finally:
-            close = getattr(iterator, "aclose", None)
-            if close is not None:
-                await close()
-            _llm_slots.release()
+            try:
+                close = getattr(iterator, "aclose", None)
+                if close is not None:
+                    await close()
+            finally:
+                _llm_slots.release()
 
     return StreamingResponse(
         events(),

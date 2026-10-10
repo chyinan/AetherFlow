@@ -98,7 +98,7 @@ public class AiProviderRouter {
                 AiProviderRequest routedRequest = request.withProvider(providerType)
                         .withTimeout(policy.effectiveRequestTimeout(request.timeout()));
                 provider.stream(routedRequest, response -> {
-                    if (response != null && response.text() != null && !response.text().isBlank()) {
+                    if (response != null && response.text() != null && !response.text().isEmpty()) {
                         streamStarted.set(true);
                     }
                     consumer.accept(response);

@@ -99,17 +99,24 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
                             try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                                     clientResponse.getBody(), StandardCharsets.UTF_8))) {
                                 String line;
+                                boolean completed = false;
                                 while ((line = reader.readLine()) != null) {
                                     if (!line.startsWith("data: ")) {
                                         continue;
                                     }
                                     String payload = line.substring("data: ".length()).trim();
                                     if ("[DONE]".equals(payload)) {
+                                        completed = true;
                                         break;
                                     }
                                     JsonNode data = objectMapper.readTree(payload);
+                                    if (data.hasNonNull("error")) {
+                                        throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                                                "python ai stream failed: " + data.path("error").path("message")
+                                                        .asText("LLM provider stream failed"));
+                                    }
                                     String text = data.path("text").asText("");
-                                    if (!text.isBlank()) {
+                                    if (!text.isEmpty()) {
                                         consumer.accept(new AiProviderResponse(
                                                 type(),
                                                 data.path("model").asText(request.model()),
@@ -117,6 +124,10 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
                                                 objectMapper.convertValue(data.path("metadata"), new TypeReference<Map<String, Object>>() {
                                                 })));
                                     }
+                                }
+                                if (!completed) {
+                                    throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                                            "python ai stream ended before completion");
                                 }
                             } catch (IOException | RuntimeException exception) {
                                 if (exception instanceof BusinessException businessException) {
