@@ -6,6 +6,8 @@ import com.aetherflow.common.exception.BusinessException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -123,6 +125,27 @@ class StableDiffusionWebUiProviderTest {
         assertThat(response.metadata())
                 .containsEntry("parameters", Map.of("seed", 123))
                 .containsEntry("info", "{}");
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"txt2img", "img2img"})
+    void preservesProviderRandomSeedSentinel(String mode) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        StableDiffusionWebUiProvider provider = provider(builder);
+        server.expect(requestTo("http://sd/sdapi/v1/" + mode))
+                .andExpect(method(POST))
+                .andExpect(content().json("{\"seed\":-1}"))
+                .andRespond(withSuccess("{\"images\":[\"aW1n\"],\"parameters\":{},\"info\":\"{}\"}",
+                        MediaType.APPLICATION_JSON));
+
+        ImageGenerationResponse response = provider.generate(new ImageGenerationRequest(
+                ImageProviderType.STABLE_DIFFUSION_WEBUI, mode, "cat", "", -1L, null, null,
+                null, null, null, null, null, null, null, null, List.of(),
+                "img2img".equals(mode) ? "aW1n" : null, "image/png", Map.of(), Map.of(), Duration.ofSeconds(1)));
+
+        assertThat(response.images()).hasSize(1);
         server.verify();
     }
 

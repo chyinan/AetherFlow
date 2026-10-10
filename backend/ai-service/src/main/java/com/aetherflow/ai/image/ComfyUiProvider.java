@@ -23,6 +23,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.LongSupplier;
 
 @Component
 @ConditionalOnProperty(prefix = "aetherflow.ai.image.comfy", name = "enabled", havingValue = "true")
@@ -37,26 +39,33 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     private final ImageProviderProperties properties;
     private final String baseUrl;
     private final boolean perRequestTimeoutEnabled;
+    private final LongSupplier randomSeed;
 
     public ComfyUiProvider(RestClient.Builder builder, ImageProviderProperties properties) {
         this(createRestClient(builder, properties.getComfy().getBaseUrl(), properties.getDefaultTimeout()),
                 createRestClient(RestClient.builder(), properties.getComfy().getBaseUrl(), properties.getHealthTimeout()),
-                properties, true);
+                properties, true, () -> ThreadLocalRandom.current().nextLong());
     }
 
     ComfyUiProvider(RestClient restClient, ImageProviderProperties properties) {
-        this(restClient, restClient, properties, false);
+        this(restClient, properties, () -> ThreadLocalRandom.current().nextLong());
+    }
+
+    ComfyUiProvider(RestClient restClient, ImageProviderProperties properties, LongSupplier randomSeed) {
+        this(restClient, restClient, properties, false, randomSeed);
     }
 
     private ComfyUiProvider(RestClient restClient,
                             RestClient healthRestClient,
                             ImageProviderProperties properties,
-                            boolean perRequestTimeoutEnabled) {
+                            boolean perRequestTimeoutEnabled,
+                            LongSupplier randomSeed) {
         this.restClient = restClient;
         this.healthRestClient = healthRestClient;
         this.properties = properties;
         this.baseUrl = properties.getComfy().getBaseUrl();
         this.perRequestTimeoutEnabled = perRequestTimeoutEnabled;
+        this.randomSeed = randomSeed;
     }
 
     @Override
@@ -145,12 +154,24 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
         }
+        Long seed = resolveSeed(request.seed());
         if (request.workflowJson().isEmpty()) {
-            return defaultWorkflow(request, mode, upload);
+            return defaultWorkflow(request, mode, upload, seed);
         }
         Map<String, Object> workflow = mutableWorkflow(request.workflowJson());
-        applyParameters(workflow, request, mode, upload);
+        applyParameters(workflow, request, mode, upload, seed);
         return workflow;
+    }
+
+    private Long resolveSeed(Long seed) {
+        if (seed != null && seed < -1L) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "ComfyUI 种子必须为 -1 或非负整数");
+        }
+        // 每次生成只解析一次随机哨兵，保证同一工作流中的采样与噪声节点使用一致的合法种子。
+        if (seed != null && seed == -1L) {
+            return randomSeed.getAsLong() & Long.MAX_VALUE;
+        }
+        return seed;
     }
 
     private String normalizeMode(String mode) {
@@ -161,7 +182,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported comfyui mode: " + mode);
     }
 
-    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
+    private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload,
+                                                Long seed) {
         Map<String, Object> workflow = new LinkedHashMap<>();
         workflow.put("1", node("CheckpointLoaderSimple", Map.of(
                 "ckpt_name", textOrDefault(request.checkpoint(), DEFAULT_CHECKPOINT)
@@ -176,11 +198,13 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         )));
         List<Object> latentRef;
         String samplerNodeId;
+        String encodeNodeId = null;
         if ("img2img".equals(mode)) {
             workflow.put("4", node("LoadImage", Map.of(
                     "image", sourceImageName(request, upload)
             )));
-            workflow.put("5", node("VAEEncode", Map.of(
+            encodeNodeId = "5";
+            workflow.put(encodeNodeId, node("VAEEncode", Map.of(
                     "pixels", List.of("4", 0),
                     "vae", List.of("1", 2)
             )));
@@ -196,7 +220,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             samplerNodeId = "5";
         }
         workflow.put(samplerNodeId, node("KSampler", Map.of(
-                "seed", valueOrDefault(request.seed(), 1L),
+                "seed", valueOrDefault(seed, 1L),
                 "steps", valueOrDefault(request.steps(), 30),
                 "cfg", valueOrDefault(request.cfgScale(), 7.0D),
                 "sampler_name", textOrDefault(request.sampler(), DEFAULT_SAMPLER),
@@ -217,7 +241,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "filename_prefix", "aetherflow",
                 "images", List.of(decodeNodeId, 0)
         )));
-        addDefaultLoraAndVae(workflow, request, samplerNodeId, decodeNodeId);
+        addDefaultLoraAndVae(workflow, request, samplerNodeId, encodeNodeId, decodeNodeId);
         return workflow;
     }
 
@@ -248,7 +272,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     private void addDefaultLoraAndVae(Map<String, Object> workflow, ImageGenerationRequest request,
-                                      String samplerNodeId, String decodeNodeId) {
+                                      String samplerNodeId, String encodeNodeId, String decodeNodeId) {
         int nextId = nextNumericNodeId(workflow);
         List<Object> modelRef = List.of("1", 0);
         List<Object> clipRef = List.of("1", 1);
@@ -280,6 +304,9 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             String nodeId = String.valueOf(nextId);
             workflow.put(nodeId, node("VAELoader", Map.of("vae_name", request.vae())));
             inputs((Map<?, ?>) workflow.get(decodeNodeId)).put("vae", List.of(nodeId, 0));
+            if (encodeNodeId != null) {
+                inputs((Map<?, ?>) workflow.get(encodeNodeId)).put("vae", List.of(nodeId, 0));
+            }
         }
     }
 
@@ -322,7 +349,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request, String mode,
-                                 ComfyUploadResponse upload) {
+                                 ComfyUploadResponse upload, Long seed) {
         int clipTextIndex = 0;
         int loraIndex = 0;
         for (Object nodeValue : workflow.values()) {
@@ -343,7 +370,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                     inputs.put("text", request.negativePrompt());
                 }
             } else if ("ksampler".equals(classType)) {
-                put(inputs, "seed", request.seed());
+                put(inputs, "seed", seed);
                 put(inputs, "steps", request.steps());
                 put(inputs, "cfg", request.cfgScale());
                 put(inputs, "sampler_name", request.sampler());
@@ -366,7 +393,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 put(inputs, "height", request.height());
                 put(inputs, "batch_size", request.batchSize());
             } else if ("randomnoise".equals(classType)) {
-                put(inputs, "noise_seed", request.seed());
+                put(inputs, "noise_seed", seed);
             } else if ("basicscheduler".equals(classType)) {
                 put(inputs, "steps", request.steps());
                 put(inputs, "scheduler", request.scheduler());
