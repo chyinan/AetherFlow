@@ -273,7 +273,7 @@ class StableDiffusionWebUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
-                .hasMessageContaining("unsupported stable diffusion webui mode");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:INPUT:mode:VALIDATION]");
     }
 
     @Test
@@ -405,7 +405,7 @@ class StableDiffusionWebUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
-                .hasMessageContaining("img2img source image is required");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:INPUT:sourceImage:VALIDATION]");
     }
 
     @Test
@@ -420,7 +420,7 @@ class StableDiffusionWebUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("stable diffusion webui returned no images");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:OUTPUT:workflow:EMPTY]");
         server.verify();
     }
 
@@ -436,7 +436,7 @@ class StableDiffusionWebUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("stable diffusion webui returned blank image");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:OUTPUT:workflow:EMPTY]");
         server.verify();
     }
 
@@ -452,7 +452,7 @@ class StableDiffusionWebUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("stable diffusion webui request failed");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:REQUEST:connectionId:HTTP]");
         server.verify();
     }
 
@@ -516,7 +516,7 @@ class StableDiffusionWebUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest()))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("stable diffusion webui request failed");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:REQUEST:timeoutSeconds:TIMEOUT]");
     }
 
     @Test
@@ -552,7 +552,7 @@ class StableDiffusionWebUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("stable diffusion webui request failed");
+                .hasMessageContaining("[IMAGE_EXECUTION:SD_WEBUI:REQUEST:timeoutSeconds:TIMEOUT]");
     }
 
     private StableDiffusionWebUiProvider provider(RestClient.Builder builder) {

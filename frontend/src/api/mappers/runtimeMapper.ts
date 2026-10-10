@@ -2,6 +2,7 @@ import type { RuntimeEvent, RuntimeObservation, RuntimeState } from '@/api/modul
 import type { HumanApprovalDetails, RunLogEntry, RunNodeState, RunStatus, WorkflowRun } from '@/types/run'
 import type { WorkflowNodeStatus } from '@/types/workflow'
 import { formatTime as formatLocaleTime } from '@/utils/localeFormat'
+import { parseImageExecutionFailure } from '@/utils/imageExecutionFailure'
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
@@ -199,12 +200,14 @@ function durationBetween(startedAt?: string, completedAt?: string) {
 }
 
 export function mapRuntimeEventToLogEntry(event: RuntimeEvent): RunLogEntry {
+  const imageFailure = parseImageExecutionFailure(event.attributes?.error)
   return {
     id: event.eventId || `${event.workflowId}-${event.eventType}-${event.occurredAt ?? Date.now()}`,
     time: formatTime(event.occurredAt),
     level: eventLevel(event),
     message: eventMessage(event),
     nodeId: event.nodeId,
+    ...(imageFailure ? { imageFailure } : {}),
   }
 }
 

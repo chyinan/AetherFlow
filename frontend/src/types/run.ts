@@ -1,4 +1,5 @@
 import type { WorkflowNodeStatus } from './workflow'
+import type { ImageExecutionFailure } from '@/utils/imageExecutionFailure'
 
 export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'paused' | 'cancelled'
 
@@ -27,6 +28,7 @@ export interface RunLogEntry {
   level: 'info' | 'warn' | 'error' | 'debug'
   message: string
   nodeId?: string
+  imageFailure?: ImageExecutionFailure
 }
 
 export interface WorkflowRun {

@@ -2,10 +2,10 @@ package com.aetherflow.ai.image;
 
 // pattern: Imperative Shell
 import com.aetherflow.ai.config.ImageProviderProperties;
-import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClient;
@@ -16,6 +16,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import static com.aetherflow.ai.image.ImageExecutionFailure.*;
+import static com.aetherflow.ai.image.ImageExecutionFailure.Provider.SD_WEBUI;
 
 @Component
 @ConditionalOnProperty(prefix = "aetherflow.ai.image.stable-diffusion", name = "enabled", havingValue = "true")
@@ -75,18 +78,20 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         } catch (BusinessException exception) {
             throw exception;
         } catch (RestClientException exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui request failed");
+            throw fromRest(SD_WEBUI, Stage.REQUEST, exception);
+        } catch (HttpMessageConversionException | IllegalArgumentException exception) {
+            throw failure(SD_WEBUI, Stage.REQUEST, Field.workflow, Reason.INVALID_RESPONSE);
         }
 
         if (response == null || response.images() == null || response.images().isEmpty()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned no images");
+            throw failure(SD_WEBUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
         }
 
         List<GeneratedImagePayload> images = new ArrayList<>();
         for (int index = 0; index < response.images().size(); index++) {
             String base64Data = response.images().get(index);
             if (base64Data == null || base64Data.isBlank()) {
-                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned blank image");
+                throw failure(SD_WEBUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
             }
             images.add(new GeneratedImagePayload(
                     "sd-webui-" + (index + 1) + ".png",
@@ -115,10 +120,12 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         } catch (BusinessException exception) {
             throw exception;
         } catch (RestClientException exception) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui upscale request failed");
+            throw fromRest(SD_WEBUI, Stage.REQUEST, exception);
+        } catch (HttpMessageConversionException | IllegalArgumentException exception) {
+            throw failure(SD_WEBUI, Stage.REQUEST, Field.workflow, Reason.INVALID_RESPONSE);
         }
         if (response == null || response.image() == null || response.image().isBlank()) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "stable diffusion webui returned blank upscale image");
+            throw failure(SD_WEBUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
         }
         GeneratedImagePayload image = new GeneratedImagePayload(
                 "sd-webui-upscale-1.png",
@@ -150,7 +157,7 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
         if (img2img) {
             if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
-                throw new BusinessException(ResultCode.BAD_REQUEST, "img2img source image is required");
+                throw input(SD_WEBUI, Field.sourceImage);
             }
             payload.put("init_images", List.of(request.sourceImageBase64()));
         }
@@ -159,7 +166,7 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
     private Map<String, Object> toUpscalePayload(ImageGenerationRequest request) {
         if (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "upscale source image is required");
+            throw input(SD_WEBUI, Field.sourceImage);
         }
         Map<String, Object> payload = new LinkedHashMap<>(request.options());
         Object scale = payload.remove("scale");
@@ -177,7 +184,7 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         if ("txt2img".equals(normalized) || "img2img".equals(normalized)) {
             return normalized;
         }
-        throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported stable diffusion webui mode: " + mode);
+        throw input(SD_WEBUI, Field.mode);
     }
 
     @SuppressWarnings("unchecked")

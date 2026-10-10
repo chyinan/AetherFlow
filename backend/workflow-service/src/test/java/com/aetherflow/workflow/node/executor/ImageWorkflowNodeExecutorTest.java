@@ -5,7 +5,9 @@ import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.dto.ImageWorkflowDtos;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
+import com.aetherflow.workflow.client.FileMetadataClient;
 import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
@@ -45,7 +47,7 @@ class ImageWorkflowNodeExecutorTest {
         AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
         ImageArtifactStorage storage = mock(ImageArtifactStorage.class);
         ImageGenerationNodeExecutor executor =
-                new ImageGenerationNodeExecutor(new WorkflowNodeMetrics(), aiClient, storage);
+                new ImageGenerationNodeExecutor(new WorkflowNodeMetrics(), aiClient, storage, sourceResolver());
         FileMetadataDTO metadata = fileMetadata(7L, "workflow/images/a.png", "http://minio/a.png");
         when(storage.store(eq("workflow-1"), eq("image"), eq(99L), argThat(image ->
                 "image.png".equals(image.getFileName())
@@ -110,7 +112,7 @@ class ImageWorkflowNodeExecutorTest {
     void upscaleNodeCallsAiServiceStoresImagesAndWritesRuntimeVariables() throws Exception {
         AiWorkflowNodeClient aiClient = mock(AiWorkflowNodeClient.class);
         ImageArtifactStorage storage = mock(ImageArtifactStorage.class);
-        UpscaleNodeExecutor executor = new UpscaleNodeExecutor(new WorkflowNodeMetrics(), aiClient, storage);
+        UpscaleNodeExecutor executor = new UpscaleNodeExecutor(new WorkflowNodeMetrics(), aiClient, storage, sourceResolver());
         when(storage.store(eq("workflow-1"), eq("upscale"), eq(100L), argThat(image ->
                 "upscaled.png".equals(image.getFileName())
         ))).thenReturn(fileMetadata(8L, "workflow/images/upscaled.png", "http://minio/upscaled.png"));
@@ -171,6 +173,10 @@ class ImageWorkflowNodeExecutorTest {
         assertThat(result.variables()).containsEntry("savedImageFileIds", List.of(9L));
         assertThat(result.variables()).containsEntry("savedImageUrls", List.of("http://minio/manual.png"));
         assertThat(result.output()).containsKey("imageFiles");
+    }
+
+    private static ImageSourceResolver sourceResolver() {
+        return new ImageSourceResolver(mock(FileMetadataClient.class), new WorkflowNodeProperties());
     }
 
     private static DefaultWorkflowContext context(String nodeId,

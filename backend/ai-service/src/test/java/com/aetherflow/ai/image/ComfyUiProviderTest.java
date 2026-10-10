@@ -247,7 +247,7 @@ class ComfyUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
-                .hasMessageContaining("img2img source image is required");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:INPUT:sourceImage:VALIDATION]");
     }
 
     @Test
@@ -279,7 +279,7 @@ class ComfyUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
-                .hasMessageContaining("img2img source image is required");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:INPUT:sourceImage:VALIDATION]");
     }
 
     @Test
@@ -311,7 +311,7 @@ class ComfyUiProviderTest {
         )))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
-                .hasMessageContaining("unsupported comfyui mode");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:INPUT:mode:VALIDATION]");
     }
 
     @Test
@@ -513,7 +513,7 @@ class ComfyUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest(Duration.ofSeconds(1))))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("comfyui queue returned no prompt id");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:QUEUE:workflow:INVALID_RESPONSE]");
         server.verify();
     }
 
@@ -533,7 +533,7 @@ class ComfyUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest(Duration.ofSeconds(1))))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("comfyui history returned no images");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:OUTPUT:workflow:EMPTY]");
         server.verify();
     }
 
@@ -549,7 +549,7 @@ class ComfyUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest(Duration.ofSeconds(1))))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("comfyui request failed");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:QUEUE:connectionId:HTTP]");
         server.verify();
     }
 
@@ -566,7 +566,7 @@ class ComfyUiProviderTest {
         assertThatThrownBy(() -> provider.generate(txt2imgRequest(Duration.ofMillis(10))))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE))
-                .hasMessageContaining("comfyui request failed");
+                .hasMessageContaining("[IMAGE_EXECUTION:COMFYUI:QUEUE:timeoutSeconds:TIMEOUT]");
     }
 
     @Test

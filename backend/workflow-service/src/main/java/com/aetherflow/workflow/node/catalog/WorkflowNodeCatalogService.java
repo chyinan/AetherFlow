@@ -479,7 +479,7 @@ public class WorkflowNodeCatalogService {
                                 "negativePrompt", List.of(), WorkflowNodeConfigUiSchema.basic("input")),
                         field("sourceImage", "STRING", false, "Base64 source image used by img2img.", "",
                                 List.of(), WorkflowNodeConfigUiSchema.advanced("textarea")),
-                        field("sourceImageVariable", "STRING", false, "Workflow variable containing img2img base64 source image.",
+                        field("sourceImageVariable", "STRING", false, "Base64 或上游图片文件 ID 变量；文件 ID 数组取第一张图片。",
                                 "sourceImage", List.of(), WorkflowNodeConfigUiSchema.advanced("input")),
                         field("seed", "NUMBER", false, "Generation seed. Use -1 for provider random seed.", -1,
                                 List.of(), WorkflowNodeConfigUiSchema.advancedNumber(-1, Long.MAX_VALUE, 1)),
@@ -517,7 +517,7 @@ public class WorkflowNodeCatalogService {
                 List.of(
                         variable("prompt", "STRING", "Positive prompt from PROMPT or upstream text node.", "cinematic product photo"),
                         variable("negativePrompt", "STRING", "Negative prompt from PROMPT.", "blur, low quality"),
-                        variable("sourceImage", "STRING", "Base64 source image for img2img.", "base64")
+                        variable("sourceImage", "STRING", "图生图源图片：Base64 或上游图片文件 ID；文件 ID 数组取第一张图片。", "base64")
                 ),
                 List.of(
                         variable("imageFiles", "ARRAY", "Stored generated image file metadata.", List.of(Map.of("id", 7))),
@@ -553,7 +553,7 @@ public class WorkflowNodeCatalogService {
                                 List.of("COMFYUI", "SD_WEBUI", "STABLE_DIFFUSION_WEBUI"), WorkflowNodeConfigUiSchema.basic("select")),
                         field("sourceImage", "STRING", false, "Base64 source image.", "",
                                 List.of(), WorkflowNodeConfigUiSchema.basic("textarea")),
-                        field("sourceImageVariable", "STRING", false, "Workflow variable containing the source image base64.",
+                        field("sourceImageVariable", "STRING", false, "Base64 或上游图片文件 ID 变量；文件 ID 数组取第一张图片。",
                                 "sourceImage", List.of(), WorkflowNodeConfigUiSchema.basic("input")),
                         field("scale", "NUMBER", false, "Upscale multiplier.", 2,
                                 List.of(), WorkflowNodeConfigUiSchema.basicNumber(1, 8, 1)),
@@ -568,7 +568,7 @@ public class WorkflowNodeCatalogService {
                         field("options", "OBJECT", false, "Provider-specific options.", Map.of(),
                                 List.of(), WorkflowNodeConfigUiSchema.advanced("json"))
                 ),
-                List.of(variable("sourceImage", "STRING", "Base64 source image from upstream.", "base64")),
+                List.of(variable("sourceImage", "STRING", "上游源图片：Base64 或图片文件 ID；文件 ID 数组取第一张图片。", "base64")),
                 List.of(
                         variable("upscaledImageFiles", "ARRAY", "Stored upscaled image file metadata.", List.of(Map.of("id", 8))),
                         variable("upscaledImageFileIds", "ARRAY", "Stored upscaled image file ids.", List.of(8)),

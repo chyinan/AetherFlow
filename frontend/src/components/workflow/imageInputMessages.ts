@@ -1,0 +1,36 @@
+// pattern: Functional Core
+export const imageInputMessages = {
+  'zh-CN': {
+    title: '源图片', choose: '选择图片', replace: '更换图片', clear: '清除固定图片', reading: '正在读取图片…', cancel: '取消读取',
+    hint: 'PNG、JPEG 或 WebP，最多 5 MiB、4000 万像素。图片嵌入当前工作流，保存时一并存储。', preview: '源图片预览',
+    upstream: '使用上游图片输出', placeholder: '选择已连接的上游输出', noUpstream: '先连接图像生成、图像放大或保存图片节点，即可选择其输出。',
+    upstreamHint: '运行时读取所选变量中的第一张图片。同名变量共享工作流值；有多个上游时使用最后写入的值。',
+    fixedPriority: '当前固定图片优先；清除后恢复原有变量绑定。选择上游输出会替换固定图片。', variable: '当前变量：{value}', retained: '保留自定义或旧变量',
+    advanced: '高级：Base64 / 自定义变量', base64: '固定图片 Base64', variableLabel: '源图片变量', apply: '应用高级设置',
+    advancedHint: '兼容已有 Base64 与变量配置。固定值优先于变量；不会访问此处填写的远程地址。',
+    previewUnavailable: '已保留固定值，无法安全预览。请检查 Base64，或重新选择图片。',
+    error: { unsupported: '请选择 PNG、JPEG 或 WebP 图片。', tooLarge: '图片不能超过 5 MiB。', empty: '图片文件为空。', readFailed: '读取图片失败，请重试。', invalidImage: '图片内容无效、格式不匹配，或超过 4000 万像素。', cancelled: '已取消读取。' },
+  },
+  'en-US': {
+    title: 'Source image', choose: 'Choose image', replace: 'Replace image', clear: 'Clear fixed image', reading: 'Reading image…', cancel: 'Cancel reading',
+    hint: 'PNG, JPEG or WebP, up to 5 MiB and 40 megapixels. The image is embedded and saved with this workflow.', preview: 'Source image preview',
+    upstream: 'Use an upstream image output', placeholder: 'Choose a connected upstream output', noUpstream: 'Connect an image generation, upscale or save image node to select its output.',
+    upstreamHint: 'Uses the first image in the selected variable at runtime. Variables with the same name share workflow state; the last upstream write wins.',
+    fixedPriority: 'The fixed image takes priority. Clearing restores the existing variable binding; choosing an upstream output replaces the fixed image.', variable: 'Current variable: {value}', retained: 'Custom or existing variable retained',
+    advanced: 'Advanced: Base64 / custom variable', base64: 'Fixed image Base64', variableLabel: 'Source image variable', apply: 'Apply advanced settings',
+    advancedHint: 'Existing Base64 and variables are supported. Fixed values take priority. Remote addresses entered here are never opened.',
+    previewUnavailable: 'The fixed value is retained but cannot be previewed safely. Check the Base64 or choose an image again.',
+    error: { unsupported: 'Choose a PNG, JPEG or WebP image.', tooLarge: 'Images must not exceed 5 MiB.', empty: 'The image file is empty.', readFailed: 'Could not read the image. Try again.', invalidImage: 'The image is invalid, has a mismatched format or exceeds 40 megapixels.', cancelled: 'Reading cancelled.' },
+  },
+  'ja-JP': {
+    title: '入力画像', choose: '画像を選択', replace: '画像を変更', clear: '固定画像をクリア', reading: '画像を読み込み中…', cancel: '読み込みをキャンセル',
+    hint: 'PNG、JPEG、WebP、最大 5 MiB・4000 万画素。画像はワークフローに埋め込んで保存されます。', preview: '入力画像のプレビュー',
+    upstream: '上流の画像出力を使用', placeholder: '接続済みの上流出力を選択', noUpstream: '画像生成、拡大、画像保存ノードを接続すると出力を選択できます。',
+    upstreamHint: '実行時に変数の最初の画像を使用します。同名変数は共有され、最後に書き込まれた値が使われます。',
+    fixedPriority: '固定画像が優先されます。クリアすると既存の変数に戻ります。上流出力を選択すると固定画像が置き換わります。', variable: '現在の変数：{value}', retained: '既存またはカスタム変数を保持',
+    advanced: '詳細：Base64 / カスタム変数', base64: '固定画像の Base64', variableLabel: '入力画像変数', apply: '詳細設定を適用',
+    advancedHint: '既存の Base64 と変数に対応します。固定値が優先されます。ここに入力した外部 URL にはアクセスしません。',
+    previewUnavailable: '固定値は保持されていますが安全にプレビューできません。Base64 を確認するか画像を選び直してください。',
+    error: { unsupported: 'PNG、JPEG、WebP 画像を選択してください。', tooLarge: '画像は 5 MiB 以下にしてください。', empty: '画像ファイルが空です。', readFailed: '画像の読み込みに失敗しました。再試行してください。', invalidImage: '画像が無効、形式が不一致、または 4000 万画素を超えています。', cancelled: '読み込みをキャンセルしました。' },
+  },
+}
