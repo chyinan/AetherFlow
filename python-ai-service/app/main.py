@@ -91,7 +91,10 @@ async def lifespan(app: FastAPI):
                 _whisper_dependency_loaded = False
                 _whisper_startup_failure = "dependency"
                 logger.warning("Whisper model startup dependency unavailable")
-            except (OSError, RuntimeError, ValueError) as exc:
+            except (
+                OSError, RuntimeError, ValueError,
+                httpx.ProxyError, httpx.NetworkError, httpx.TimeoutException, httpx.RemoteProtocolError,
+            ) as exc:
                 _whisper_startup_failure = "load_failure"
                 logger.warning("Whisper startup model load failed: %s", type(exc).__name__)
     try:

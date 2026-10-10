@@ -1,5 +1,6 @@
 # pattern: Imperative Shell
 
+import asyncio
 import sys
 import unittest
 from contextlib import ExitStack
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -178,6 +180,67 @@ class WhisperEnvironmentTest(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(main._whisper_runtime_ready())
                     self.assertNotIn("private-server", str(body))
                     self.assertNotIn("secret-token", str(body))
+
+    def test_startup_network_failures_keep_service_available_without_retrying_model(self):
+        for error in (
+            httpx.ProxyError,
+            httpx.ConnectError, httpx.ReadError, httpx.WriteError, httpx.CloseError,
+            httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout,
+            httpx.RemoteProtocolError,
+        ):
+            with self.subTest(error=error):
+                self.factory.reset_mock()
+                self.ensure_env.reset_mock()
+                self.factory.side_effect = error("private-server secret-token")
+                with (
+                    patch.dict("os.environ", {"WHISPER_MODEL": "small"}),
+                    patch.object(main.subprocess, "run") as run,
+                    self.assertLogs(main.logger, level="WARNING") as logs,
+                    TestClient(main.app) as client,
+                ):
+                    self.assertEqual("load_failure", main._whisper_startup_failure)
+                    for _ in range(3):
+                        self.assertEqual(200, client.get("/health").status_code)
+                        response = client.get("/ai/whisper/environment")
+                        self.assertEqual(200, response.status_code)
+                        body = response.json()
+                        self.assertEqual("unloaded", body["status"])
+                        self.assertTrue(body["restartRequired"])
+                        self.assertTrue(body["dependencyAvailable"])
+                        self.assertIsNone(body["loadedModel"])
+                        self.assertFalse(main._whisper_runtime_ready())
+                        self.assertNotIn("private-server", str(body))
+                        self.assertNotIn("secret-token", str(body))
+                    self.factory.assert_called_once_with("small", device="cpu", compute_type="int8")
+                    self.ensure_env.assert_called_once_with()
+                    run.assert_not_called()
+
+                self.assertNotIn("private-server", str(logs.output))
+                self.assertNotIn("secret-token", str(logs.output))
+                self.assertIsNone(main._whisper_model)
+                self.assertIsNone(main._whisper_loaded_config)
+
+    async def test_unexpected_startup_errors_and_cancellation_still_propagate(self):
+        for error in (
+            TypeError, AttributeError, AssertionError,
+            httpx.LocalProtocolError, httpx.UnsupportedProtocol, httpx.InvalidURL,
+            asyncio.CancelledError, SystemExit, KeyboardInterrupt,
+        ):
+            with self.subTest(error=error):
+                self.factory.reset_mock()
+                failure = error("unexpected startup failure")
+                self.factory.side_effect = failure
+                yielded = False
+                with self.assertRaises(error) as caught:
+                    async with main.lifespan(main.app):
+                        yielded = True
+
+                self.assertIs(failure, caught.exception)
+                self.assertFalse(yielded)
+                self.assertIsNone(main._whisper_startup_failure)
+                self.assertIsNone(main._whisper_model)
+                self.assertIsNone(main._whisper_loaded_config)
+                self.factory.assert_called_once()
 
     async def test_missing_dependency_does_not_construct_model(self):
         with patch.dict(sys.modules, {"faster_whisper": None}):
