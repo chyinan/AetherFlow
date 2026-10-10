@@ -2,6 +2,7 @@
 import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
 import type { WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate } from '@/utils/workflowNodeClone'
+import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
 import { buildWorkflowCopilotContext, redactCopilotValue, type WorkflowCopilotSnapshot } from './workflowCopilotActions'
 
 type CanvasEditResult =
@@ -28,7 +29,7 @@ export function compileCanvasEdit(snapshot: Readonly<WorkflowCopilotSnapshot>, e
         const template = snapshot.templates.find((item) => item.kind === operation.kind)
         if (!template || template.availability?.available === false) return { ok: false, error: `节点能力不可用：${operation.kind}` }
         const data = createWorkflowNodeDataFromTemplate(template, 'AI 已编辑，尚未运行')
-        data.config = { ...data.config, ...operation.config }
+        data.config = mergeWorkflowNodeConfig(data.kind, data.config, operation.config)
         if (operation.label) data.label = operation.label
         const right = Math.max(-240, ...nodes.map((item) => item.position.x))
         nodes.push({ id: operation.nodeId, type: 'workflow', position: operation.position ?? { x: right + 320, y: 180 }, data })
@@ -36,7 +37,7 @@ export function compileCanvasEdit(snapshot: Readonly<WorkflowCopilotSnapshot>, e
       }
       case 'update_node':
         if (!node) return { ok: false, error: `找不到要修改的节点：${operation.nodeId}` }
-        node.data = { ...node.data, config: { ...node.data.config, ...operation.config }, label: operation.label ?? node.data.label }
+        node.data = { ...node.data, config: mergeWorkflowNodeConfig(node.data.kind, node.data.config, operation.config), label: operation.label ?? node.data.label }
         node.position = operation.position ?? node.position
         break
       case 'delete_node':

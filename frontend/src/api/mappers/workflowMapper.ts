@@ -1,6 +1,7 @@
 // pattern: Functional Core
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
+import { classifierRoutes } from '../../utils/workflowNodeConfig.ts'
 
 type BackendNodeType =
   | 'START'
@@ -422,18 +423,19 @@ function normalizeKnowledgeRetrievalConfig(config: Record<string, unknown>, next
 function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const output = toRecord(config.output)
   const outputName = stringValue(config.outputName, 'result')
-  const outputValue = config.outputValue ?? config.value
-  const firstPersistedOutput = Object.entries(output)[0]
+  const outputValue = config.outputValue !== undefined ? config.outputValue : config.value
+  const editorOutputValue = outputValue === undefined || outputValue === '' ? 'completed' : outputValue
+  const selectedOutputName = typeof config.outputName === 'string' && Object.hasOwn(output, config.outputName)
+    ? config.outputName : outputName
   const editorFieldsPresent = config.outputName !== undefined
     || config.outputValue !== undefined
     || config.value !== undefined
-  const editorMatchesPersistedOutput = Boolean(firstPersistedOutput)
-    && firstPersistedOutput?.[0] === outputName
-    && sameConfigValue(outputValue, firstPersistedOutput?.[1])
-  const outputToPersist = Object.keys(output).length > 0
+  const editorMatchesPersistedOutput = Object.hasOwn(output, selectedOutputName)
+    && (sameConfigValue(outputValue, output[selectedOutputName]) || sameConfigValue(editorOutputValue, output[selectedOutputName]))
+  const outputToPersist = isRecord(config.output)
     && (!editorFieldsPresent || editorMatchesPersistedOutput)
     ? output
-    : { [outputName]: outputValue === undefined || outputValue === '' ? 'completed' : outputValue }
+    : { [outputName]: editorOutputValue }
 
   return withNextNodes({
     output: outputToPersist,
@@ -682,22 +684,6 @@ function buildNextNodeIndex(workflow: WorkflowDefinition) {
 
 function normalizedBranchLabel(value: unknown) {
   return stringValue(value).toLowerCase()
-}
-
-function classifierRoutes(config: Record<string, unknown>) {
-  const existingRoutes = stringList(config.routes)
-  const editorRoutes = [optionalString(config.class1), optionalString(config.class2)]
-    .filter((route): route is string => Boolean(route))
-  const routes = editorRoutes.length > 0
-    ? [...editorRoutes, ...existingRoutes.slice(editorRoutes.length)]
-    : existingRoutes
-  if (routes.length > 0) {
-    return routes
-  }
-  return [
-    stringValue(config.class1, 'CLASS 1'),
-    stringValue(config.class2, 'CLASS 2'),
-  ].filter(Boolean)
 }
 
 function branchKeysForNode(node: WorkflowGraphNode) {

@@ -10,6 +10,7 @@ import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
+import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
 import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
@@ -462,7 +463,7 @@ export const useWorkflowStore = defineStore('workflow', {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
         this.recordHistory()
-        node.data.config[key] = value
+        node.data.config = mergeWorkflowNodeConfig(node.data.kind, node.data.config, { [key]: value })
         node.data.runtime = {
           ...node.data.runtime,
           lastResult: i18n.global.t('workflow.mockResults.configUpdated'),

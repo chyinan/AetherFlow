@@ -150,6 +150,36 @@ class AiProviderRouterTest {
     }
 
     @Test
+    void doesNotFailOverAfterAWhitespaceChunkHasAlreadyBeenDelivered() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA), 0, 5);
+        RouterFixture fixture = fixture(policy,
+                new FakeProvider(AiProviderType.OPENAI, new PartialStreamFailure(" \n\t", new IllegalStateException("stream interrupted"))),
+                new FakeProvider(AiProviderType.OLLAMA, "fallback"));
+        List<String> chunks = new ArrayList<>();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> fixture.router.stream(request(null), response -> chunks.add(response.text())))
+                .hasMessageContaining("stream interrupted");
+
+        assertThat(chunks).containsExactly(" \n\t");
+        assertThat(fixture.provider(AiProviderType.OLLAMA).calls).isZero();
+        assertThat(fixture.logs.eventTypes()).doesNotContain("SUCCESS");
+    }
+
+    @Test
+    void canFailOverWhenStreamFailsBeforeDeliveringAnyContent() {
+        ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI, AiProviderType.OLLAMA), 0, 5);
+        RouterFixture fixture = fixture(policy,
+                new FakeProvider(AiProviderType.OPENAI, new IllegalStateException("stream timeout")),
+                new FakeProvider(AiProviderType.OLLAMA, "fallback"));
+        List<String> chunks = new ArrayList<>();
+
+        fixture.router.stream(request(null), response -> chunks.add(response.text()));
+
+        assertThat(chunks).containsExactly("fallback");
+        assertThat(fixture.provider(AiProviderType.OLLAMA).calls).isEqualTo(1);
+    }
+
+    @Test
     void policyTimeoutCapsEveryProviderAttemptAndStreamRequest() {
         ProviderRoutingPolicy policy = policy(List.of(AiProviderType.OPENAI), 1, 5);
         policy.setRequestTimeout(Duration.ofSeconds(3));

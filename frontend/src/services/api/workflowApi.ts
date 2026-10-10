@@ -19,6 +19,7 @@ export { cancelWorkflowInstance }
 import { useAuthStore } from '@/stores/authStore'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowSummary } from '@/types/workflow'
 import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
+import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
 
 const DEFINITION_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendDefinitionLinks'
 const RUN_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendRunLinks'
@@ -299,14 +300,6 @@ function toFrontendNodeConfig(config: Record<string, unknown> = {}, kind?: Workf
     Object.entries(config).filter(([key]) => !GRAPH_CONFIG_KEYS.has(key)),
   ) as WorkflowGraphNode['data']['config']
 
-  if (kind === 'output' && !('outputName' in frontendConfig) && !('outputValue' in frontendConfig) && isRecord(config.output)) {
-    const firstOutput = Object.entries(config.output)[0]
-    if (firstOutput) {
-      frontendConfig.outputName = firstOutput[0]
-      frontendConfig.outputValue = firstOutput[1]
-    }
-  }
-
   if (kind === 'knowledge-retrieval') {
     if (!('datasetId' in frontendConfig) && 'dataset' in config) {
       frontendConfig.datasetId = config.dataset
@@ -318,18 +311,6 @@ function toFrontendNodeConfig(config: Record<string, unknown> = {}, kind?: Workf
     delete frontendConfig.query
   }
 
-  if (kind === 'question-classifier' && Array.isArray(frontendConfig.routes)) {
-    const routes = frontendConfig.routes.filter(
-      (route): route is string => typeof route === 'string' && route.trim() !== '',
-    )
-    if (!('class1' in frontendConfig) && routes[0]) {
-      frontendConfig.class1 = routes[0]
-    }
-    if (!('class2' in frontendConfig) && routes[1]) {
-      frontendConfig.class2 = routes[1]
-    }
-  }
-
   if (kind === 'start' && !('fileId' in frontendConfig) && isRecord(frontendConfig.variables)) {
     const fileId = frontendConfig.variables.fileId
     if ((typeof fileId === 'number' && Number.isFinite(fileId))
@@ -338,7 +319,7 @@ function toFrontendNodeConfig(config: Record<string, unknown> = {}, kind?: Workf
     }
   }
 
-  return frontendConfig
+  return kind ? mergeWorkflowNodeConfig(kind, {}, frontendConfig) : frontendConfig
 }
 
 function backendTargets(config: Record<string, unknown> = {}) {

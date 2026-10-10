@@ -168,13 +168,13 @@ public class CopilotServiceImpl implements CopilotService {
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
         StringBuilder assistantContent = new StringBuilder();
         aiProviderRouter.stream(providerRequest(request, prepared.history(), userId), response -> {
-            if (response != null && hasText(response.text())) {
+            if (response != null && response.text() != null && !response.text().isEmpty()) {
                 String delta = response.text();
                 assistantContent.append(delta);
                 onDelta.accept(delta);
             }
         });
-        if (assistantContent.isEmpty()) {
+        if (!hasText(assistantContent.toString())) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "copilot llm response is empty");
         }
         CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
