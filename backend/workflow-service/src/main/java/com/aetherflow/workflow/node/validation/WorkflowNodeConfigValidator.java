@@ -54,13 +54,21 @@ public final class WorkflowNodeConfigValidator {
                 }
                 continue;
             }
-            if (!field.options().isEmpty() && value instanceof String selected
+            if (!runtimeConnectionOption(item.type(), field.name(), config)
+                    && !field.options().isEmpty() && value instanceof String selected
                     && field.options().stream().noneMatch(option -> option.equalsIgnoreCase(selected.trim()))) {
                 violations.add(prefix + "config field '" + field.name() + "' must be one of " + field.options());
             }
         }
         violations.addAll(validateCrossFieldRules(node, config));
         return List.copyOf(violations);
+    }
+
+    private static boolean runtimeConnectionOption(String nodeType, String fieldName, Map<String, Object> config) {
+        // 连接的动态可选项由 AI Service 在执行前按真实服务目录校验。
+        return ("IMAGE_GENERATION".equals(nodeType) || "UPSCALE".equals(nodeType))
+                && !isBlank(config.get("connectionId"))
+                && List.of("sampler", "scheduler", "upscaler").contains(fieldName);
     }
 
     private static List<String> validateCrossFieldRules(WorkflowNodeDTO node, Map<String, Object> config) {

@@ -544,3 +544,20 @@ describe('workflowMapper', () => {
     })
   })
 })
+
+describe('图像节点连接序列化', () => {
+  function mapConfig(kind: 'image-generation' | 'upscale', config: Record<string, unknown>) {
+    return mapWorkflowToDefinitionDTO({ id: 'workflow', name: 'Connections', nodes: [{ id: 'image', type: 'workflow', position: { x: 0, y: 0 }, data: { kind, label: 'Image', description: '', status: 'idle', inputs: [], outputs: [], config } }], edges: [] }).nodes[0]!.config
+  }
+  it.each(['image-generation', 'upscale'] as const)('保存 %s 显式 connectionId 与 Provider，不传服务地址', (kind) => {
+    const config = mapConfig(kind, { connectionId: 'saved-profile', provider: 'STABLE_DIFFUSION_WEBUI', checkpoint: 'kept-model', upscaler: 'real-algorithm', baseUrl: 'http://do-not-serialize' })
+    expect(config).toMatchObject({ connectionId: 'saved-profile', provider: 'STABLE_DIFFUSION_WEBUI' })
+    expect(config).not.toHaveProperty('baseUrl')
+  })
+  it.each(['image-generation', 'upscale'] as const)('旧 %s 不凭空产生连接 ID，清除 ID 后仍走部署默认', (kind) => {
+    expect(mapConfig(kind, {})).not.toHaveProperty('connectionId')
+    expect(mapConfig(kind, { connectionId: undefined })).not.toHaveProperty('connectionId')
+    expect(mapConfig(kind, {})).toHaveProperty('provider', kind === 'image-generation' ? 'SD_WEBUI' : 'COMFYUI')
+    expect(mapConfig(kind, { provider: 'SD_WEBUI' })).toHaveProperty('provider', 'SD_WEBUI')
+  })
+})

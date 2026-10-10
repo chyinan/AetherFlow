@@ -328,6 +328,7 @@ function normalizePromptConfig(config: Record<string, unknown>, nextNodes: strin
 
 function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
+    ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'SD_WEBUI'),
     mode: stringValue(config.mode, 'txt2img'),
     ...(optionalString(config.prompt) ? { prompt: optionalString(config.prompt) } : {}),
@@ -357,6 +358,7 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
 
 function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
+    ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'COMFYUI'),
     ...(optionalString(config.sourceImage) ? { sourceImage: optionalString(config.sourceImage) } : {}),
     sourceImageVariable: stringValue(config.sourceImageVariable, 'sourceImage'),

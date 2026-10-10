@@ -24,7 +24,7 @@ public class UpscaleAiNodeExecutor extends ImageGenerationAiNodeExecutor {
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
         ImageGenerationRequest request = request(context.payload(), "upscale");
-        ImageGenerationResponse response = executeWithFailover(request, true, contextUserId(context));
+        ImageGenerationResponse response = executeConfigured(context, request, true);
         return result(nodeType(), response);
     }
 }

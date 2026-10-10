@@ -496,7 +496,6 @@ public class WorkflowServiceImpl implements WorkflowService {
 
         try {
             validateRuntimePreflight(definition);
-            aiCapabilityPreflightService.validate(definition);
         } catch (BusinessException exception) {
             return new WorkflowDraftValidationResponse(true, false, List.of(exception.getMessage()));
         }
@@ -890,7 +889,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                         "embedding node uses process-memory vector storage, which is disabled in this environment");
             }
         }
-        aiCapabilityPreflightService.validate(definition);
+        aiCapabilityPreflightService.validate(definition, currentUserId());
     }
 
     private String newTraceId() {

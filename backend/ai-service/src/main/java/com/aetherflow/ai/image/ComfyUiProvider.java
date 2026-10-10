@@ -228,6 +228,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         )));
         workflow.put("2", node("ImageScaleBy", Map.of(
                 "image", List.of("1", 0),
+                "upscale_method", textOrDefault(request.options().get("upscaler"), "bilinear"),
                 "scale_by", positiveNumber(request.options().get("scale"), 2)
         )));
         workflow.put("3", node("SaveImage", Map.of(

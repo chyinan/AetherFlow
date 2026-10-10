@@ -8,6 +8,7 @@ import type { Node } from '@vue-flow/core'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeData, WorkflowNodeKind } from '@/types/workflow'
@@ -113,7 +114,7 @@ async function addNodeAfter(template: NodeTemplate) {
 }
 
 function onTemplateDragStart(event: DragEvent, template: NodeTemplate) {
-  if (template.availability?.available === false) {
+  if (isNodeTemplateBlocked(template)) {
     event.preventDefault()
     return
   }
@@ -132,7 +133,7 @@ function onTemplateDragEnd() {
 }
 
 async function addTemplateFromPalette(template: NodeTemplate) {
-  if (suppressNextPaletteClick.value || template.availability?.available === false) {
+  if (suppressNextPaletteClick.value || isNodeTemplateBlocked(template)) {
     return
   }
   const offset = workflowStore.nodes.length * 28
@@ -259,11 +260,11 @@ defineExpose({
           v-for="template in availableTemplates"
           :key="template.kind"
           type="button"
-          :disabled="template.availability?.available === false"
-          :draggable="template.availability?.available !== false"
+          :disabled="isNodeTemplateBlocked(template)"
+          :draggable="!isNodeTemplateBlocked(template)"
           :title="template.availability?.reason ?? undefined"
           class="flex w-[220px] shrink-0 items-start gap-3 rounded-lg border p-3 text-left transition lg:w-full"
-          :class="template.availability?.available === false
+          :class="isNodeTemplateBlocked(template)
             ? 'cursor-not-allowed border-app-border bg-app-muted opacity-55'
             : 'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
           @click="addTemplateFromPalette(template)"

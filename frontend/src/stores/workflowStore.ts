@@ -11,7 +11,7 @@ import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
-import { applyWorkflowCapabilities, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
+import { applyWorkflowCapabilities, canConfigureNodeRuntime, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
 
@@ -198,6 +198,7 @@ function mergeTemplates(fallbackTemplates: NodeTemplate[], catalogTemplates: Nod
 }
 
 function templateUnavailableReason(templates: ReadonlyArray<NodeTemplate>, template: Readonly<NodeTemplate>) {
+  if (canConfigureNodeRuntime(template.kind)) return null
   const currentTemplate = templates.find((item) => item.kind === template.kind)
   const availability = currentTemplate?.availability ?? template.availability
   return availability?.available === false
@@ -460,10 +461,13 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
     updateNodeConfig(nodeId: string, key: string, value: unknown) {
+      this.updateNodeConfigValues(nodeId, { [key]: value })
+    },
+    updateNodeConfigValues(nodeId: string, values: Record<string, unknown>) {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
         this.recordHistory()
-        node.data.config = mergeWorkflowNodeConfig(node.data.kind, node.data.config, { [key]: value })
+        node.data.config = mergeWorkflowNodeConfig(node.data.kind, node.data.config, values)
         node.data.runtime = {
           ...node.data.runtime,
           lastResult: i18n.global.t('workflow.mockResults.configUpdated'),

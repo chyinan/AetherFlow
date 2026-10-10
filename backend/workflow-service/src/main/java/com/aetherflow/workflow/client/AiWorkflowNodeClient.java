@@ -4,6 +4,8 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.AiWorkflowNodeRequestDTO;
 import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
+import com.aetherflow.common.dto.NodeConnectionValidationRequest;
+import com.aetherflow.common.dto.NodeConnectionValidationResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -15,6 +17,9 @@ public interface AiWorkflowNodeClient {
 
     @GetMapping("/nodes/capabilities")
     Result<AiWorkflowCapabilitiesDTO> capabilities();
+
+    @PostMapping("/nodes/connections/validate")
+    Result<NodeConnectionValidationResponse> validateConnections(@RequestBody NodeConnectionValidationRequest request);
 
     @PostMapping("/nodes/execute")
     Result<AiWorkflowNodeResponseDTO> execute(@RequestBody AiWorkflowNodeRequestDTO request);

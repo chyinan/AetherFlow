@@ -105,3 +105,12 @@ export function unavailableWorkflowCapabilities(reason: string): AiWorkflowCapab
     unavailableReasons: Object.fromEntries(REMOTE_CAPABILITY_TYPES.map((type) => [type, reason])),
   }
 }
+
+/** 允许先添加节点再配置运行环境；availability 仍只表示部署默认运行能力。 */
+export function canConfigureNodeRuntime(kind: WorkflowNodeKind) {
+  return kind === 'image-generation' || kind === 'upscale' || kind === 'whisper'
+}
+
+export function isNodeTemplateBlocked(template: Readonly<NodeTemplate>) {
+  return template.availability?.available === false && !canConfigureNodeRuntime(template.kind)
+}

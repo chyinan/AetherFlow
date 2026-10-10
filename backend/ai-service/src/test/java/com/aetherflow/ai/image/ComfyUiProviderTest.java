@@ -595,6 +595,7 @@ class ComfyUiProviderTest {
                               "class_type": "ImageScaleBy",
                               "inputs": {
                                 "image": ["1", 0],
+                                "upscale_method": "lanczos",
                                 "scale_by": 4
                               }
                             },
@@ -630,7 +631,7 @@ class ComfyUiProviderTest {
                 "c291cmNlLWltYWdl",
                 "image/png",
                 null,
-                Map.of("scale", 4),
+                Map.of("scale", 4, "upscaler", "lanczos"),
                 Duration.ofSeconds(1)
         ));
 
