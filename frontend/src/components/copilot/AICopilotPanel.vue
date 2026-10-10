@@ -38,11 +38,14 @@ const canvasEditResults = ref(new Map<string, { success: boolean; text: string }
 const canvasEditPendingId = ref<string | null>(null)
 const prompt = ref('')
 const loading = ref(false)
+const conversationSelectionPending = ref(false)
+const interactionPending = computed(() => loading.value || conversationSelectionPending.value)
 const modelsLoading = ref(false)
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
 const selectedModelId = ref('')
 const conversationId = ref<string>()
+const historyNotice = ref('')
 const appliedActionIds = ref(new Set<string>())
 const plannerMode = ref(false)
 const plannerController = ref<AbortController | null>(null)
@@ -140,43 +143,79 @@ async function loadModels() {
 async function loadConversationHistory() {
   const loadSequence = ++conversationLoadSequence
   const workflowIdAtStart = props.context?.workflowId
+  const projectIdAtStart = props.context?.projectId
   const scopeKeyAtStart = conversationSessionKey(props.context)
   const selection = readConversationSelection(scopeKeyAtStart)
   if (selection === 'new') return
+  // 选择已按用户、项目和工作流（含草稿名称）隔离，临时加载失败不能把续聊变成新会话。
+  if (selection) {
+    conversationId.value = selection
+    conversationSelectionPending.value = true
+  }
   const stillCurrent = () => loadSequence === conversationLoadSequence
     && workflowIdAtStart === props.context?.workflowId
     && scopeKeyAtStart === conversationSessionKey(props.context)
+  const matchesScope = (item: { projectId?: string; workflowId?: string }) =>
+    String(item.projectId ?? '') === String(projectIdAtStart ?? '')
+      && (workflowIdAtStart ? item.workflowId === workflowIdAtStart : !item.workflowId)
+  const unavailable = () => {
+    conversationId.value = undefined
+    writeConversationSelection(scopeKeyAtStart, 'new')
+    historyNotice.value = t('copilot.historyUnavailable')
+  }
+  let historyConversationId = selection ?? undefined
+  let historyRequested = false
   try {
+    // 未保存草稿只能恢复该草稿明确记住的会话，不能复用其他名称的 new 工作流。
+    if (!selection && workflowIdAtStart === 'new') return
     const conversations = await copilotApi.listConversations()
     if (!stillCurrent()) return
-    const workflowId = workflowIdAtStart
-    const scopedConversations = conversations.filter((item) => String(item.projectId ?? '') === String(props.context?.projectId ?? ''))
-    const matchingConversations = scopedConversations.filter((item) => workflowId ? item.workflowId === workflowId : !item.workflowId)
-    const conversation = selection
-      ? matchingConversations.find((item) => item.id === selection)
-      : matchingConversations[0]
-    if (!conversation) {
-      conversationId.value = undefined
-      plannerMode.value = false
-      planPreview.value = null
+    conversationSelectionPending.value = false
+    const selectedSummary = selection ? conversations.find((item) => item.id === selection) : undefined
+    if (selectedSummary && !matchesScope(selectedSummary)) {
+      unavailable()
       return
     }
-    const history = await copilotApi.listMessages(conversation.id)
+    historyConversationId = selection ?? conversations.find(matchesScope)?.id
+    if (!historyConversationId) return
+    // 列表只有全局最近若干条；缺席不代表已删除，按当前作用域的已选 ID 读取历史。
+    historyRequested = true
+    const history = await copilotApi.listMessages(historyConversationId)
     if (!stillCurrent()) return
-    rememberConversation(conversation.id)
+    rememberConversation(historyConversationId)
     if (history.length > 0) {
       messages.value = history
       const planMessage = [...history].reverse().find((message) => message.role === 'assistant' && message.plan)
-      plannerMode.value = Boolean(planMessage)
+      if (planMessage) enterPlannerMode()
+      else plannerMode.value = false
       if (planMessage?.plan?.status === 'READY') {
         void preparePlanPreview(planMessage)
       } else {
         planPreview.value = null
       }
     }
-  } catch {
-    // The welcome message remains available when history storage is unavailable.
+  } catch (error) {
+    if (!stillCurrent()) return
+    conversationSelectionPending.value = false
+    const apiError = toApiError(error, 'ai')
+    if (historyRequested && (apiError.status === 404 || String(apiError.code) === '404')) {
+      unavailable()
+    } else {
+      // 保留已确认的会话选择，重新打开时可重试；不回退到其他会话。
+      if (historyConversationId) rememberConversation(historyConversationId)
+      historyNotice.value = t('copilot.historyLoadFailed')
+    }
   }
+}
+
+function beginConversationInteraction() {
+  conversationLoadSequence += 1
+  historyNotice.value = ''
+}
+
+function enterPlannerMode() {
+  directEditMode.value = false
+  plannerMode.value = true
 }
 
 function rememberConversation(id: string | undefined) {
@@ -198,8 +237,10 @@ function resetConversationState() {
   canvasEditResults.value.clear()
   appliedActionIds.value.clear()
   loading.value = false
+  conversationSelectionPending.value = false
   applyingPlan.value = false
   conversationId.value = undefined
+  historyNotice.value = ''
   plannerMode.value = false
   planPreview.value = null
   prompt.value = ''
@@ -230,10 +271,9 @@ function currentPlannerBase() {
 function planBaseIsCurrent(message: CopilotMessage) {
   const current = currentPlannerBase()
   return Boolean(current
-    && ((typeof message.planBaseRevision === 'number'
-      && message.planBaseRevision === current.editRevision)
-      || (typeof message.planBaseFingerprint === 'string'
-        && message.planBaseFingerprint === current.graphFingerprint))
+    && (message.planBaseFingerprint
+      ? message.planBaseFingerprint === current.graphFingerprint
+      : typeof message.planBaseRevision === 'number' && message.planBaseRevision === current.editRevision)
     && (message.planBaseVersion ?? null) === current.backendVersion)
 }
 
@@ -333,6 +373,7 @@ interface SendPromptOptions {
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
+  if (conversationSelectionPending.value) return
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
     await sendCanvasEdit(value)
     return
@@ -345,6 +386,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   if (!text || loading.value) {
     return
   }
+  beginConversationInteraction()
   const intent = options.intent ?? (props.context ? 'freeform-workflow-question' : undefined)
   const requestText = options.requestText?.trim() || (
     intent ? `${text}\n\n${workflowCopilotPrompt(intent)}` : text
@@ -426,17 +468,20 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
 }
 
 function setDirectEditMode(enabled: boolean) {
+  if (interactionPending.value) return
+  beginConversationInteraction()
   directEditMode.value = enabled
   leavePlannerMode()
 }
 
 async function sendCanvasEdit(value = prompt.value) {
   const text = value.trim()
-  if (!text || loading.value || !props.context || !props.applyCanvasEdit) return
+  if (!text || interactionPending.value || !props.context || !props.applyCanvasEdit) return
   const snapshot: WorkflowCopilotSnapshot = JSON.parse(JSON.stringify(props.context))
   if (snapshot.nodes.length > 100) return
   const base = currentPlannerBase()
   if (!base) return
+  beginConversationInteraction()
   const session = plannerSessionSequence
   const controller = new AbortController()
   chatController.value = controller
@@ -520,11 +565,12 @@ function cancelCanvasEdit() {
 
 async function sendWorkflowPlan(value = prompt.value) {
   const text = value.trim()
-  if (!text || loading.value || !props.context) return
-  plannerMode.value = true
-  cancelledPlanMessageId.value = null
+  if (!text || interactionPending.value || !props.context) return
   const base = currentPlannerBase()
   if (!base) return
+  beginConversationInteraction()
+  enterPlannerMode()
+  cancelledPlanMessageId.value = null
   messages.value.push({
     id: `user-${Date.now()}`,
     role: 'user',
@@ -635,6 +681,7 @@ function leavePlannerMode() {
 }
 
 async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
+  if (interactionPending.value) return
   if (directEditMode.value && intent === 'draft-media-summary-workflow' && props.applyCanvasEdit) {
     await sendCanvasEdit(t('copilot.editor.designRequest'))
     return
@@ -818,15 +865,15 @@ onMounted(() => {
 
       <div class="flex flex-wrap gap-2 border-b border-app-border px-4 py-3">
         <div v-if="props.applyCanvasEdit" class="mb-1 flex w-full rounded-lg bg-app-muted p-1" role="group" :aria-label="t('copilot.editor.modeLabel')">
-          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="!directEditMode ? 'bg-white text-text-primary shadow-sm' : 'text-text-muted'" :aria-pressed="!directEditMode" :disabled="loading" @click="setDirectEditMode(false)">{{ t('copilot.editor.chatMode') }}</button>
-          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="directEditMode ? 'bg-white text-ai shadow-sm' : 'text-text-muted'" :aria-pressed="directEditMode" :disabled="loading" @click="setDirectEditMode(true)">{{ t('copilot.editor.editMode') }}</button>
+          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="!directEditMode ? 'bg-white text-text-primary shadow-sm' : 'text-text-muted'" :aria-pressed="!directEditMode" :disabled="interactionPending" @click="setDirectEditMode(false)">{{ t('copilot.editor.chatMode') }}</button>
+          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="directEditMode ? 'bg-white text-ai shadow-sm' : 'text-text-muted'" :aria-pressed="directEditMode" :disabled="interactionPending" @click="setDirectEditMode(true)">{{ t('copilot.editor.editMode') }}</button>
         </div>
         <button
           v-for="item in quickActions"
           :key="item.intent"
           type="button"
           class="rounded-md border border-app-border bg-app-muted px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai disabled:cursor-wait disabled:opacity-55"
-          :disabled="loading"
+          :disabled="interactionPending"
           @click="runQuickAction(item.intent, item.label)"
         >
           {{ item.label }}
@@ -834,6 +881,9 @@ onMounted(() => {
       </div>
 
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
+        <p v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
+          {{ historyNotice }}
+        </p>
         <article
           v-for="message in messages"
           :key="message.id"
@@ -989,7 +1039,7 @@ onMounted(() => {
             class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
           />
-          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="loading">
+          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending">
             <Send class="h-4 w-4" />
           </button>
         </div>

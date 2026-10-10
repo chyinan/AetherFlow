@@ -1521,6 +1521,8 @@ export const zhCN = {
   },
   copilot: {
     newConversation: '新对话',
+    historyUnavailable: '当前工作流已无法使用所选历史会话，下一条消息将开启新对话。',
+    historyLoadFailed: '历史记录加载失败，已保留会话选择；重新打开面板可重试。',
     newConversationHint: '清空聊天上下文并开启新会话，保留当前画布和历史记录',
     editor: {
       modeLabel: 'Copilot 模式', chatMode: '对话', editMode: '直接编辑画布',

@@ -1513,6 +1513,8 @@ export const enUS = {
   },
   copilot: {
     newConversation: 'New chat',
+    historyUnavailable: 'The selected conversation is no longer available for this workflow. Your next message will start a new chat.',
+    historyLoadFailed: 'Conversation history could not be loaded. Your selected conversation is kept; reopen the panel to retry.',
     newConversationHint: 'Start a fresh conversation while keeping the canvas and previous history',
     editor: {
       modeLabel: 'Copilot mode', chatMode: 'Chat', editMode: 'Edit canvas',

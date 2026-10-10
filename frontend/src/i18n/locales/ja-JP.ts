@@ -1515,6 +1515,8 @@ export const jaJP = {
   },
   copilot: {
     newConversation: '新しいチャット',
+    historyUnavailable: '選択した会話はこのワークフローでは利用できません。次のメッセージで新しいチャットを開始します。',
+    historyLoadFailed: '履歴を読み込めませんでした。会話の選択は保持されています。パネルを開き直すと再試行できます。',
     newConversationHint: 'キャンバスと履歴を保持して、新しい会話を開始します',
     editor: {
       modeLabel: 'Copilot モード', chatMode: 'チャット', editMode: 'キャンバスを編集',
