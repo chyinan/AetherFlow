@@ -238,6 +238,13 @@ onMounted(() => {
     ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2 })
   }, 80)
 })
+
+defineExpose({
+  async fitCanvas() {
+    await nextTick()
+    await flow.fitView({ padding: 0.2, duration: 220 })
+  },
+})
 </script>
 
 <template>

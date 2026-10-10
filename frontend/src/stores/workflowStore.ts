@@ -31,6 +31,10 @@ function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
   })))
 }
 
+function serializeEdgesWithoutSelection(edges: ReadonlyArray<WorkflowGraphEdge>) {
+  return JSON.stringify(edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, label: edge.label ?? '' })))
+}
+
 type WorkflowGraphHistoryEntry = {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
@@ -181,6 +185,7 @@ export function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemp
     inputs: variableNames(item.inputVariables).length > 0 ? variableNames(item.inputVariables) : fallback?.inputs ?? [],
     outputs: variableNames(item.outputVariables).length > 0 ? variableNames(item.outputVariables) : fallback?.outputs ?? [],
     capabilities: item.capabilities ?? fallback?.capabilities,
+    configSchema: item.configSchema,
   }
 }
 
@@ -338,9 +343,10 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
     setEdges(edges: WorkflowGraphEdge[]) {
-      this.recordHistory()
+      const changed = serializeEdgesWithoutSelection(edges) !== serializeEdgesWithoutSelection(this.edges)
+      if (changed) this.recordHistory()
       this.edges = edges
-      this.markDirty()
+      if (changed) this.markDirty()
     },
     addConnection(connection: Connection) {
       if (!connection.source || !connection.target) {

@@ -6,7 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
-/** A read-only validation request for the two Copilot recipes supported by the editor. */
+/** 只读草稿校验，支持固定摘要规划与通用画布编辑。 */
 public record WorkflowDraftValidationRequest(
         Long definitionId,
         @Positive Integer expectedVersion,

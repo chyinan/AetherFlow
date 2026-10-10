@@ -101,4 +101,18 @@ describe('Copilot draft revision guard', () => {
     })).toBe(false)
     expect(store.nodes.map((node) => node.id)).toEqual(originalIds)
   })
+
+  it('keeps redo history when Vue Flow echoes unchanged edges after undo', () => {
+    const store = useWorkflowStore()
+    store.applyWorkflowDefinition({ id: 'new', name: 'Draft', nodes: [startNode('start')], edges: [] })
+    const request = { baseWorkflowId: store.workflowId, baseEditRevision: store.editRevision,
+      baseDefinitionId: null, baseVersion: null, nodes: [startNode('replacement')], edges: [] }
+    store.applyCopilotWorkflowDraft(request)
+    store.undo()
+    expect(store.canRedo).toBe(true)
+    store.setEdges([...store.edges])
+    expect(store.canRedo).toBe(true)
+    expect(store.redo()).toBe(true)
+    expect(store.nodes[0].id).toBe('replacement')
+  })
 })

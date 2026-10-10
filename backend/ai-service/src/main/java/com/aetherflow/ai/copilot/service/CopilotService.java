@@ -10,6 +10,8 @@ import java.util.function.Consumer;
 
 public interface CopilotService {
 
+    com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotCanvasEditResponse editCanvas(Long userId, CopilotChatRequest request);
+
     CopilotChatResponse chat(Long userId, CopilotChatRequest request);
 
     CopilotChatResponse planWorkflow(Long userId, CopilotChatRequest request);

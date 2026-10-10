@@ -4,6 +4,7 @@ import {
   getAiStatus,
   getProviderCatalog,
   getProviderPolicy,
+  getProviderStatus,
   recoverProvider as recoverProviderCircuit,
   updateProviderPolicy as updateProviderRoutingPolicy,
   type AiProviderType,
@@ -76,15 +77,17 @@ async function loadRealSnapshot(force = false) {
   }
 
   const currentPromise = (async () => {
-    const [serviceStatus, catalogResponse, policy] = await Promise.all([
+    const [serviceStatus, catalogResponse, policy, providerStatus] = await Promise.all([
       getAiStatus(),
       getProviderCatalog(),
       getProviderPolicy(),
+      getProviderStatus(),
     ])
     const snapshot = mapAiProviderData({
       serviceStatus,
       catalogResponse,
       policy,
+      providerStatus,
     })
 
     cachedSnapshot = snapshot

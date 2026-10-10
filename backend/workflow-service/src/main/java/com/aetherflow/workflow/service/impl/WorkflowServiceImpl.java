@@ -53,6 +53,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
+import java.util.Set;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -503,6 +504,10 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     private List<String> validatePlannerRecipe(WorkflowDefinitionDTO definition, String recipe) {
+        // 通用画布编辑仍需通过上方 DAG、节点目录、配置校验和下方运行时预检。
+        if ("CANVAS_EDIT".equals(recipe)) {
+            return List.of();
+        }
         List<String> expectedTypes = switch (recipe) {
             case "MEDIA_SUMMARY" -> List.of("START", "UPLOAD", "FFMPEG", "WHISPER", "SUMMARY", "EXPORT", "END");
             case "URL_SUMMARY" -> List.of("START", "URL_FETCH", "SUMMARY", "EXPORT", "END");

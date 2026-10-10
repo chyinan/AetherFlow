@@ -593,6 +593,25 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void validatesGeneralCanvasEditWithoutRestrictingItToSummaryRecipes() {
+        WorkflowDraftValidationResponse response = asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(null, null, "CANVAS_EDIT", definitionDTO())));
+        assertThat(response.structurallyValid()).isTrue();
+        assertThat(response.runtimeReady()).isTrue();
+        verify(definitionMapper, never()).insert(any(WorkflowDefinition.class));
+        verify(instanceMapper, never()).insert(any(WorkflowInstance.class));
+    }
+
+    @Test
+    void generalCanvasEditStillRejectsDanglingEdges() {
+        WorkflowDraftValidationResponse response = asUser(7L, () -> workflowService.validateDraft(
+                new WorkflowDraftValidationRequest(null, null, "CANVAS_EDIT",
+                        definition(node("start", "START", Map.of("nextNodes", List.of("missing")))))));
+        assertThat(response.structurallyValid()).isFalse();
+        assertThat(response.issues()).anyMatch(issue -> issue.contains("target not found"));
+    }
+
+    @Test
     void rejectsPlannerDraftWithMissingUpstreamVariable() {
         WorkflowDefinitionDTO candidate = mediaSummaryDefinition();
         Map<String, Object> summaryConfig = new java.util.LinkedHashMap<>(candidate.getNodes().get(4).getConfig());

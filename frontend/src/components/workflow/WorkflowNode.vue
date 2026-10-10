@@ -32,6 +32,7 @@ import { Handle, Position } from '@vue-flow/core'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { WorkflowNodeData, WorkflowNodeKind } from '@/types/workflow'
+import { workflowNodeLabel } from '@/utils/workflowNodeLabel'
 
 const props = defineProps<{
   id: string
@@ -83,7 +84,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
 
 const icon = computed(() => iconMap[props.data.kind])
 const isActive = computed(() => props.selected || props.data.status === 'running')
-const displayLabel = computed(() => t(`workflow.catalog.items.${props.data.kind}.label`))
+const displayLabel = computed(() => workflowNodeLabel(props.data, t(`workflow.catalog.items.${props.data.kind}.label`)))
 const displayDescription = computed(() => t(`workflow.catalog.items.${props.data.kind}.description`))
 
 function configText(key: string, fallback: string) {

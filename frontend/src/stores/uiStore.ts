@@ -198,6 +198,9 @@ export const useUiStore = defineStore('ui', {
         realtime.state = state === 'online' ? 'online' : state === 'reconnecting' ? 'degraded' : 'offline'
         realtime.detail = state === 'online' ? 'notify stream connected' : state
       }
+      if (state === 'reconnecting') {
+        return
+      }
       if (state !== this.lastRealtimeNoticeState) {
         const now = Date.now()
         const existingNoticeIndex = this.lastRealtimeNoticeId

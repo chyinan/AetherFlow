@@ -327,7 +327,7 @@ function normalizePlanOutputFormat(value: string) {
   throw new Error(`Unsupported output format: ${value}`)
 }
 
-function redactCopilotValue(value: unknown, key = '', depth = 0): unknown {
+export function redactCopilotValue(value: unknown, key = '', depth = 0): unknown {
   if (/secret|password|token|api.?key|credential|authorization|private.?key|access.?key/i.test(key)) {
     return '[redacted]'
   }

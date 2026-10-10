@@ -1,5 +1,7 @@
 package com.aetherflow.ai.copilot.dto;
 
+// pattern: Imperative Shell
+
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -16,6 +18,8 @@ public final class CopilotDtos {
         private String conversationId;
         @NotBlank
         private String prompt;
+        /** Display-safe user text. The prompt field may contain server-side context for the model. */
+        private String displayPrompt;
         private String workflowId;
         private String projectId;
         private String provider;
@@ -38,6 +42,11 @@ public final class CopilotDtos {
             this(id, conversationId, role, content, createdAt, null, null, null, null);
         }
     }
+
+    public record CopilotCanvasEditResponse(
+            CopilotChatResponse message,
+            com.aetherflow.ai.copilot.service.CopilotCanvasEdits.Edit edit
+    ) { }
 
     public record CopilotConversationSummary(
             String id,

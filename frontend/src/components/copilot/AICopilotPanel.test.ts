@@ -3,21 +3,23 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-const { listConversations, listMessages, refreshSnapshot, stream, planWorkflow, validateCopilotDraft } = vi.hoisted(() => ({
+const { listConversations, listMessages, refreshSnapshot, stream, planWorkflow, validateCopilotDraft, editCanvas, validateCanvasEdit } = vi.hoisted(() => ({
   listConversations: vi.fn(),
   listMessages: vi.fn(),
   refreshSnapshot: vi.fn(),
   stream: vi.fn(),
   planWorkflow: vi.fn(),
   validateCopilotDraft: vi.fn(),
+  editCanvas: vi.fn(),
+  validateCanvasEdit: vi.fn(),
 }))
 
 vi.mock('@/services/api/copilotApi', () => ({
-  copilotApi: { listConversations, listMessages, stream, planWorkflow },
+  copilotApi: { listConversations, listMessages, stream, planWorkflow, editCanvas },
 }))
 
 vi.mock('@/services/api/workflowApi', () => ({
-  workflowApi: { validateCopilotDraft },
+  workflowApi: { validateCopilotDraft, validateCanvasEdit },
 }))
 
 vi.mock('@/services/api/modelApi', () => ({
@@ -73,12 +75,172 @@ function planMessage(context: ReturnType<typeof panelContext>, plan: CopilotWork
 
 describe('AICopilotPanel', () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
     listConversations.mockReset().mockResolvedValue([])
     listMessages.mockReset()
     refreshSnapshot.mockReset().mockResolvedValue({ providers: [], models: [] })
     stream.mockReset()
     planWorkflow.mockReset()
     validateCopilotDraft.mockReset().mockResolvedValue({ structurallyValid: true, runtimeReady: true, issues: [] })
+    editCanvas.mockReset()
+    validateCanvasEdit.mockReset().mockResolvedValue({ structurallyValid: true, runtimeReady: true, issues: [] })
+  })
+
+  function canvasResponse() {
+    return { message: { id: 'edit-1', conversationId: 'conv-edit', role: 'assistant', content: '添加开始节点', createdAt: '22:30' },
+      edit: { status: 'READY', explanation: '添加开始节点', operations: [{ type: 'add_node', nodeId: 'ai-start', kind: 'start' }] } }
+  }
+
+  it('starts a fresh conversation and keeps it empty when the panel reopens', async () => {
+    const context = panelContext()
+    listConversations.mockResolvedValue([{ id: 'conv-11', title: 'Old chat', workflowId: context.workflowId, messageCount: 2, updatedAt: '' }])
+    listMessages.mockResolvedValue([{ id: 'msg-old', role: 'assistant', content: 'OLDPRIVATECONTEXT', createdAt: '' }])
+    const applyCanvasEdit = vi.fn()
+    const first = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(first.text()).toContain('OLDPRIVATECONTEXT')
+    await first.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    expect(first.text()).not.toContain('OLDPRIVATECONTEXT')
+    expect(first.text()).toContain(i18n.global.t('copilot.welcome'))
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
+    first.unmount()
+    listMessages.mockClear()
+
+    const reopened = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(reopened.text()).not.toContain('OLDPRIVATECONTEXT')
+    expect(listMessages).not.toHaveBeenCalled()
+    reopened.unmount()
+  })
+
+  it('sends no previous conversation ID and resumes the new conversation after reload', async () => {
+    const context = panelContext()
+    listConversations.mockResolvedValue([{ id: 'conv-11', title: 'Old', workflowId: context.workflowId, messageCount: 2, updatedAt: '' }])
+    listMessages.mockResolvedValue([{ id: 'msg-old', role: 'assistant', content: 'Old history', createdAt: '' }])
+    stream.mockResolvedValue({ id: 'msg-new', conversationId: 'conv-900', role: 'assistant', content: 'NEW_REPLY', createdAt: '' })
+    const first = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await first.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    await first.find('form input').setValue('全新问题')
+    await first.find('form').trigger('submit')
+    await flushPromises()
+    expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
+    expect(stream.mock.calls[0][1].context.workflow.id).toBe(context.workflowId)
+    first.unmount()
+
+    listConversations.mockResolvedValue([
+      { id: 'conv-11', title: 'Old', workflowId: context.workflowId, messageCount: 2, updatedAt: '' },
+      { id: 'conv-900', title: 'New', workflowId: context.workflowId, messageCount: 2, updatedAt: '' },
+    ])
+    listMessages.mockClear().mockResolvedValue([{ id: 'msg-new', role: 'assistant', content: 'NEW_REPLY', createdAt: '' }])
+    const reopened = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(listMessages).toHaveBeenCalledWith('conv-900')
+    expect(reopened.text()).toContain('NEW_REPLY')
+    reopened.unmount()
+  })
+
+  it('ignores an old AI edit that completes after starting a new chat', async () => {
+    let resolveEdit!: (value: ReturnType<typeof canvasResponse>) => void
+    let requestSignal: AbortSignal | undefined
+    editCanvas.mockImplementation((_prompt, options) => {
+      requestSignal = options.signal
+      return new Promise((resolve) => { resolveEdit = resolve })
+    })
+    const applyCanvasEdit = vi.fn()
+    const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(editCanvas).toHaveBeenCalledTimes(1))
+    await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    expect(requestSignal?.aborted).toBe(true)
+    resolveEdit(canvasResponse())
+    await flushPromises()
+    expect(wrapper.text()).toContain(i18n.global.t('copilot.welcome'))
+    expect(wrapper.text()).not.toContain('添加开始节点')
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
+    expect(validateCanvasEdit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not restore a late history response after starting a new chat', async () => {
+    let resolveHistory!: (value: Array<{ id: string; role: string; content: string; createdAt: string }>) => void
+    const context = panelContext()
+    listConversations.mockResolvedValue([{ id: 'conv-11', title: 'Old', workflowId: context.workflowId, messageCount: 2, updatedAt: '' }])
+    listMessages.mockImplementation(() => new Promise((resolve) => { resolveHistory = resolve }))
+    const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
+    await vi.waitFor(() => expect(listMessages).toHaveBeenCalledTimes(1))
+    await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    resolveHistory([{ id: 'old', role: 'assistant', content: 'STALE_HISTORY', createdAt: '' }])
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('STALE_HISTORY')
+    wrapper.unmount()
+  })
+
+  it('automatically validates and applies an AI canvas edit', async () => {
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    editCanvas.mockResolvedValue(canvasResponse())
+    const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(editCanvas).toHaveBeenCalledWith('添加开始节点', expect.objectContaining({ context: expect.objectContaining({ nodeCatalog: expect.any(Array) }) }))
+    expect(validateCanvasEdit).toHaveBeenCalledTimes(1)
+    expect(applyCanvasEdit).toHaveBeenCalledWith(expect.objectContaining({ baseEditRevision: 3, nodes: [expect.objectContaining({ id: 'ai-start' })] }))
+    expect(wrapper.text()).toContain(i18n.global.t('copilot.editor.applied', { count: 1 }))
+    expect(stream).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not apply a late edit after a manual canvas change', async () => {
+    let resolveEdit!: (value: ReturnType<typeof canvasResponse>) => void
+    editCanvas.mockImplementation(() => new Promise((resolve) => { resolveEdit = resolve }))
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    const context = panelContext()
+    const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(editCanvas).toHaveBeenCalledTimes(1))
+    await wrapper.setProps({ context: { ...context, editRevision: 4 } })
+    resolveEdit(canvasResponse())
+    await flushPromises()
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain(i18n.global.t('copilot.editor.stale'))
+    wrapper.unmount()
+  })
+
+  it('does not apply a cancelled edit while validation is in flight', async () => {
+    let resolveValidation!: (value: { structurallyValid: boolean; runtimeReady: boolean; issues: Array<string> }) => void
+    editCanvas.mockResolvedValue(canvasResponse())
+    validateCanvasEdit.mockImplementation(() => new Promise((resolve) => { resolveValidation = resolve }))
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(validateCanvasEdit).toHaveBeenCalledTimes(1))
+    await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.editor.cancel'))?.trigger('click')
+    resolveValidation({ structurallyValid: true, runtimeReady: true, issues: [] })
+    await flushPromises()
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps the canvas unchanged when server validation rejects the graph', async () => {
+    editCanvas.mockResolvedValue(canvasResponse())
+    validateCanvasEdit.mockResolvedValue({ structurallyValid: false, runtimeReady: false, issues: ['节点配置无效'] })
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('节点配置无效')
+    wrapper.unmount()
   })
 
   it('renders a streamed assistant delta before the response completes', async () => {

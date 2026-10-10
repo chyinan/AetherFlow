@@ -27,6 +27,25 @@ class CopilotControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
+    void returnsStructuredCanvasEditsForAuthenticatedCaller() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("添加开始节点");
+        request.setContext(java.util.Map.of("nodes", List.of()));
+        var edit = com.aetherflow.ai.copilot.service.CopilotCanvasEdits.parse(
+                "{\"status\":\"READY\",\"explanation\":\"添加开始节点\",\"operations\":[{\"type\":\"add_node\",\"nodeId\":\"start-1\",\"kind\":\"start\"}]}");
+        when(service.editCanvas(7L, request)).thenReturn(new com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotCanvasEditResponse(
+                new CopilotChatResponse("msg-1", "conv-1", "assistant", edit.explanation(), "22:00"), edit));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new CopilotController(service)).build();
+        mvc.perform(post("/copilot/canvas-edit").contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)).header("X-User-Id", "7"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.edit.operations[0].kind").value("start"));
+        mvc.perform(post("/copilot/canvas-edit").contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void sendsChatPromptAndReturnsAssistantMessage() throws Exception {
         CopilotService service = mock(CopilotService.class);
         CopilotChatRequest request = new CopilotChatRequest();

@@ -363,6 +363,10 @@ export const realtimeClient = {
             socket = null
           },
           onMessage: (message) => {
+            if (message.event === 'heartbeat') {
+              return
+            }
+
             const notifyMessage = safeParseNotifyMessage(message.data)
             if (notifyMessage) {
               handlers.onMessage?.(notifyMessage)

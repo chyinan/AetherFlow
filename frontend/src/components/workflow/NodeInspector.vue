@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// pattern: Imperative Shell
+import { workflowNodeLabel } from '@/utils/workflowNodeLabel'
 // pattern: Mixed (needs refactoring)
 import {
   BookOpen,
@@ -241,7 +243,8 @@ function knowledgeDatasetLabel(dataset: { name: string; documentCount: number; c
 }
 
 function nodeLabel(kind: string) {
-  return t(`workflow.catalog.items.${kind}.label`)
+  const translated = t(`workflow.catalog.items.${kind}.label`)
+  return selectedNode.value?.data.kind === kind ? workflowNodeLabel(selectedNode.value.data, translated) : translated
 }
 
 function nodeDescription(kind: string) {

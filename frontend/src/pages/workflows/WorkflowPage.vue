@@ -25,6 +25,7 @@ import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
 import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 const workflowStore = useWorkflowStore()
+const canvasRef = ref<InstanceType<typeof WorkflowCanvas> | null>(null)
 const runStore = useRunStore()
 const fileStore = useFileStore()
 const projectStore = useProjectStore()
@@ -476,7 +477,12 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
 }
 
 function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
-  return workflowStore.applyCopilotWorkflowDraft(request)
+  const applied = workflowStore.applyCopilotWorkflowDraft(request)
+  if (applied) {
+    if (!workflowStore.nodes.some((node) => node.id === uiStore.selectedNodeId)) uiStore.setSelectedNode(null)
+    void canvasRef.value?.fitCanvas()
+  }
+  return applied
 }
 </script>
 
@@ -653,7 +659,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
     </header>
 
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
-      <WorkflowCanvas />
+      <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />
 
       <Transition
@@ -668,6 +674,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
           <AICopilotPanel
             :context="copilotContext"
             :apply-workflow-draft="handleCopilotWorkflowDraft"
+            :apply-canvas-edit="handleCopilotWorkflowDraft"
             @apply-canvas-action="handleCopilotCanvasAction"
             @close="showCopilot = false"
           />

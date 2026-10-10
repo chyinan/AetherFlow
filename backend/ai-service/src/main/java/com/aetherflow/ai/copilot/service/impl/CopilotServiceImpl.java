@@ -1,5 +1,7 @@
 package com.aetherflow.ai.copilot.service.impl;
 
+// pattern: Imperative Shell
+
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatRequest;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatResponse;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
@@ -15,6 +17,8 @@ import com.aetherflow.ai.copilot.entity.CopilotMessageEntity;
 import com.aetherflow.ai.copilot.mapper.CopilotConversationMapper;
 import com.aetherflow.ai.copilot.mapper.CopilotMessageMapper;
 import com.aetherflow.ai.copilot.service.CopilotService;
+import com.aetherflow.ai.copilot.service.CopilotCanvasEdits;
+import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotCanvasEditResponse;
 import com.aetherflow.ai.provider.AiProviderRequest;
 import com.aetherflow.ai.provider.AiProviderResponse;
 import com.aetherflow.ai.provider.AiProviderRouter;
@@ -188,6 +192,28 @@ public class CopilotServiceImpl implements CopilotService {
         );
     }
 
+    @Override
+    public CopilotCanvasEditResponse editCanvas(Long userId, CopilotChatRequest request) {
+        requireUserId(userId);
+        if (request == null || !hasText(request.getPrompt()) || request.getPrompt().length() > 8000
+                || request.getContext() == null) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "画布编辑需要有效的用户请求和画布上下文。");
+        }
+        PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
+        String history = prepared.history().stream().skip(Math.max(0, prepared.history().size() - 8))
+                .map(message -> message.getRole() + ": " + truncateHistoryValue(message.getContent()))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        AiProviderResponse response = aiProviderRouter.complete(new AiProviderRequest(
+                parseProvider(request.getProvider()), normalizeOptionalText(request.getModel()),
+                CopilotCanvasEdits.prompt(request.getContext(), history, request.getPrompt().strip()),
+                Map.of("temperature", 0.1, "maxTokens", 6000), COPILOT_TIMEOUT, userId));
+        CopilotCanvasEdits.Edit edit = CopilotCanvasEdits.parse(response == null ? null : response.text());
+        CopilotMessageEntity assistant = transactionTemplate.execute(status -> persistAssistantReply(prepared, edit.explanation()));
+        return new CopilotCanvasEditResponse(new CopilotChatResponse(messageId(assistant.getId()),
+                conversationId(prepared.conversation().getId()), ROLE_ASSISTANT, assistant.getContent(),
+                formatMessageTime(assistant.getCreatedAt())), edit);
+    }
+
     private PreparedTurn prepareTurn(Long userId, CopilotChatRequest request) {
         return prepareTurn(userId, request, false);
     }
@@ -197,7 +223,7 @@ public class CopilotServiceImpl implements CopilotService {
         List<CopilotMessageEntity> history = loadConversationHistory(conversation.getId());
         CopilotMessageEntity latestPlan = includePlanState ? loadLatestWorkflowPlan(conversation.getId()) : null;
         LocalDateTime now = LocalDateTime.now();
-        insertMessage(conversation.getId(), ROLE_USER, request.getPrompt(), now);
+        insertMessage(conversation.getId(), ROLE_USER, persistedUserPrompt(request), now);
         CopilotWorkflowPlanPersistence planState = latestPlan == null
                 ? null
                 : readPlanPersistence(latestPlan.getPlanJson());
@@ -345,8 +371,35 @@ public class CopilotServiceImpl implements CopilotService {
         List<CopilotMessageEntity> sorted = new ArrayList<>(messages);
         sorted.sort(Comparator.comparing(CopilotMessageEntity::getId,
                 Comparator.nullsLast(Comparator.naturalOrder())));
+        sorted.stream()
+                .filter(message -> ROLE_USER.equals(message.getRole()))
+                .forEach(message -> message.setContent(sanitizeUserPrompt(message.getContent())));
         int start = Math.max(0, sorted.size() - MAX_HISTORY_MESSAGES);
         return List.copyOf(sorted.subList(start, sorted.size()));
+    }
+
+    private String persistedUserPrompt(CopilotChatRequest request) {
+        return hasText(request.getDisplayPrompt())
+                ? request.getDisplayPrompt().strip()
+                : sanitizeUserPrompt(request.getPrompt());
+    }
+
+    private String sanitizeUserPrompt(String value) {
+        String text = value == null ? "" : value.strip();
+        String[] internalPromptMarkers = {
+                "\n\nPlease answer the user question using",
+                "\n\nPlease suggest the next practical workflow node.",
+                "\n\nPlease explain the latest workflow run error.",
+                "\n\nUse the workflow planner for supported media or public URL summaries."
+        };
+        int markerIndex = -1;
+        for (String marker : internalPromptMarkers) {
+            int index = text.indexOf(marker);
+            if (index >= 0 && (markerIndex < 0 || index < markerIndex)) {
+                markerIndex = index;
+            }
+        }
+        return markerIndex < 0 ? text : text.substring(0, markerIndex).strip();
     }
 
     private CopilotMessageEntity loadLatestWorkflowPlan(Long conversationId) {
@@ -817,7 +870,7 @@ public class CopilotServiceImpl implements CopilotService {
         return new CopilotMessageResponse(
                 messageId(entity.getId()),
                 entity.getRole(),
-                entity.getContent(),
+                ROLE_USER.equals(entity.getRole()) ? sanitizeUserPrompt(entity.getContent()) : entity.getContent(),
                 formatMessageTime(entity.getCreatedAt()),
                 planState == null ? null : planState.plan(),
                 planState == null ? null : planState.baseEditRevision(),

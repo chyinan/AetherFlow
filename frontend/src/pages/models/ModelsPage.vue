@@ -128,8 +128,8 @@ onMounted(() => {
       </div>
     </header>
 
-    <main class="min-h-0 overflow-hidden bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="flex h-full min-h-0 w-full flex-col gap-4">
+    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
+      <div class="flex min-h-full w-full flex-col gap-4">
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article
             v-for="card in summaryCards"
@@ -167,7 +167,7 @@ onMounted(() => {
           </div>
         </section>
 
-        <section class="grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
+        <section class="grid min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
@@ -285,7 +285,7 @@ onMounted(() => {
             </div>
           </aside>
 
-          <section class="flex min-h-0 flex-col gap-4 overflow-hidden">
+          <section class="flex min-h-0 flex-col gap-4 overflow-visible xl:overflow-hidden">
             <div class="shrink-0 overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
                 <div>
@@ -352,7 +352,7 @@ onMounted(() => {
               </div>
             </div>
 
-            <div class="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div class="grid min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
               <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
                 <div class="flex shrink-0 items-center justify-between">
                   <div>

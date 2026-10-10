@@ -23,8 +23,13 @@ public class PythonAiInferenceClientFactory {
         Duration connectTimeout = Duration.ofMillis(Math.max(100, properties.getConnectTimeoutMillis()));
         this.sharedHttpClient = HttpClient.newBuilder()
                 .connectTimeout(connectTimeout)
+                .version(HttpClient.Version.HTTP_1_1)
                 .build();
-        this.baseBuilder = restClientBuilder.clone().baseUrl(properties.getBaseUrl());
+        RestClient.Builder builder = restClientBuilder.clone().baseUrl(properties.getBaseUrl());
+        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
+            builder.defaultHeader("X-API-Key", properties.getApiKey());
+        }
+        this.baseBuilder = builder;
     }
 
     public RestClient forTimeout(Duration timeout) {

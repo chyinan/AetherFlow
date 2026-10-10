@@ -5,6 +5,7 @@ package com.aetherflow.ai.provider;
 import com.aetherflow.ai.config.AiTaskProperties;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,7 +15,7 @@ import static org.mockito.Mockito.when;
 class ProviderStatusServiceTest {
 
     @Test
-    void userStatusUsesUserPolicyAndDoesNotExposeGlobalMetricsOrCircuitState() {
+    void userStatusUsesUserPolicyAndExposesSafeHealthAndCircuitState() {
         ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
         ProviderStateRepository stateRepository = mock(ProviderStateRepository.class);
         ProviderMetricsService metricsService = mock(ProviderMetricsService.class);
@@ -23,6 +24,10 @@ class ProviderStatusServiceTest {
         ProviderRoutingPolicy userPolicy = new ProviderRoutingPolicy();
         userPolicy.setProviders(List.of(AiProviderType.OLLAMA));
         when(policyService.currentPolicy(7L)).thenReturn(userPolicy);
+        AiProviderHealth health = AiProviderHealth.up(AiProviderType.OLLAMA, 12L, "healthy", Map.of());
+        ProviderCircuitSnapshot circuit = ProviderCircuitSnapshot.closed(AiProviderType.OLLAMA);
+        when(stateRepository.readHealth(AiProviderType.OLLAMA)).thenReturn(health);
+        when(stateRepository.readCircuit(AiProviderType.OLLAMA)).thenReturn(circuit);
 
         ProviderStatusService service = new ProviderStatusService(
                 policyService, stateRepository, metricsService, logService, properties);
@@ -31,8 +36,8 @@ class ProviderStatusServiceTest {
 
         assertThat(response.routingPolicy()).isSameAs(userPolicy);
         assertThat(response.metrics()).isEmpty();
-        assertThat(response.circuitStates()).isEmpty();
-        assertThat(response.healthStates()).isEmpty();
+        assertThat(response.circuitStates()).containsEntry(AiProviderType.OLLAMA, circuit);
+        assertThat(response.healthStates()).containsEntry(AiProviderType.OLLAMA, health);
         assertThat(response.recentLogs()).isEmpty();
     }
 }

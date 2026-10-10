@@ -15,10 +15,30 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class SseEmitterRegistryTest {
+
+    @Test
+    void heartbeatEventUsesSseEventBuilderOverload() throws Exception {
+        SseEmitterRegistry registry = new SseEmitterRegistry();
+        SseEmitter emitter = mock(SseEmitter.class);
+        SseEmitter.SseEventBuilder heartbeat = SseEmitter.event()
+                .name("heartbeat")
+                .data(Map.of("ts", 1L));
+        try {
+            ReflectionTestUtils.invokeMethod(registry, "sendOne", 7L, emitter, heartbeat);
+
+            verify(emitter).send(any(SseEmitter.SseEventBuilder.class));
+        } finally {
+            registry.shutdown();
+        }
+    }
 
     @Test
     void concurrentRegistrationCannotBreakPerUserLimit() throws Exception {

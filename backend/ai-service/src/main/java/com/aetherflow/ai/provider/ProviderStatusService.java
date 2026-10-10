@@ -47,11 +47,18 @@ public class ProviderStatusService {
         if (userId == null || userId <= 0) {
             throw new IllegalArgumentException("authenticated user is required");
         }
+        ProviderRoutingPolicy policy = policyService.currentPolicy(userId);
+        Map<AiProviderType, ProviderCircuitSnapshot> circuits = new LinkedHashMap<>();
+        Map<AiProviderType, AiProviderHealth> healths = new LinkedHashMap<>();
+        for (AiProviderType provider : policy.getProviders()) {
+            circuits.put(provider, safeCircuit(provider));
+            healths.put(provider, safeHealth(provider));
+        }
         return new ProviderStatusResponse(
                 null,
-                policyService.currentPolicy(userId),
-                Map.of(),
-                Map.of(),
+                policy,
+                circuits,
+                healths,
                 Map.of(),
                 List.of()
         );

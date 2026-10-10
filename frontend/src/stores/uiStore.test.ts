@@ -24,25 +24,20 @@ describe('uiStore realtime notifications', () => {
     setActivePinia(createPinia())
   })
 
-  it('coalesces connection flapping into one notification', () => {
+  it('does not notify transient reconnecting states', () => {
     const store = useUiStore()
 
     store.setNotifyRealtimeState('reconnecting')
     store.setNotifyRealtimeState('online')
     store.setNotifyRealtimeState('reconnecting')
 
-    expect(store.notifications).toHaveLength(1)
-    expect(store.notifications[0]).toMatchObject({
-      source: 'realtime',
-      messageKey: 'notifications.connectionIssue',
-      tone: 'degraded',
-      read: false,
-    })
+    expect(store.notifications).toHaveLength(0)
   })
 
-  it('keeps separate notifications after the coalescing window', () => {
+  it('notifies once when offline and once after recovery', () => {
     const store = useUiStore()
 
+    store.setNotifyRealtimeState('offline')
     store.setNotifyRealtimeState('reconnecting')
     vi.advanceTimersByTime(6_000)
     store.setNotifyRealtimeState('online')
@@ -50,5 +45,6 @@ describe('uiStore realtime notifications', () => {
     expect(store.notifications).toHaveLength(2)
     expect(store.notifications[0].messageKey).toBe('notifications.realtimeRestored')
     expect(store.notifications[1].messageKey).toBe('notifications.connectionIssue')
+    expect(store.notifications[1].tone).toBe('offline')
   })
 })

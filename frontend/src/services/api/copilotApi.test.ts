@@ -64,7 +64,8 @@ describe('copilotApi', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const deltas: string[] = []
-    await expect(copilotApi.stream('请解释错误', {
+    await expect(copilotApi.stream('请解释错误\n\n内部上下文', {
+      displayPrompt: '请解释错误',
       workflowId: 'wf-1001',
       onDelta: (delta) => deltas.push(delta),
     })).resolves.toEqual({
@@ -78,7 +79,7 @@ describe('copilotApi', () => {
     expect(deltas).toEqual(['第一段'])
     expect(fetchMock).toHaveBeenCalledWith('/api/copilot/chat/stream', expect.objectContaining({
       method: 'POST',
-      body: expect.stringContaining('请解释错误'),
+      body: expect.stringContaining('"displayPrompt":"请解释错误"'),
     }))
     vi.unstubAllGlobals()
   })

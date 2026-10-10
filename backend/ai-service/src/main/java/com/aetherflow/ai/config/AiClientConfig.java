@@ -61,6 +61,7 @@ public class AiClientConfig {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder()
                         .connectTimeout(Duration.ofMillis(Math.max(100, connectTimeoutMillis)))
+                        .version(HttpClient.Version.HTTP_1_1)
                         .build());
         requestFactory.setReadTimeout(Duration.ofMillis(Math.max(100, readTimeoutMillis)));
         return requestFactory;

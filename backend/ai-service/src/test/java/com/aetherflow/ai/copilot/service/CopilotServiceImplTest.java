@@ -65,6 +65,36 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void canvasEditPersistsUserTextAndExplanationWithoutPersistingInternalInstructions() {
+        stubAiReply("{\"status\":\"READY\",\"explanation\":\"添加开始节点\",\"operations\":[{\"type\":\"add_node\",\"nodeId\":\"start-1\",\"kind\":\"start\"}]}");
+        doAnswer(invocation -> {
+            CopilotConversationEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
+        AtomicLong messageIds = new AtomicLong(20);
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId(messageIds.incrementAndGet());
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("添加开始节点");
+        request.setContext(java.util.Map.of("nodes", List.of(), "nodeCatalog", List.of(java.util.Map.of("kind", "start"))));
+
+        var response = service.editCanvas(7L, request);
+        assertThat(response.edit().operations()).hasSize(1);
+        assertThat(response.message().conversationId()).isEqualTo("conv-11");
+        ArgumentCaptor<CopilotMessageEntity> persisted = ArgumentCaptor.forClass(CopilotMessageEntity.class);
+        verify(messageMapper, org.mockito.Mockito.times(2)).insert(persisted.capture());
+        assertThat(persisted.getAllValues()).extracting(CopilotMessageEntity::getContent)
+                .containsExactly("添加开始节点", "添加开始节点");
+        ArgumentCaptor<AiProviderRequest> provider = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(provider.capture());
+        assertThat(provider.getValue().prompt()).contains("结构化操作直接编辑当前画布", "nodeCatalog");
+    }
+
+    @Test
     void chatCreatesConversationAndPersistsUserAndAssistantMessages() {
         stubAiReply("Add a Summary node after Whisper.");
         CopilotChatRequest request = new CopilotChatRequest();

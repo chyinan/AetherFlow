@@ -1,5 +1,8 @@
 package com.aetherflow.ai.copilot.controller;
 
+// pattern: Imperative Shell
+
+import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotCanvasEditResponse;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatRequest;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatResponse;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
@@ -31,6 +34,12 @@ import java.util.concurrent.CompletableFuture;
 public class CopilotController {
 
     private final CopilotService copilotService;
+
+    @PostMapping("/canvas-edit")
+    public Result<CopilotCanvasEditResponse> editCanvas(@Valid @RequestBody CopilotChatRequest request,
+                                                       @RequestHeader("X-User-Id") Long userId) {
+        return Result.success(copilotService.editCanvas(userId, request));
+    }
 
     @PostMapping("/chat")
     public Result<CopilotChatResponse> chat(@Valid @RequestBody CopilotChatRequest request,

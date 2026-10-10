@@ -603,6 +603,14 @@ export const workflowApi = {
       definition: mapWorkflowToDefinitionDTO(workflow),
     }, signal)
   },
+  async validateCanvasEdit(workflow: WorkflowDefinition, signal?: AbortSignal) {
+    return validateWorkflowDraft({
+      ...(workflow.backendDefinitionId ? { definitionId: workflow.backendDefinitionId } : {}),
+      ...(workflow.backendVersion ? { expectedVersion: workflow.backendVersion } : {}),
+      recipe: 'CANVAS_EDIT',
+      definition: mapWorkflowToDefinitionDTO(workflow),
+    }, signal)
+  },
   registerWorkflowDefinition(workflowId: string, workflowName: string) {
     return emptyWorkflow(workflowId, workflowName)
   },

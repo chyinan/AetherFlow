@@ -21,7 +21,7 @@ export interface WorkflowDefinitionDTO {
 export interface WorkflowDraftValidationRequest {
   definitionId?: number
   expectedVersion?: number
-  recipe: 'MEDIA_SUMMARY' | 'URL_SUMMARY'
+  recipe: 'MEDIA_SUMMARY' | 'URL_SUMMARY' | 'CANVAS_EDIT'
   definition: WorkflowDefinitionDTO
 }
 

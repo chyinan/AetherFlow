@@ -110,6 +110,8 @@ public class SseEmitterRegistry {
         try {
             if (payload instanceof NotifyMessageDTO message && message.getEventId() != null) {
                 emitter.send(SseEmitter.event().id(message.getEventId()).name("notification").data(payload));
+            } else if (payload instanceof SseEmitter.SseEventBuilder eventBuilder) {
+                emitter.send(eventBuilder);
             } else {
                 emitter.send(payload);
             }

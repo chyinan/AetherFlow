@@ -3,6 +3,7 @@ import { runtimeEnv } from '@/config/runtimeEnv'
 import type { CopilotMessage } from '@/types/copilot'
 import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
 import { tokenManager } from '@/api/client/tokenManager'
+import type { CopilotCanvasEditResponse } from '@/types/copilotCanvasEdit'
 
 export interface CopilotAskOptions {
   conversationId?: string
@@ -10,6 +11,7 @@ export interface CopilotAskOptions {
   projectId?: string
   provider?: string
   model?: string
+  displayPrompt?: string
   context?: Record<string, unknown>
 }
 
@@ -70,6 +72,7 @@ function requestPayload(prompt: string, options: CopilotAskOptions) {
     projectId: options.projectId,
     provider: options.provider,
     model: options.model,
+    displayPrompt: options.displayPrompt,
     context: options.context,
     prompt,
   }
@@ -106,6 +109,11 @@ function toAssistantMessage(response: CopilotChatResponse): CopilotMessage {
 }
 
 export const copilotApi = {
+  async editCanvas(prompt: string, options: CopilotAskOptions & { signal?: AbortSignal } = {}): Promise<CopilotCanvasEditResponse> {
+    return apiClient.post<CopilotCanvasEditResponse>('/copilot/canvas-edit', requestPayload(prompt, options), {
+      source: 'ai', timeout: 65_000, signal: options.signal,
+    })
+  },
   async ask(prompt: string, options: CopilotAskOptions = {}) {
     const response = await apiClient.post<CopilotChatResponse>('/copilot/chat', requestPayload(prompt, options), {
       source: 'ai',

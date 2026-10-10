@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { LoaderCircle, PanelRightClose, Send, Sparkles } from 'lucide-vue-next'
+// pattern: Imperative Shell
+import { LoaderCircle, PanelRightClose, Send, Sparkles, SquarePen } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -17,6 +18,9 @@ import {
   type WorkflowCopilotSnapshot,
 } from '@/services/copilot/workflowCopilotActions'
 import { copilotApi } from '@/services/api/copilotApi'
+import { renderCopilotMarkdown } from '@/services/copilot/copilotMarkdown'
+import { buildCanvasEditContext, compileCanvasEdit } from '@/services/copilot/copilotCanvasEdit'
+import { conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import { modelApi } from '@/services/api/modelApi'
 import { workflowApi } from '@/services/api/workflowApi'
 import type { CopilotMessage } from '@/types/copilot'
@@ -27,7 +31,11 @@ import type { WorkflowDefinition } from '@/types/workflow'
 const props = defineProps<{
   context?: WorkflowCopilotSnapshot
   applyWorkflowDraft?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
+  applyCanvasEdit?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
 }>()
+const directEditMode = ref(Boolean(props.applyCanvasEdit))
+const canvasEditResults = ref(new Map<string, { success: boolean; text: string }>())
+const canvasEditPendingId = ref<string | null>(null)
 const prompt = ref('')
 const loading = ref(false)
 const modelsLoading = ref(false)
@@ -132,15 +140,21 @@ async function loadModels() {
 async function loadConversationHistory() {
   const loadSequence = ++conversationLoadSequence
   const workflowIdAtStart = props.context?.workflowId
+  const scopeKeyAtStart = conversationSessionKey(props.context)
+  const selection = readConversationSelection(scopeKeyAtStart)
+  if (selection === 'new') return
   const stillCurrent = () => loadSequence === conversationLoadSequence
     && workflowIdAtStart === props.context?.workflowId
+    && scopeKeyAtStart === conversationSessionKey(props.context)
   try {
     const conversations = await copilotApi.listConversations()
     if (!stillCurrent()) return
     const workflowId = workflowIdAtStart
-    const conversation = workflowId
-      ? conversations.find((item) => item.workflowId === workflowId)
-      : conversations.find((item) => !item.workflowId)
+    const scopedConversations = conversations.filter((item) => String(item.projectId ?? '') === String(props.context?.projectId ?? ''))
+    const matchingConversations = scopedConversations.filter((item) => workflowId ? item.workflowId === workflowId : !item.workflowId)
+    const conversation = selection
+      ? matchingConversations.find((item) => item.id === selection)
+      : matchingConversations[0]
     if (!conversation) {
       conversationId.value = undefined
       plannerMode.value = false
@@ -149,7 +163,7 @@ async function loadConversationHistory() {
     }
     const history = await copilotApi.listMessages(conversation.id)
     if (!stillCurrent()) return
-    conversationId.value = conversation.id
+    rememberConversation(conversation.id)
     if (history.length > 0) {
       messages.value = history
       const planMessage = [...history].reverse().find((message) => message.role === 'assistant' && message.plan)
@@ -163,6 +177,38 @@ async function loadConversationHistory() {
   } catch {
     // The welcome message remains available when history storage is unavailable.
   }
+}
+
+function rememberConversation(id: string | undefined) {
+  conversationId.value = id
+  if (id) writeConversationSelection(conversationSessionKey(props.context), id)
+}
+
+function resetConversationState() {
+  conversationLoadSequence += 1
+  plannerSessionSequence += 1
+  planValidationSequence += 1
+  plannerController.value?.abort()
+  chatController.value?.abort()
+  plannerController.value = null
+  chatController.value = null
+  plannerPendingMessageId.value = null
+  cancelledPlanMessageId.value = null
+  canvasEditPendingId.value = null
+  canvasEditResults.value.clear()
+  appliedActionIds.value.clear()
+  loading.value = false
+  applyingPlan.value = false
+  conversationId.value = undefined
+  plannerMode.value = false
+  planPreview.value = null
+  prompt.value = ''
+  messages.value = [{ id: 'copilot-welcome', role: 'assistant', content: t('copilot.welcome'), createdAt: nowText() }]
+}
+
+function startNewConversation() {
+  writeConversationSelection(conversationSessionKey(props.context), 'new')
+  resetConversationState()
 }
 
 function currentPlannerBase() {
@@ -287,6 +333,10 @@ interface SendPromptOptions {
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
+  if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
+    await sendCanvasEdit(value)
+    return
+  }
   if (plannerMode.value && !options.intent) {
     await sendWorkflowPlan(value)
     return
@@ -324,6 +374,8 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     const assistantMessage = await copilotApi.stream(requestText, {
       conversationId: conversationId.value,
       workflowId: props.context?.workflowId,
+      projectId: props.context?.projectId ? String(props.context.projectId) : undefined,
+      displayPrompt: text,
       provider: providerTypeOf(model?.providerId),
       model: model?.name,
       context: intent && props.context
@@ -344,7 +396,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     })
     if (sessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId) return
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)
-    conversationId.value = assistantMessage.conversationId
+    rememberConversation(assistantMessage.conversationId)
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
     if (current) {
       messages.value[assistantMessageIndex] = {
@@ -370,6 +422,99 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
       chatController.value = null
       loading.value = false
     }
+  }
+}
+
+function setDirectEditMode(enabled: boolean) {
+  directEditMode.value = enabled
+  leavePlannerMode()
+}
+
+async function sendCanvasEdit(value = prompt.value) {
+  const text = value.trim()
+  if (!text || loading.value || !props.context || !props.applyCanvasEdit) return
+  const snapshot: WorkflowCopilotSnapshot = JSON.parse(JSON.stringify(props.context))
+  if (snapshot.nodes.length > 100) return
+  const base = currentPlannerBase()
+  if (!base) return
+  const session = plannerSessionSequence
+  const controller = new AbortController()
+  chatController.value = controller
+  loading.value = true
+  prompt.value = ''
+  plannerMode.value = false
+  const pendingId = `canvas-edit-${Date.now()}`
+  canvasEditPendingId.value = pendingId
+  let responseMessageId = pendingId
+  messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text, createdAt: nowText() })
+  messages.value.push({ id: pendingId, role: 'assistant', content: t('copilot.editor.working'), createdAt: nowText() })
+  const stillCurrent = () => !controller.signal.aborted && session === plannerSessionSequence
+    && props.context?.workflowId === snapshot.workflowId
+  try {
+    const model = selectedModel.value
+    const response = await copilotApi.editCanvas(text, {
+      conversationId: conversationId.value, workflowId: snapshot.workflowId,
+      projectId: snapshot.projectId ? String(snapshot.projectId) : undefined,
+      provider: providerTypeOf(model?.providerId), model: model?.name,
+      context: {
+        ...buildCanvasEditContext(snapshot, locale.value),
+        selectedModel: { provider: providerTypeOf(model?.providerId), model: model?.name },
+        availableModels: availableModels.value.map((item) => ({ provider: providerTypeOf(item.providerId), model: item.name })),
+      }, signal: controller.signal,
+    })
+    if (!stillCurrent()) return
+    const index = messages.value.findIndex((message) => message.id === pendingId)
+    if (index < 0) return
+    rememberConversation(response.message.conversationId)
+    messages.value[index] = response.message
+    responseMessageId = response.message.id
+    canvasEditPendingId.value = responseMessageId
+    if (response.edit.status !== 'READY') return
+    const candidate = compileCanvasEdit(snapshot, response.edit)
+    if (!candidate.ok) throw new Error(candidate.error)
+    const graph: WorkflowDefinition = {
+      id: snapshot.workflowId, name: snapshot.workflowName,
+      backendDefinitionId: snapshot.backendDefinitionId ?? undefined, backendVersion: snapshot.backendVersion ?? undefined,
+      projectId: snapshot.projectId ?? undefined, nodes: candidate.nodes, edges: candidate.edges,
+    }
+    const validation = await workflowApi.validateCanvasEdit(graph, controller.signal)
+    if (!stillCurrent()) return
+    const current = currentPlannerBase()
+    if (!current || current.editRevision !== base.editRevision || current.backendDefinitionId !== base.backendDefinitionId
+      || current.backendVersion !== base.backendVersion || current.graphFingerprint !== base.graphFingerprint) {
+      throw new Error(t('copilot.editor.stale'))
+    }
+    if (!validation.structurallyValid) throw new Error(validation.issues.join('；') || t('copilot.editor.invalid'))
+    const applied = props.applyCanvasEdit({
+      baseWorkflowId: base.workflowId, baseEditRevision: base.editRevision,
+      baseDefinitionId: base.backendDefinitionId, baseVersion: base.backendVersion,
+      nodes: candidate.nodes, edges: candidate.edges,
+    })
+    if (!applied) throw new Error(t('copilot.editor.stale'))
+    canvasEditResults.value.set(response.message.id, {
+      success: true,
+      text: t('copilot.editor.applied', { count: response.edit.operations.length })
+        + (validation.runtimeReady ? '' : `\n${t('copilot.editor.runtimeWarning')} ${validation.issues.join('；')}`),
+    })
+  } catch (error) {
+    if (session !== plannerSessionSequence || props.context?.workflowId !== snapshot.workflowId) return
+    const message = messages.value.find((item) => item.id === responseMessageId)
+    if (message?.role === 'assistant') {
+      const reason = controller.signal.aborted ? t('copilot.editor.cancelled') : toApiError(error, 'ai').message
+      if (message.id === pendingId) message.content = reason
+      canvasEditResults.value.set(message.id, { success: false, text: t('copilot.editor.notApplied', { reason }) })
+    }
+  } finally {
+    if (chatController.value === controller) { chatController.value = null; canvasEditPendingId.value = null; loading.value = false }
+  }
+}
+
+function cancelCanvasEdit() {
+  chatController.value?.abort()
+  const message = messages.value.find((item) => item.id === canvasEditPendingId.value)
+  if (message) {
+    message.content = t('copilot.editor.cancelled')
+    canvasEditResults.value.set(message.id, { success: false, text: t('copilot.editor.cancelled') })
   }
 }
 
@@ -424,7 +569,7 @@ async function sendWorkflowPlan(value = prompt.value) {
     }
     if (plannerSessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId
         || assistantMessageIndex < 0) return
-    conversationId.value = assistantMessage.conversationId
+    rememberConversation(assistantMessage.conversationId)
     messages.value[assistantMessageIndex] = assistantMessage
     plannerPendingMessageId.value = null
     if (assistantMessage.plan?.status === 'READY') {
@@ -490,6 +635,10 @@ function leavePlannerMode() {
 }
 
 async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
+  if (directEditMode.value && intent === 'draft-media-summary-workflow' && props.applyCanvasEdit) {
+    await sendCanvasEdit(t('copilot.editor.designRequest'))
+    return
+  }
   if (intent === 'draft-media-summary-workflow') {
     await sendWorkflowPlan(label)
     return
@@ -602,28 +751,8 @@ function actionButtonLabel(message: CopilotMessage) {
   return t(message.action.labelKey, { node: t(`workflow.catalog.items.${action.nodeKind}.label`) })
 }
 
-watch(() => props.context?.workflowId, (workflowId, previousWorkflowId) => {
-  if (previousWorkflowId === undefined || workflowId === previousWorkflowId) return
-  conversationLoadSequence += 1
-  plannerSessionSequence += 1
-  planValidationSequence += 1
-  plannerController.value?.abort()
-  chatController.value?.abort()
-  plannerController.value = null
-  chatController.value = null
-  plannerPendingMessageId.value = null
-  cancelledPlanMessageId.value = null
-  loading.value = false
-  applyingPlan.value = false
-  conversationId.value = undefined
-  plannerMode.value = false
-  planPreview.value = null
-  messages.value = [{
-    id: 'copilot-welcome',
-    role: 'assistant',
-    content: t('copilot.welcome'),
-    createdAt: nowText(),
-  }]
+watch(() => conversationSessionKey(props.context), () => {
+  resetConversationState()
   void loadConversationHistory()
 })
 
@@ -645,6 +774,9 @@ watch(() => [
 })
 
 onBeforeUnmount(() => {
+  conversationLoadSequence += 1
+  plannerSessionSequence += 1
+  planValidationSequence += 1
   plannerController.value?.abort()
   chatController.value?.abort()
 })
@@ -668,6 +800,11 @@ onMounted(() => {
             <p class="text-xs text-text-muted">{{ t('copilot.subtitle') }}</p>
           </div>
         </div>
+        <div class="flex items-center gap-1">
+        <button type="button" class="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-text-secondary transition hover:bg-ai-soft hover:text-ai" :title="t('copilot.newConversationHint')" @click="startNewConversation">
+          <SquarePen class="h-3.5 w-3.5" />
+          {{ t('copilot.newConversation') }}
+        </button>
         <button
           type="button"
           class="grid h-9 w-9 place-items-center rounded-md border border-transparent text-text-secondary transition hover:border-app-border hover:bg-app-muted hover:text-text-primary"
@@ -676,9 +813,14 @@ onMounted(() => {
         >
           <PanelRightClose class="h-4 w-4" />
         </button>
+        </div>
       </div>
 
       <div class="flex flex-wrap gap-2 border-b border-app-border px-4 py-3">
+        <div v-if="props.applyCanvasEdit" class="mb-1 flex w-full rounded-lg bg-app-muted p-1" role="group" :aria-label="t('copilot.editor.modeLabel')">
+          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="!directEditMode ? 'bg-white text-text-primary shadow-sm' : 'text-text-muted'" :aria-pressed="!directEditMode" :disabled="loading" @click="setDirectEditMode(false)">{{ t('copilot.editor.chatMode') }}</button>
+          <button type="button" class="flex-1 rounded-md px-3 py-1.5 text-xs font-medium" :class="directEditMode ? 'bg-white text-ai shadow-sm' : 'text-text-muted'" :aria-pressed="directEditMode" :disabled="loading" @click="setDirectEditMode(true)">{{ t('copilot.editor.editMode') }}</button>
+        </div>
         <button
           v-for="item in quickActions"
           :key="item.intent"
@@ -706,7 +848,11 @@ onMounted(() => {
             <span>{{ message.role === 'assistant' ? t('copilot.assistant') : t('copilot.user') }}</span>
             <span>{{ message.createdAt }}</span>
           </div>
-          <p class="whitespace-pre-line">{{ message.content }}</p>
+          <div v-if="message.role === 'assistant'" class="copilot-markdown" v-html="renderCopilotMarkdown(message.content)" />
+          <p v-else class="whitespace-pre-line">{{ message.content }}</p>
+          <p v-if="canvasEditResults.has(message.id)" class="mt-2 whitespace-pre-line rounded-md border px-2.5 py-2 text-xs leading-5" :class="canvasEditResults.get(message.id)?.success ? 'border-status-success/25 bg-green-50 text-status-success' : 'border-status-warning/30 bg-amber-50 text-status-warning'" role="status">
+            {{ canvasEditResults.get(message.id)?.text }}
+          </p>
           <section
             v-if="message.role === 'assistant' && message.plan"
             class="mt-3 space-y-2 rounded-md border border-app-border bg-app-bg2 p-3 text-xs leading-5"
@@ -815,6 +961,7 @@ onMounted(() => {
       </div>
 
       <form class="border-t border-app-border bg-white p-3" @submit.prevent="sendPrompt()">
+        <p v-if="directEditMode && props.applyCanvasEdit" class="mb-2 text-xs leading-5 text-text-muted">{{ t('copilot.editor.hint') }}</p>
         <div v-if="plannerMode" class="mb-2 flex items-center justify-between gap-2 rounded-md border border-ai/20 bg-ai-soft px-2.5 py-1.5 text-xs text-ai">
           <span class="font-medium">{{ t('copilot.planner.mode') }}</span>
           <button type="button" class="shrink-0 text-text-secondary underline-offset-2 hover:underline" @click="leavePlannerMode">
@@ -840,12 +987,13 @@ onMounted(() => {
           <input
             v-model="prompt"
             class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
-            :placeholder="t('copilot.askPlaceholder')"
+            :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
           />
           <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="loading">
             <Send class="h-4 w-4" />
           </button>
         </div>
+        <button v-if="directEditMode && chatController" type="button" class="mt-2 rounded-md border border-app-border px-2.5 py-1.5 text-xs text-text-secondary" @click="cancelCanvasEdit">{{ t('copilot.editor.cancel') }}</button>
         <button
           v-if="plannerController"
           type="button"
@@ -858,3 +1006,58 @@ onMounted(() => {
     </div>
   </aside>
 </template>
+
+<style scoped>
+.copilot-markdown :deep(p) {
+  margin: 0.45rem 0;
+}
+
+.copilot-markdown :deep(h1),
+.copilot-markdown :deep(h2),
+.copilot-markdown :deep(h3) {
+  margin: 0.75rem 0 0.35rem;
+  font-weight: 700;
+}
+
+.copilot-markdown :deep(ul),
+.copilot-markdown :deep(ol) {
+  margin: 0.45rem 0;
+  padding-left: 1.25rem;
+}
+
+.copilot-markdown :deep(ul) {
+  list-style: disc;
+}
+
+.copilot-markdown :deep(ol) {
+  list-style: decimal;
+}
+
+.copilot-markdown :deep(code) {
+  border-radius: 0.25rem;
+  background: rgb(241 245 249);
+  padding: 0.1rem 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.copilot-markdown :deep(pre) {
+  overflow-x: auto;
+  margin: 0.6rem 0;
+  border-radius: 0.45rem;
+  background: rgb(15 23 42);
+  padding: 0.7rem;
+  color: rgb(226 232 240);
+}
+
+.copilot-markdown :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.copilot-markdown :deep(a) {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+}
+</style>
