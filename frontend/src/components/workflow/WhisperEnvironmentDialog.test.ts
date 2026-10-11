@@ -463,7 +463,7 @@ describe('Whisper 部署感知配置向导', () => {
     expect(verificationResult()).toBe('failed')
     expect(modal()?.querySelector('[data-testid="whisper-verification-target"]')?.textContent).toContain('small')
     expect(modal()?.querySelector('[data-testid="whisper-verification-target"]')?.textContent).toContain('cpu')
-    expect(modal()?.textContent).toContain('当前配置模型 / 设备 / 计算精度 / 已加载模型')
+    expect(Array.from(modal()?.querySelectorAll('[data-mismatch-field] dt') ?? []).map((element) => element.textContent)).toEqual(['当前配置模型', '设备', '计算精度', '已加载模型'])
     api.getWhisperEnvironment.mockResolvedValueOnce({ ...suggestedEnvironment, restartRequired: true })
     button('verify').click()
     await flushPromises()
