@@ -215,6 +215,7 @@ export const useWorkflowStore = defineStore('workflow', {
     createIdempotencyKey: null as string | null,
     projectId: null as number | null,
     templates: nodeTemplates,
+    nodeTemplatesRequestSequence: 0,
     workflowTemplates: [] as WorkflowDefinition[],
     workflowTemplatesLoading: false,
     workflowTemplatesError: null as string | null,
@@ -249,11 +250,14 @@ export const useWorkflowStore = defineStore('workflow', {
     setRunError(message: string | null) {
       this.runError = message
     },
-    async loadNodeTemplates() {
+    async loadNodeTemplates(isCurrent: () => boolean = () => true) {
+      const sequence = ++this.nodeTemplatesRequestSequence
       const [catalogResult, capabilityResult] = await Promise.allSettled([
         getNodeCatalog(),
         getWorkflowCapabilities(),
       ])
+      // 已关闭向导、切换节点或被新请求取代的结果不能覆盖当前能力。
+      if (sequence !== this.nodeTemplatesRequestSequence || !isCurrent()) return false
       const templates = catalogResult.status === 'fulfilled'
         ? mergeTemplates(nodeTemplates, catalogResult.value
           .map(templateFromCatalogItem)
@@ -263,6 +267,7 @@ export const useWorkflowStore = defineStore('workflow', {
         ? capabilityResult.value
         : unavailableWorkflowCapabilities('AI capability service unavailable')
       this.templates = applyWorkflowCapabilities(templates, capabilities)
+      return capabilityResult.status === 'fulfilled'
     },
     async loadWorkflowTemplates() {
       this.workflowTemplatesLoading = true

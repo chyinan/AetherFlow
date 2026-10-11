@@ -14,12 +14,13 @@ import {
   getWhisperSetupBlockers, isValidWhisperSetupDraft, verifyWhisperSetup, type WhisperDeployment,
 } from './whisperEnvironmentSetup'
 
-const props = defineProps<{ nodeId: string }>()
+const props = defineProps<{ nodeId: string; refreshCapabilities?: (isCurrent: () => boolean) => Promise<boolean> }>()
 const { t } = useI18n({ useScope: 'local', messages: whisperEnvironmentMessages })
 const titleId = `whisper-environment-${useId()}`
 const opened = ref(false)
 const loading = ref(false)
 const error = ref('')
+const capabilityError = ref(false)
 const snapshot = ref<Awaited<ReturnType<typeof getWhisperEnvironment>> | null>(null)
 const copyState = ref<'idle' | 'copied' | 'error'>('idle')
 const suggestionCopyState = ref<'idle' | 'copied' | 'error'>('idle')
@@ -38,6 +39,11 @@ const blockers = computed(() => getWhisperSetupBlockers(snapshot.value))
 const detected = computed(() => snapshot.value?.status !== 'unreachable' ? snapshot.value : null)
 const validDraft = computed(() => isValidWhisperSetupDraft(draft.value))
 const canContinue = computed(() => !!deployment.value && (step.value < 2 || validDraft.value) && (step.value !== 3 || applied.value))
+const mismatchDetails = computed(() => (verification.value?.mismatches ?? []).map((field) => ({
+  field,
+  expected: draft.value[field === 'loadedModel' ? 'model' : field],
+  actual: snapshot.value?.[field],
+})))
 let requestSequence = 0
 let proposalRevision = 0
 let copySequence = 0
@@ -58,16 +64,23 @@ async function refresh(verify = false) {
   const revision = proposalRevision
   loading.value = true
   error.value = ''
+  capabilityError.value = false
   snapshot.value = null
   verification.value = null
   resetCopy()
   try {
-    const result = await getWhisperEnvironment()
+    // 环境快照不能替代工作流能力；即使环境读取失败，也独立刷新权威能力门禁。
+    const [environmentResult, capabilityResult] = await Promise.allSettled([
+      getWhisperEnvironment(),
+      props.refreshCapabilities?.(() => isCurrent(sequence, nodeId)) ?? Promise.resolve(true),
+    ])
     if (!isCurrent(sequence, nodeId)) return
-    snapshot.value = result
+    capabilityError.value = capabilityResult.status === 'rejected' || !capabilityResult.value
+    if (environmentResult.status === 'rejected') throw environmentResult.reason
+    snapshot.value = environmentResult.value
     // 只有明确重新验证、且这期间未离开验证步骤或修改建议时，才显示验证结果。
     if (verify && revision === proposalRevision && step.value === 4 && applied.value) {
-      verification.value = verifyWhisperSetup(result, draft.value)
+      verification.value = verifyWhisperSetup(environmentResult.value, draft.value)
     }
   } catch (cause) {
     if (isCurrent(sequence, nodeId)) error.value = toApiError(cause, 'ai').message
@@ -90,6 +103,7 @@ function close(restoreFocus = true) {
   loading.value = false
   snapshot.value = null
   error.value = ''
+  capabilityError.value = false
   resetCopy()
   step.value = 0
   deployment.value = ''
@@ -97,6 +111,13 @@ function close(restoreFocus = true) {
   applied.value = false
   verification.value = null
   if (restoreFocus) opener.value?.focus()
+}
+function finish() {
+  if (step.value !== 4 || !verification.value?.success || loading.value || capabilityError.value) return
+  close()
+}
+function displayComparisonValue(value: string | null | undefined) {
+  return value?.trim() ? value : t('emptyValue')
 }
 async function moveStep(direction: -1 | 1) {
   if (direction === 1 && !canContinue.value) return
@@ -189,6 +210,7 @@ onBeforeUnmount(() => {
             <h3 class="text-sm font-semibold text-text-primary">{{ t('detected') }}</h3>
             <p v-if="loading" role="status" class="flex items-center gap-2 text-text-secondary"><LoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true" />{{ t('loading') }}</p>
             <p v-else-if="error" role="alert" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('loadError') }}: {{ error }}</p>
+            <p v-if="capabilityError" role="alert" data-testid="whisper-capability-error" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('capabilityLoadError') }}</p>
             <template v-if="snapshot">
               <div class="space-y-2" aria-live="polite">
                 <span data-testid="whisper-status" class="inline-flex rounded-md border px-2 py-1 text-xs font-medium" :class="snapshot.status === 'usable' ? 'border-status-success/25 bg-status-success/10 text-status-success' : 'border-status-warning/25 bg-status-warning/10 text-status-warning'">{{ t(`status.${snapshot.status}`) }}</span>
@@ -279,7 +301,18 @@ onBeforeUnmount(() => {
               <div data-testid="whisper-verification" :data-result="verification ? (verification.success ? 'passed' : 'failed') : 'pending'" role="status" class="space-y-2 rounded-lg border p-3 text-xs leading-5" :class="verification?.success ? 'border-status-success/25 bg-status-success/10 text-status-success' : 'border-app-border bg-app-bg2 text-text-secondary'">
                 <p>{{ t(verification ? (verification.success ? 'verifySuccess' : 'verifyFailure') : 'verifyPending') }}</p>
                 <template v-if="verification && !verification.success">
-                  <p v-if="verification.mismatches.length">{{ t('mismatches') }}: {{ verification.mismatches.map((field) => t(field)).join(' / ') }}</p>
+                  <div v-if="mismatchDetails.length" data-testid="whisper-mismatches" class="space-y-2">
+                    <p class="font-medium">{{ t('mismatches') }}</p>
+                    <dl class="space-y-2">
+                      <div v-for="detail in mismatchDetails" :key="detail.field" :data-mismatch-field="detail.field" class="rounded-md border border-app-border bg-white p-2">
+                        <dt class="font-medium text-text-primary">{{ t(detail.field) }}</dt>
+                        <dd class="mt-1 grid gap-1 sm:grid-cols-2">
+                          <div><span class="text-text-muted">{{ t('expectedValue') }}: </span><span data-value="expected" class="break-all text-text-primary">{{ displayComparisonValue(detail.expected) }}</span></div>
+                          <div><span class="text-text-muted">{{ t('actualValue') }}: </span><span data-value="actual" class="break-all text-text-primary">{{ displayComparisonValue(detail.actual) }}</span></div>
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
                   <ul v-if="verification.blockers.length" class="list-disc space-y-1 pl-4"><li v-for="blocker in verification.blockers" :key="blocker">{{ t(`blockers.${blocker}`) }}</li></ul>
                 </template>
               </div>
@@ -293,6 +326,7 @@ onBeforeUnmount(() => {
           <button v-if="step > 0" type="button" data-action="back-whisper-environment" class="rounded-lg border border-app-border px-3 py-2 text-xs text-text-secondary hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="moveStep(-1)">{{ t('back') }}</button>
           <button v-if="step < steps.length - 1" type="button" data-action="next-whisper-environment" :disabled="!canContinue" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="moveStep(1)">{{ t('next') }}</button>
           <button type="button" data-action="refresh-whisper-environment" :disabled="loading" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="refresh()"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('refresh') }}</button>
+          <button v-if="step === steps.length - 1 && verification?.success" type="button" data-action="finish-whisper-environment" :disabled="loading || !!capabilityError" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="finish">{{ t('finish') }}</button>
         </footer>
       </section>
     </div>

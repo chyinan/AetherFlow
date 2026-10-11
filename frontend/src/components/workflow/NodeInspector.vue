@@ -783,7 +783,7 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'whisper'" class="space-y-5 p-5">
-          <WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" />
+          <WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" :refresh-capabilities="workflowStore.loadNodeTemplates" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
             <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
