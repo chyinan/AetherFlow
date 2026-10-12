@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest'
 
 import type { RuntimeEvent } from '@/api/modules/runtime'
 import {
+  mapObservationToRunPatch,
   mapRuntimeEventToLogEntry,
   mapRuntimeEventToNodePatch,
   mapRuntimeStateToRunStatus,
 } from '@/api/mappers/runtimeMapper'
 
 describe('runtimeMapper waiting state', () => {
+  it.each(['RUNNING', 'WAITING', 'SUCCESS', 'FAILED', 'CANCELLED'] as const)('保留 observation 的后端状态来源 %s', (runtimeState) => {
+    expect(mapObservationToRunPatch({ workflowId: '101', traceId: 'trace-101', runtimeState })).toMatchObject({
+      backendStatus: runtimeState,
+      status: mapRuntimeStateToRunStatus(runtimeState),
+    })
+  })
+
   it('maps waiting workflow to paused instead of running', () => {
     expect(mapRuntimeStateToRunStatus('WAITING')).toBe('paused')
   })

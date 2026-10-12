@@ -42,6 +42,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import { i18n } from '@/i18n'
+import { mapObservationToRunPatch, mapRuntimeEventToNodePatch } from '@/api/mappers/runtimeMapper'
 import RunsPage from '@/pages/runs/RunsPage.vue'
 import { useRunStore } from './runStore'
 
@@ -94,6 +95,97 @@ describe('运行历史刷新与所选详情协调', () => {
     mocks.refreshArtifactsFromBackend.mockResolvedValue(undefined)
   })
   afterEach(() => { useRunStore().stopRealtime() })
+
+  it.each(['failed', 'running'] as const)('局部节点成功后，连续 HTTP 刷新应采用后端 %s 状态', async (status) => {
+    const store = setupStore()
+    // 与真实 realtimeClient 顺序一致：先更新运行，再映射 NODE_COMPLETED。
+    handlers().onRunPatch?.({ status: 'running', backendStatus: 'RUNNING', runtimeWorkflowId: '101', currentNodeId: 'node-a' })
+    const completed = mapRuntimeEventToNodePatch({ eventId: 'evt-1', eventType: 'NODE_COMPLETED', workflowId: '101', traceId: 'trace-run-a', nodeId: 'node-a', runtimeState: 'RUNNING' })
+    expect(completed?.status).toBe('success')
+    handlers().onNodePatch?.(completed!)
+    // 此后实时流断开或事件尚未到达；用户主动刷新 HTTP 列表。
+
+    expect(store.currentRun).toMatchObject({ status: 'success', backendStatus: 'RUNNING', progress: 100 })
+    mocks.listRuns.mockResolvedValue([run('run-a', {
+      status, backendStatus: status.toUpperCase(), progress: status === 'failed' ? 100 : 50,
+      durationMs: 900, currentNodeId: 'node-b',
+      nodeStates: [
+        { nodeId: 'node-a', label: '节点 A', status: 'success' },
+        { nodeId: 'node-b', label: '节点 B', status: status === 'failed' ? 'failed' : 'running' },
+      ],
+    })])
+    await store.refreshRuns()
+    await store.refreshRuns()
+    expect(mocks.listRuns).toHaveBeenCalledTimes(2)
+    expect(store.currentRun).toMatchObject({ status, backendStatus: status.toUpperCase(), durationMs: 900, currentNodeId: 'node-b' })
+    expect(store.currentRun?.progress).toBe(status === 'failed' ? 100 : 50)
+    expect(store.runs[0]).toEqual(store.currentRun)
+    expect(store.currentRun?.nodeStates).toHaveLength(2)
+  })
+
+  it.each(['failed', 'running'] as const)('HTTP 等待期间的新局部完成优先于旧 %s 快照，下一次刷新仍可纠正', async (status) => {
+    const store = setupStore()
+    const response = deferred<WorkflowRun[]>()
+    mocks.listRuns.mockReturnValueOnce(response.promise)
+    const pending = store.refreshRuns()
+    handlers().onRunPatch?.({ status: 'running', backendStatus: 'RUNNING' })
+    handlers().onNodePatch?.(mapRuntimeEventToNodePatch({ eventId: 'evt-new', traceId: 'trace-run-a', eventType: 'NODE_COMPLETED', workflowId: '101', nodeId: 'node-a', runtimeState: 'RUNNING' })!)
+    const expected = JSON.parse(JSON.stringify(store.currentRun))
+    expect(expected).toMatchObject({ status: 'success', backendStatus: 'RUNNING', progress: 100 })
+    response.resolve([run('run-a', { status, backendStatus: status.toUpperCase(), durationMs: 50 })])
+    await pending
+    expect(store.currentRun).toEqual(expected)
+    expect(store.runs[0]).toEqual(expected)
+
+    mocks.listRuns.mockResolvedValue([run('run-a', { status, backendStatus: status.toUpperCase(), progress: status === 'failed' ? 100 : 50 })])
+    await store.refreshRuns()
+    expect(store.currentRun).toMatchObject({ status, backendStatus: status.toUpperCase(), progress: status === 'failed' ? 100 : 50 })
+  })
+
+  it('页面刷新纠正局部成功后恢复取消入口并保留节点详细输出', async () => {
+    const store = setupStore()
+    const wrapper = mount(RunsPage, { global: { plugins: [i18n], stubs: {
+      HumanApprovalDialog: true, LogStream: true, RunTimeline: true,
+      StatusBadge: { props: ['status'], template: '<span data-test-status>{{ status }}</span>' },
+    } } })
+    try {
+      await flushPromises()
+      store.patchNodeState({ nodeId: 'node-a', label: '节点 A', status: 'success', output: '完整详细输出', durationMs: 90 })
+      await flushPromises()
+      expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(false)
+      mocks.listRuns.mockResolvedValue([run('run-a', { progress: 50, durationMs: 900, currentNodeId: 'node-b', nodeStates: [
+        { nodeId: 'node-a', label: 'node-a', status: 'success', output: 'NODE_COMPLETED' },
+        { nodeId: 'node-b', label: '节点 B', status: 'running' },
+      ] })])
+      await wrapper.get('header button').trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('[data-test-status]').map((element) => element.text())).toEqual(['running', 'running'])
+      expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(true)
+      expect(wrapper.text()).toContain('50%')
+      expect(store.currentRun?.nodeStates[0]).toMatchObject({ label: '节点 A', status: 'success', output: '完整详细输出', durationMs: 90 })
+      expect(store.runs[0]).toEqual(store.currentRun)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    ['SUCCESS', false], ['FAILED', false], ['SUCCESS', true], ['FAILED', true],
+  ] as const)('真实 observation 恢复 %s 后保护终态，包含节点：%s', async (runtimeState, withNodes) => {
+    const store = setupStore()
+    const status = runtimeState === 'SUCCESS' ? 'success' : 'failed'
+    mocks.recoverRuntime.mockResolvedValue({
+      runPatch: mapObservationToRunPatch({ workflowId: '101', traceId: 'runtime-trace', runtimeState, progress: 1 }),
+      nodePatches: withNodes ? [{ nodeId: 'node-a', label: '节点 A', status }] : [], logs: [],
+    })
+    await store.recoverCurrentRunRuntime()
+    expect(store.currentRun).toMatchObject({ status, backendStatus: runtimeState, progress: 100 })
+    const expected = JSON.parse(JSON.stringify(store.currentRun))
+    mocks.listRuns.mockResolvedValue([run('run-a', { progress: 8, nodeStates: [], currentNodeId: 'node-old', traceId: 'trace-101' })])
+    await store.refreshRuns()
+    expect(store.currentRun).toEqual(expected)
+    expect(store.runs[0]).toEqual(expected)
+  })
 
   it.each(['success', 'failed'] as const)('连续刷新将同 ID 列表和详情恢复为 %s', async (status) => {
     const store = setupStore()

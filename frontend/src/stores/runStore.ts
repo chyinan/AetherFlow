@@ -60,6 +60,10 @@ function isCancelledRun(run: WorkflowRun | Partial<WorkflowRun>) {
   return run.backendStatus === 'CANCELLED'
 }
 
+function isBackendTerminalRun(run: WorkflowRun) {
+  return run.backendStatus === 'SUCCESS' || run.backendStatus === 'FAILED' || isCancelledRun(run)
+}
+
 function definedFields<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as Partial<T>
 }
@@ -70,14 +74,16 @@ function isNodeOutputSummary(output?: string) {
 }
 
 function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveCurrent = false): WorkflowRun {
-  const currentTerminal = isTerminalRunStatus(current.status) || isCancelledRun(current)
+  // 局部节点可能推导出 success/failed；只有后端确认的终态才能锁定 HTTP 协调。
+  const currentTerminal = isBackendTerminalRun(current)
+  const currentInferredTerminal = isTerminalRunStatus(current.status) && !currentTerminal
   const incomingTerminal = isTerminalRunStatus(incoming.status) || isCancelledRun(incoming)
   // WAITING 摘要使用 100% 占位；真正恢复运行时允许更新为实际进度。
   const resumesFromWaiting = current.status === 'paused' && incoming.status === 'running'
   // 列表请求发出后收到的运行更新，以及已经确认的终态，不能被旧 HTTP 快照覆盖。
   if (preserveCurrent || (currentTerminal && (
     current.status !== incoming.status || isCancelledRun(current) !== isCancelledRun(incoming)
-  )) || (!incomingTerminal && !resumesFromWaiting && incoming.progress < current.progress)) {
+  )) || (!incomingTerminal && !currentInferredTerminal && !resumesFromWaiting && incoming.progress < current.progress)) {
     return current
   }
 
@@ -371,7 +377,7 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      const currentTerminal = isTerminalRunStatus(this.currentRun.status) || isCancelledRun(this.currentRun)
+      const currentTerminal = isBackendTerminalRun(this.currentRun)
       const incomingTerminal = Boolean(patch.status && isTerminalRunStatus(patch.status)) || isCancelledRun(patch)
       if (currentTerminal && (!incomingTerminal
         || (patch.status && this.currentRun.status !== patch.status)
