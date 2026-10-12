@@ -12,11 +12,17 @@ type RunHandlers = {
 }
 
 const mocks = vi.hoisted(() => ({
+  listWorkflowInstances: vi.fn(),
   listRuns: vi.fn(), getRun: vi.fn(), getLogs: vi.fn(), recoverRuntime: vi.fn(),
   cancelWorkflowInstance: vi.fn(),
   subscribeRun: vi.fn((_options: unknown, _handlers: RunHandlers) => vi.fn()),
   markRunArtifactsReady: vi.fn(), refreshArtifactsFromBackend: vi.fn(),
   startNotificationStream: vi.fn(), stopNotificationStream: vi.fn(),
+}))
+
+vi.mock('@/api/modules/workflow', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/api/modules/workflow')>(),
+  listWorkflowInstances: mocks.listWorkflowInstances,
 }))
 
 vi.mock('@/services/api/runApi', async (importOriginal) => {
@@ -96,6 +102,50 @@ describe('运行历史刷新与所选详情协调', () => {
   })
   afterEach(() => { useRunStore().stopRealtime() })
 
+  it('真实取消 DTO 在本地取消后仍可连续补齐权威快照，并拒绝迟到旧快照', async () => {
+    const store = setupStore()
+    // 保留真实 DTO 映射，只替换网络边界，避免手写 cancelled 掩盖映射错误。
+    store.currentRun!.id = 'run-101'
+    store.runs[0]!.id = 'run-101'
+    mocks.cancelWorkflowInstance.mockResolvedValue(undefined)
+    await store.cancelCurrentRun()
+    const { runApi } = await vi.importActual<typeof import('@/services/api/runApi')>('@/services/api/runApi')
+    mocks.listRuns.mockImplementation(runApi.listRuns)
+    for (const durationMs of [900, 1200]) {
+      mocks.listWorkflowInstances.mockResolvedValue({ items: [{
+        id: 101, status: 'CANCELLED', durationMs, currentNodeId: 'node-final',
+        nodes: [{ nodeId: 'node-a', status: 'CANCELLED', attributes: { reason: '已取消' } }],
+      }], total: 1 })
+      await store.refreshRuns()
+      expect(store.currentRun).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100, durationMs, currentNodeId: 'node-final' })
+      expect(store.currentRun?.nodeStates[0]?.output).toBe('{"reason":"已取消"}')
+      expect(store.runs[0]).toEqual(store.currentRun)
+    }
+    const expected = JSON.parse(JSON.stringify(store.currentRun))
+    mocks.listWorkflowInstances.mockResolvedValue({ items: [{ id: 101, status: 'RUNNING', durationMs: 100, nodes: [] }], total: 1 })
+    await store.refreshRuns()
+    expect(store.currentRun).toEqual(expected)
+    expect(store.runs[0]).toEqual(expected)
+  })
+
+  it.each(['CANCELLED', 'WAITING'] as const)('真实 %s 列表 DTO 保持正确状态和占位进度', async (status) => {
+    const store = setupStore()
+    store.currentRun!.id = 'run-101'
+    store.runs[0]!.id = 'run-101'
+    const { runApi } = await vi.importActual<typeof import('@/services/api/runApi')>('@/services/api/runApi')
+    mocks.listRuns.mockImplementation(runApi.listRuns)
+    mocks.listWorkflowInstances.mockResolvedValue({ items: [{ id: 101, status, durationMs: 900, nodes: [] }], total: 1 })
+    await store.refreshRuns()
+    await store.refreshRuns()
+    expect(store.currentRun).toMatchObject({ status: status === 'CANCELLED' ? 'cancelled' : 'paused', backendStatus: status, progress: 100, durationMs: 900 })
+    expect(store.runs[0]).toEqual(store.currentRun)
+    if (status === 'WAITING') {
+      mocks.listWorkflowInstances.mockResolvedValue({ items: [{ id: 101, status: 'RUNNING', durationMs: 1000, nodes: [] }], total: 1 })
+      await store.refreshRuns()
+      expect(store.currentRun).toMatchObject({ status: 'running', backendStatus: 'RUNNING', progress: 8 })
+    }
+  })
+
   it.each(['failed', 'running'] as const)('局部节点成功后，连续 HTTP 刷新应采用后端 %s 状态', async (status) => {
     const store = setupStore()
     // 与真实 realtimeClient 顺序一致：先更新运行，再映射 NODE_COMPLETED。
@@ -170,13 +220,13 @@ describe('运行历史刷新与所选详情协调', () => {
   })
 
   it.each([
-    ['SUCCESS', false], ['FAILED', false], ['SUCCESS', true], ['FAILED', true],
+    ['SUCCESS', false], ['FAILED', false], ['CANCELLED', false], ['SUCCESS', true], ['FAILED', true], ['CANCELLED', true],
   ] as const)('真实 observation 恢复 %s 后保护终态，包含节点：%s', async (runtimeState, withNodes) => {
     const store = setupStore()
-    const status = runtimeState === 'SUCCESS' ? 'success' : 'failed'
+    const status = runtimeState === 'SUCCESS' ? 'success' : runtimeState === 'FAILED' ? 'failed' : 'cancelled'
     mocks.recoverRuntime.mockResolvedValue({
       runPatch: mapObservationToRunPatch({ workflowId: '101', traceId: 'runtime-trace', runtimeState, progress: 1 }),
-      nodePatches: withNodes ? [{ nodeId: 'node-a', label: '节点 A', status }] : [], logs: [],
+      nodePatches: withNodes ? [{ nodeId: 'node-a', label: '节点 A', status: status === 'cancelled' ? 'paused' : status }] : [], logs: [],
     })
     await store.recoverCurrentRunRuntime()
     expect(store.currentRun).toMatchObject({ status, backendStatus: runtimeState, progress: 100 })
@@ -463,7 +513,7 @@ describe('运行历史刷新与所选详情协调', () => {
   it('刷新发现服务端已取消时关闭该运行订阅并忽略旧回调', async () => {
     const store = setupStore()
     const oldHandlers = handlers()
-    mocks.listRuns.mockResolvedValue([run('run-a', { status: 'paused', backendStatus: 'CANCELLED', progress: 100 })])
+    mocks.listRuns.mockResolvedValue([run('run-a', { ...mapObservationToRunPatch({ workflowId: '101', traceId: 'trace-run-a', runtimeState: 'CANCELLED', progress: 1 }) })])
     await store.refreshRuns()
     oldHandlers.onLog?.(log('late'))
     oldHandlers.onRunPatch?.({ status: 'running', backendStatus: 'RUNNING', progress: 10 })

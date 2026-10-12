@@ -318,7 +318,7 @@ describe('工作流保存反馈归属', () => {
     const results = await Promise.all([olderResult, newerResult])
     await flushPromises()
 
-    expect(results).toEqual([olderFails ? olderError : undefined, newerFails ? newerError : undefined])
+    expect(results).toEqual([olderFails ? olderError : undefined, newerFails ? newerError : { workflowId: '101' }])
     expect(store.saving).toBe(false)
     expect(store.dirty).toBe(newerFails)
     expect(store.backendVersion).toBe(newerFails ? 1 : 3)

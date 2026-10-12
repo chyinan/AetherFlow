@@ -37,6 +37,17 @@ const showCopilot = ref(false)
 const showRunConsole = ref(false)
 const startingRun = ref(false)
 const importingComfyUi = ref(false)
+let pageActive = true
+let pageNavigationRevision = 0
+let comfyUiImportSequence = 0
+
+// 已完成的导航立即废弃旧页面请求；拒绝导航不会改变代次。
+watch(() => route.fullPath, () => {
+  pageNavigationRevision += 1
+  comfyUiImportSequence += 1
+  importingComfyUi.value = false
+  comfyUiImportError.value = null
+}, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
 const comfyUiImportError = ref<string | null>(null)
@@ -118,10 +129,19 @@ async function handleComfyUiFileChange(event: Event) {
     return
   }
 
+  const requestId = ++comfyUiImportSequence
+  const navigationRevision = pageNavigationRevision
+  const editRevision = workflowStore.editRevision
+  const projectId = numericProjectId(route.query.projectId) ?? numericProjectId(projectStore.currentProject?.id)
+  const ownsRequest = () => pageActive && requestId === comfyUiImportSequence
+    && navigationRevision === pageNavigationRevision
+  const canApply = () => ownsRequest() && workflowStore.editRevision === editRevision
   importingComfyUi.value = true
   comfyUiImportError.value = null
   try {
-    const parsed = JSON.parse(await file.text()) as unknown
+    const text = await file.text()
+    if (!canApply()) return
+    const parsed = JSON.parse(text) as unknown
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(t('workflow.importComfyUiInvalid'))
     }
@@ -129,22 +149,23 @@ async function handleComfyUiFileChange(event: Event) {
     const imported = await importComfyUiWorkflow({
       name: file.name.replace(/\.json$/i, '') || t('workflow.importComfyUiDefaultName'),
       description: t('workflow.importComfyUiDescription'),
-      projectId: numericProjectId(route.query.projectId) ?? numericProjectId(projectStore.currentProject?.id),
+      projectId,
       workflowJson: parsed as Record<string, unknown>,
     })
+    if (!canApply()) return
     const graph = mapBackendDefinitionGraph(imported.nodes)
 
     workflowStore.resetToEmptyWorkflow()
     workflowStore.workflowName = imported.name
-    workflowStore.projectId = imported.projectId ?? numericProjectId(route.query.projectId) ?? null
+    workflowStore.projectId = imported.projectId ?? projectId ?? null
     workflowStore.setNodes(graph.nodes)
     workflowStore.setEdges(graph.edges)
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
   } catch (error) {
-    comfyUiImportError.value = importErrorMessage(error)
+    if (canApply()) comfyUiImportError.value = importErrorMessage(error)
   } finally {
-    importingComfyUi.value = false
-    if (input instanceof HTMLInputElement) {
+    if (ownsRequest()) importingComfyUi.value = false
+    if (requestId === comfyUiImportSequence && input instanceof HTMLInputElement) {
       input.value = ''
     }
   }
@@ -280,6 +301,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  pageActive = false
+  comfyUiImportSequence += 1
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleEditorKeydown)
 })
@@ -301,17 +324,20 @@ async function saveWorkflow() {
   try {
     const beforeWorkflowId = workflowStore.workflowId
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
-    await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
+    const navigationRevision = pageNavigationRevision
+    const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
+    if (!saved || !pageActive || navigationRevision !== pageNavigationRevision) return
+    const savedWorkflowId = saved.workflowId
     if (projectId) {
-      projectStore.linkWorkflowToProject(projectId, workflowStore.workflowId)
+      projectStore.linkWorkflowToProject(projectId, savedWorkflowId)
     }
-    if (beforeWorkflowId !== workflowStore.workflowId) {
+    if (beforeWorkflowId !== savedWorkflowId) {
       await router.replace({
-        path: `/workflows/${workflowStore.workflowId}`,
+        path: `/workflows/${savedWorkflowId}`,
         query: projectId ? { projectId } : undefined,
       })
     }
-    projectStore.updateWorkflowStatus(workflowStore.workflowId, 'ready')
+    projectStore.updateWorkflowStatus(savedWorkflowId, 'ready')
   } catch {
     // The store exposes the localized save error for the page banner.
   }

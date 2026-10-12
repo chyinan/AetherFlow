@@ -129,7 +129,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
 
 function progressFromRun(view: WorkflowRunViewDTO, nodeStates: RunNodeState[]) {
   const status = mapRuntimeStateToRunStatus(toRuntimeState(view.status))
-  if (status === 'success' || status === 'failed' || status === 'paused') {
+  if (status === 'success' || status === 'failed' || status === 'cancelled' || status === 'paused') {
     return 100
   }
 
