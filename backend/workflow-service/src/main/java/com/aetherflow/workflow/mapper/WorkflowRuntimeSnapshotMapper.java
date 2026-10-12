@@ -49,7 +49,7 @@ public interface WorkflowRuntimeSnapshotMapper extends BaseMapper<WorkflowRuntim
             UPDATE af_workflow_runtime_snapshot
             SET runtime_state = 'CANCELLED', updated_at = CURRENT_TIMESTAMP(6)
             WHERE workflow_id = #{workflowId}
-              AND runtime_state <> 'CANCELLED'
+              AND runtime_state NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')
             """)
     int markCancelled(@Param("workflowId") String workflowId);
 

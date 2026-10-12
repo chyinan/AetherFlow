@@ -18,6 +18,12 @@ ITERATION / LOOP 沿用原节点类型。无 `bodyNodes` 时保留旧行为；�
 
 按顺序执行每轮步骤，把 `outputVariable`（或 `inputVariable`）的新值回填为下一轮状态。`stopWhen` 与次数上限控制终止，索引默认 `loopIteration`。LOOP 顺序执行，不并发修改状态。
 
+LOOP 等待外部结果时，`results` 保留当前轮次的 `WAITING` 行及已完成步骤输出；`iterations` 仍只计已完成轮次。
+
+## 绑定名称
+
+循环写入的绑定名不能使用 `userId`、`username` 或双下划线 `__` 开头的框架保留名称，前端保存转换和服务端配置校验均会提示错误。ITERATION 限制 `itemVariable/indexVariable/outputVariable`；LOOP 的状态会回填到 `inputVariable`，因此限制 `inputVariable/indexVariable/outputVariable`。ITERATION 仅读取的 `inputVariable` 不受这项写绑定限制。
+
 ## 执行与恢复
 
 每个叶节点获得稳定路径，例如 `batch/iteration-0/transcribe`。完成输出由运行协调线程统一写入快照，并确认持久化后才开始下一步骤；工作线程不直接写快照。进程恢复复用已落盘结果。异步模型任务使用稳定摘要幂等键，长度保持在任务服务限制内。

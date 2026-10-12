@@ -27,6 +27,12 @@ public class HttpRequestNodeExecutor extends BaseNodeExecutor {
     }
 
     @Override
+    public boolean supportsAutomaticRetry() {
+        // 超时或失败响应不能证明远端未执行；写入请求不可由工作流重试策略自动重放。
+        return false;
+    }
+
+    @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) throws Exception {
         String strategy = text(config.get("errorStrategy"), "FAIL").toUpperCase(Locale.ROOT);
         if (!strategy.equals("FAIL") && !strategy.equals("BRANCH")) throw invalid("HTTP 错误策略无效");

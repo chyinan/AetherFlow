@@ -4,8 +4,6 @@ package com.aetherflow.workflow.runtime.controller;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.entity.WorkflowInstance;
-import com.aetherflow.workflow.client.TaskClient;
-import com.aetherflow.workflow.config.TaskClientProperties;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.common.core.Result;
@@ -21,7 +19,7 @@ import com.aetherflow.workflow.runtime.event.RuntimeEventStore;
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
-import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -55,21 +53,14 @@ public class WorkflowRuntimeController {
     private final RuntimeEventStore runtimeEventStore;
     private final RuntimeEventStreamService streamService;
     private final WorkflowInstanceMapper workflowInstanceMapper;
-    private final WorkflowRuntimeSnapshotMapper workflowRuntimeSnapshotMapper;
     private final WorkflowAsyncCompletionService completionService;
     private final WorkflowRuntimeStreamTokenService streamTokenService;
 
     @Autowired(required = false)
     private com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository runtimeSnapshots;
 
-    @Autowired(required = false)
-    private TaskClient taskClient;
-
-    @Autowired(required = false)
-    private TaskClientProperties taskClientProperties;
-
-    @Autowired(required = false)
-    WorkflowTerminalNotificationOutboxService terminalNotificationOutboxService;
+    @Autowired
+    WorkflowCancellationService cancellationService;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -85,7 +76,6 @@ public class WorkflowRuntimeController {
         this.runtimeEventStore = runtimeEventStore;
         this.streamService = streamService;
         this.workflowInstanceMapper = workflowInstanceMapper;
-        this.workflowRuntimeSnapshotMapper = workflowRuntimeSnapshotMapper;
         this.completionService = completionService;
         this.streamTokenService = streamTokenService;
     }
@@ -255,45 +245,13 @@ public class WorkflowRuntimeController {
             @PathVariable Long workflowInstanceId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
-        if (workflowInstanceMapper == null) {
+        if (cancellationService == null) {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow cancellation service is unavailable");
         }
-        int updated = workflowInstanceMapper.cancelIfActive(
-                workflowInstanceId, userId, java.time.LocalDateTime.now());
-        if (updated == 0) {
-            WorkflowInstance instance = workflowInstanceMapper.selectById(workflowInstanceId);
-            if (instance == null) {
-                throw new BusinessException(ResultCode.NOT_FOUND, "workflow instance not found");
-            }
-            if (!"CANCELLED".equals(instance.getStatus())) {
-                throw new BusinessException(ResultCode.CONFLICT, "workflow run is already terminal");
-            }
-        }
-        if (workflowRuntimeSnapshotMapper != null) {
-            workflowRuntimeSnapshotMapper.markCancelled(String.valueOf(workflowInstanceId));
-        }
-        cancelActiveTasks(workflowInstanceId);
-        if (terminalNotificationOutboxService != null) {
-            terminalNotificationOutboxService.enqueue(
-                    workflowInstanceId, userId, null,
-                    com.aetherflow.workflow.runtime.api.RuntimeState.CANCELLED, null);
+        if (!cancellationService.cancel(workflowInstanceId, userId)) {
+            throw new BusinessException(ResultCode.CONFLICT, "workflow run is already terminal");
         }
         return Result.success();
-    }
-
-    private void cancelActiveTasks(Long workflowInstanceId) {
-        if (taskClient == null || taskClientProperties == null) {
-            return;
-        }
-        try {
-            taskClient.cancelWorkflowTasks(taskClientProperties.issueInternalToken(), workflowInstanceId);
-        } catch (RuntimeException exception) {
-            // The durable workflow cancellation already succeeded. The task service
-            // remains independently recoverable and will ignore late callbacks.
-            org.slf4j.LoggerFactory.getLogger(WorkflowRuntimeController.class)
-                    .warn("workflow task cancellation propagation failed, workflowInstanceId={}, reason={}",
-                            workflowInstanceId, exception.getMessage());
-        }
     }
 
     @Operation(summary = "Complete a human approval node",

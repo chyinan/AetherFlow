@@ -114,7 +114,10 @@ final class NestedWorkflowRunner {
                 checkpoint.run();
                 throw new IllegalStateException("循环轮次 " + index + " 失败：" + result.error());
             }
-            if (!result.waiting().isEmpty()) return NodeResult.waiting(Map.of(WAITING, result.waiting(), "iterations", index, "results", results));
+            if (!result.waiting().isEmpty()) {
+                results.add(Map.of("index", index, "status", "WAITING", "variables", result.variables()));
+                return NodeResult.waiting(Map.of(WAITING, result.waiting(), "iterations", index, "results", results));
+            }
             state = result.variables().getOrDefault(outputName, result.variables().getOrDefault(input, state));
             results.add(Map.of("index", index, "status", "SUCCESS", "variables", result.variables()));
             index++;

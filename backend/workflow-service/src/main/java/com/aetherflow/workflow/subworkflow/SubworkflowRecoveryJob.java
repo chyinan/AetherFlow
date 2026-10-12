@@ -5,6 +5,7 @@ import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
@@ -27,6 +28,7 @@ public class SubworkflowRecoveryJob {
     private final SubworkflowService subworkflows;
     private final WorkflowRuntimeEngine engine;
     private final WorkflowRuntimeProperties properties;
+    private final WorkflowCancellationService cancellations;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService terminalNotifications;
 
@@ -55,9 +57,9 @@ public class SubworkflowRecoveryJob {
             // 子快照可能已成功而实例投影尚未刷回；不能把已完成子运行误写成取消。
             boolean parentSucceeded = parent != null && "SUCCESS".equals(parent.getStatus())
                     || parentSnapshot != null && parentSnapshot.runtimeState() == RuntimeState.SUCCESS;
-            WorkflowRuntimeSnapshot childSnapshot = snapshots.findByWorkflowId(String.valueOf(run.getChildInstanceId())).orElse(null);
-            if (!parentSucceeded && (childSnapshot == null || !SubworkflowService.terminal(childSnapshot.runtimeState().name()))) {
-                instances.cancelIfActive(run.getChildInstanceId(), run.getOwnerUserId(), LocalDateTime.now());
+            if (!parentSucceeded) {
+                // 只有快照和活动任务都清理成功才结束收据；失败继续使用 WAITING 收据重试。
+                cancellations.cancel(run.getChildInstanceId(), run.getOwnerUserId());
             }
             return true;
         }

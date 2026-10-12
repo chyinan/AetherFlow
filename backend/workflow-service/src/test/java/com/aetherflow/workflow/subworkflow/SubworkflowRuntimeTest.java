@@ -11,6 +11,7 @@ import com.aetherflow.workflow.node.executor.SubworkflowNodeExecutor;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
 import com.aetherflow.workflow.runtime.api.*;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
 import com.aetherflow.workflow.runtime.core.DefaultWorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
 import com.aetherflow.workflow.runtime.engine.*;
@@ -37,6 +38,7 @@ class SubworkflowRuntimeTest {
     private final WorkflowVersionService versions = mock(WorkflowVersionService.class);
     private final WorkflowChildRunMapper calls = mock(WorkflowChildRunMapper.class);
     private final WorkflowInstanceMapper instances = mock(WorkflowInstanceMapper.class);
+    private final WorkflowCancellationService cancellations = mock(WorkflowCancellationService.class);
     private final WorkflowStartOutboxMapper outbox = mock(WorkflowStartOutboxMapper.class);
     private final InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
     private final Map<Long, WorkflowInstance> rows = new HashMap<>();
@@ -125,7 +127,7 @@ class SubworkflowRuntimeTest {
     void parentCancellationCancelsPendingChild() {
         startParent(); rows.get(1L).setStatus("CANCELLED");
         assertThat(recovery(engine).reconcile()).isEqualTo(1);
-        verify(instances).cancelIfActive(eq(2L), eq(1L), any());
+        verify(cancellations).cancel(2L, 1L);
         assertThat(downstream).hasValue(0);
     }
 
@@ -133,7 +135,7 @@ class SubworkflowRuntimeTest {
     void completedParentDoesNotCancelChildBeforeItsProjectionCatchesUp() {
         startParent(); rows.get(1L).setStatus("SUCCESS");
         assertThat(recovery(engine).reconcile()).isEqualTo(1);
-        verify(instances, never()).cancelIfActive(anyLong(), anyLong(), any());
+        verifyNoInteractions(cancellations);
     }
 
     @Test
@@ -196,7 +198,7 @@ class SubworkflowRuntimeTest {
         return new WorkflowRuntimeEngine(registry, new RuntimeStateMachine(), event -> {}, RuntimeSleeper.threadSleep(), snapshots);
     }
     private SubworkflowRecoveryJob recovery(WorkflowRuntimeEngine runtime) {
-        return new SubworkflowRecoveryJob(calls, instances, snapshots, service, runtime, new WorkflowRuntimeProperties());
+        return new SubworkflowRecoveryJob(calls, instances, snapshots, service, runtime, new WorkflowRuntimeProperties(), cancellations);
     }
     private WorkflowRuntimeRequest request(String id, WorkflowDefinitionDTO definition, Map<String, Object> input) {
         Map<String, Object> vars = new LinkedHashMap<>(input); Map<String, Object> configs = new LinkedHashMap<>();

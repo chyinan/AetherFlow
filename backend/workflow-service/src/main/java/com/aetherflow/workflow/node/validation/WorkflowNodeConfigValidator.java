@@ -77,6 +77,7 @@ public final class WorkflowNodeConfigValidator {
         String prefix = prefix(node, type);
         List<String> violations = new ArrayList<>();
         if ("ITERATION".equals(type) || "LOOP".equals(type)) {
+            LoopBindingNames.validate(type, config).forEach(message -> violations.add(prefix + message));
             Object maximum = config.get("maxIterations");
             if (maximum instanceof Number value && (value.doubleValue() < 0 || value.doubleValue() > 1000 || value.doubleValue() != value.intValue()))
                 violations.add(prefix + "maxIterations 必须是 0 至 1000 的整数");

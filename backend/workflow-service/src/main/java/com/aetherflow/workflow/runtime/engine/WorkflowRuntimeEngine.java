@@ -1247,7 +1247,8 @@ public class WorkflowRuntimeEngine {
                 return NodeResult.waiting(waitingException.output());
             } catch (Exception exception) {
                 RuntimeException runtimeException = toRuntimeException(exception);
-                if (!request.retryPolicy().shouldRetry(attempt, runtimeException)) {
+                if (!executor.supportsAutomaticRetry()
+                        || !request.retryPolicy().shouldRetry(attempt, runtimeException)) {
                     throw runtimeException;
                 }
                 int currentAttempt = attempt;

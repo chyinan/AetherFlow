@@ -2,6 +2,7 @@
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { classifierRoutes } from '../../utils/workflowNodeConfig.ts'
+import { assertLoopBindingNames } from '../../utils/loopBindingNames.ts'
 
 type BackendNodeType =
   | 'START'
@@ -536,7 +537,7 @@ function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string
 }
 
 function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: string[]) {
-  return withNextNodes({
+  const normalized = withNextNodes({
     ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
     itemVariable: stringValue(config.itemVariable, 'item'),
     indexVariable: stringValue(config.indexVariable, 'iterationIndex'),
@@ -550,10 +551,12 @@ function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: st
     errorMode: stringValue(config.errorMode, 'stop'),
     flattenOutput: booleanValue(config.flattenOutput, true),
   }, nextNodes)
+  assertLoopBindingNames('ITERATION', normalized)
+  return normalized
 }
 
 function normalizeLoopConfig(config: Record<string, unknown>, nextNodes: string[]) {
-  return withNextNodes({
+  const normalized = withNextNodes({
     ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
     indexVariable: stringValue(config.indexVariable, 'loopIteration'),
     inputVariable: stringValue(config.inputVariable ?? config.input, 'state'),
@@ -565,6 +568,8 @@ function normalizeLoopConfig(config: Record<string, unknown>, nextNodes: string[
     errorMode: stringValue(config.errorMode, 'stop'),
     flattenOutput: booleanValue(config.flattenOutput, true),
   }, nextNodes)
+  assertLoopBindingNames('LOOP', normalized)
+  return normalized
 }
 
 function normalizeCodeConfig(config: Record<string, unknown>, nextNodes: string[]) {
