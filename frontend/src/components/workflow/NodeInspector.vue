@@ -1385,7 +1385,7 @@ onMounted(() => {
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
         </section>
 
-        <SubworkflowConfigPanel v-else-if="selectedKind === 'subworkflow'" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" />
+        <SubworkflowConfigPanel v-else-if="selectedKind === 'subworkflow'" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" @patch="workflowStore.updateNodeConfigValues(selectedNode.id, $event)" />
 
         <section v-else-if="hasDynamicConfigPanel" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">

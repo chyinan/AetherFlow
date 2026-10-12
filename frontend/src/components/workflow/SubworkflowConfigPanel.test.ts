@@ -31,10 +31,11 @@ describe('固定版本子流程配置', () => {
   it('切换工作流要求重新选择版本；连续重复选择不会清空现有版本', async () => {
     const wrapper = render(); await flushPromises()
     await wrapper.get('[data-config-field="definitionId"]').setValue('8')
-    expect(wrapper.emitted('update')).toEqual([['definitionVersion', 0], ['definitionId', 8]])
+    expect(wrapper.emitted('patch')).toEqual([[{ definitionId: 8, definitionVersion: 0 }]])
+    expect(wrapper.emitted('update')).toBeUndefined()
     await wrapper.setProps({ config: { definitionId: 8, definitionVersion: 4 } }); await flushPromises()
     await wrapper.get('[data-config-field="definitionId"]').setValue('8')
-    expect(wrapper.emitted('update')).toHaveLength(2)
+    expect(wrapper.emitted('patch')).toHaveLength(1)
   })
   it('拒绝迟到的旧定义版本响应并保留新选择', async () => {
     const old = deferred<unknown[]>(); const next = deferred<unknown[]>()
