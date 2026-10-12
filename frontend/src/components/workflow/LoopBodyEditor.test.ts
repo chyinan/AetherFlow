@@ -23,3 +23,22 @@ describe('循环体可视化编辑', () => {
     expect(nodes.map(node => node.nodeId)).toEqual(['step-1', 'step-2'])
   })
 })
+
+it.each([
+  ['WHISPER', { fileUrl: 'https://example.test/audio', fileId: 'old', language: 'auto' }, { fileUrlVariable: 'item', language: 'auto' }],
+  ['HTTP_REQUEST', { url: 'https://example.test', bodyJson: '{}', bodyVariable: 'body', method: 'POST', errorStrategy: 'CONTINUE', timeout: 30 }, { urlVariable: 'item', method: 'GET', errorStrategy: 'FAIL', timeout: 30 }],
+  ['IMAGE_GENERATION', { prompt: '旧提示词', width: 512 }, { promptVariable: 'item', width: 512 }],
+])('响应式 %s 目录深复制后仍使用循环当前项的默认绑定', async (type, exampleConfig, expected) => {
+  const { reactive } = await import('vue')
+  const original = structuredClone(exampleConfig)
+  const wrapper = mount(LoopBodyEditor, {
+    props: { modelValue: [], catalog: reactive([{ type, exampleConfig, configSchema: [] }]) },
+  })
+  await wrapper.get('[aria-label="循环体节点类型"]').setValue(type)
+  await wrapper.get('[data-test="add-body-node"]').trigger('click')
+  expect(wrapper.emitted('update:modelValue')![0]![0]).toEqual([
+    { nodeId: 'step-1', nodeType: type, displayName: type, config: expected },
+  ])
+  expect(exampleConfig).toEqual(original)
+  wrapper.unmount()
+})
