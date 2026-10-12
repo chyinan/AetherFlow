@@ -341,6 +341,29 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void pendingRerunSeedIsResumedByClaimedStartOutboxInsteadOfStartingAgain() throws Exception {
+        var repository = new com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository();
+        org.springframework.test.util.ReflectionTestUtils.setField(workflowService, "runtimeSnapshotRepository", repository);
+        var seed = new com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot(
+                "105", "rerun-trace", "105", 10L, definitionDTO(), RuntimeState.PENDING,
+                List.of(), List.of("node-input"), List.of(), Map.of("input", "preserved", "userId", 7L),
+                Map.of("node-input", NodeResult.success(Map.of("input", "preserved"))), java.time.Instant.now());
+        repository.save(seed);
+        stubDueStart(105L);
+        when(definitionMapper.selectById(10L)).thenReturn(definitionEntity());
+        when(objectMapper.readValue("{}", WorkflowDefinitionDTO.class)).thenReturn(definitionDTO());
+        when(runtimeEngine.resume(any(), any())).thenReturn(new WorkflowExecutionSnapshot(
+                "105", "rerun-trace", "105", RuntimeState.SUCCESS, "node-summary", Map.of(), Map.of(),
+                List.of("node-input", "node-summary")));
+
+        assertThat(asUser(7L, () -> workflowService.dispatchPendingStarts())).isEqualTo(1);
+
+        verify(runtimeEngine, never()).execute(any());
+        verify(runtimeEngine).resume(any(), eq(seed.toExecutionSnapshot()));
+        verify(workflowStartOutboxMapper).markDispatched(eq(105L), any());
+    }
+
+    @Test
     void workflowStartOutboxContractIsPresentForCrashRecovery() throws Exception {
         java.nio.file.Path root = java.nio.file.Path.of("").toAbsolutePath();
         if (!java.nio.file.Files.exists(root.resolve("docker/mysql/migrations/V15__add_workflow_start_outbox.sql"))) {

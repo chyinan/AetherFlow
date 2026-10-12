@@ -3,6 +3,7 @@ package com.aetherflow.workflow.node.validation;
 // pattern: Functional Core
 
 import com.aetherflow.common.dto.WorkflowNodeDTO;
+import com.aetherflow.workflow.node.mapping.StructuredDataMapper;
 import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogItem;
 import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogService;
 import com.aetherflow.workflow.node.catalog.WorkflowNodeConfigSchema;
@@ -75,6 +76,15 @@ public final class WorkflowNodeConfigValidator {
         String type = normalize(node.getNodeType());
         String prefix = prefix(node, type);
         List<String> violations = new ArrayList<>();
+        if ("ITERATION".equals(type) || "LOOP".equals(type)) {
+            LoopBindingNames.validate(type, config).forEach(message -> violations.add(prefix + message));
+            Object maximum = config.get("maxIterations");
+            if (maximum instanceof Number value && (value.doubleValue() < 0 || value.doubleValue() > 1000 || value.doubleValue() != value.intValue()))
+                violations.add(prefix + "maxIterations 必须是 0 至 1000 的整数");
+            Object concurrency = config.get("concurrency");
+            if (concurrency instanceof Number value && (value.doubleValue() < 1 || value.doubleValue() > 8 || value.doubleValue() != value.intValue()))
+                violations.add(prefix + "concurrency 必须是 1 至 8 的整数");
+        }
         if ("KNOWLEDGE_RETRIEVAL".equals(type)) {
             Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
             if (!isBlank(datasetId) && !isPositiveLong(datasetId)) {
@@ -97,6 +107,10 @@ public final class WorkflowNodeConfigValidator {
                 && isBlank(config.get("prompt")) && isBlank(config.get("promptVariable"))) {
             violations.add(prefix + "one of prompt or promptVariable is required");
         }
+        if ("SUBWORKFLOW".equals(type)) {
+            try { com.aetherflow.workflow.subworkflow.SubworkflowConfig.from(config); }
+            catch (IllegalArgumentException exception) { violations.add(prefix + exception.getMessage()); }
+        }
         switch (type) {
             case "UPLOAD", "OCR" -> requireAny(violations, prefix, config,
                     "fileId", "fileIdVariable");
@@ -104,6 +118,17 @@ public final class WorkflowNodeConfigValidator {
                     "fileUrl", "fileUrlVariable");
             case "WHISPER" -> requireAny(violations, prefix, config,
                     "fileUrl", "fileUrlVariable", "fileId", "fileIdVariable");
+            case "TEMPLATE_TRANSFORM" -> {
+                if ("structured".equals(config.get("transformMode"))) {
+                    try {
+                        StructuredDataMapper.validate(config.get("mapping"));
+                    } catch (IllegalArgumentException exception) {
+                        violations.add(prefix + exception.getMessage());
+                    }
+                } else if (isBlank(config.get("template"))) {
+                    violations.add(prefix + "config field 'template' is required");
+                }
+            }
             case "CODE" -> {
                 if (isBlank(config.get("code"))) {
                     violations.add(prefix + "config field 'code' is required");
@@ -115,6 +140,7 @@ public final class WorkflowNodeConfigValidator {
                     "text", "textVariable");
             case "EMBEDDING" -> requireAny(violations, prefix, config,
                     "text", "textVariable");
+            case "HTTP_REQUEST" -> validateHttpRequest(violations, prefix, config);
             case "URL_FETCH" -> requireAny(violations, prefix, config,
                     "url", "urlVariable");
             case "TRANSLATE" -> requireAny(violations, prefix, config,
@@ -136,6 +162,34 @@ public final class WorkflowNodeConfigValidator {
             }
         });
         return List.copyOf(violations);
+    }
+
+    private static void validateHttpRequest(List<String> violations, String prefix, Map<String, Object> config) {
+        requireAny(violations, prefix, config, "url", "urlVariable");
+        Object body = first(config, "bodyJson", "bodyVariable");
+        if (!isBlank(config.get("bodyJson")) && !isBlank(config.get("bodyVariable"))) {
+            violations.add(prefix + "bodyJson 与 bodyVariable 只能选择一个");
+        }
+        String method = normalize(String.valueOf(config.getOrDefault("method", "GET")));
+        if (body != null && List.of("GET", "HEAD").contains(method)) {
+            violations.add(prefix + "GET/HEAD 不支持 JSON 请求体");
+        }
+        if (config.get("bodyJson") instanceof String text && !text.isBlank()) {
+            try {
+                if (JSON.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(text) == null) {
+                    violations.add(prefix + "bodyJson 必须是有效 JSON");
+                }
+            } catch (Exception exception) {
+                violations.add(prefix + "bodyJson 必须是有效 JSON");
+            }
+        }
+        if ("BRANCH".equals(normalize(String.valueOf(config.get("errorStrategy"))))) {
+            if (!(config.get("branches") instanceof Map<?, ?> branches)
+                    || !(branches.get("success") instanceof String success) || success.isBlank()
+                    || !(branches.get("error") instanceof String error) || error.isBlank()) {
+                violations.add(prefix + "BRANCH 策略必须连接 success 和 error 分支");
+            }
+        }
     }
 
     private static void requireAny(List<String> violations,
@@ -198,7 +252,7 @@ public final class WorkflowNodeConfigValidator {
         }
         List<WorkflowNodeCatalogItem> catalog = catalogService.catalog();
         List<String> violations = new ArrayList<>();
-        for (WorkflowNodeDTO node : nodes) {
+        for (WorkflowNodeDTO node : NestedWorkflowDefinition.flatten(nodes)) {
             violations.addAll(validate(node, catalog));
         }
         return List.copyOf(violations);

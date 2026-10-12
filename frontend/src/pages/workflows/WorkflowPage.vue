@@ -251,6 +251,31 @@ onBeforeRouteUpdate((to, from) => {
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
 const pendingStartIdempotencyKey = ref<string | null>(null)
+let startNavigationGeneration = 0
+let activeRunStart: {
+  generation: number
+  workflowId: string
+  canonicalRoute?: string
+} | null = null
+
+function invalidateRunStart() {
+  startNavigationGeneration += 1
+  activeRunStart = null
+  startingRun.value = false
+  pendingStartIdempotencyKey.value = null
+}
+
+const stopWatchingStartNavigation = router.afterEach((to, from, failure) => {
+  // 被拒绝的导航不撤销当前操作；成功离开再返回也必须产生新的代次。
+  if (failure || to.fullPath === from.fullPath) return
+  if (activeRunStart?.canonicalRoute === to.fullPath) return
+  invalidateRunStart()
+})
+
+onBeforeUnmount(() => {
+  invalidateRunStart()
+  stopWatchingStartNavigation()
+})
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
@@ -287,6 +312,8 @@ onBeforeUnmount(() => {
 watch(
   () => [route.params.id, route.query.projectId, route.query.name],
   async ([workflowId]) => {
+    // Run 已经保存了新画布，只规范化地址，不能重新加载覆盖当前快照。
+    if (activeRunStart?.canonicalRoute === route.fullPath) return
     if (!hasWorkflowContext.value) {
       workflowStore.resetToEmptyWorkflow()
       showCopilot.value = false
@@ -386,12 +413,25 @@ async function startRun() {
 
   startingRun.value = true
   pendingStartIdempotencyKey.value ||= crypto.randomUUID()
+  const operation = {
+    generation: startNavigationGeneration,
+    workflowId: workflowStore.workflowId,
+    canonicalRoute: undefined as string | undefined,
+  }
+  activeRunStart = operation
+  const ownsOperation = () => activeRunStart === operation
+    && operation.generation === startNavigationGeneration
+  const ownsWorkflow = () => ownsOperation() && operation.workflowId === workflowStore.workflowId
+  const idempotencyKey = pendingStartIdempotencyKey.value
+  const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
   workflowStore.setRunError(null)
   try {
-    await runStore.loadRuns()
+    await runStore.loadRuns({ selectDefault: false })
+    if (!ownsWorkflow()) return
     let fileId: string | undefined
     if (requiresFileInput.value) {
       await fileStore.loadFiles()
+      if (!ownsWorkflow()) return
       fileId = selectedInputFileId() ?? fileStore.latestBackendInputFileId
       if (!fileId) {
         workflowStore.setRunError(t('workflow.runRequiresFileId'))
@@ -399,48 +439,64 @@ async function startRun() {
       }
     }
 
-    const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
-    const beforeWorkflowId = workflowStore.workflowId
+    const editRevision = workflowStore.editRevision
+    const submittedWorkflow = {
+      workflowName: workflowStore.workflowName,
+      nodes: workflowStore.nodes.map((node) => ({ ...node, data: { ...node.data } })),
+    }
     await workflowStore.saveCurrentWorkflow({
       allowMockFallback: false,
       projectId: numericProjectId(projectId),
     })
+    // 保存可能因导航或更新的画布而失效，不能继续读取别的工作流并启动。
+    if (!ownsOperation() || workflowStore.editRevision !== editRevision) return
+    operation.workflowId = workflowStore.workflowId
     if (projectId) {
-      projectStore.linkWorkflowToProject(projectId, workflowStore.workflowId)
+      projectStore.linkWorkflowToProject(projectId, operation.workflowId)
     }
-    if (beforeWorkflowId !== workflowStore.workflowId) {
-      await router.replace({
-        path: `/workflows/${workflowStore.workflowId}`,
+    if (String(route.params.id || 'new') !== operation.workflowId) {
+      const canonicalRoute = {
+        path: `/workflows/${operation.workflowId}`,
         query: projectId ? { projectId } : undefined,
-      })
+      }
+      operation.canonicalRoute = router.resolve(canonicalRoute).fullPath
+      const failure = await router.replace(canonicalRoute)
+      operation.canonicalRoute = undefined
+      if (failure || !ownsWorkflow()) return
     }
     if (!workflowStore.backendDefinitionId) {
       workflowStore.setRunError(t('workflow.runRequiresBackendDefinition'))
       return
     }
     const result = await workflowApi.startRun(
-      workflowStore.workflowId,
+      operation.workflowId,
       fileId ? { fileId } : {},
-      { allowMockFallback: false, idempotencyKey: pendingStartIdempotencyKey.value },
+      { allowMockFallback: false, idempotencyKey },
     )
+    // 已派发的后端运行可从历史重新发现，但迟到响应不能接管新页面。
+    if (!ownsWorkflow()) return
     pendingStartIdempotencyKey.value = null
     const run = runStore.createRunFromWorkflow({
       runId: result.runId,
-      workflowId: workflowStore.workflowId,
-      workflowName: workflowStore.workflowName,
-      nodes: workflowStore.nodes,
+      workflowId: operation.workflowId,
+      ...submittedWorkflow,
       backendInstanceId: result.backendInstanceId,
       runtimeWorkflowId: result.runtimeWorkflowId,
       definitionId: result.definitionId,
       backendStatus: result.backendStatus,
     })
-    projectStore.updateWorkflowStatus(workflowStore.workflowId, 'running')
+    projectStore.updateWorkflowStatus(operation.workflowId, 'running')
     runStore.subscribeCurrentRun()
     await router.push(`/runs/${run.id}`)
   } catch (error) {
-    workflowStore.setRunError(`${t('workflow.runFailed')}: ${runErrorMessage(error)}`)
+    if (ownsWorkflow()) {
+      workflowStore.setRunError(`${t('workflow.runFailed')}: ${runErrorMessage(error)}`)
+    }
   } finally {
-    startingRun.value = false
+    if (ownsOperation()) {
+      activeRunStart = null
+      startingRun.value = false
+    }
   }
 }
 

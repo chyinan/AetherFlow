@@ -43,8 +43,9 @@ public class WorkflowWaitingWatchdog {
             if (snapshot == null || snapshot.runtimeState() != RuntimeState.WAITING) {
                 continue;
             }
-            for (String nodeId : snapshot.currentNodeIds()) {
-                if (isHumanNode(snapshot, nodeId)) {
+            for (String nodeId : com.aetherflow.workflow.runtime.engine.NestedNodeSupport.waitingNodeIds(snapshot)) {
+                String type = com.aetherflow.workflow.runtime.engine.NestedNodeSupport.nodeType(snapshot, nodeId);
+                if ("HUMAN".equalsIgnoreCase(type) || "SUBWORKFLOW".equalsIgnoreCase(type)) {
                     continue;
                 }
                 try {
@@ -60,13 +61,4 @@ public class WorkflowWaitingWatchdog {
         return expired;
     }
 
-    private boolean isHumanNode(WorkflowRuntimeSnapshot snapshot, String nodeId) {
-        if (snapshot.definition().getNodes() == null) {
-            return false;
-        }
-        return snapshot.definition().getNodes().stream()
-                .filter(node -> nodeId.equals(node.getNodeId()))
-                .map(node -> node.getNodeType())
-                .anyMatch(type -> "HUMAN".equalsIgnoreCase(type));
-    }
 }

@@ -36,13 +36,17 @@ public interface WorkflowInstanceMapper extends BaseMapper<WorkflowInstance> {
     int insertIdempotent(WorkflowInstance instance);
 
     @Update("""
-            UPDATE af_workflow_instance
-            SET status = 'CANCELLED',
-                completed_at = #{completedAt},
-                updated_at = #{completedAt}
-            WHERE id = #{id}
-              AND user_id = #{userId}
-              AND status IN ('PENDING', 'RUNNING', 'RETRYING', 'WAITING')
+            UPDATE af_workflow_instance i
+            LEFT JOIN af_workflow_runtime_snapshot s ON s.workflow_id = CAST(i.id AS CHAR)
+            SET i.status = 'CANCELLED',
+                i.completed_at = #{completedAt},
+                i.updated_at = #{completedAt},
+                s.runtime_state = 'CANCELLED',
+                s.updated_at = #{completedAt}
+            WHERE i.id = #{id}
+              AND i.user_id = #{userId}
+              AND i.status IN ('PENDING', 'RUNNING', 'RETRYING', 'WAITING')
+              AND (s.workflow_id IS NULL OR s.runtime_state NOT IN ('SUCCESS', 'FAILED'))
             """)
     int cancelIfActive(@Param("id") Long id,
                        @Param("userId") Long userId,

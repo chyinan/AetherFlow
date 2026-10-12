@@ -69,7 +69,7 @@ public class InMemoryRuntimeObservationStore implements RuntimeEventPublisher {
         if (event.nodeId() != null && !event.nodeId().isBlank()) {
             currentNodeId = event.nodeId();
         }
-        if (event.eventType() == RuntimeEventType.NODE_COMPLETED) {
+        if (event.eventType() == RuntimeEventType.NODE_COMPLETED && !Boolean.TRUE.equals(event.attributes().get("nested"))) {
             completedNodeCount++;
         }
         double progress = event.eventType() == RuntimeEventType.WORKFLOW_COMPLETED

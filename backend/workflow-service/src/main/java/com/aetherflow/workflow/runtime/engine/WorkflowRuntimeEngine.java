@@ -89,6 +89,7 @@ public class WorkflowRuntimeEngine {
     private final ThreadLocal<String> activeFencingToken = new ThreadLocal<>();
     private final ThreadLocal<LockExecutionState> activeWorkerLock = new ThreadLocal<>();
     private final ConcurrentHashMap<String, LockExecutionState> activeLockStates = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<java.util.concurrent.CompletableFuture<Void>>> nestedCheckpoints = new ConcurrentHashMap<>();
 
     public WorkflowRuntimeEngine(NodeRegistry nodeRegistry) {
         this(nodeRegistry, new RuntimeStateMachine(), event -> {
@@ -237,6 +238,13 @@ public class WorkflowRuntimeEngine {
                 () -> log.info("workflow runtime recovering, completedNodes={}", tracker.completedNodeIds().size()));
         publish(context, RuntimeEventType.WORKFLOW_STARTED, context.currentNodeId(),
                 Map.of("totalNodes", dag.nodeCount(), "recovered", true));
+        if (recoverySnapshot.runtimeState() == RuntimeState.PENDING) {
+            // 派生运行的时间线明确展示复用节点，不伪造一次新的执行或模型调用。
+            for (String completedNodeId : tracker.completedNodeIds()) {
+                publish(context, RuntimeEventType.NODE_COMPLETED, completedNodeId,
+                        Map.of("reused", true, "nodeType", dag.node(completedNodeId).getNodeType()));
+            }
+        }
         saveSnapshot(request, context, tracker);
 
         try {
@@ -356,6 +364,8 @@ public class WorkflowRuntimeEngine {
                         + workflowId + " state=" + stored.runtimeState());
             }
             validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
+            // 已完成叶子的重复回执必须在产物适配之前返回，避免重复落存图像等结果。
+            if (isNestedCompleted(stored.toExecutionSnapshot(), nodeId)) return stored.toExecutionSnapshot();
             WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
             if (cancellationProbe.isCancelled(workflowId)) {
                 return cancelledSnapshot(request, stored.toExecutionSnapshot());
@@ -424,6 +434,8 @@ public class WorkflowRuntimeEngine {
         return withWorkflowLock(workflowId, () -> {
             WorkflowRuntimeSnapshot stored = requiredSnapshot(workflowId);
             validateExternalTaskIdentity(stored, nodeId, expectedExternalTaskId);
+            // 已完成叶子的重复回执必须在产物适配之前返回，避免重复落存图像等结果。
+            if (isNestedCompleted(stored.toExecutionSnapshot(), nodeId)) return stored.toExecutionSnapshot();
             WorkflowRuntimeRequest request = requestFromSnapshot(stored, retryPolicy);
             if (cancellationProbe.isCancelled(workflowId)) {
                 return cancelledSnapshot(request, stored.toExecutionSnapshot());
@@ -502,6 +514,9 @@ public class WorkflowRuntimeEngine {
             throw new IllegalStateException("workflow is not ready for external completion: "
                     + currentSnapshot.workflowId() + " state=" + currentSnapshot.runtimeState());
         }
+        String nestedRoot = nestedWaitingRoot(currentSnapshot, nodeId);
+        if (nestedRoot != null) return completeNestedWaitingNode(request, currentSnapshot, nestedRoot, nodeId, result);
+        if (isNestedCompleted(currentSnapshot, nodeId)) return currentSnapshot;
         if (nodeId == null || !currentSnapshot.currentNodeIds().contains(nodeId)) {
             if (isAlreadyCompleted(currentSnapshot, nodeId)) {
                 return currentSnapshot;
@@ -544,6 +559,10 @@ public class WorkflowRuntimeEngine {
             throw new IllegalStateException("workflow is not ready for external failure: "
                     + currentSnapshot.workflowId() + " state=" + currentSnapshot.runtimeState());
         }
+        String nestedRoot = nestedWaitingRoot(currentSnapshot, nodeId);
+        if (nestedRoot != null) return completeNestedWaitingNode(request, currentSnapshot, nestedRoot, nodeId,
+                new NodeResult(false, Map.of("error", error == null ? "异步任务失败" : error), Map.of(), null, null));
+        if (isNestedCompleted(currentSnapshot, nodeId)) return currentSnapshot;
         if (nodeId == null || !currentSnapshot.currentNodeIds().contains(nodeId)) {
             if (currentSnapshot.failedNodeIds().contains(nodeId)) {
                 return currentSnapshot;
@@ -561,6 +580,63 @@ public class WorkflowRuntimeEngine {
         publish(context, RuntimeEventType.WORKFLOW_FAILED, nodeId,
                 Map.of("error", safeError, "external", true));
         ensureNotCancelled(request);
+        saveSnapshot(request, context, tracker);
+        return snapshot(context, tracker);
+    }
+
+    private String nestedWaitingRoot(WorkflowExecutionSnapshot snapshot, String nodeId) {
+        if (nodeId == null) return null;
+        for (String rootId : snapshot.currentNodeIds()) {
+            NodeResult root = snapshot.nodeOutputs().get(rootId);
+            if (root != null && root.output().get(NestedWorkflowRunner.WAITING) instanceof Collection<?> waiting
+                    && waiting.contains(nodeId)) return rootId;
+        }
+        return null;
+    }
+
+    private boolean isNestedCompleted(WorkflowExecutionSnapshot snapshot, String nodeId) {
+        return nodeId != null && snapshot.variables().get(NestedWorkflowRunner.TYPES) instanceof Map<?, ?> types
+                && types.containsKey(nodeId) && snapshot.nodeOutputs().get(nodeId) != null
+                && !snapshot.nodeOutputs().get(nodeId).waiting();
+    }
+
+    private WorkflowExecutionSnapshot completeNestedWaitingNode(WorkflowRuntimeRequest request,
+                                                                WorkflowExecutionSnapshot current,
+                                                                String rootId, String nodeId, NodeResult result) {
+        DefaultWorkflowContext context = contextFromSnapshot(current);
+        ExecutionTracker tracker = ExecutionTracker.from(current);
+        Map<String, Object> output = new LinkedHashMap<>(result.output());
+        NodeResult pending = current.nodeOutputs().get(nodeId);
+        if (pending != null) {
+            for (String key : List.of("externalTaskId", "childWorkflowInstanceId", "definitionId", "definitionVersion"))
+                if (pending.output().containsKey(key)) output.putIfAbsent(key, pending.output().get(key));
+        }
+        context.recordNodeOutput(nodeId, new NodeResult(result.successful(), false, output,
+                result.variables(), result.nextNodeId(), result.branchKey()));
+        Map<String, Object> completionAttributes = new LinkedHashMap<>(result.output());
+        completionAttributes.put("nested", true); completionAttributes.put("external", true);
+        completionAttributes.put("itemStatus", result.successful() ? "SUCCESS" : "FAILED");
+        publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, completionAttributes);
+        // 根节点只解除等待，不标记完成；循环体会复用已完成检查点继续推进。
+        context.recordNodeOutput(rootId, NodeResult.success(Map.of("resuming", true)));
+        tracker.markReady(rootId);
+        context.updateRuntimeState(RuntimeState.RUNNING);
+        saveSnapshot(request, context, tracker);
+        try {
+            boolean waiting = executeDag(request, WorkflowDag.from(request.definition()), context, tracker);
+            context.updateRuntimeState(waiting ? RuntimeState.WAITING : RuntimeState.SUCCESS);
+            publish(context, waiting ? RuntimeEventType.WORKFLOW_WAITING : RuntimeEventType.WORKFLOW_COMPLETED,
+                    rootId, Map.of("resumed", true));
+        } catch (WorkflowCancellationException cancelled) {
+            context.updateRuntimeState(RuntimeState.CANCELLED);
+            publish(context, RuntimeEventType.WORKFLOW_CANCELLED, rootId, Map.of("reason", "user_cancelled"));
+        } catch (RuntimeException failure) {
+            if (failure instanceof WorkflowRuntimeLeaseLostException) throw failure;
+            context.updateRuntimeState(RuntimeState.FAILED);
+            tracker.markFailed(rootId);
+            publish(context, RuntimeEventType.WORKFLOW_FAILED, rootId,
+                    Map.of("error", failure.getMessage() == null ? "循环体失败" : failure.getMessage()));
+        }
         saveSnapshot(request, context, tracker);
         return snapshot(context, tracker);
     }
@@ -677,6 +753,19 @@ public class WorkflowRuntimeEngine {
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Map<String, Integer> nodeDepths = dag.topologicalDepths();
         Map<String, VariableWriter> variableWriters = new HashMap<>();
+        // 恢复或局部重跑时仍保留已完成写入者的确定性优先级。
+        for (String completedNodeId : tracker.completedNodeIds()) {
+            NodeResult output = context.nodeOutputs().get(completedNodeId);
+            if (output == null) continue;
+            int depth = nodeDepths.getOrDefault(completedNodeId, 0);
+            output.variables().keySet().forEach(name -> {
+                VariableWriter previous = variableWriters.get(name);
+                if (previous == null || depth > previous.depth()
+                        || (depth == previous.depth() && completedNodeId.compareTo(previous.nodeId()) < 0)) {
+                    variableWriters.put(name, new VariableWriter(completedNodeId, depth));
+                }
+            });
+        }
         Queue<String> readyQueue = initialReadyNodes(dag, tracker, remainingPredecessors);
         Set<String> scheduled = new LinkedHashSet<>(tracker.completedNodeIds());
         scheduled.addAll(tracker.skippedNodeIds());
@@ -685,11 +774,14 @@ public class WorkflowRuntimeEngine {
         Long userId = AuthenticatedUserContext.userIdOrNull();
         String username = AuthenticatedUserContext.usernameOrNull();
 
+        var checkpoints = new java.util.concurrent.ConcurrentLinkedQueue<java.util.concurrent.CompletableFuture<Void>>();
+        nestedCheckpoints.put(request.workflowId(), checkpoints);
+        try {
         inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
             saveSnapshot(request, context, tracker);
             while (inFlight > 0) {
                 ensureNotCancelled(request);
-                NodeExecution execution = awaitCompletedNode(request, completionService);
+                NodeExecution execution = awaitCompletedNode(request, completionService, context, tracker);
                 inFlight--;
                 recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
 
@@ -709,6 +801,12 @@ public class WorkflowRuntimeEngine {
             }
             assertExpectedNodesCompleted(expectedNodeIds, tracker);
         return tracker.hasWaitingNodes();
+        } finally {
+            nestedCheckpoints.remove(request.workflowId(), checkpoints);
+            java.util.concurrent.CompletableFuture<Void> pending;
+            while ((pending = checkpoints.poll()) != null)
+                pending.completeExceptionally(new IllegalStateException("运行协调器已结束"));
+        }
     }
 
     private void ensureNotCancelled(WorkflowRuntimeRequest request) {
@@ -805,162 +903,26 @@ public class WorkflowRuntimeEngine {
     private NodeResult executeNestedControlNode(WorkflowRuntimeRequest request,
                                                 DefaultWorkflowContext context,
                                                 WorkflowNodeDTO controlNode) {
-        Map<String, Object> config = controlNode.getConfig() == null ? Map.of() : controlNode.getConfig();
-        List<WorkflowNodeDTO> bodyNodes = nestedBodyNodes(config.get("bodyNodes"), controlNode.getNodeId());
-        if (bodyNodes.isEmpty()) {
-            NodeExecutor executor = nodeRegistry.getRequired(NodeType.of(controlNode.getNodeType()));
-            return executeNodeWithRetry(executor, context, request, controlNode.getNodeId(), controlNode.getNodeType());
-        }
-        if ("ITERATION".equalsIgnoreCase(controlNode.getNodeType())) {
-            return executeNestedIteration(request, context, controlNode, config, bodyNodes);
-        }
-        return executeNestedLoop(request, context, controlNode, config, bodyNodes);
-    }
-
-    private NodeResult executeNestedIteration(WorkflowRuntimeRequest request,
-                                              DefaultWorkflowContext context,
-                                              WorkflowNodeDTO controlNode,
-                                              Map<String, Object> config,
-                                              List<WorkflowNodeDTO> bodyNodes) {
-        String inputVariable = textValue(config.get("inputVariable"), "items");
-        String itemVariable = textValue(config.get("itemVariable"), "item");
-        String outputVariable = textValue(config.get("outputVariable"), "iterationItems");
-        List<Object> items = listValue(config.containsKey("input") ? config.get("input") : context.variables().get(inputVariable));
-        int requestedLimit = integerValue(config.get("maxIterations"), items.size());
-        int limit = boundedCount(requestedLimit);
-        List<Map<String, Object>> results = new ArrayList<>();
-        for (int index = 0; index < Math.min(items.size(), limit); index++) {
-            Object item = items.get(index);
-            Map<String, Object> variables = new LinkedHashMap<>(context.variables());
-            variables.put(itemVariable, item);
-            variables.put("iterationIndex", index);
-            Map<String, Object> bodyVariables = executeNestedBody(
-                    request, context, controlNode, bodyNodes, variables,
-                    "iteration-" + index);
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("item", item);
-            result.put("variables", Map.copyOf(bodyVariables));
-            results.add(Map.copyOf(result));
-        }
-        Map<String, Object> output = new LinkedHashMap<>();
-        output.put("items", items.subList(0, Math.min(items.size(), limit)));
-        output.put("results", results);
-        output.put("count", results.size());
-        output.put("truncated", results.size() < items.size());
-        return new NodeResult(true, false, output, Map.of(outputVariable, List.copyOf(results)), null, null);
-    }
-
-    private NodeResult executeNestedLoop(WorkflowRuntimeRequest request,
-                                         DefaultWorkflowContext context,
-                                         WorkflowNodeDTO controlNode,
-                                         Map<String, Object> config,
-                                         List<WorkflowNodeDTO> bodyNodes) {
-        String inputVariable = textValue(config.get("inputVariable"), "state");
-        String outputVariable = textValue(config.get("outputVariable"), "loopState");
-        String stopWhen = textValue(config.get("stopWhen"), "");
-        Object state = config.containsKey("input") ? config.get("input") : context.variables().get(inputVariable);
-        int limit = boundedCount(integerValue(config.get("maxIterations"), 1));
-        int iterations = 0;
-        boolean stopped = matchesStopCondition(state, stopWhen);
-        while (!stopped && iterations < limit) {
-            Map<String, Object> variables = new LinkedHashMap<>(context.variables());
-            variables.put(inputVariable, state);
-            variables.put("loopIteration", iterations);
-            Map<String, Object> bodyVariables = executeNestedBody(
-                    request, context, controlNode, bodyNodes, variables,
-                    "loop-" + iterations);
-            if (bodyVariables.containsKey(outputVariable)) {
-                state = bodyVariables.get(outputVariable);
-            } else if (bodyVariables.containsKey(inputVariable)) {
-                state = bodyVariables.get(inputVariable);
+        return new NestedWorkflowRunner(context, (bodyNode, bodyContext) -> {
+            String id = bodyNode.getNodeId();
+            publish(context, RuntimeEventType.NODE_STARTED, id,
+                    Map.of("nodeType", bodyNode.getNodeType(), "nested", true));
+            try {
+                NodeResult result = executeNodeWithRetry(nodeRegistry.getRequired(NodeType.of(bodyNode.getNodeType())),
+                        bodyContext, request, id, bodyNode.getNodeType());
+                Map<String, Object> attributes = new LinkedHashMap<>(result.waiting() ? result.output() : Map.of());
+                attributes.put("nodeType", bodyNode.getNodeType()); attributes.put("nested", true);
+                attributes.put("itemStatus", result.waiting() ? "WAITING" : result.successful() ? "SUCCESS" : "FAILED");
+                publish(context, result.waiting() ? RuntimeEventType.NODE_WAITING : RuntimeEventType.NODE_COMPLETED, id, attributes);
+                return result;
+            } catch (RuntimeException failure) {
+                if (!(failure instanceof WorkflowCancellationException) && !(failure instanceof WorkflowRuntimeLeaseLostException))
+                    publish(context, RuntimeEventType.NODE_COMPLETED, id,
+                            Map.of("nodeType", bodyNode.getNodeType(), "nested", true, "itemStatus", "FAILED"));
+                throw failure;
             }
-            iterations++;
-            stopped = matchesStopCondition(state, stopWhen);
-        }
-        Map<String, Object> output = new LinkedHashMap<>();
-        output.put("state", state == null ? "" : state);
-        output.put("iterations", iterations);
-        output.put("stopped", stopped);
-        output.put("bounded", iterations >= limit && !stopped);
-        return new NodeResult(true, false, output, Map.of(outputVariable, state == null ? "" : state), null, null);
-    }
-
-    private Map<String, Object> executeNestedBody(WorkflowRuntimeRequest request,
-                                                   DefaultWorkflowContext parentContext,
-                                                   WorkflowNodeDTO controlNode,
-                                                   List<WorkflowNodeDTO> bodyNodes,
-                                                   Map<String, Object> initialVariables,
-                                                   String scope) {
-        Map<String, Object> variables = new LinkedHashMap<>(initialVariables);
-        Map<String, Object> bodyConfigs = new LinkedHashMap<>();
-        for (WorkflowNodeDTO bodyNode : bodyNodes) {
-            bodyConfigs.put(bodyNode.getNodeId(), bodyNode.getConfig() == null ? Map.of() : bodyNode.getConfig());
-        }
-        variables.put(WorkflowNodeContextKeys.NODE_CONFIGS, bodyConfigs);
-        Map<String, Object> bodyVariables = new LinkedHashMap<>();
-        for (WorkflowNodeDTO bodyNode : bodyNodes) {
-            String bodyNodeId = controlNode.getNodeId() + "/" + scope + "/" + bodyNode.getNodeId();
-            DefaultWorkflowContext bodyContext = new DefaultWorkflowContext(
-                    parentContext.workflowId(), parentContext.traceId(),
-                    parentContext.taskId() + ":" + scope, variables);
-            bodyContext.updateRuntimeState(RuntimeState.RUNNING);
-            bodyContext.updateCurrentNodeId(bodyNode.getNodeId());
-            publish(parentContext, RuntimeEventType.NODE_STARTED, bodyNodeId,
-                    Map.of("nodeType", bodyNode.getNodeType(), "nested", true,
-                            "parentNodeId", controlNode.getNodeId()));
-            NodeResult result = hasNestedBody(bodyNode)
-                    ? executeNestedControlNode(request, bodyContext, bodyNode)
-                    : executeNodeWithRetry(
-                    nodeRegistry.getRequired(NodeType.of(bodyNode.getNodeType())),
-                    bodyContext,
-                    request,
-                    bodyNodeId,
-                    bodyNode.getNodeType());
-            if (result.waiting()) {
-                throw new IllegalStateException("nested control body cannot wait for external completion: " + bodyNodeId);
-            }
-            if (!result.successful()) {
-                throw new IllegalStateException("nested control body failed: " + bodyNodeId);
-            }
-            bodyVariables.putAll(result.variables());
-            variables.putAll(result.variables());
-            publish(parentContext, RuntimeEventType.NODE_COMPLETED, bodyNodeId,
-                    Map.of("nodeType", bodyNode.getNodeType(), "nested", true,
-                            "parentNodeId", controlNode.getNodeId()));
-        }
-        return Map.copyOf(bodyVariables);
-    }
-
-    private List<WorkflowNodeDTO> nestedBodyNodes(Object rawBodyNodes, String controlNodeId) {
-        if (!(rawBodyNodes instanceof Collection<?> collection)) {
-            throw new IllegalArgumentException("bodyNodes must be an array for control node " + controlNodeId);
-        }
-        if (collection.size() > MAX_NESTED_BODY_NODES) {
-            throw new IllegalArgumentException("bodyNodes exceeds maximum of " + MAX_NESTED_BODY_NODES
-                    + " for control node " + controlNodeId);
-        }
-        List<WorkflowNodeDTO> nodes = new ArrayList<>();
-        Set<String> ids = new LinkedHashSet<>();
-        int index = 0;
-        for (Object rawNode : collection) {
-            if (!(rawNode instanceof Map<?, ?> rawMap)) {
-                throw new IllegalArgumentException("bodyNodes[" + index + "] must be an object");
-            }
-            WorkflowNodeDTO node = new WorkflowNodeDTO();
-            node.setNodeId(textValue(rawMap.get("nodeId"), "body-node-" + index));
-            node.setNodeType(textValue(rawMap.get("nodeType"), ""));
-            if (node.getNodeType().isBlank()) {
-                throw new IllegalArgumentException("bodyNodes[" + index + "] nodeType is required");
-            }
-            if (!ids.add(node.getNodeId())) {
-                throw new IllegalArgumentException("duplicate nested body node id: " + node.getNodeId());
-            }
-            node.setDisplayName(textValue(rawMap.get("displayName"), node.getNodeId()));
-            node.setConfig(objectMap(rawMap.get("config")));
-            nodes.add(node);
-            index++;
-        }
-        return List.copyOf(nodes);
+        }, () -> { ensureNotCancelled(request); ensureLockHealthy(request.workflowId()); },
+                () -> checkpointNestedProgress(request)).run(controlNode, context.variables());
     }
 
     private int boundedCount(int requestedCount) {
@@ -1023,11 +985,42 @@ public class WorkflowRuntimeEngine {
         return Map.copyOf(result);
     }
 
+    private void checkpointNestedProgress(WorkflowRuntimeRequest request) {
+        var queue = nestedCheckpoints.get(request.workflowId());
+        if (queue == null) throw new IllegalStateException("循环检查点协调器不可用");
+        var saved = new java.util.concurrent.CompletableFuture<Void>();
+        queue.add(saved);
+        while (true) {
+            ensureNotCancelled(request); ensureLockHealthy(request.workflowId());
+            try { saved.get(250, TimeUnit.MILLISECONDS); return; }
+            catch (java.util.concurrent.TimeoutException waiting) { /* 由协调线程统一持久化，避免旧快照覆盖。 */ }
+            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IllegalStateException("循环检查点被中断", interrupted); }
+            catch (ExecutionException failed) { throw toRuntimeException(failed.getCause()); }
+        }
+    }
+
+    private void flushNestedCheckpoints(WorkflowRuntimeRequest request, DefaultWorkflowContext context, ExecutionTracker tracker) {
+        var queue = nestedCheckpoints.get(request.workflowId());
+        if (queue == null || queue.isEmpty()) return;
+        List<java.util.concurrent.CompletableFuture<Void>> pending = new ArrayList<>();
+        java.util.concurrent.CompletableFuture<Void> entry;
+        while ((entry = queue.poll()) != null) pending.add(entry);
+        try {
+            saveSnapshot(request, context, tracker);
+            pending.forEach(future -> future.complete(null));
+        } catch (RuntimeException failure) {
+            pending.forEach(future -> future.completeExceptionally(failure));
+            throw failure;
+        }
+    }
+
     private NodeExecution awaitCompletedNode(WorkflowRuntimeRequest request,
-                                             CompletionService<NodeExecution> completionService) {
+                                             CompletionService<NodeExecution> completionService,
+                                              DefaultWorkflowContext context, ExecutionTracker tracker) {
         try {
             while (true) {
                 ensureNotCancelled(request);
+                flushNestedCheckpoints(request, context, tracker);
                 java.util.concurrent.Future<NodeExecution> completed =
                         completionService.poll(250, TimeUnit.MILLISECONDS);
                 if (completed != null) {
@@ -1254,7 +1247,8 @@ public class WorkflowRuntimeEngine {
                 return NodeResult.waiting(waitingException.output());
             } catch (Exception exception) {
                 RuntimeException runtimeException = toRuntimeException(exception);
-                if (!request.retryPolicy().shouldRetry(attempt, runtimeException)) {
+                if (!executor.supportsAutomaticRetry()
+                        || !request.retryPolicy().shouldRetry(attempt, runtimeException)) {
                     throw runtimeException;
                 }
                 int currentAttempt = attempt;
@@ -1431,11 +1425,16 @@ public class WorkflowRuntimeEngine {
             tracker.completedNodeIds.addAll(snapshot.completedNodeIds());
             tracker.failedNodeIds.addAll(snapshot.failedNodeIds());
             snapshot.nodeOutputs().forEach((nodeId, result) -> {
-                if (result.waiting() && !tracker.completedNodeIds.contains(nodeId)) {
+                if (result.waiting() && !tracker.completedNodeIds.contains(nodeId)
+                        && !(snapshot.variables().get(NestedWorkflowRunner.TYPES) instanceof Map<?, ?> nested && nested.containsKey(nodeId))) {
                     tracker.waitingNodeIds.add(nodeId);
                 }
             });
             return tracker;
+        }
+
+        void markReady(String nodeId) {
+            inFlightNodeIds.remove(nodeId); waitingNodeIds.remove(nodeId); failedNodeIds.remove(nodeId);
         }
 
         void markInFlight(String nodeId) {

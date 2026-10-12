@@ -7,7 +7,10 @@ import type { RunNodeState } from '@/types/run'
 
 defineProps<{
   nodes: RunNodeState[]
+  canRerun?: boolean
 }>()
+
+const emit = defineEmits<{ rerun: [node: RunNodeState] }>()
 
 const { t } = useI18n()
 </script>
@@ -27,9 +30,14 @@ const { t } = useI18n()
             <StatusBadge :status="node.status" />
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
-            <span>{{ node.durationMs ? `${node.durationMs}ms` : t('workflow.waiting') }}</span>
+            <span v-if="node.reused" class="text-primary">{{ t('runs.rerunReused') }}</span>
+            <span v-else>{{ node.durationMs ? `${node.durationMs}ms` : t('workflow.waiting') }}</span>
             <span v-if="node.retryCount !== undefined">{{ t('runs.retry') }} {{ node.retryCount }}</span>
           </div>
+          <button v-if="canRerun && node.status === 'failed' && !node.nodeId.includes('/')" type="button" class="mt-2 rounded border border-primary/30 px-2 py-1 text-xs text-primary" @click="emit('rerun', node)">
+            {{ t('runs.rerunNode') }}
+          </button>
+          <p v-if="canRerun && node.status === 'failed' && node.nodeId.includes('/')" class="mt-2 text-xs text-text-muted">请从所属循环根节点重跑，提交前会显示失效范围</p>
           <p v-if="node.output" class="mt-2 truncate rounded bg-white px-2 py-1 text-xs text-text-secondary">
             {{ node.output }}
           </p>

@@ -221,9 +221,10 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
   return {
     nodeId: event.nodeId,
     label: event.nodeId,
-    status: mapRuntimeEventToNodeStatus(event),
+    status: event.attributes?.nested === true && event.attributes?.itemStatus === 'FAILED' ? 'failed' : mapRuntimeEventToNodeStatus(event),
     output: event.eventType,
     ...(approval ? { approval } : {}),
+    ...(event.attributes?.reused === true ? { reused: true } : {}),
   }
 }
 

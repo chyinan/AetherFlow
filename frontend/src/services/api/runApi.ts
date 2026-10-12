@@ -121,6 +121,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
     label: node.nodeId || 'Unknown node',
     status,
     durationMs,
+    ...(node.attributes?.reused === true ? { reused: true } : {}),
     output: Object.keys(node.attributes ?? {}).length > 0
       ? JSON.stringify(node.attributes)
       : node.latestEventType || node.status || status,

@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_runtime_event (
     trace_id VARCHAR(128) NOT NULL,
     task_id VARCHAR(64),
     event_type VARCHAR(64) NOT NULL,
-    node_id VARCHAR(64),
+    node_id VARCHAR(128),
     runtime_state VARCHAR(32) NOT NULL,
     occurred_at DATETIME NOT NULL,
     attributes_json LONGTEXT,

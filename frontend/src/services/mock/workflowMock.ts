@@ -120,6 +120,17 @@ export const nodeTemplates: NodeTemplate[] = [
     outputs: ['mediaFileName', 'mediaContentType', 'mediaSize', 'mediaFileId', 'mediaUrl', 'mediaObjectKey', 'fileId', 'fileUrl', 'fileObjectKey'],
   },
   {
+    kind: 'http-request',
+    label: 'HTTP JSON 请求',
+    description: '同步调用 JSON 接口，输出响应并选择失败策略。',
+    category: 'Tool',
+    catalog: 'node',
+    group: 'recommended',
+    config: { urlVariable: 'requestUrl', method: 'GET', errorStrategy: 'FAIL', outputVariable: 'httpResponse' },
+    inputs: ['requestUrl'],
+    outputs: ['httpResponse', 'httpStatusCode', 'httpBodyText', 'httpOk', 'httpError'],
+  },
+  {
     kind: 'url-fetch',
     label: 'URL Fetch',
     description: 'Fetch a public web page and expose cleaned text for downstream nodes.',
@@ -298,7 +309,7 @@ export const nodeTemplates: NodeTemplate[] = [
   {
     kind: 'template-transform',
     label: 'Template Transform',
-    description: 'Render templates with variables.',
+    description: 'Render text or map structured JSON without code.',
     category: 'Transform',
     catalog: 'tool',
     group: 'allTools',

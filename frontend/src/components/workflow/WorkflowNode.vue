@@ -56,6 +56,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   upscale: Film,
   'save-image': FileText,
   'url-fetch': BookOpen,
+  'http-request': Send,
   upload: Upload,
   whisper: Mic,
   llm: Brain,
@@ -74,6 +75,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   human: Hand,
   iteration: Repeat2,
   loop: RotateCcw,
+  subworkflow: GitBranch,
   code: Code2,
   'template-transform': FileText,
   'variable-aggregate': Database,
@@ -94,6 +96,17 @@ function configText(key: string, fallback: string) {
 
 const nodeRows = computed(() => {
   switch (props.data.kind) {
+    case 'iteration':
+    case 'loop': {
+      const body = Array.isArray(props.data.config.bodyNodes) ? props.data.config.bodyNodes : []
+      const labels = body.slice(0, 3).map((node: Record<string, unknown>, index: number) => `${index + 1}. ${String(node.displayName ?? node.nodeType ?? '步骤')}`)
+      return [
+        `循环体 ${body.length} 步 · 最多 ${String(props.data.config.maxIterations ?? 100)} ${props.data.kind === 'iteration' ? '项' : '轮'}`,
+        ...(props.data.kind === 'iteration' ? [`同时等待 ≤ ${String(props.data.config.concurrency ?? 1)}`] : []),
+        ...labels,
+        ...(body.length > 3 ? [`另 ${body.length - 3} 步…`] : []),
+      ]
+    }
     case 'question-classifier':
       return [
         configText('class1', t('workflow.nodeCard.class', { index: 1 })),

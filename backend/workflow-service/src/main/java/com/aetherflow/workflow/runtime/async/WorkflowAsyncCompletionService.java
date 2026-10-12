@@ -10,6 +10,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
+import com.aetherflow.workflow.runtime.engine.NestedNodeSupport;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
@@ -165,27 +166,13 @@ public class WorkflowAsyncCompletionService {
     }
 
     private boolean isHumanNode(WorkflowRuntimeSnapshot snapshot, String nodeId) {
-        if (nodeId == null || snapshot.runtimeState() != RuntimeState.WAITING
-                || !snapshot.currentNodeIds().contains(nodeId)
-                || snapshot.definition().getNodes() == null) {
-            return false;
-        }
-        return snapshot.definition().getNodes().stream()
-                .filter(node -> nodeId.equals(node.getNodeId()))
-                .map(WorkflowNodeDTO::getNodeType)
-                .anyMatch(type -> "HUMAN".equalsIgnoreCase(type));
+        return nodeId != null && snapshot.runtimeState() == RuntimeState.WAITING
+                && NestedNodeSupport.waitingNodeIds(snapshot).contains(nodeId)
+                && "HUMAN".equalsIgnoreCase(NestedNodeSupport.nodeType(snapshot, nodeId));
     }
 
     private String nodeType(WorkflowRuntimeSnapshot snapshot, String nodeId) {
-        if (nodeId == null || snapshot.definition().getNodes() == null) {
-            return "";
-        }
-        return snapshot.definition().getNodes().stream()
-                .filter(node -> nodeId.equals(node.getNodeId()))
-                .map(WorkflowNodeDTO::getNodeType)
-                .filter(type -> type != null && !type.isBlank())
-                .findFirst()
-                .orElse("");
+        return nodeId == null ? "" : NestedNodeSupport.nodeType(snapshot, nodeId);
     }
 
     private NodeResult adaptResult(WorkflowRuntimeSnapshot snapshot,
@@ -194,19 +181,13 @@ public class WorkflowAsyncCompletionService {
         String type = nodeType(snapshot, nodeId);
         if (imageResultFinisher != null && imageResultFinisher.supports(type)) {
             return imageResultFinisher.finish(type, snapshot.workflowId(), nodeId,
-                    snapshot.variables(), output);
+                    NestedNodeSupport.variables(snapshot, nodeId), output);
         }
         return AiWorkflowNodeResultAdapter.adapt(type, output);
     }
 
     private boolean allowsRejectedBranch(WorkflowRuntimeSnapshot snapshot, String nodeId) {
-        return snapshot.definition().getNodes().stream()
-                .filter(node -> nodeId.equals(node.getNodeId()))
-                .map(WorkflowNodeDTO::getConfig)
-                .filter(config -> config != null)
-                .map(config -> config.get("rejectBehavior"))
-                .map(String::valueOf)
-                .anyMatch("BRANCH"::equalsIgnoreCase);
+        return "BRANCH".equalsIgnoreCase(String.valueOf(NestedNodeSupport.config(snapshot, nodeId).get("rejectBehavior")));
     }
 
     private String textOr(String value, String fallback) {

@@ -37,7 +37,13 @@ import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
+import LoopBodyEditor from './LoopBodyEditor.vue'
+import LoopRunResults from './LoopRunResults.vue'
+import HttpRequestConfigPanel from './HttpRequestConfigPanel.vue'
 import ImageInputPicker from './ImageInputPicker.vue'
+import StructuredMappingEditor from './StructuredMappingEditor.vue'
+import { defaultMapping } from '@/utils/structuredMapping'
+import SubworkflowConfigPanel from './SubworkflowConfigPanel.vue'
 import WhisperEnvironmentDialog from './WhisperEnvironmentDialog.vue'
 import type { ImageConnectionProvider } from '@/api/modules/nodeConnections'
 import {
@@ -91,6 +97,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   upscale: SlidersHorizontal,
   'save-image': FileText,
   'url-fetch': Search,
+  'http-request': Send,
   upload: Upload,
   whisper: Mic,
   llm: Brain,
@@ -109,6 +116,7 @@ const iconMap: Record<WorkflowNodeKind, Component> = {
   human: Hand,
   iteration: Repeat2,
   loop: RotateCcw,
+  subworkflow: GitBranch,
   code: Code2,
   'template-transform': FileText,
   'variable-aggregate': Database,
@@ -289,6 +297,22 @@ function updateConfig(key: string, value: ConfigValue) {
     return
   }
   workflowStore.updateNodeConfig(selectedNode.value.id, key, value)
+}
+
+function changeTransformMode(event: Event) {
+  if (!selectedNode.value) return
+  const transformMode = (event.target as HTMLSelectElement).value
+  const config = selectedNode.value.data.config ?? {}
+  workflowStore.updateNodeConfigValues(selectedNode.value.id, {
+    transformMode,
+    ...(transformMode === 'structured' && !config.mapping ? { mapping: defaultMapping() } : {}),
+    ...(!config.outputVariable || config.outputVariable === (transformMode === 'structured' ? 'renderedText' : 'mappedValue')
+      ? { outputVariable: transformMode === 'structured' ? 'mappedValue' : 'renderedText' } : {}),
+  })
+}
+
+function applyStructuredMapping(values: Record<string, unknown>, nodeId: string) {
+  if (selectedNode.value?.id === nodeId) workflowStore.updateNodeConfigValues(nodeId, values)
 }
 
 function applyImageConnection(connection: { connectionId: string | undefined; provider: ImageConnectionProvider }, nodeId: string) {
@@ -736,6 +760,8 @@ onMounted(() => {
           </label>
           </template>
         </section>
+
+        <HttpRequestConfigPanel v-else-if="selectedKind === 'http-request'" :config="selectedNode.data.config" @update="updateConfig" />
 
         <section v-else-if="selectedKind === 'upload'" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
@@ -1208,7 +1234,7 @@ onMounted(() => {
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.iterationSemanticsTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">
-              {{ t(selectedKind === 'iteration' ? 'workflow.inspector.iterationSemanticsIteration' : 'workflow.inspector.iterationSemanticsLoop') }}
+              {{ selectedKind === 'iteration' ? '逐项执行下方步骤，支持异步等待与恢复；已完成项不会重复执行。' : '逐轮执行下方步骤并回填状态，遇到停止标记或次数上限结束。' }}
             </p>
           </div>
           <label class="block">
@@ -1227,6 +1253,19 @@ onMounted(() => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
           </label>
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">每项变量名称
+            <input aria-label="每项变量名称" class="mt-2 w-full rounded border p-2" :value="textConfig('itemVariable', 'item')" @input="handleTextInput('itemVariable', $event)" />
+          </label>
+          <label class="block text-sm">索引变量名称
+            <input aria-label="索引变量名称" class="mt-2 w-full rounded border p-2" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
+          </label>
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">同时等待的任务上限（1–8）
+            <input aria-label="批次并发上限" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
+          </label>
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">某项失败时
+            <select aria-label="批次失败策略" class="mt-2 w-full rounded border p-2" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">停止批次</option><option value="CONTINUE">保留失败项并继续</option></select>
+          </label>
+          <LoopBodyEditor :key="selectedNode?.id" :model-value="configValue('bodyNodes', [])" :catalog="nodeCatalog" @update:model-value="updateConfig('bodyNodes', $event)" />
         </section>
 
         <section v-else-if="selectedKind === 'code'" class="space-y-5 p-5">
@@ -1257,6 +1296,13 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'template-transform'" class="space-y-5 p-5">
+          <label class="block text-sm font-semibold">转换模式
+            <select class="mt-2 w-full rounded-lg border border-app-border bg-app-bg px-3 py-3 text-sm" :value="textConfig('transformMode', 'text')" @change="changeTransformMode">
+              <option value="text">文本模板</option><option value="structured">结构化数据映射</option>
+            </select>
+          </label>
+          <StructuredMappingEditor v-if="textConfig('transformMode', 'text') === 'structured' && selectedNode" :key="selectedNode.id" :node-id="selectedNode.id" :config="selectedNode.data.config ?? {}" @apply="applyStructuredMapping" />
+          <template v-else>
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.templateVariablesTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.templateVariablesHint') }}</p>
@@ -1272,6 +1318,7 @@ onMounted(() => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
             <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'renderedText')" @input="handleTextInput('outputVariable', $event)" />
           </label>
+          </template>
         </section>
 
         <section v-else-if="selectedKind === 'document-extractor'" class="space-y-5 p-5">
@@ -1337,6 +1384,8 @@ onMounted(() => {
           </label>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
         </section>
+
+        <SubworkflowConfigPanel v-else-if="selectedKind === 'subworkflow'" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" />
 
         <section v-else-if="hasDynamicConfigPanel" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">
@@ -1489,6 +1538,7 @@ onMounted(() => {
             <div class="rounded-lg bg-app-bg2 px-3 py-2">
               <p class="text-text-muted">{{ t('workflow.inspector.runResult') }}</p>
               <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-text-primary">{{ runtimeText || t('workflow.inspector.noRunResult') }}</p>
+              <LoopRunResults v-if="selectedKind === 'iteration' || selectedKind === 'loop'" :instance-id="runStore.currentRun?.backendInstanceId ?? runStore.currentRun?.runtimeWorkflowId" :node-id="selectedNode.id" :run-status="runStore.currentRun?.backendStatus" />
             </div>
           </div>
         </section>

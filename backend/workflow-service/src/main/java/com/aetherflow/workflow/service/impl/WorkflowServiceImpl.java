@@ -92,6 +92,9 @@ public class WorkflowServiceImpl implements WorkflowService {
         return thread;
     });
 
+    @Autowired
+    private com.aetherflow.workflow.subworkflow.WorkflowVersionService workflowVersionService;
+
     @Autowired(required = false)
     private RuntimeSnapshotRepository runtimeSnapshotRepository;
 
@@ -134,9 +137,11 @@ public class WorkflowServiceImpl implements WorkflowService {
             definitionMapper.insertIdempotent(definition);
             WorkflowDefinition persisted = definitionMapper.selectById(definition.getId());
             if (persisted != null) {
+                captureVersion(persisted);
                 return persisted;
             }
         }
+        captureVersion(definition);
         return definition;
     }
 
@@ -165,6 +170,7 @@ public class WorkflowServiceImpl implements WorkflowService {
                     "workflow definition changed; reload before saving");
         }
         validateDag(request);
+        captureVersion(definition);
         definition.setName(request.getName());
         definition.setDescription(request.getDescription());
         if (request.getProjectId() != null) {
@@ -181,6 +187,7 @@ public class WorkflowServiceImpl implements WorkflowService {
             throw new BusinessException(ResultCode.CONFLICT,
                     "workflow definition changed; reload before saving");
         }
+        captureVersion(definition);
         return definition;
     }
 
@@ -253,7 +260,13 @@ public class WorkflowServiceImpl implements WorkflowService {
                         outboxId, leaseToken, LocalDateTime.now()),
                 10, 10, TimeUnit.SECONDS);
         try {
-            WorkflowExecutionSnapshot snapshot = runtimeEngine.execute(runtimeRequest);
+            // 局部重跑的种子快照与 PENDING 实例、启动 Outbox 同事务保存。
+            // 只有已抢占的派发器可首次恢复，后续重复派发由运行租约及持久快照收敛。
+            var seed = runtimeSnapshotRepository == null ? null
+                    : runtimeSnapshotRepository.findByWorkflowId(runtimeRequest.workflowId()).orElse(null);
+            WorkflowExecutionSnapshot snapshot = seed == null
+                    ? runtimeEngine.execute(runtimeRequest)
+                    : runtimeEngine.resume(runtimeRequest, seed.toExecutionSnapshot());
             // The runtime writes its durable snapshot before returning. Marking the
             // outbox only afterwards closes the crash window where a dispatcher had
             // acknowledged work that had not yet produced a recoverable snapshot.
@@ -314,8 +327,9 @@ public class WorkflowServiceImpl implements WorkflowService {
                     }
                     continue;
                 }
-                if (runtimeSnapshotRepository != null
-                        && runtimeSnapshotRepository.findByWorkflowId(String.valueOf(instance.getId())).isPresent()) {
+                var existingSnapshot = runtimeSnapshotRepository == null ? null
+                        : runtimeSnapshotRepository.findByWorkflowId(String.valueOf(instance.getId())).orElse(null);
+                if (existingSnapshot != null && existingSnapshot.runtimeState() != RuntimeState.PENDING) {
                     // A previous dispatcher may have executed the runtime and
                     // crashed before acknowledging the start outbox. The durable
                     // snapshot is the execution receipt; never start the same
@@ -782,7 +796,27 @@ public class WorkflowServiceImpl implements WorkflowService {
                 "workflow runtime execution failed: " + exception.getMessage());
     }
 
+    private void captureVersion(WorkflowDefinition definition) {
+        if (workflowVersionService != null) workflowVersionService.capture(definition);
+    }
+
+    public void validateExecutableSnapshot(WorkflowDefinitionDTO definition) {
+        validateDag(definition);
+        validateRuntimePreflight(definition);
+    }
+
     private void validateDag(WorkflowDefinitionDTO definition) {
+        validateSingleDag(definition);
+        if (workflowVersionService != null) {
+            try {
+                workflowVersionService.dependencies(definition).forEach(this::validateSingleDag);
+            } catch (IllegalArgumentException exception) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "workflow dependency invalid: " + exception.getMessage());
+            }
+        }
+    }
+
+    private void validateSingleDag(WorkflowDefinitionDTO definition) {
         try {
             WorkflowDag dag = WorkflowDag.from(definition);
             validateNodeTypes(definition);
@@ -801,7 +835,7 @@ public class WorkflowServiceImpl implements WorkflowService {
         if (definition.getNodes() == null) {
             return;
         }
-        for (WorkflowNodeDTO node : definition.getNodes()) {
+        for (WorkflowNodeDTO node : com.aetherflow.workflow.node.validation.NestedWorkflowDefinition.flatten(definition.getNodes())) {
             NodeType nodeType = NodeType.of(node.getNodeType());
             if (nodeRegistry.get(nodeType).isEmpty()) {
                 throw new IllegalArgumentException("unsupported workflow node type: " + nodeType.value());
@@ -825,11 +859,18 @@ public class WorkflowServiceImpl implements WorkflowService {
         }
     }
 
-    private void validateRuntimePreflight(WorkflowDefinitionDTO definition) {
+    void validateRuntimePreflight(WorkflowDefinitionDTO definition) {
+        validateSingleRuntimePreflight(definition);
+        if (workflowVersionService != null) {
+            workflowVersionService.dependencies(definition).forEach(this::validateSingleRuntimePreflight);
+        }
+    }
+
+    private void validateSingleRuntimePreflight(WorkflowDefinitionDTO definition) {
         if (definition == null || definition.getNodes() == null) {
             return;
         }
-        for (WorkflowNodeDTO node : definition.getNodes()) {
+        for (WorkflowNodeDTO node : com.aetherflow.workflow.node.validation.NestedWorkflowDefinition.flatten(definition.getNodes())) {
             String nodeType = node.getNodeType() == null ? "" : node.getNodeType().trim();
             Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
             if ("CODE".equalsIgnoreCase(nodeType) && workflowNodeProperties != null) {

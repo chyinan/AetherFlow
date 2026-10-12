@@ -712,6 +712,10 @@ export const zhCN = {
           label: '读取视频文件',
           description: '读取上传视频元数据，把文件 URL 交给 Whisper Runtime。',
         },
+        'http-request': {
+          label: 'HTTP JSON 请求',
+          description: '同步调用 JSON 接口，输出状态码与响应，并支持错误分支。',
+        },
         'url-fetch': {
           label: 'URL 抓取',
           description: '抓取公开网页并输出清洗后的正文。',
@@ -777,8 +781,8 @@ export const zhCN = {
           description: '运行脚本完成数据转换。',
         },
         'template-transform': {
-          label: '模板转换',
-          description: '用变量渲染模板文本。',
+          label: '模板 / 数据映射',
+          description: '渲染文本，或无代码构造 JSON、映射和筛选数组。',
         },
         'variable-aggregate': {
           label: '变量聚合器',
@@ -792,6 +796,10 @@ export const zhCN = {
           label: '变量赋值',
           description: '向可写变量写入值。',
         },
+        subworkflow: {
+          label: '子工作流',
+          description: '调用固定版本的工作流，显式映射输入和结果。',
+        },
         'parameter-extractor': {
           label: '参数提取器',
           description: '从自由文本中提取参数。',
@@ -804,6 +812,17 @@ export const zhCN = {
     },
   },
   runs: {
+    rerunReused: '已复用，不重复调用',
+    rerunNode: '局部重跑',
+    rerunTitle: '重跑失败节点：{node}',
+    rerunExplanation: '将创建独立运行。已完成祖先和无关结果会复用，不会重复产生这些节点的 AI 费用。下列节点的旧结果会失效并重新执行，可能产生新的调用费用。',
+    rerunInvalidated: '重新执行（包含所有下游分支）',
+    rerunPreserved: '复用已完成结果',
+    rerunNone: '无',
+    rerunRefresh: '重新预览',
+    rerunSubmitting: '创建重跑中…',
+    rerunConfirm: '确认范围并重跑',
+    rerunFailed: '重跑失败，请重试',
     title: '运行',
     subtitle: '实时执行可观测性。',
     openWorkflow: '打开工作流',

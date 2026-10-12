@@ -15,6 +15,12 @@ import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
 import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
+import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
+import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import com.aetherflow.workflow.client.TaskClient;
+import com.aetherflow.workflow.config.TaskClientProperties;
+import com.aetherflow.common.core.Result;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -229,17 +235,49 @@ class WorkflowRuntimeControllerTest {
         WorkflowInstance instance = new WorkflowInstance();
         instance.setId(1001L);
         instance.setUserId(7L);
+        instance.setStatus("RUNNING");
         when(instanceMapper.selectById(1001L)).thenReturn(instance);
         when(instanceMapper.cancelIfActive(eq(1001L), eq(7L), any())).thenReturn(1);
         WorkflowRuntimeController controller = new WorkflowRuntimeController(
                 metrics, store, eventStore, mock(RuntimeEventStreamService.class), instanceMapper, null);
         WorkflowTerminalNotificationOutboxService notificationOutbox =
                 mock(WorkflowTerminalNotificationOutboxService.class);
-        controller.terminalNotificationOutboxService = notificationOutbox;
+        TaskClient tasks = mock(TaskClient.class);
+        TaskClientProperties taskProperties = mock(TaskClientProperties.class);
+        when(taskProperties.issueInternalToken()).thenReturn("test-token");
+        when(tasks.cancelWorkflowTasks("test-token", 1001L)).thenReturn(Result.success(0));
+        controller.cancellationService = new WorkflowCancellationService(instanceMapper,
+                mock(WorkflowRuntimeSnapshotMapper.class), mock(RuntimeSnapshotRepository.class),
+                tasks, taskProperties, notificationOutbox);
 
         controller.cancel(1001L, 7L);
 
         verify(notificationOutbox).enqueue(1001L, 7L, null, RuntimeState.CANCELLED, null);
+    }
+
+    @Test
+    void directCancellationReportsCleanupFailureAndAllowsRetry() {
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                new WorkflowRuntimeMetrics(), new InMemoryRuntimeObservationStore());
+        WorkflowCancellationService cancellations = mock(WorkflowCancellationService.class);
+        controller.cancellationService = cancellations;
+        when(cancellations.cancel(1001L, 7L)).thenThrow(new IllegalStateException("任务服务暂不可用"))
+                .thenReturn(true);
+        assertThatThrownBy(() -> controller.cancel(1001L, 7L)).isInstanceOf(IllegalStateException.class);
+        assertThat(controller.cancel(1001L, 7L).isSuccess()).isTrue();
+        verify(cancellations, org.mockito.Mockito.times(2)).cancel(1001L, 7L);
+    }
+
+    @Test
+    void directCancellationPreservesCompletedRun() {
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                new WorkflowRuntimeMetrics(), new InMemoryRuntimeObservationStore());
+        WorkflowCancellationService cancellations = mock(WorkflowCancellationService.class);
+        controller.cancellationService = cancellations;
+        when(cancellations.cancel(1001L, 7L)).thenReturn(false);
+        assertThatThrownBy(() -> controller.cancel(1001L, 7L))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.CONFLICT));
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

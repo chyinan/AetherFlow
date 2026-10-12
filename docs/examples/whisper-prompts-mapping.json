@@ -1,0 +1,19 @@
+{
+  "transformMode": "structured",
+  "outputVariable": "promptList",
+  "mapping": {
+    "operation": "map",
+    "sourcePath": "segments",
+    "missingPolicy": "error",
+    "shape": "value",
+    "value": {
+      "type": "template",
+      "value": "请为 {{ start }}–{{ end }} 秒的片段生成画面提示词：{{ text }}"
+    },
+    "filter": {
+      "enabled": true,
+      "path": "text",
+      "operator": "notEmpty"
+    }
+  }
+}

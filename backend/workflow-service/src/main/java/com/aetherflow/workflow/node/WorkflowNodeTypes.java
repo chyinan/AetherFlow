@@ -9,6 +9,7 @@ public final class WorkflowNodeTypes {
     public static final NodeType UPLOAD = NodeType.of("UPLOAD");
     public static final NodeType FFMPEG = NodeType.of("FFMPEG");
     public static final NodeType OCR = NodeType.of("OCR");
+    public static final NodeType HTTP_REQUEST = NodeType.of("HTTP_REQUEST");
     public static final NodeType URL_FETCH = NodeType.of("URL_FETCH");
     public static final NodeType WHISPER = NodeType.of("WHISPER");
     public static final NodeType LLM = NodeType.of("LLM");
@@ -34,6 +35,7 @@ public final class WorkflowNodeTypes {
     public static final NodeType VARIABLE_AGGREGATE = NodeType.of("VARIABLE_AGGREGATE");
     public static final NodeType VARIABLE_ASSIGNER = NodeType.of("VARIABLE_ASSIGNER");
     public static final NodeType PARAMETER_EXTRACTOR = NodeType.of("PARAMETER_EXTRACTOR");
+    public static final NodeType SUBWORKFLOW = NodeType.of("SUBWORKFLOW");
     public static final NodeType MOCK = NodeType.of("MOCK");
 
     private WorkflowNodeTypes() {

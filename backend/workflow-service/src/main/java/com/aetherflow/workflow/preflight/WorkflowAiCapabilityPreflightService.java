@@ -6,6 +6,7 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.workflow.node.validation.NestedWorkflowDefinition;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest;
 import com.aetherflow.common.dto.NodeConnectionValidationResponse;
 import com.aetherflow.common.exception.BusinessException;
@@ -71,7 +72,7 @@ public class WorkflowAiCapabilityPreflightService {
     }
 
     private Set<String> validateConnections(WorkflowDefinitionDTO definition, Long userId, List<String> violations) {
-        List<NodeConnectionValidationRequest.NodeSelection> nodes = definition.getNodes().stream()
+        List<NodeConnectionValidationRequest.NodeSelection> nodes = NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .filter(node -> node != null && node.getNodeType() != null
                         && Set.of("IMAGE_GENERATION", "UPSCALE").contains(node.getNodeType().toUpperCase(Locale.ROOT)))
                 .filter(node -> node.getConfig() != null && !text(node.getConfig().get("connectionId")).isBlank())
@@ -112,7 +113,7 @@ public class WorkflowAiCapabilityPreflightService {
         }
         List<String> violations = new java.util.ArrayList<>();
         if (ocrProviderRegistry != null) {
-            definition.getNodes().stream()
+            NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                     .filter(node -> node != null && "OCR".equalsIgnoreCase(node.getNodeType()))
                     .forEach(node -> {
                         try {
@@ -122,7 +123,7 @@ public class WorkflowAiCapabilityPreflightService {
                         }
                     });
         }
-        definition.getNodes().stream()
+        NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .filter(node -> node != null && "CODE".equalsIgnoreCase(node.getNodeType()))
                 .forEach(node -> {
                     if (nodeProperties == null || !nodeProperties.isCodeExecutionEnabled()
@@ -131,7 +132,7 @@ public class WorkflowAiCapabilityPreflightService {
                                 + " (CODE): isolated code runtime is not enabled and confirmed");
                     }
                 });
-        definition.getNodes().stream()
+        NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .filter(node -> node != null && "EMBEDDING".equalsIgnoreCase(node.getNodeType()))
                 .forEach(node -> validateEmbedding(node, violations));
         return List.copyOf(violations);
