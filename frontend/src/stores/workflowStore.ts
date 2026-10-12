@@ -348,9 +348,14 @@ export const useWorkflowStore = defineStore('workflow', {
       if (!baseMatches || !nodesAreAvailable || !hasOneStart || !idsAreUnique) {
         return false
       }
+      // 先解除候选图中的 Vue 代理并整体克隆，失败时保留画布和撤销重做历史。
+      const graph = structuredClone(unwrapWorkflowCloneValue({
+        nodes: request.nodes,
+        edges: request.edges,
+      })) as WorkflowGraphHistoryEntry
       this.recordHistory()
-      this.nodes = structuredClone(request.nodes)
-      this.edges = structuredClone(request.edges)
+      this.nodes = graph.nodes
+      this.edges = graph.edges
       this.markDirty()
       return true
     },
