@@ -82,6 +82,7 @@ export function mapObservationToRunPatch(
     patch.progress = progress
   }
   if (observation.runtimeState) {
+    patch.backendStatus = observation.runtimeState
     patch.status = mapRuntimeStateToRunStatus(observation.runtimeState)
   }
   if (observation.traceId) {
