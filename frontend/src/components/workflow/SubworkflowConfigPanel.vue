@@ -10,6 +10,7 @@ const error = ref('')
 const loadingVersions = ref(false)
 const mappingErrors = ref<Record<string, string>>({})
 const drafts = ref<Record<string, string>>({})
+const pendingMappings = new Map<string, string>()
 let active = true
 let generation = 0
 let request: AbortController | null = null
@@ -19,6 +20,17 @@ const fields = [
   { name: 'inputMappings', label: '输入映射', hint: '子输入变量名 → 父变量路径，例如 {"text":"request.text"}' },
   { name: 'outputMappings', label: '输出映射', hint: '父输出变量名 → 子变量路径，例如 {"answer":"result.items[0].text"}' },
 ]
+
+for (const { name } of fields) {
+  watch(() => JSON.stringify(props.config[name] ?? {}), (value) => {
+    const isOwnUpdate = pendingMappings.get(name) === value
+    pendingMappings.delete(name)
+    // 自身保存回传保留输入格式与选区；撤销、重做等外部变更仅清除对应映射草稿。
+    if (isOwnUpdate) return
+    delete drafts.value[name]
+    delete mappingErrors.value[name]
+  })
+}
 
 onMounted(async () => {
   try {
@@ -71,6 +83,7 @@ function updateMapping(name: string, event: Event) {
       throw new Error('请输入 JSON 对象，键为变量名，值为非空源变量路径')
     }
     delete mappingErrors.value[name]
+    pendingMappings.set(name, JSON.stringify(parsed))
     emit('update', name, parsed)
   } catch (cause) {
     mappingErrors.value[name] = cause instanceof Error ? cause.message : 'JSON 格式不正确'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
 import StructuredMappingEditor from './StructuredMappingEditor.vue'
 import type { WorkflowNodeCatalogItem, WorkflowNodeConfigSchema } from '@/api/modules/node'
@@ -21,7 +21,7 @@ function add() {
   if (!item) return
   let serial = 1
   while (nodes.value.some(node => node.nodeId === `step-${serial}`)) serial++
-  const config: Record<string, unknown> = structuredClone(item?.exampleConfig ?? {})
+  const config: Record<string, unknown> = structuredClone(toRaw(item?.exampleConfig ?? {}))
   if (selectedType.value === 'WHISPER') { delete config.fileUrl; delete config.fileId; config.fileUrlVariable = 'item' }
   if (selectedType.value === 'HTTP_REQUEST') { delete config.url; delete config.bodyJson; delete config.bodyVariable; config.urlVariable = 'item'; config.method = 'GET'; config.errorStrategy = 'FAIL' }
   if (selectedType.value === 'IMAGE_GENERATION') { delete config.prompt; config.promptVariable = 'item' }
