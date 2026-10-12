@@ -33,6 +33,7 @@ export function mapRuntimeStateToRunStatus(state?: RuntimeState): RunStatus {
     case 'FAILED':
       return 'failed'
     case 'CANCELLED':
+      return 'cancelled'
     case 'WAITING':
       return 'paused'
     default:

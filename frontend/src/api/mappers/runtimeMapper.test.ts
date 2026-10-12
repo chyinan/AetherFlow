@@ -16,6 +16,11 @@ describe('runtimeMapper waiting state', () => {
     })
   })
 
+  it('取消运行映射为 cancelled 终态，不能与 WAITING 混淆', () => {
+    expect(mapRuntimeStateToRunStatus('CANCELLED')).toBe('cancelled')
+    expect(mapObservationToRunPatch({ workflowId: '101', traceId: 'trace-101', runtimeState: 'CANCELLED' })).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED' })
+  })
+
   it('maps waiting workflow to paused instead of running', () => {
     expect(mapRuntimeStateToRunStatus('WAITING')).toBe('paused')
   })

@@ -62,6 +62,25 @@ function cloneGraph(nodes: WorkflowGraphNode[], edges: WorkflowGraphEdge[]): Wor
   }
 }
 
+// 工作流的普通对象和数组可能包含显式嵌套的 Vue Proxy，单次 toRaw 不足以解除代理。
+// 保留循环引用；其他值仍交给 structuredClone 校验，不能静默丢弃不可克隆的数据。
+function unwrapWorkflowCloneValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const raw = toRaw(value)
+  if (seen.has(raw)) return seen.get(raw)
+  const prototype = Object.getPrototypeOf(raw)
+  if (!Array.isArray(raw) && prototype !== Object.prototype && prototype !== null) return raw
+  const result = Array.isArray(raw) ? new Array(raw.length) : Object.create(prototype)
+  seen.set(raw, result)
+  for (const [key, nested] of Object.entries(raw)) {
+    Object.defineProperty(result, key, {
+      value: unwrapWorkflowCloneValue(nested, seen),
+      enumerable: true, configurable: true, writable: true,
+    })
+  }
+  return result
+}
+
 let nodeCounter = 10
 let edgeCounter = 10
 let workflowLoadRequestCounter = 0
@@ -292,6 +311,11 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
     applyWorkflowDefinition(workflow: WorkflowDefinition, dirty = false) {
+      // 先完成整张图的克隆；失败时不得改变身份、画布、历史或使正在加载的请求失效。
+      const graph = structuredClone(unwrapWorkflowCloneValue({
+        nodes: workflow.nodes,
+        edges: workflow.edges,
+      })) as WorkflowGraphHistoryEntry
       workflowLoadRequestCounter += 1
       this.workflowId = workflow.id
       this.workflowName = workflow.name
@@ -299,8 +323,8 @@ export const useWorkflowStore = defineStore('workflow', {
       this.backendVersion = workflow.backendVersion ?? null
       this.createIdempotencyKey = workflow.backendDefinitionId || dirty ? null : this.createIdempotencyKey
       this.projectId = workflow.projectId ?? this.projectId ?? null
-      this.nodes = structuredClone(workflow.nodes)
-      this.edges = structuredClone(workflow.edges)
+      this.nodes = graph.nodes
+      this.edges = graph.edges
       this.historyPast = []
       this.historyFuture = []
       this.editRevision += 1
@@ -635,6 +659,8 @@ export const useWorkflowStore = defineStore('workflow', {
         if (this.editRevision === editRevisionAtStart) {
           this.markSaved()
         }
+        // 调用方只能为仍有效的成功保存执行页面收尾。
+        return { workflowId: savedWorkflow.id }
       } catch (error) {
         if (ownsSaveState()) {
           const details = error instanceof Error && error.message
