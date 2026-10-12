@@ -11,6 +11,17 @@ function render(config: Record<string, unknown> = {}) {
 }
 afterEach(() => wrappers.splice(0).forEach((wrapper) => wrapper.unmount()))
 describe('结构化映射编辑器', () => {
+  it.each([{}, { enabled: true, path: 'value', operator: 'equals' }])('缺少筛选比较值时保留空字符串默认值：%j', async (filter) => {
+    const wrapper = render({ mapping: { ...defaultMapping(), filter } })
+    await wrapper.get('[data-testid="mapping-operation"]').setValue('filter')
+    await wrapper.get('[data-testid="mapping-filter-enabled"]').setValue(true)
+    await wrapper.get('[data-testid="mapping-filter-path"]').setValue('value')
+    await wrapper.get('[data-testid="mapping-filter-operator"]').setValue('equals')
+    expect((wrapper.get('[data-testid="mapping-filter-value"]').element as HTMLInputElement).value).toBe('""')
+    await wrapper.get('[data-testid="apply-mapping"]').trigger('click')
+    expect((wrapper.emitted('apply')![0]![0] as { mapping: unknown }).mapping).toMatchObject({ filter: { value: '' } })
+  })
+
   it('载入 Whisper 示例、预览和应用，示例输入不会写入节点配置', async () => {
     const wrapper = render()
     await wrapper.get('[data-testid="whisper-example"]').trigger('click')
