@@ -20,7 +20,7 @@ function load() {
     ? props.config.mapping as Partial<MappingSpec> : {}
   const merged = { ...base, ...cloneJson(stored) }
   draft.value = { ...merged, fields: (Array.isArray(merged.fields) ? merged.fields : base.fields).map((field) => ({ ...field, ...editable(field) })),
-    value: editable(merged.value ?? base.value), filter: { ...base.filter, ...merged.filter, value: JSON.stringify(merged.filter?.value ?? '') } }
+    value: editable(merged.value ?? base.value), filter: { ...base.filter, ...merged.filter, value: JSON.stringify(merged.filter?.value === undefined ? '' : merged.filter.value) } }
   outputVariable.value = String(props.config.outputVariable ?? 'mappedValue')
   applied.value = false; preview.value = ''; previewError.value = ''
 }
