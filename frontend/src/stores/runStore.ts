@@ -78,6 +78,7 @@ export const useRunStore = defineStore('run', {
     selectionRequestId: 0,
     runsLoadRequestId: 0,
     realtimeSubscriptionId: 0,
+    realtimeRunId: null as string | null,
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
   getters: {
@@ -245,7 +246,7 @@ export const useRunStore = defineStore('run', {
       }
     },
     patchNodeState(patch: RunNodeState) {
-      if (!this.currentRun) {
+      if (!this.currentRun || isCancelledRun(this.currentRun)) {
         return
       }
       const state = this.currentRun.nodeStates.find((node) => node.nodeId === patch.nodeId)
@@ -424,19 +425,37 @@ export const useRunStore = defineStore('run', {
       if (!run || !instanceId || !Number.isInteger(instanceId) || instanceId <= 0) {
         return false
       }
+      const runId = run.id
       await cancelWorkflowInstance(instanceId)
-      this.patchCurrentRun({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
-      stopRealtime?.()
-      stopRealtime = null
+      const runInList = this.runs.find((item) => item.id === runId)
+      const currentRun = this.currentRun?.id === runId ? this.currentRun : null
+      // 刷新列表可能先于详情得到终态，迟到的取消确认也不能覆盖它。
+      if ((runInList && isTerminalRunStatus(runInList.status))
+        || (currentRun && isTerminalRunStatus(currentRun.status))) {
+        return true
+      }
+      const patch: Partial<WorkflowRun> = { status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 }
+      // 按目标分别修改取消字段，保留列表与详情各自较新的节点、耗时等数据。
+      for (const target of [runInList, currentRun]) {
+        if (target && !isCancelledRun(target)) {
+          Object.assign(target, patch)
+        }
+      }
+      if (currentRun && isCancelledRun(currentRun) && this.realtimeRunId === runId) {
+        this.stopRunRealtime()
+      }
       return true
     },
     async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {
       const targetRun = this.currentRun
       const expectedRunId = options.expectedRunId ?? targetRun?.id
+      // 只丢弃跨越取消完成的旧恢复；之后主动读取已取消运行仍可补齐历史日志。
+      const wasCancelled = Boolean(targetRun && isCancelledRun(targetRun))
       const isCurrentTarget = () => Boolean(
         targetRun
         && expectedRunId
         && this.currentRun?.id === expectedRunId
+        && (wasCancelled || !isCancelledRun(this.currentRun))
         && (options.selectionRequestId === undefined || this.selectionRequestId === options.selectionRequestId),
       )
       if (!targetRun || !expectedRunId || !runtimeWorkflowIdFromRun(targetRun)) {
@@ -482,9 +501,15 @@ export const useRunStore = defineStore('run', {
       if (!this.currentRun) {
         return
       }
+      // 选择流程中的日志或恢复请求可能晚于取消完成，不能重新打开已取消运行的订阅。
+      if (isCancelledRun(this.currentRun)) {
+        this.stopRunRealtime()
+        return
+      }
       stopRealtime?.()
       const realtimeSubscriptionId = ++this.realtimeSubscriptionId
       const subscribedRunId = this.currentRun.id
+      this.realtimeRunId = subscribedRunId
       const subscribedRuntimeWorkflowId = runtimeWorkflowIdFromRun(this.currentRun)
       const isCurrentSubscription = () =>
         this.realtimeSubscriptionId === realtimeSubscriptionId
@@ -514,11 +539,16 @@ export const useRunStore = defineStore('run', {
         },
       })
     },
-    stopRealtime() {
+    stopRunRealtime() {
       this.realtimeSubscriptionId += 1
-      stopRealtime?.()
+      const stop = stopRealtime
       stopRealtime = null
+      this.realtimeRunId = null
       this.runRealtimeState = 'offline'
+      stop?.()
+    },
+    stopRealtime() {
+      this.stopRunRealtime()
       useUiStore().stopNotificationStream()
     },
   },
