@@ -1,6 +1,11 @@
 // pattern: Functional Core
 export const nodeConnectionMessages = {
   'zh-CN': {
+    savePending: '正在保存连接“{name}”。关闭向导只停止自动应用，保存请求仍会继续；请等待结果，不要重复创建。',
+    savedWithoutApply: '连接“{name}”已保存到连接列表，但未应用到节点。可从列表中选择使用。',
+    updatedWithoutApply: '连接“{name}”已更新，未自动切换当前节点的连接。已引用此连接的节点会使用更新后的地址。',
+    saveFailed: '连接“{name}”保存失败：{error}。节点配置已保留。',
+    closeWhileSaving: '关闭（保存继续）',
     workflow: '工作流对象（workflow）', workflowJson: '导入工作流（workflowJson）',
     syncProvider: '同步此连接 Provider',
     mode: '生成模式', checklistTitle: '运行前检查清单',
@@ -49,6 +54,11 @@ export const nodeConnectionMessages = {
     status: { unconfigured: '未配置', unreachable: '无法连接', missing_model: '缺少必要选项或模型', usable: '连接可用' },
   },
   'en-US': {
+    savePending: 'Saving connection “{name}”. Closing only stops automatic application; the save will continue. Wait for the result before creating another connection.',
+    savedWithoutApply: 'Connection “{name}” was saved to the connection list but was not applied to a node. Select it from the list to use it.',
+    updatedWithoutApply: 'Connection “{name}” was updated without switching the current node’s connection. Nodes already using this connection will use its updated address.',
+    saveFailed: 'Connection “{name}” could not be saved: {error}. Node settings were kept.',
+    closeWhileSaving: 'Close (save continues)',
     workflow: 'Workflow object (workflow)', workflowJson: 'Imported workflow (workflowJson)',
     syncProvider: 'Sync this connection’s provider',
     mode: 'Generation mode', checklistTitle: 'Pre-run checklist',
@@ -97,6 +107,11 @@ export const nodeConnectionMessages = {
     status: { unconfigured: 'Unconfigured', unreachable: 'Unreachable', missing_model: 'Required option or model missing', usable: 'Connection usable' },
   },
   'ja-JP': {
+    savePending: '接続「{name}」を保存中です。閉じると自動適用だけが停止し、保存は続行します。重複作成せず結果をお待ちください。',
+    savedWithoutApply: '接続「{name}」は接続一覧に保存されましたが、ノードには適用されていません。一覧から選択して使用できます。',
+    updatedWithoutApply: '接続「{name}」を更新しました。現在のノードの接続は切り替えていません。この接続を使用中のノードには更新後のアドレスが反映されます。',
+    saveFailed: '接続「{name}」の保存に失敗しました：{error}。ノード設定は保持されています。',
+    closeWhileSaving: '閉じる（保存は続行）',
     workflow: 'ワークフローオブジェクト（workflow）', workflowJson: 'インポートしたワークフロー（workflowJson）',
     syncProvider: 'この接続の Provider を同期',
     mode: '生成モード', checklistTitle: '実行前チェックリスト',

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import {
-  createNodeConnection, getNodeConnections, probeNodeConnection, probeSavedNodeConnection, updateNodeConnection,
+  probeNodeConnection, probeSavedNodeConnection,
   type ImageCatalog, type ImageConnectionNodeType, type ImageConnectionProvider, type NodeConnection, type NodeConnectionProbe,
 } from '@/api/modules/nodeConnections'
 import { toApiError } from '@/api/client/apiError'
+import { useNodeConnectionStore } from '@/stores/nodeConnectionStore'
 import { nodeConnectionMessages } from './nodeConnectionMessages'
 import { buildNodeConnectionChecklist, connectionCatalogOptions, isKnownConnectionCatalog, type ConnectionChecklistIssue } from './nodeConnectionChecklist'
 
@@ -18,10 +20,9 @@ const emit = defineEmits<{
   locateConfig: [field: string, nodeId: string]
 }>()
 const { t } = useI18n({ useScope: 'local', messages: nodeConnectionMessages })
-const connections = ref<NodeConnection[]>([])
-const loading = ref(false)
-const listError = ref('')
-const ready = ref(false)
+const connectionStore = useNodeConnectionStore()
+const { connections, loading, ready, loadError, pendingSave, saveOutcome } = storeToRefs(connectionStore)
+const listError = computed(() => loadError.value ? errorMessage(loadError.value) : '')
 const selectedProbe = ref<NodeConnectionProbe | null>(null)
 const selectedError = ref('')
 const probing = ref(false)
@@ -31,11 +32,10 @@ const form = reactive({ name: '', provider: 'COMFYUI' as ImageConnectionProvider
 const formProbe = ref<NodeConnectionProbe | null>(null)
 const formError = ref('')
 const testing = ref(false)
-const saving = ref(false)
+const saving = computed(() => Boolean(pendingSave.value))
 const nameInput = ref<HTMLInputElement | null>(null)
 const selectorRoot = ref<HTMLElement | null>(null)
 const selectedCancelled = ref(false)
-let listSequence = 0
 let selectedSequence = 0
 let formSequence = 0
 let alive = true
@@ -69,6 +69,14 @@ const formChecklist = computed(() => buildNodeConnectionChecklist({
 function errorMessage(cause: unknown) {
   return toApiError(cause, 'ai').message || t('failed')
 }
+const saveFeedback = computed(() => {
+  if (pendingSave.value) return t('savePending', { name: pendingSave.value.name })
+  const outcome = saveOutcome.value
+  if (!outcome) return ''
+  if (outcome.status === 'failed') return t('saveFailed', { name: outcome.name, error: errorMessage(outcome.cause) })
+  if (outcome.applied) return ''
+  return t(outcome.edited ? 'updatedWithoutApply' : 'savedWithoutApply', { name: outcome.connection.name })
+})
 function knownCatalog(catalog: ImageCatalog, result = selectedProbe.value) {
   return isKnownConnectionCatalog(result, catalog)
 }
@@ -139,7 +147,6 @@ function invalidateForm() {
   formProbe.value = null
   formError.value = ''
   testing.value = false
-  saving.value = false
 }
 function close(restoreFocus = true) {
   open.value = false
@@ -151,6 +158,7 @@ function close(restoreFocus = true) {
   if (restoreFocus) opener?.focus()
 }
 async function showWizard(connection?: NodeConnection) {
+  if (!alive || saving.value) return
   close(false)
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
   editingId.value = connection?.id ?? null
@@ -171,6 +179,7 @@ function validateForm(requireName: boolean) {
   return ''
 }
 async function testForm() {
+  if (!alive || !open.value || saving.value) return
   const error = validateForm(false)
   invalidateForm()
   if (error) { formError.value = error; return }
@@ -187,34 +196,23 @@ async function testForm() {
   }
 }
 async function save() {
-  if (saving.value || testing.value || formProbe.value?.status !== 'usable') return
+  if (!alive || !open.value || saving.value || testing.value || formProbe.value?.status !== 'usable') return
   const error = validateForm(true)
   if (error) { formError.value = error; return }
   const sequence = formSequence
   const nodeId = props.nodeId
   const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim() }
   const id = editingId.value
-  saving.value = true
   formError.value = ''
   try {
-    const connection = id ? await updateNodeConnection(id, payload) : await createNodeConnection(payload)
-    // 显式保存可以完成，但关闭、切换节点或离开页面后不能将结果应用到新节点。
-    if (!alive || !open.value || sequence !== formSequence || nodeId !== props.nodeId) return
-    // 保存确认的新记录不能被打开面板时尚未返回的旧目录覆盖。
-    listSequence += 1
-    ready.value = true
-    loading.value = false
-    listError.value = ''
-    connections.value = [...connections.value.filter((item) => item.id !== connection.id), connection]
-    emit('apply', { connectionId: connection.id, provider: connection.provider }, props.nodeId)
-    emit('saved')
+    const connection = await connectionStore.saveConnection(payload, id)
+    // 目录保存已完成；仅仍有效的原向导可以把连接应用到它发起时的节点。
+    if (!connection || !alive || !open.value || sequence !== formSequence || nodeId !== props.nodeId) return
+    emit('apply', { connectionId: connection.id, provider: connection.provider }, nodeId)
+    connectionStore.markApplied(connection.id)
     close()
-    // 同 ID 编辑地址或服务目录时，也必须清除旧探测，不能只依赖节点配置变化。
-    if (connection.id === effectiveId.value) void refreshSelected()
   } catch (cause) {
     if (alive && open.value && sequence === formSequence && nodeId === props.nodeId) formError.value = errorMessage(cause)
-  } finally {
-    if (alive && sequence === formSequence) saving.value = false
   }
 }
 async function refreshSelected() {
@@ -237,33 +235,22 @@ async function refreshSelected() {
   }
 }
 async function loadConnections() {
-  const sequence = ++listSequence
-  ready.value = false
-  loading.value = true
-  listError.value = ''
   selectedSequence += 1
   selectedProbe.value = null
   selectedError.value = ''
   selectedCancelled.value = false
   probing.value = false
-  try {
-    const result = await getNodeConnections()
-    if (!alive || sequence !== listSequence) return
-    connections.value = result.connections
-    ready.value = true
-    void refreshSelected()
-  } catch (cause) {
-    if (alive && sequence === listSequence) listError.value = errorMessage(cause)
-  } finally {
-    if (alive && sequence === listSequence) loading.value = false
-  }
+  if (await connectionStore.loadConnections() && alive) void refreshSelected()
 }
 function chooseConnection(event: Event) {
   const id = (event.target as HTMLSelectElement).value
   close()
   if (!id) { emit('apply', { connectionId: undefined, provider: provider.value }, props.nodeId); return }
   const connection = connections.value.find((item) => item.id === id)
-  if (connection) emit('apply', { connectionId: connection.id, provider: connection.provider }, props.nodeId)
+  if (connection) {
+    emit('apply', { connectionId: connection.id, provider: connection.provider }, props.nodeId)
+    connectionStore.markApplied(connection.id)
+  }
 }
 function chooseDefaultProvider(event: Event) {
   close()
@@ -281,7 +268,13 @@ function trapFocus(event: KeyboardEvent) {
 watch(() => [form.provider, form.baseUrl], () => { if (open.value) invalidateForm() }, { flush: 'sync' })
 watch(() => [props.nodeId, props.nodeType], () => { close(false); void loadConnections() }, { immediate: true, flush: 'sync' })
 watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'sync' })
-onBeforeUnmount(() => { alive = false; listSequence += 1; selectedSequence += 1; close(false) })
+watch(saveOutcome, (outcome) => {
+  if (outcome?.status !== 'saved') return
+  emit('saved')
+  // 同 ID 编辑也要刷新当前探测；保存期间换到该连接的节点同样需要新目录。
+  if (outcome.connection.id === effectiveId.value) void refreshSelected()
+})
+onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
 </script>
 
 <template>
@@ -303,12 +296,13 @@ onBeforeUnmount(() => { alive = false; listSequence += 1; selectedSequence += 1;
     <p class="text-xs leading-5 text-text-muted">{{ t('deploymentHint') }}</p>
     <p v-if="selectedConnection" class="break-all text-xs text-text-secondary">{{ selectedConnection.provider }} · {{ selectedConnection.baseUrl }}</p>
     <div class="flex flex-wrap gap-2">
-      <button data-testid="add-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white" @click="showWizard()">{{ t('add') }}</button>
-      <button v-if="selectedConnection && !selectedConnection.readOnly" data-testid="edit-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs" @click="showWizard(selectedConnection)">{{ t('edit') }}</button>
+      <button data-testid="add-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" :disabled="saving" @click="showWizard()">{{ t('add') }}</button>
+      <button v-if="selectedConnection && !selectedConnection.readOnly" data-testid="edit-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="saving" @click="showWizard(selectedConnection)">{{ t('edit') }}</button>
       <button data-testid="refresh-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="probing || loading || missingConnection" @click="ready ? refreshSelected() : loadConnections()">{{ probing ? t('testing') : t('refresh') }}</button>
       <button v-if="probing" data-testid="cancel-current-test" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs" @click="cancelSelectedProbe">{{ t('cancelTest') }}</button>
     </div>
     <p v-if="loading" role="status" class="text-xs text-text-muted">{{ t('loading') }}</p>
+    <p v-if="saveFeedback" data-testid="connection-save-status" :role="saveOutcome?.status === 'failed' ? 'alert' : 'status'" class="text-xs leading-5" :class="saveOutcome?.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ saveFeedback }}</p>
     <p v-if="selectedCancelled" role="status" class="text-xs text-text-muted">{{ t('testCancelled') }}</p>
     <p v-if="listError" role="alert" class="text-xs text-status-error">{{ listError }}</p>
     <p v-if="missingConnection" data-testid="missing-connection" role="alert" class="text-xs leading-5 text-status-error">{{ t('missingConnection') }}</p>
@@ -378,6 +372,7 @@ onBeforeUnmount(() => { alive = false; listSequence += 1; selectedSequence += 1;
           <label class="block text-sm font-medium">{{ t('provider') }}<select v-model="form.provider" data-testid="connection-provider" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving"><option value="COMFYUI">ComfyUI</option><option value="STABLE_DIFFUSION_WEBUI">Stable Diffusion WebUI</option></select></label>
           <label class="block text-sm font-medium">{{ t('url') }}<input v-model="form.baseUrl" data-testid="connection-url" type="url" placeholder="http://service-host:8188" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving" autocomplete="off" spellcheck="false" /></label>
           <p class="text-xs leading-5 text-text-muted">{{ t('noCredentials') }}</p><p class="text-xs leading-5 text-text-muted">{{ t('scope') }}</p>
+          <p v-if="saving" role="status" class="text-xs leading-5 text-text-secondary">{{ t('savePending', { name: pendingSave?.name }) }}</p>
           <p v-if="formError" data-testid="form-error" role="alert" class="text-sm text-status-error">{{ formError }}</p>
           <div v-if="formProbe" data-testid="form-status" class="space-y-2 rounded-lg bg-app-bg2 p-3 text-xs leading-5">
             <p class="font-semibold" :class="formProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'">{{ t(`status.${formProbe.status}`) }}</p><p>{{ formProbe.message }}</p><p class="text-text-muted">{{ t('backend') }}</p>
@@ -393,7 +388,7 @@ onBeforeUnmount(() => { alive = false; listSequence += 1; selectedSequence += 1;
           </div>
           <p v-if="formProbe?.status !== 'usable'" class="text-xs text-text-muted">{{ t('testRequired') }}</p>
           <div class="flex flex-wrap justify-end gap-2 border-t border-app-border pt-4">
-            <button data-testid="cancel-connection" type="button" class="rounded-lg border border-app-border px-3 py-2 text-sm" @click="close()">{{ t('cancel') }}</button>
+            <button data-testid="cancel-connection" type="button" class="rounded-lg border border-app-border px-3 py-2 text-sm" @click="close()">{{ saving ? t('closeWhileSaving') : t('cancel') }}</button>
             <button data-testid="test-connection" type="button" class="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-50" :disabled="testing || saving" @click="testForm">{{ testing ? t('testing') : t('test') }}</button>
             <button data-testid="save-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" :disabled="saving || testing || formProbe?.status !== 'usable'" @click="save">{{ saving ? t('saving') : t('save') }}</button>
           </div>
