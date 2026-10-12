@@ -60,6 +60,63 @@ function isCancelledRun(run: WorkflowRun | Partial<WorkflowRun>) {
   return run.backendStatus === 'CANCELLED'
 }
 
+function definedFields<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as Partial<T>
+}
+
+function isNodeOutputSummary(output?: string) {
+  return Boolean(output && (/^(NODE|WORKFLOW)_[A-Z_]+$/.test(output)
+    || /^(idle|queued|pending|running|retrying|waiting|paused|success|failed|cancelled|skipped)$/i.test(output)))
+}
+
+function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveCurrent = false): WorkflowRun {
+  const currentTerminal = isTerminalRunStatus(current.status) || isCancelledRun(current)
+  const incomingTerminal = isTerminalRunStatus(incoming.status) || isCancelledRun(incoming)
+  // WAITING 摘要使用 100% 占位；真正恢复运行时允许更新为实际进度。
+  const resumesFromWaiting = current.status === 'paused' && incoming.status === 'running'
+  // 列表请求发出后收到的运行更新，以及已经确认的终态，不能被旧 HTTP 快照覆盖。
+  if (preserveCurrent || (currentTerminal && (
+    current.status !== incoming.status || isCancelledRun(current) !== isCancelledRun(incoming)
+  )) || (!incomingTerminal && !resumesFromWaiting && incoming.progress < current.progress)) {
+    return current
+  }
+
+  const nodes = new Map(current.nodeStates.map((node) => [node.nodeId, node]))
+  for (const node of incoming.nodeStates) {
+    const existing = nodes.get(node.nodeId)
+    if (!existing) {
+      nodes.set(node.nodeId, node)
+      continue
+    }
+    if (isTerminalNodeStatus(existing.status) && existing.status !== node.status) {
+      continue
+    }
+    const merged = { ...existing, ...definedFields(node) }
+    // NODE_STARTED 等占位摘要不能擦除详细输出，但 HTTP 中的真实新属性仍可更新。
+    if (existing.output && !isNodeOutputSummary(existing.output) && isNodeOutputSummary(node.output)) {
+      merged.output = existing.output
+    }
+    if (node.label === node.nodeId) merged.label = existing.label
+    if (existing.durationMs !== undefined) merged.durationMs = Math.max(existing.durationMs, node.durationMs ?? 0)
+    if (merged.status !== 'paused' && merged.approval?.approvalStatus === 'pending') merged.approval = undefined
+    nodes.set(node.nodeId, merged)
+  }
+  // 列表只包含摘要，缺省字段和空数组不能抹掉实时恢复的详情。
+  return {
+    ...current,
+    ...definedFields(incoming),
+    runtimeWorkflowId: incoming.runtimeWorkflowId === String(incoming.backendInstanceId)
+      ? current.runtimeWorkflowId ?? incoming.runtimeWorkflowId
+      : incoming.runtimeWorkflowId ?? current.runtimeWorkflowId,
+    traceId: incoming.traceId === `trace-${incoming.backendInstanceId}` ? current.traceId : incoming.traceId,
+    progress: currentTerminal ? Math.max(current.progress, incoming.progress) : incoming.progress,
+    durationMs: Math.max(current.durationMs, incoming.durationMs),
+    nodeStates: [...nodes.values()],
+    artifactCount: Math.max(current.artifactCount, incoming.artifactCount),
+    artifactNames: [...new Set([...current.artifactNames, ...incoming.artifactNames])],
+  }
+}
+
 type RunRecoveryOptions = {
   readonly expectedRunId?: string
   readonly selectionRequestId?: number
@@ -77,6 +134,7 @@ export const useRunStore = defineStore('run', {
     initialized: false,
     selectionRequestId: 0,
     runsLoadRequestId: 0,
+    runUpdateVersions: {} as Record<string, number>,
     realtimeSubscriptionId: 0,
     realtimeRunId: null as string | null,
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
@@ -127,24 +185,45 @@ export const useRunStore = defineStore('run', {
       }
       this.loading = true
       this.error = null
+      const updateVersions = { ...this.runUpdateVersions }
       try {
         const loadedRuns = await runApi.listRuns()
         if (!isCurrentLoad()) {
           return
         }
-        this.runs = loadedRuns
+        const currentRuns = new Map(this.runs.map((run) => [run.id, run]))
+        if (this.currentRun) {
+          const listedRun = currentRuns.get(this.currentRun.id)
+          currentRuns.set(this.currentRun.id, listedRun
+            ? mergeRunSnapshot(listedRun, this.currentRun)
+            : this.currentRun)
+        }
+        this.runs = loadedRuns.map((run) => {
+          const current = currentRuns.get(run.id)
+          return current ? mergeRunSnapshot(current, run,
+            (updateVersions[run.id] ?? 0) !== (this.runUpdateVersions[run.id] ?? 0)) : run
+        })
+        if (this.currentRun) {
+          this.currentRun = this.runs.find((run) => run.id === this.currentRun?.id) ?? this.currentRun
+          if (isCancelledRun(this.currentRun) && this.realtimeRunId === this.currentRun.id) {
+            this.stopRunRealtime()
+          }
+        }
         if (selectDefault) {
           const selectedRun = this.currentRun ?? this.runs[0] ?? null
+          const selectionRequestId = this.selectionRequestId
+          const retainedLogs = this.currentRun?.id === selectedRun?.id ? this.logs : []
           this.currentRun = selectedRun
           this.logsLoading = Boolean(selectedRun)
-          this.logs = []
+          this.logs = retainedLogs
           const selectedLogs = selectedRun ? await runApi.getLogs(selectedRun.id) : []
-          if (!isCurrentLoad() || this.currentRun?.id !== selectedRun?.id) {
+          if (!isCurrentLoad() || this.selectionRequestId !== selectionRequestId || this.currentRun?.id !== selectedRun?.id) {
             return
           }
-          this.logs = selectedLogs
+          // 请求期间的实时日志优先，同 ID 日志去重后保留完整的历史与当前详情。
+          this.logs = mergeLogs(selectedLogs, this.logs)
           if (selectedRun) {
-            this.logsByRunId[selectedRun.id] = selectedLogs
+            this.logsByRunId[selectedRun.id] = this.logs
           }
           this.logsLoading = false
         }
@@ -257,6 +336,7 @@ export const useRunStore = defineStore('run', {
       const normalizedPatch = patch.approval || patch.status === 'paused'
         ? patch
         : { ...patch, approval: undefined }
+      this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       if (state) {
         Object.assign(state, normalizedPatch.label === patch.nodeId
           ? { ...normalizedPatch, label: state.label }
@@ -264,15 +344,18 @@ export const useRunStore = defineStore('run', {
       } else {
         this.currentRun.nodeStates.push(normalizedPatch)
       }
-      const completed = this.currentRun.nodeStates.filter((node) => ['success', 'failed', 'skipped'].includes(node.status)).length
-      this.currentRun.progress = Math.round((completed / Math.max(this.currentRun.nodeStates.length, 1)) * 100)
-      if (this.currentRun.nodeStates.some((node) => node.status === 'failed')) {
-        this.currentRun.status = 'failed'
-      } else if (this.currentRun.progress >= 100) {
-        this.currentRun.status = 'success'
-        refreshArtifactsForRun(this.currentRun.id)
-      } else if (this.currentRun.nodeStates.some((node) => node.status === 'running')) {
-        this.currentRun.status = 'running'
+      // 后端确认终态后，节点只能补齐详情；尚未恢复完整的节点局部推导结果仍需重新计算。
+      if (this.currentRun.backendStatus !== 'SUCCESS' && this.currentRun.backendStatus !== 'FAILED') {
+        const completed = this.currentRun.nodeStates.filter((node) => ['success', 'failed', 'skipped'].includes(node.status)).length
+        this.currentRun.progress = Math.round((completed / Math.max(this.currentRun.nodeStates.length, 1)) * 100)
+        if (this.currentRun.nodeStates.some((node) => node.status === 'failed')) {
+          this.currentRun.status = 'failed'
+        } else if (this.currentRun.progress >= 100) {
+          this.currentRun.status = 'success'
+          refreshArtifactsForRun(this.currentRun.id)
+        } else if (this.currentRun.nodeStates.some((node) => node.status === 'running')) {
+          this.currentRun.status = 'running'
+        }
       }
       const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
       if (runInList) {
@@ -295,6 +378,7 @@ export const useRunStore = defineStore('run', {
         || (patch.backendStatus && this.currentRun.backendStatus !== patch.backendStatus))) {
         return
       }
+      this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       Object.assign(this.currentRun, patch)
       const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
       if (runInList) {
@@ -438,6 +522,7 @@ export const useRunStore = defineStore('run', {
       // 按目标分别修改取消字段，保留列表与详情各自较新的节点、耗时等数据。
       for (const target of [runInList, currentRun]) {
         if (target && !isCancelledRun(target)) {
+          this.runUpdateVersions[runId] = (this.runUpdateVersions[runId] ?? 0) + 1
           Object.assign(target, patch)
         }
       }

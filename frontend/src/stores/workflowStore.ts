@@ -227,6 +227,7 @@ export const useWorkflowStore = defineStore('workflow', {
     loadingError: null as string | null,
     saving: false,
     savingError: null as string | null,
+    workflowSaveRequestSequence: 0,
     runError: null as string | null,
     historyPast: [] as WorkflowGraphHistoryEntry[],
     historyFuture: [] as WorkflowGraphHistoryEntry[],
@@ -298,6 +299,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.editRevision += 1
       this.dirty = dirty
       this.loadingError = null
+      this.saving = false
       this.savingError = null
       this.runError = null
     },
@@ -494,6 +496,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.dirty = false
       this.loading = false
       this.loadingError = null
+      this.saving = false
       this.savingError = null
       this.runError = null
       this.historyPast = []
@@ -540,6 +543,9 @@ export const useWorkflowStore = defineStore('workflow', {
       const requestId = ++workflowLoadRequestCounter
       this.loading = true
       this.loadingError = null
+      // 导航开始即解除旧工作流的保存反馈，加载失败也不能留下旧的忙碌状态。
+      this.saving = false
+      this.savingError = null
       try {
         const workflow = await workflowApi.getWorkflow(workflowId)
         if (requestId !== workflowLoadRequestCounter) {
@@ -554,6 +560,9 @@ export const useWorkflowStore = defineStore('workflow', {
         const nextNodes = structuredClone(workflow.nodes)
         const nextEdges = structuredClone(workflow.edges)
 
+        // 加载期间仍可能保存旧画布，替换内容时必须一并失效这类请求。
+        this.workflowSaveRequestSequence += 1
+        this.saving = false
         this.workflowId = workflow.id
         this.workflowName = nextWorkflowName
         this.backendDefinitionId = nextBackendDefinitionId
@@ -586,6 +595,10 @@ export const useWorkflowStore = defineStore('workflow', {
     async saveCurrentWorkflow(options: { allowMockFallback?: boolean; projectId?: number } = {}) {
       const editRevisionAtStart = this.editRevision
       const loadRequestAtStart = workflowLoadRequestCounter
+      const saveRequestId = ++this.workflowSaveRequestSequence
+      // 导航代次隔离工作流，同代重叠保存由最新请求独占反馈与元数据写回。
+      const ownsSaveState = () => loadRequestAtStart === workflowLoadRequestCounter
+        && saveRequestId === this.workflowSaveRequestSequence
       this.saving = true
       this.savingError = null
       try {
@@ -601,7 +614,7 @@ export const useWorkflowStore = defineStore('workflow', {
           edges: this.edges,
           backendVersion: this.backendVersion ?? undefined,
         }, { ...options, idempotencyKey: this.createIdempotencyKey ?? undefined })
-        if (loadRequestAtStart !== workflowLoadRequestCounter) {
+        if (!ownsSaveState()) {
           return
         }
         this.workflowId = savedWorkflow.id
@@ -616,13 +629,17 @@ export const useWorkflowStore = defineStore('workflow', {
           this.markSaved()
         }
       } catch (error) {
-        const details = error instanceof Error && error.message
-          ? error.message
-          : i18n.global.t('workflow.saveFailedUnknown')
-        this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`
+        if (ownsSaveState()) {
+          const details = error instanceof Error && error.message
+            ? error.message
+            : i18n.global.t('workflow.saveFailedUnknown')
+          this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`
+        }
         throw error
       } finally {
-        this.saving = false
+        if (ownsSaveState()) {
+          this.saving = false
+        }
       }
     },
   },

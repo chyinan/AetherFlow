@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ getNodeConnections: vi.fn(), createNodeConnection: vi.fn(), updateNodeConnection: vi.fn(), probeNodeConnection: vi.fn(), probeSavedNodeConnection: vi.fn() }))
 vi.mock('@/api/modules/nodeConnections', () => mocks)
@@ -31,6 +32,7 @@ async function testForm(wrapper: VueWrapper) { await wrapper.get('[data-testid="
 
 describe('节点连接向导', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     vi.resetAllMocks()
     mocks.getNodeConnections.mockResolvedValue({ connections: [deployment, saved, sd] })
     mocks.probeSavedNodeConnection.mockResolvedValue(probe()); mocks.probeNodeConnection.mockResolvedValue(probe())
