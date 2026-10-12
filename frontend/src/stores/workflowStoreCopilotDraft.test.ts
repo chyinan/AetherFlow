@@ -1,3 +1,4 @@
+import { reactive, toRaw } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,7 +13,7 @@ vi.mock('@/services/api/workflowApi', () => ({
 }))
 
 import { nodeTemplates } from '@/services/mock/workflowMock'
-import type { WorkflowGraphNode } from '@/types/workflow'
+import type { WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { useWorkflowStore } from './workflowStore'
 
 function startNode(id: string, x = 0): WorkflowGraphNode {
@@ -114,5 +115,80 @@ describe('Copilot draft revision guard', () => {
     expect(store.canRedo).toBe(true)
     expect(store.redo()).toBe(true)
     expect(store.nodes[0].id).toBe('replacement')
+  })
+})
+
+
+describe('Copilot 代理图克隆与失败原子性', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+
+  function setupDraft() {
+    const store = useWorkflowStore()
+    store.applyWorkflowDefinition({
+      id: 'draft', name: '原画布', nodes: [startNode('original')], edges: [],
+    })
+    const request = () => ({
+      baseWorkflowId: store.workflowId,
+      baseEditRevision: store.editRevision,
+      baseDefinitionId: store.backendDefinitionId,
+      baseVersion: store.backendVersion,
+      nodes: [startNode('replacement')],
+      edges: [] as WorkflowGraphEdge[],
+    })
+    return { store, request }
+  }
+
+  it('解除数组和显式嵌套代理，保留克隆类型、循环和跨节点边共享关系', () => {
+    const { store, request } = setupDraft()
+    const shared = reactive({ value: 1 })
+    const cycle: Record<string, unknown> = { shared }
+    cycle.self = cycle
+    const config = reactive({
+      shared, cycle, date: new Date('2026-10-12T00:00:00Z'),
+      map: new Map([['key', 3]]), set: new Set([4]), bytes: new Uint8Array([5, 6]),
+    })
+    const draft = request()
+    draft.nodes[0]!.data.config = config
+    const edge: WorkflowGraphEdge & { data: { shared: typeof shared } } = {
+      id: 'edge', source: 'replacement', target: 'replacement', data: { shared },
+    }
+    draft.edges = [edge]
+    expect(store.applyCopilotWorkflowDraft(reactive(draft))).toBe(true)
+    const cloned = toRaw(store.nodes[0]!.data.config) as typeof config
+    expect(cloned.date).toEqual(config.date)
+    expect(cloned.map).toEqual(config.map)
+    expect(cloned.set).toEqual(config.set)
+    expect(cloned.bytes).toEqual(config.bytes)
+    expect(cloned.cycle.self).toBe(cloned.cycle)
+    expect(cloned.cycle.shared).toBe(cloned.shared)
+    expect(toRaw((store.edges[0]! as typeof edge).data).shared).toBe(cloned.shared)
+    shared.value = 99
+    expect(cloned.shared.value).toBe(1)
+    expect(store.undo()).toBe(true)
+    expect(store.nodes[0]!.id).toBe('original')
+    expect(store.redo()).toBe(true)
+    expect(store.nodes[0]!.id).toBe('replacement')
+  })
+
+  it.each(['nodes', 'edges'] as const)('%s 不可克隆时保留全部状态和重做历史，随后可恢复应用', (part) => {
+    const { store, request } = setupDraft()
+    expect(store.applyCopilotWorkflowDraft(request())).toBe(true)
+    expect(store.undo()).toBe(true)
+    const before = structuredClone(toRaw(store.$state))
+    const draft = request()
+    if (part === 'nodes') draft.nodes[0]!.data.config = { unsupported: () => undefined }
+    else {
+      const edge = { id: 'edge', source: 'replacement', target: 'replacement', unsupported: () => undefined }
+      draft.edges = [edge]
+    }
+    expect(() => store.applyCopilotWorkflowDraft(draft)).toThrow()
+    expect(store.$state).toEqual(before)
+    expect(store.canRedo).toBe(true)
+    expect(store.redo()).toBe(true)
+    expect(store.undo()).toBe(true)
+    expect(store.applyCopilotWorkflowDraft(request())).toBe(true)
+    expect(store.nodes[0]!.id).toBe('replacement')
+    expect(store.historyPast).toHaveLength(1)
+    expect(store.historyFuture).toHaveLength(0)
   })
 })
