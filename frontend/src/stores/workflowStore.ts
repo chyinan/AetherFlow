@@ -73,6 +73,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Partial<Record<string, WorkflowNodeKind>> = {
   UPSCALE: 'upscale',
   SAVE_IMAGE: 'save-image',
   URL_FETCH: 'url-fetch',
+  HTTP_REQUEST: 'http-request',
   UPLOAD: 'upload',
   FFMPEG: 'ffmpeg',
   WHISPER: 'whisper',
@@ -92,6 +93,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Partial<Record<string, WorkflowNodeKind>> = {
   HUMAN: 'human',
   ITERATION: 'iteration',
   LOOP: 'loop',
+  SUBWORKFLOW: 'subworkflow',
   CODE: 'code',
   TEMPLATE_TRANSFORM: 'template-transform',
   VARIABLE_AGGREGATE: 'variable-aggregate',
@@ -114,6 +116,7 @@ const RECOMMENDED_BACKEND_TYPES = new Set([
   'START',
   'UPLOAD',
   'URL_FETCH',
+  'HTTP_REQUEST',
   'OCR',
   'EMBEDDING',
   'KNOWLEDGE_RETRIEVAL',
@@ -131,7 +134,11 @@ function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition
   }
 }
 
-function branchLabelForConnection(source: Readonly<WorkflowGraphNode>, outgoingCount: number) {
+function branchLabelForConnection(source: Readonly<WorkflowGraphNode>, outgoingCount: number, outgoingLabels: unknown[] = []) {
+  if (source.data.kind === 'http-request' && String(source.data.config.errorStrategy).toUpperCase() === 'BRANCH') {
+    const used = new Set(outgoingLabels.map((label) => String(label ?? '').trim().toLowerCase()))
+    return ['success', 'error'].find((label) => !used.has(label))
+  }
   if (source.data.kind !== 'condition') {
     return source.data.outputs[0]
   }
@@ -368,7 +375,7 @@ export const useWorkflowStore = defineStore('workflow', {
         ...connection,
         id: `edge-${edgeCounter++}`,
         animated: true,
-        label: source ? branchLabelForConnection(source, outgoingCount) : undefined,
+        label: source ? branchLabelForConnection(source, outgoingCount, this.edges.filter((edge) => edge.source === source.id).map((edge) => edge.label)) : undefined,
       })
       this.markDirty()
     },
@@ -412,7 +419,7 @@ export const useWorkflowStore = defineStore('workflow', {
         source: source.id,
         target: node.id,
         animated: true,
-        label: branchLabelForConnection(source, outgoingCount),
+        label: branchLabelForConnection(source, outgoingCount, this.edges.filter((edge) => edge.source === source.id).map((edge) => edge.label)),
       })
       this.markDirty()
       return node

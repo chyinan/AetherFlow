@@ -49,6 +49,16 @@ class WorkflowNodeConfigValidatorTest {
                 .contains("node summary (SUMMARY): one of text, textVariable is required");
     }
 
+    @Test
+    void validatesExplicitVersionedSubworkflowMappings() {
+        assertThat(WorkflowNodeConfigValidator.validate(node("call", "SUBWORKFLOW", Map.of(
+                "definitionId", 7, "definitionVersion", 2, "inputMappings", Map.of("text", "request.text"),
+                "outputMappings", Map.of("answer", "result.items[0]"))), catalogService.catalog())).isEmpty();
+        assertThat(WorkflowNodeConfigValidator.validate(node("call", "SUBWORKFLOW", Map.of(
+                "definitionId", 7, "definitionVersion", 0, "inputMappings", Map.of(),
+                "outputMappings", Map.of())), catalogService.catalog())).isNotEmpty();
+    }
+
     private static WorkflowNodeDTO node(String id, String type, Map<String, Object> config) {
         WorkflowNodeDTO node = new WorkflowNodeDTO();
         node.setNodeId(id);

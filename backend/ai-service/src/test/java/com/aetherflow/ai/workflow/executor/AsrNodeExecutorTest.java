@@ -3,11 +3,13 @@ package com.aetherflow.ai.workflow.executor;
 import com.aetherflow.ai.service.PythonAsrClient;
 import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.common.dto.AiTranscriptionResponseDTO;
+import com.aetherflow.common.dto.AiTranscriptionSegmentDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,6 +23,7 @@ class AsrNodeExecutorTest {
         PythonAsrClient pythonAsrClient = mock(PythonAsrClient.class);
         AiTranscriptionResponseDTO response = new AiTranscriptionResponseDTO();
         response.setText("hello");
+        response.setSegments(List.of(new AiTranscriptionSegmentDTO(0.0, 1.0, "hello")));
         response.setDurationSeconds(1.0D);
         response.setSrtFileName("transcription.srt");
         response.setSrtContent("1\n00:00:00,000 --> 00:00:01,000\nhello\n");
@@ -36,6 +39,7 @@ class AsrNodeExecutorTest {
         )));
 
         assertThat(result.output()).containsEntry("text", "hello").containsEntry("durationSeconds", 1.0D);
+        assertThat(result.output()).containsEntry("segments", List.of(Map.of("start", 0.0, "end", 1.0, "text", "hello")));
         assertThat(result.output()).doesNotContainKey("srtObjectKey");
         assertThat(result.artifacts()).singleElement().satisfies(artifact -> {
             assertThat(artifact.type()).isEqualTo("SRT");

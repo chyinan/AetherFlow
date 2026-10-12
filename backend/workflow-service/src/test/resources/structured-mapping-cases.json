@@ -1,0 +1,525 @@
+[
+  {
+    "name": "字段路径和数组下标保留数字",
+    "config": {
+      "operation": "select",
+      "sourcePath": "$.response.segments[1].start"
+    },
+    "input": {
+      "response": {
+        "segments": [
+          {
+            "start": 0
+          },
+          {
+            "start": 2.5
+          }
+        ]
+      }
+    },
+    "expected": 2.5
+  },
+  {
+    "name": "嵌套 JSON 对象保留原始类型",
+    "config": {
+      "operation": "object",
+      "sourcePath": "data",
+      "fields": [
+        {
+          "target": "detail.label",
+          "type": "path",
+          "value": "name"
+        },
+        {
+          "target": "detail.count",
+          "type": "literal",
+          "value": 3
+        },
+        {
+          "target": "active",
+          "type": "literal",
+          "value": false
+        },
+        {
+          "target": "empty",
+          "type": "literal",
+          "value": null
+        },
+        {
+          "target": "tags",
+          "type": "literal",
+          "value": [
+            "x",
+            "y"
+          ]
+        }
+      ]
+    },
+    "input": {
+      "data": {
+        "name": "海边"
+      }
+    },
+    "expected": {
+      "detail": {
+        "label": "海边",
+        "count": 3
+      },
+      "active": false,
+      "empty": null,
+      "tags": [
+        "x",
+        "y"
+      ]
+    }
+  },
+  {
+    "name": "Whisper segments 过滤空片段生成 prompt 列表",
+    "config": {
+      "operation": "map",
+      "sourcePath": "segments",
+      "shape": "value",
+      "value": {
+        "type": "template",
+        "value": "片段 {{ $index }} [{{ start }}–{{ end }}]：{{ text }}"
+      },
+      "filter": {
+        "enabled": true,
+        "path": "text",
+        "operator": "notEmpty"
+      }
+    },
+    "input": {
+      "segments": [
+        {
+          "start": 0,
+          "end": 2.5,
+          "text": "海边"
+        },
+        {
+          "start": 2.5,
+          "end": 3,
+          "text": " "
+        },
+        {
+          "start": 3,
+          "end": 5,
+          "text": "帆船"
+        }
+      ]
+    },
+    "expected": [
+      "片段 0 [0–2.5]：海边",
+      "片段 2 [3–5]：帆船"
+    ]
+  },
+  {
+    "name": "数组对象映射与缺失置空",
+    "config": {
+      "operation": "map",
+      "sourcePath": "items",
+      "missingPolicy": "null",
+      "fields": [
+        {
+          "target": "id",
+          "type": "path",
+          "value": "$index"
+        },
+        {
+          "target": "meta.text",
+          "type": "path",
+          "value": "text"
+        },
+        {
+          "target": "description",
+          "type": "template",
+          "value": "内容：{{ text }}"
+        }
+      ]
+    },
+    "input": {
+      "items": [
+        {
+          "text": "a"
+        },
+        {}
+      ]
+    },
+    "expected": [
+      {
+        "id": 0,
+        "meta": {
+          "text": "a"
+        },
+        "description": "内容：a"
+      },
+      {
+        "id": 1,
+        "meta": {
+          "text": null
+        },
+        "description": "内容："
+      }
+    ]
+  },
+  {
+    "name": "数字筛选 gt",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "gt",
+        "value": 2
+      }
+    },
+    "input": {
+      "items": [
+        1,
+        2,
+        3,
+        "4",
+        null
+      ]
+    },
+    "expected": [
+      3
+    ]
+  },
+  {
+    "name": "数字筛选 gte",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "gte",
+        "value": 2
+      }
+    },
+    "input": {
+      "items": [
+        1,
+        2,
+        3,
+        "4",
+        null
+      ]
+    },
+    "expected": [
+      2,
+      3
+    ]
+  },
+  {
+    "name": "数字筛选 lt",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "lt",
+        "value": 2
+      }
+    },
+    "input": {
+      "items": [
+        1,
+        2,
+        3,
+        "4",
+        null
+      ]
+    },
+    "expected": [
+      1
+    ]
+  },
+  {
+    "name": "数字筛选 lte",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "lte",
+        "value": 2
+      }
+    },
+    "input": {
+      "items": [
+        1,
+        2,
+        3,
+        "4",
+        null
+      ]
+    },
+    "expected": [
+      1,
+      2
+    ]
+  },
+  {
+    "name": "深层相等 equals",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "equals",
+        "value": {
+          "y": [
+            2.0
+          ],
+          "x": 1.0
+        }
+      }
+    },
+    "input": {
+      "items": [
+        {
+          "x": 1,
+          "y": [
+            2
+          ]
+        },
+        {
+          "x": 2
+        }
+      ]
+    },
+    "expected": [
+      {
+        "x": 1,
+        "y": [
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "name": "深层相等 notEquals",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "$",
+        "operator": "notEquals",
+        "value": {
+          "y": [
+            2.0
+          ],
+          "x": 1.0
+        }
+      }
+    },
+    "input": {
+      "items": [
+        {
+          "x": 1,
+          "y": [
+            2
+          ]
+        },
+        {
+          "x": 2
+        }
+      ]
+    },
+    "expected": [
+      {
+        "x": 2
+      }
+    ]
+  },
+  {
+    "name": "文本包含",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "text",
+        "operator": "contains",
+        "value": "海"
+      }
+    },
+    "input": {
+      "items": [
+        {
+          "text": "海边"
+        },
+        {
+          "text": "船"
+        },
+        {
+          "text": 17
+        },
+        {}
+      ]
+    },
+    "expected": [
+      {
+        "text": "海边"
+      }
+    ]
+  },
+  {
+    "name": "空值筛选缺失字段",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "text",
+        "operator": "empty"
+      }
+    },
+    "input": {
+      "items": [
+        {
+          "text": ""
+        },
+        {
+          "text": null
+        },
+        {},
+        {
+          "text": false
+        },
+        {
+          "text": 0
+        },
+        {
+          "text": "内容"
+        }
+      ]
+    },
+    "expected": [
+      {
+        "text": ""
+      },
+      {
+        "text": null
+      },
+      {}
+    ]
+  },
+  {
+    "name": "空数组有效",
+    "config": {
+      "operation": "map",
+      "sourcePath": "items",
+      "shape": "value",
+      "value": {
+        "type": "path",
+        "value": "$"
+      }
+    },
+    "input": {
+      "items": []
+    },
+    "expected": []
+  },
+  {
+    "name": "根数组下标路径",
+    "config": {
+      "operation": "map",
+      "sourcePath": "items",
+      "shape": "value",
+      "value": {
+        "type": "path",
+        "value": "$[0].text"
+      }
+    },
+    "input": {
+      "items": [
+        [
+          {
+            "text": "a"
+          }
+        ],
+        [
+          {
+            "text": "b"
+          }
+        ]
+      ]
+    },
+    "expected": [
+      "a",
+      "b"
+    ]
+  },
+  {
+    "name": "固定 JSON 对象逐项拷贝",
+    "config": {
+      "operation": "map",
+      "sourcePath": "items",
+      "shape": "value",
+      "value": {
+        "type": "literal",
+        "value": {
+          "v": [
+            null,
+            false,
+            3
+          ]
+        }
+      }
+    },
+    "input": {
+      "items": [
+        1,
+        2
+      ]
+    },
+    "expected": [
+      {
+        "v": [
+          null,
+          false,
+          3
+        ]
+      },
+      {
+        "v": [
+          null,
+          false,
+          3
+        ]
+      }
+    ]
+  },
+  {
+    "name": "数字模板使用普通十进制格式",
+    "config": {
+      "operation": "map",
+      "sourcePath": "items",
+      "shape": "value",
+      "value": {
+        "type": "template",
+        "value": "数值 {{ $ }}"
+      }
+    },
+    "input": {
+      "items": [
+        1e-07,
+        1e+21,
+        -0.0
+      ]
+    },
+    "expected": [
+      "数值 0.0000001",
+      "数值 1000000000000000000000",
+      "数值 0"
+    ]
+  }
+]

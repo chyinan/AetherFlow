@@ -122,7 +122,9 @@ export function approveHumanNode(
   request: HumanApprovalRequest,
 ) {
   return apiClient.post<RuntimeExecutionSnapshot>(
-    `/workflow/runtime/instances/${encodeURIComponent(String(workflowInstanceId))}/nodes/${encodeURIComponent(nodeId)}/approval`,
+    nodeId.includes('/')
+      ? `/workflow/runtime/instances/${encodeURIComponent(String(workflowInstanceId))}/approval?nodeId=${encodeURIComponent(nodeId)}`
+      : `/workflow/runtime/instances/${encodeURIComponent(String(workflowInstanceId))}/nodes/${encodeURIComponent(nodeId)}/approval`,
     request,
     { source: 'runtime' },
   )
@@ -158,4 +160,18 @@ export function buildRuntimeWebSocketUrl(
     ...(cursor ? [`cursor=${encodeURIComponent(cursor)}`] : []),
   ]
   return toWebSocketUrl(`${baseUrl}?${params.join('&')}`)
+}
+
+export interface BatchRunResult {
+  index?: number
+  item?: unknown
+  status: 'SUCCESS' | 'FAILED' | 'WAITING'
+  variables?: Record<string, unknown>
+  error?: string
+}
+export function getBatchResults(instanceId: string | number, nodeId: string, offset = 0) {
+  return apiClient.get<{ nodeId: string; status: string; total: number; offset: number; results: BatchRunResult[] }>(
+    `/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/batch-results?nodeId=${encodeURIComponent(nodeId)}&offset=${offset}&limit=50`,
+    { source: 'runtime' },
+  )
 }

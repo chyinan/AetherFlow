@@ -64,7 +64,16 @@ public class AsyncAiTaskDispatcher {
     private String idempotencyKey(WorkflowContext context, String nodeType) {
         Object iteration = context.variables().get("iterationIndex");
         String iterationPart = iteration == null ? "root" : String.valueOf(iteration);
-        return String.join(":", "workflow-ai", context.workflowId(), context.traceId(),
+        String key = String.join(":", "workflow-ai", context.workflowId(), context.traceId(),
                 context.currentNodeId(), nodeType == null ? "" : nodeType, iterationPart);
+        if (!context.currentNodeId().contains("/")) return key;
+        // 嵌套路径可能较长，稳定摘要保持任务服务的 128 字符幂等键契约。
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return "workflow-ai:nested:" + java.util.HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 unavailable", exception);
+        }
     }
 }

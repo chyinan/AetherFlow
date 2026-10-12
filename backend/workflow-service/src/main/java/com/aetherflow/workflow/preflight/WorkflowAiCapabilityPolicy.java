@@ -2,6 +2,7 @@ package com.aetherflow.workflow.preflight;
 
 import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.workflow.node.validation.NestedWorkflowDefinition;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ public final class WorkflowAiCapabilityPolicy {
             return List.of();
         }
         List<String> violations = new ArrayList<>();
-        for (WorkflowNodeDTO node : definition.getNodes()) {
+        for (WorkflowNodeDTO node : NestedWorkflowDefinition.flatten(definition.getNodes())) {
             validateNode(node, capabilities, validatedConnectionNodes, violations);
         }
         return List.copyOf(violations);
@@ -38,14 +39,14 @@ public final class WorkflowAiCapabilityPolicy {
         if (definition == null || definition.getNodes() == null) {
             return false;
         }
-        return definition.getNodes().stream()
+        return NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .map(node -> normalize(node == null ? null : node.getNodeType()))
                 .anyMatch(type -> requiredCapability(type) != null || requiresAsyncType(type));
     }
 
     public static List<String> validateAsyncRequirement(WorkflowDefinitionDTO definition) {
         if (definition == null || definition.getNodes() == null) return List.of();
-        return definition.getNodes().stream()
+        return NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .filter(node -> node != null && requiresAsyncType(normalize(node.getNodeType())))
                 .map(node -> prefix(node, normalize(node.getNodeType()))
                         + "requires WORKFLOW_AI_ASYNC_ENABLED=true for fenced artifact execution")

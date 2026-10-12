@@ -706,6 +706,10 @@ export const enUS = {
           label: 'Read Video File',
           description: 'Load uploaded video metadata and pass the file URL to Whisper Runtime.',
         },
+        'http-request': {
+          label: 'HTTP JSON Request',
+          description: 'Call a JSON endpoint synchronously, expose status and body, and optionally route errors.',
+        },
         'url-fetch': {
           label: 'URL Fetch',
           description: 'Fetch a public page and output cleaned text.',
@@ -771,8 +775,8 @@ export const enUS = {
           description: 'Run scripts for data transformation.',
         },
         'template-transform': {
-          label: 'Template Transform',
-          description: 'Render template text with variables.',
+          label: 'Template / Data Mapping',
+          description: 'Render text, construct JSON and map or filter arrays without code.',
         },
         'variable-aggregate': {
           label: 'Variable Aggregator',
@@ -786,6 +790,10 @@ export const enUS = {
           label: 'Variable Assigner',
           description: 'Write values into writable variables.',
         },
+        subworkflow: {
+          label: 'Subworkflow',
+          description: 'Call an immutable workflow version with explicit input and output mappings.',
+        },
         'parameter-extractor': {
           label: 'Parameter Extractor',
           description: 'Extract parameters from free-form text.',
@@ -798,6 +806,17 @@ export const enUS = {
     },
   },
   runs: {
+    rerunReused: 'Reused, no repeated call',
+    rerunNode: 'Rerun node',
+    rerunTitle: 'Rerun failed node: {node}',
+    rerunExplanation: 'Creates a separate run. Completed ancestors and unrelated results are reused without repeating their AI calls. Results below are invalidated and rerun, which may incur new charges.',
+    rerunInvalidated: 'Rerun (including all downstream branches)',
+    rerunPreserved: 'Reuse completed results',
+    rerunNone: 'None',
+    rerunRefresh: 'Refresh preview',
+    rerunSubmitting: 'Creating rerun…',
+    rerunConfirm: 'Confirm scope and rerun',
+    rerunFailed: 'Rerun failed. Please try again.',
     title: 'Runs',
     subtitle: 'Realtime execution observability.',
     openWorkflow: 'Open workflow',

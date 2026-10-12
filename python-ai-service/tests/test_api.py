@@ -224,6 +224,7 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         body = response.json()
         self.assertEqual("transcription.srt", body["srtFileName"])
+        self.assertEqual([{"start": 0.0, "end": 1.0, "text": "hello"}], body["segments"])
         self.assertIn("00:00:00,000 --> 00:00:01,000", body["srtContent"])
         self.assertNotIn("srtObjectKey", body)
 

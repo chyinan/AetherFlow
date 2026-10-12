@@ -8,6 +8,9 @@ import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import HumanApprovalDialog, { type HumanApprovalRequestView } from '@/components/run/HumanApprovalDialog.vue'
 import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
+import SubworkflowChildRuns from '@/components/run/SubworkflowChildRuns.vue'
+import FailedNodeRerunDialog from '@/components/run/FailedNodeRerunDialog.vue'
+import type { RunNodeState } from '@/types/run'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 
@@ -17,6 +20,14 @@ const router = useRouter()
 const { t } = useI18n()
 const dismissedApprovalKey = ref<string | null>(null)
 const cancelling = ref(false)
+const rerunNode = ref<RunNodeState | null>(null)
+const canRerun = computed(() => runStore.currentRun?.backendStatus === 'FAILED' && Boolean(runStore.currentRun?.backendInstanceId))
+
+async function completeRerun(instanceId: number) {
+  rerunNode.value = null
+  await router.push(`/runs/run-${instanceId}`)
+}
+
 
 type HumanApprovalCompletion = {
   approved: boolean
@@ -66,6 +77,7 @@ const summaryCards = computed(() => [
 
 async function syncRunFromRoute(runId?: string | string[]) {
   dismissedApprovalKey.value = null
+  rerunNode.value = null
   const id = Array.isArray(runId) ? runId[0] : runId
   if (id) {
     await runStore.selectRun(id)
@@ -136,6 +148,14 @@ watch(
 
 <template>
   <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
+    <FailedNodeRerunDialog
+      v-if="rerunNode && canRerun && runStore.currentRun?.backendInstanceId"
+      :instance-id="runStore.currentRun.backendInstanceId"
+      :node-id="rerunNode.nodeId"
+      :node-label="rerunNode.label"
+      @close="rerunNode = null"
+      @completed="completeRerun"
+    />
     <HumanApprovalDialog
       v-if="approvalDialogRequest"
       :request="approvalDialogRequest"
@@ -263,6 +283,8 @@ watch(
                 </div>
               </div>
 
+              <SubworkflowChildRuns v-if="runStore.currentRun.backendInstanceId" :key="runStore.currentRun.id" :instance-id="runStore.currentRun.backendInstanceId" />
+
               <div class="mt-3 flex flex-wrap gap-2">
                 <span v-for="artifact in runStore.currentRun.artifactNames" :key="artifact" class="inline-flex items-center gap-1 rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">
                   <Boxes class="h-3 w-3 text-primary" />
@@ -271,7 +293,7 @@ watch(
               </div>
             </div>
             <div class="grid min-h-0 min-w-0 gap-4 overflow-hidden lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]">
-              <RunTimeline class="min-h-0 min-w-0" :nodes="runStore.currentRun?.nodeStates ?? []" />
+              <RunTimeline class="min-h-0 min-w-0" :nodes="runStore.currentRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
               <LogStream class="min-h-0 min-w-0" :logs="runStore.logs" />
             </div>
           </div>

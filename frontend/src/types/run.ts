@@ -19,6 +19,7 @@ export interface RunNodeState {
   durationMs?: number
   output?: string
   retryCount?: number
+  reused?: boolean
   approval?: HumanApprovalDetails
 }
 

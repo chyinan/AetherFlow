@@ -708,6 +708,10 @@ export const jaJP = {
           label: '動画読み込み',
           description: 'アップロード済み動画のメタデータを読み込み、ファイル URL を Whisper ランタイムに渡します。',
         },
+        'http-request': {
+          label: 'HTTP JSON リクエスト',
+          description: 'JSON API を同期呼び出しし、状態とレスポンスを出力してエラー分岐を選択します。',
+        },
         'url-fetch': {
           label: 'URL Fetch',
           description: '公開ページを取得し、整形済みテキストを出力します。',
@@ -773,8 +777,8 @@ export const jaJP = {
           description: 'データ変換用のスクリプトを実行します。',
         },
         'template-transform': {
-          label: 'テンプレート変換',
-          description: '変数でテンプレートテキストをレンダリングします。',
+          label: 'テンプレート / データマッピング',
+          description: 'テキストの生成、JSON の構築、配列の変換や絞り込みをノーコードで行います。',
         },
         'variable-aggregate': {
           label: '変数集約',
@@ -788,6 +792,10 @@ export const jaJP = {
           label: '変数代入',
           description: '書き込み可能な変数に値を書き込みます。',
         },
+        subworkflow: {
+          label: 'サブワークフロー',
+          description: '固定バージョンのワークフローを入出力マッピングで呼び出します。',
+        },
         'parameter-extractor': {
           label: 'パラメータ抽出',
           description: '自由形式テキストからパラメータを抽出します。',
@@ -800,6 +808,17 @@ export const jaJP = {
     },
   },
   runs: {
+    rerunReused: '再利用済み・再呼び出しなし',
+    rerunNode: 'ノードを再実行',
+    rerunTitle: '失敗したノードを再実行：{node}',
+    rerunExplanation: '独立した実行を作成します。完了した上流・無関係の結果を再利用し、これらの AI 呼び出しは繰り返しません。以下の結果は無効化され、再実行によって新たな料金が発生する場合があります。',
+    rerunInvalidated: '再実行（すべての下流分岐を含む）',
+    rerunPreserved: '完了した結果を再利用',
+    rerunNone: 'なし',
+    rerunRefresh: 'プレビューを更新',
+    rerunSubmitting: '再実行を作成中…',
+    rerunConfirm: '範囲を確認して再実行',
+    rerunFailed: '再実行に失敗しました。再試行してください。',
     title: '実行',
     subtitle: 'リアルタイム実行の可視化',
     openWorkflow: 'ワークフローを開く',

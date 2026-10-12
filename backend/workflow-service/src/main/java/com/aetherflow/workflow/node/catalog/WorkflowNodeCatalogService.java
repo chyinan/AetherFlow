@@ -53,6 +53,7 @@ public class WorkflowNodeCatalogService {
                 ffmpeg(),
                 ocr(),
                 urlFetch(),
+                httpRequest(),
                 whisper(),
                 llm(),
                 translate(),
@@ -72,6 +73,7 @@ public class WorkflowNodeCatalogService {
                 human(),
                 iteration(),
                 loop(),
+                subworkflow(),
                 code(),
                 templateTransform(),
                 variableAggregate(),
@@ -254,6 +256,31 @@ public class WorkflowNodeCatalogService {
         );
     }
 
+    private WorkflowNodeCatalogItem httpRequest() {
+        return item(
+                "HTTP_REQUEST", "HTTP JSON 请求", "Integration",
+                "同步调用 HTTP JSON 接口；共用 URL 抓取网络限制，不跟随重定向，不保存凭据或自动轮询。",
+                List.of(
+                        field("url", "STRING", false, "固定 URL；为空时读取 URL 变量。", "https://example.com/api"),
+                        field("urlVariable", "STRING", false, "保存 URL 的工作流变量。", "requestUrl"),
+                        field("method", "STRING", false, "HTTP 请求方法。", "GET", List.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD")),
+                        field("bodyJson", "STRING", false, "JSON 请求体文本，可为对象、数组或标量；GET/HEAD 不支持请求体。", "{\"query\":\"hello\"}"),
+                        field("bodyVariable", "STRING", false, "读取变量并序列化为 JSON，与固定 JSON 请求体互斥。", "requestBody"),
+                        field("errorStrategy", "STRING", false, "FAIL 终止；BRANCH 要求连接 success/error，两者覆盖状态码错误、无效 JSON 和传输失败。配置错误始终终止。", "FAIL", List.of("FAIL", "BRANCH")),
+                        field("outputVariable", "STRING", false, "响应对象变量，包含 statusCode、body、bodyText、ok 和 error。", "httpResponse")
+                ),
+                List.of(variable("requestUrl", "STRING", "目标接口 URL。", "https://example.com/api")),
+                List.of(
+                        variable("httpResponse", "OBJECT", "完整响应，body 是解析后的 JSON，空响应或 JSON null 时为 null。", Map.of("statusCode", 200, "body", Map.of("ok", true))),
+                        variable("httpStatusCode", "NUMBER", "响应状态码；传输失败时为 0。", 200),
+                        variable("httpBodyText", "STRING", "原始响应文本。", "{\"ok\":true}"),
+                        variable("httpOk", "BOOLEAN", "是否为 2xx 且响应 JSON 有效或为空。", true),
+                        variable("httpError", "STRING", "错误代码，成功时为空。", "")
+                ),
+                mapOf("urlVariable", "requestUrl", "method", "GET", "errorStrategy", "FAIL", "outputVariable", "httpResponse")
+        );
+    }
+
     private WorkflowNodeCatalogItem whisper() {
         return item(
                 "WHISPER",
@@ -273,6 +300,7 @@ public class WorkflowNodeCatalogService {
                         variable("fileId", "NUMBER", "Uploaded file id from workflow input.", 1001)
                 ),
                 List.of(
+                        variable("segments", "ARRAY", "带 start/end/text 的转写片段，供结构化映射生成 prompt 列表。", List.of(Map.of("start", 0, "end", 2.5, "text", "hello"))),
                         variable("transcription", "STRING", "Transcribed text.", "hello world"),
                         variable("srtFileId", "NUMBER", "Persisted subtitle file id.", 7001),
                         variable("srtObjectKey", "STRING", "Generated subtitle object key.", "subtitles/audio.srt"),
@@ -747,11 +775,16 @@ public class WorkflowNodeCatalogService {
                 "ITERATION",
                 "Iteration",
                 "Control",
-                "Publishes a bounded list slice for downstream processing without executing nested nodes.",
+                "逐项执行循环体，支持有界异步等待、恢复与逐项结果；空循环体保留列表截取行为。",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow list variable.", "items"),
                         field("outputVariable", "STRING", false, "Variable written with selected items.", "iterationItems"),
-                        field("maxIterations", "NUMBER", false, "Maximum items published. The runtime hard-caps this value.", 100)
+                        field("maxIterations", "NUMBER", false, "最多处理项数，上限 1000。", 100),
+                        field("itemVariable", "STRING", false, "当前项变量名称。", "item"),
+                        field("indexVariable", "STRING", false, "当前索引变量名称。", "iterationIndex"),
+                        field("concurrency", "NUMBER", false, "同时等待的异步项数，上限 8。", 1),
+                        field("failureStrategy", "STRING", false, "单项失败时停止或继续。", "STOP", List.of("STOP", "CONTINUE")),
+                        field("bodyNodes", "ARRAY", false, "按顺序执行的循环体节点。", List.of())
                 ),
                 List.of(variable("items", "ARRAY", "Items to iterate.", List.of("a", "b"))),
                 List.of(variable("iterationItems", "ARRAY", "Selected items.", List.of("a", "b"))),
@@ -764,17 +797,30 @@ public class WorkflowNodeCatalogService {
                 "LOOP",
                 "Loop",
                 "Control",
-                "Publishes bounded loop-state metadata without introducing cyclic scheduling or nested execution.",
+                "逐轮执行循环体并回填状态，支持异步恢复和停止标记；空循环体保留原状态输出。",
                 List.of(
                         field("inputVariable", "STRING", false, "Workflow state variable.", "state"),
                         field("outputVariable", "STRING", false, "Variable written with loop state.", "loopState"),
                         field("stopWhen", "STRING", false, "Stop marker matched against the state text.", "done"),
-                        field("maxIterations", "NUMBER", false, "Maximum loop-state iterations reported. The runtime hard-caps this value.", 10)
+                        field("maxIterations", "NUMBER", false, "最多循环轮数，上限 1000。", 10),
+                        field("indexVariable", "STRING", false, "轮次索引变量名称。", "loopIteration"),
+                        field("bodyNodes", "ARRAY", false, "按顺序执行的循环体节点。", List.of())
                 ),
                 List.of(variable("state", "OBJECT", "Loop state.", Map.of("done", false))),
                 List.of(variable("loopState", "OBJECT", "Published loop state.", Map.of("done", false))),
                 mapOf("inputVariable", "state", "outputVariable", "loopState", "stopWhen", "done", "maxIterations", 10)
         );
+    }
+
+    private WorkflowNodeCatalogItem subworkflow() {
+        return item("SUBWORKFLOW", "子工作流", "Control", "调用固定版本的工作流，通过显式映射传递输入和结果，支持异步等待与重启恢复。",
+                List.of(
+                        field("definitionId", "NUMBER", true, "被调用的工作流定义 ID。", 1),
+                        field("definitionVersion", "NUMBER", true, "不可变版本号；不会自动跟随最新版本。", 1),
+                        field("inputMappings", "OBJECT", true, "子输入变量名到父变量路径的映射。", Map.of("text", "request.text")),
+                        field("outputMappings", "OBJECT", true, "父输出变量名到子变量路径的映射。", Map.of("summary", "summary"))
+                ), List.of(), List.of(variable("childWorkflowInstanceId", "NUMBER", "子流程运行 ID。", 1002)),
+                mapOf("definitionId", 0, "definitionVersion", 1, "inputMappings", Map.of(), "outputMappings", Map.of()));
     }
 
     private WorkflowNodeCatalogItem code() {
@@ -799,13 +845,17 @@ public class WorkflowNodeCatalogService {
                 "TEMPLATE_TRANSFORM",
                 "Template Transform",
                 "Transform",
-                "Renders a simple {{ variable }} template from workflow variables.",
+                "Renders text templates or maps structured JSON using field paths, object fields and bounded array map/filter operations.",
                 List.of(
-                        field("template", "STRING", true, "Template string.", "Hello {{ name }}"),
+                        field("transformMode", "STRING", false, "Text template or no-code structured mapping.", "text", List.of("text", "structured")),
+                        field("template", "STRING", false, "Required in text mode. Template string.", "Hello {{ name }}"),
+                        field("mapping", "OBJECT", false, "Required in structured mode. Operations: select/object/map/filter; sourcePath, fields/value, optional filter and missingPolicy.",
+                                mapOf("operation", "map", "sourcePath", "segments", "shape", "value", "value", Map.of("type", "template", "value", "请总结：{{ text }}"))),
                         field("outputVariable", "STRING", false, "Variable written with rendered text.", "renderedText")
                 ),
                 List.of(variable("name", "STRING", "Template variable.", "AetherFlow")),
-                List.of(variable("renderedText", "STRING", "Rendered text.", "Hello AetherFlow")),
+                List.of(variable("renderedText", "STRING", "Text mode output.", "Hello AetherFlow"),
+                        variable("mappedValue", "OBJECT", "Structured mode JSON value; written to outputVariable with its original type.", Map.of("text", "Hello"))),
                 mapOf("template", "{{ arg1 }}", "outputVariable", "renderedText")
         );
     }

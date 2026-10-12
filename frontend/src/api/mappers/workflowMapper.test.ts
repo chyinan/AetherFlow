@@ -3,6 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { mapWorkflowToDefinitionDTO } from './workflowMapper'
 
 describe('workflowMapper', () => {
+  it('preserves pinned subworkflow version and explicit nested mappings', () => {
+    const config = { definitionId: 7, definitionVersion: 2, inputMappings: { text: 'request.items[0].text' }, outputMappings: { answer: 'result.text' } }
+    const result = mapWorkflowToDefinitionDTO({ id: 'parent', name: 'Parent', edges: [], nodes: [{
+      id: 'call', type: 'workflow', position: { x: 0, y: 0 }, data: {
+        kind: 'subworkflow', label: 'Child', description: '', config, inputs: [], outputs: [], status: 'idle',
+      },
+    }] })
+    expect(result.nodes[0]?.nodeType).toBe('SUBWORKFLOW')
+    expect(result.nodes[0]?.config).toMatchObject(config)
+  })
   it('serializes the owning project id into the backend definition contract', () => {
     const result = mapWorkflowToDefinitionDTO({
       id: 'workflow-1',

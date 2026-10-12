@@ -23,6 +23,7 @@ public final class AiWorkflowNodeResultAdapter {
         switch (normalizedType) {
             case "WHISPER" -> {
                 copy(safeOutput, variables, "text", "transcription");
+                copy(safeOutput, variables, "segments", "segments");
                 copy(safeOutput, variables, "srtFileId", "srtFileId");
                 copy(safeOutput, variables, "srtObjectKey", "srtObjectKey");
                 copy(safeOutput, variables, "srtUrl", "srtUrl");

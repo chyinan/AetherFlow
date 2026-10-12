@@ -13,6 +13,7 @@ type BackendNodeType =
   | 'FFMPEG'
   | 'OCR'
   | 'URL_FETCH'
+  | 'HTTP_REQUEST'
   | 'WHISPER'
   | 'LLM'
   | 'TRANSLATE'
@@ -29,6 +30,7 @@ type BackendNodeType =
   | 'HUMAN'
   | 'ITERATION'
   | 'LOOP'
+  | 'SUBWORKFLOW'
   | 'CODE'
   | 'TEMPLATE_TRANSFORM'
   | 'VARIABLE_AGGREGATE'
@@ -42,6 +44,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   upscale: 'UPSCALE',
   'save-image': 'SAVE_IMAGE',
   'url-fetch': 'URL_FETCH',
+  'http-request': 'HTTP_REQUEST',
   whisper: 'WHISPER',
   upload: 'UPLOAD',
   llm: 'LLM',
@@ -56,6 +59,7 @@ const BACKEND_NODE_TYPE_BY_KIND: Record<string, BackendNodeType> = {
   human: 'HUMAN',
   iteration: 'ITERATION',
   loop: 'LOOP',
+  subworkflow: 'SUBWORKFLOW',
   code: 'CODE',
   'template-transform': 'TEMPLATE_TRANSFORM',
   'variable-aggregate': 'VARIABLE_AGGREGATE',
@@ -255,6 +259,18 @@ function normalizeUrlFetchConfig(config: Record<string, unknown>, nextNodes: str
     maxChars: Math.max(1000, Math.floor(numberValue(config.maxChars, 20000))),
     outputVariable: stringValue(config.outputVariable, 'urlText'),
   }, nextNodes)
+}
+
+function normalizeHttpRequestConfig(config: Record<string, unknown>, nextNodes: string[], branchRouting?: BranchRoutingConfig) {
+  return withNextNodes({
+    ...(optionalString(config.url) ? { url: optionalString(config.url) } : {}),
+    urlVariable: stringValue(config.urlVariable, 'requestUrl'),
+    method: stringValue(config.method, 'GET').toUpperCase(),
+    ...(optionalString(config.bodyJson) ? { bodyJson: optionalString(config.bodyJson) } : {}),
+    ...(optionalString(config.bodyVariable) ? { bodyVariable: optionalString(config.bodyVariable) } : {}),
+    errorStrategy: stringValue(config.errorStrategy, 'FAIL').toUpperCase(),
+    outputVariable: stringValue(config.outputVariable, 'httpResponse'),
+  }, nextNodes, branchRouting)
 }
 
 function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]) {
@@ -521,6 +537,11 @@ function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string
 
 function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
+    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
+    itemVariable: stringValue(config.itemVariable, 'item'),
+    indexVariable: stringValue(config.indexVariable, 'iterationIndex'),
+    concurrency: Math.min(8, Math.max(1, Math.floor(numberValue(config.concurrency, 1)))),
+    failureStrategy: stringValue(config.failureStrategy, 'STOP'),
     inputVariable: stringValue(config.inputVariable ?? config.input, 'items'),
     outputVariable: stringValue(config.outputVariable ?? config.output, 'iterationItems'),
     maxIterations: Math.max(0, Math.floor(numberValue(config.maxIterations, 12))),
@@ -533,6 +554,8 @@ function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: st
 
 function normalizeLoopConfig(config: Record<string, unknown>, nextNodes: string[]) {
   return withNextNodes({
+    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
+    indexVariable: stringValue(config.indexVariable, 'loopIteration'),
     inputVariable: stringValue(config.inputVariable ?? config.input, 'state'),
     outputVariable: stringValue(config.outputVariable ?? config.output, 'loopState'),
     maxIterations: Math.max(0, Math.floor(numberValue(config.maxIterations, 10))),
@@ -553,9 +576,18 @@ function normalizeCodeConfig(config: Record<string, unknown>, nextNodes: string[
 }
 
 function normalizeTemplateTransformConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  if (config.transformMode === 'structured') {
+    return withNextNodes({
+      transformMode: 'structured',
+      mapping: toRecord(config.mapping),
+      outputVariable: stringValue(config.outputVariable, 'mappedValue'),
+      ...(typeof config.template === 'string' ? { template: config.template } : {}),
+    }, nextNodes)
+  }
   return withNextNodes({
     template: stringValue(config.template, '{{ arg1 }}'),
     outputVariable: stringValue(config.outputVariable, 'renderedText'),
+    ...(config.mapping ? { transformMode: 'text', mapping: config.mapping } : {}),
   }, nextNodes)
 }
 
@@ -618,6 +650,8 @@ function normalizeNodeConfig(
       return normalizeFfmpegConfig(config, nextNodes)
     case 'OCR':
       return normalizeOcrConfig(config, nextNodes)
+    case 'HTTP_REQUEST':
+      return normalizeHttpRequestConfig(config, nextNodes, branchRouting)
     case 'URL_FETCH':
       return normalizeUrlFetchConfig(config, nextNodes)
     case 'WHISPER':
@@ -660,6 +694,14 @@ function normalizeNodeConfig(
       return normalizeIterationConfig(config, nextNodes)
     case 'LOOP':
       return normalizeLoopConfig(config, nextNodes)
+    case 'SUBWORKFLOW':
+      return {
+        definitionId: numberValue(config.definitionId, 0),
+        definitionVersion: numberValue(config.definitionVersion, 0),
+        inputMappings: config.inputMappings ?? {},
+        outputMappings: config.outputMappings ?? {},
+        nextNodes,
+      }
     case 'CODE':
       return normalizeCodeConfig(config, nextNodes)
     case 'TEMPLATE_TRANSFORM':
@@ -691,6 +733,8 @@ function normalizedBranchLabel(value: unknown) {
 function branchKeysForNode(node: WorkflowGraphNode) {
   const config = toRecord(node.data.config)
   switch (node.data.kind) {
+    case 'http-request':
+      return stringValue(config.errorStrategy, 'FAIL').toUpperCase() === 'BRANCH' ? ['success', 'error'] : []
     case 'condition':
       return [
         stringValue(config.trueBranch, 'true'),
@@ -752,13 +796,19 @@ function buildBranchRoutingIndex(workflow: WorkflowDefinition) {
       return acc
     }
     const outgoingEdges = edgesBySource[node.id] ?? []
-    const branches = assignBranches(branchKeys, outgoingEdges)
+    const branches = node.data.kind === 'http-request'
+      ? Object.fromEntries(branchKeys.flatMap((key) => {
+          const matches = outgoingEdges.filter((edge) => normalizedBranchLabel(edge.label) === key)
+          if (matches.length > 1) throw new Error(`HTTP ${key} 分支只能连接一个目标`)
+          return matches.length === 1 ? [[key, matches[0]!.target]] : []
+        }))
+      : assignBranches(branchKeys, outgoingEdges)
     if (Object.keys(branches).length === 0) {
       return acc
     }
     acc[node.id] = {
       branches,
-      ...(outgoingEdges[0]?.target ? { defaultNext: outgoingEdges[0].target } : {}),
+      ...(node.data.kind !== 'http-request' && outgoingEdges[0]?.target ? { defaultNext: outgoingEdges[0].target } : {}),
     }
     return acc
   }, {})

@@ -156,11 +156,18 @@ class TranscriptionRequest(BaseModel):
     prompt: str | None = Field(default=None, max_length=8_000)
 
 
+class TranscriptionSegment(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
 class TranscriptionResponse(BaseModel):
     text: str
     srtContent: str | None = None
     srtFileName: str | None = None
     durationSeconds: float | None = None
+    segments: list[TranscriptionSegment] = Field(default_factory=list)
 
 
 class LlmRequest(BaseModel):
@@ -577,13 +584,17 @@ def _transcribe_blocking(request: TranscriptionRequest, audio_source: Path) -> T
         language=None if request.language in (None, "", "auto") else request.language,
         initial_prompt=request.prompt,
     )
-    srt_content = _segments_to_srt(segments)
+    # faster-whisper 返回惰性迭代器，先物化一次，字幕与结构化输出共享同一批片段。
+    segment_list = list(segments)
+    srt_content = _segments_to_srt(segment_list)
     text = "\n".join(line for line in srt_content.splitlines() if "-->" not in line and not line.isdigit()).strip()
     return TranscriptionResponse(
         text=text,
         srtContent=srt_content,
         srtFileName="transcription.srt",
         durationSeconds=info.duration,
+        segments=[TranscriptionSegment(start=segment.start, end=segment.end, text=segment.text)
+                  for segment in segment_list],
     )
 
 

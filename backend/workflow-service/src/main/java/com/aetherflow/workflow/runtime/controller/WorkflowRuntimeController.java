@@ -60,6 +60,9 @@ public class WorkflowRuntimeController {
     private final WorkflowRuntimeStreamTokenService streamTokenService;
 
     @Autowired(required = false)
+    private com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository runtimeSnapshots;
+
+    @Autowired(required = false)
     private TaskClient taskClient;
 
     @Autowired(required = false)
@@ -178,6 +181,23 @@ public class WorkflowRuntimeController {
                 .orElseGet(() -> RuntimeObservationRebuilder.rebuild(workflowId, runtimeEventStore.safeEvents(workflowId))
                         .orElse(null));
         return Result.success(observation);
+    }
+
+    @GetMapping("/instances/{workflowId}/batch-results")
+    public Result<java.util.Map<String, Object>> batchResults(@PathVariable String workflowId,
+            @RequestParam String nodeId, @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(workflowId, userId);
+        if (runtimeSnapshots == null) throw new BusinessException(ResultCode.NOT_FOUND, "运行快照不可用");
+        var snapshot = runtimeSnapshots.findByWorkflowId(workflowId)
+                .orElseThrow(() -> new BusinessException(ResultCode.NOT_FOUND, "运行快照不存在"));
+        var result = snapshot.nodeOutputs().get(nodeId);
+        java.util.List<?> rows = result != null && result.output().get("results") instanceof java.util.List<?> list ? list : java.util.List.of();
+        int start = Math.min(Math.max(0, offset), rows.size());
+        int end = Math.min(rows.size(), start + Math.min(100, Math.max(1, limit)));
+        return Result.success(java.util.Map.of("nodeId", nodeId, "status", snapshot.runtimeState().name(),
+                "total", rows.size(), "offset", start, "results", rows.subList(start, end)));
     }
 
     @Operation(summary = "List workflow runtime events",
@@ -299,6 +319,14 @@ public class WorkflowRuntimeController {
             throw new BusinessException(ResultCode.INTERNAL_ERROR, "human approval service is unavailable");
         }
         return Result.success(completionService.completeApproval(workflowInstanceId, nodeId, request));
+    }
+
+    @PostMapping("/instances/{workflowInstanceId}/approval")
+    public Result<WorkflowExecutionSnapshot> approveScoped(
+            @PathVariable Long workflowInstanceId, @RequestParam String nodeId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId,
+            @Valid @RequestBody HumanApprovalRequest request) {
+        return approve(workflowInstanceId, nodeId, userId, request);
     }
 
     private void assertWorkflowOwner(String workflowId, Long userId) {

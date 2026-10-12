@@ -216,3 +216,53 @@ export function getWorkflowInstanceLogs(id: number | string) {
     source: 'workflow',
   })
 }
+
+export interface FailedNodeRerunPreview {
+  sourceInstanceId: number
+  nodeId: string
+  revision: string
+  eligible: boolean
+  invalidatedNodes: Array<{ nodeId: string; label: string }>
+  preservedNodes: Array<{ nodeId: string; label: string }>
+  blockers: string[]
+}
+
+export function previewFailedNodeRerun(instanceId: number, nodeId: string) {
+  return apiClient.get<FailedNodeRerunPreview>(
+    `/workflow-instances/${instanceId}/nodes/${encodeURIComponent(nodeId)}/rerun/preview`,
+    { source: 'workflow' },
+  )
+}
+
+export function rerunFailedNode(instanceId: number, nodeId: string, expectedRevision: string) {
+  return apiClient.post<WorkflowInstanceEntity>(
+    `/workflow-instances/${instanceId}/nodes/${encodeURIComponent(nodeId)}/rerun`,
+    { expectedRevision },
+    { source: 'workflow' },
+  )
+}
+
+export interface WorkflowVersionSummary {
+  definitionId: number
+  version: number
+  createdAt?: string
+}
+
+export interface WorkflowChildRunSummary {
+  reused?: boolean
+  sourceParentInstanceId?: number
+  parentNodeId: string
+  childInstanceId: number
+  definitionId: number
+  definitionVersion: number
+  status: string
+  createdAt?: string
+}
+
+export function listDefinitionVersions(definitionId: number, signal?: AbortSignal) {
+  return apiClient.get<WorkflowVersionSummary[]>(`/workflows/definitions/${definitionId}/versions`, { source: 'workflow', signal })
+}
+
+export function listWorkflowChildRuns(instanceId: number, signal?: AbortSignal) {
+  return apiClient.get<WorkflowChildRunSummary[]>(`/workflows/instances/${instanceId}/children`, { source: 'workflow', signal })
+}

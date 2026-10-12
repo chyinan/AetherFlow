@@ -134,6 +134,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   UPSCALE: 'upscale',
   SAVE_IMAGE: 'save-image',
   URL_FETCH: 'url-fetch',
+  HTTP_REQUEST: 'http-request',
   UPLOAD: 'upload',
   FFMPEG: 'ffmpeg',
   WHISPER: 'whisper',
@@ -153,6 +154,7 @@ const NODE_KIND_BY_BACKEND_TYPE: Record<string, WorkflowNodeKind> = {
   HUMAN: 'human',
   ITERATION: 'iteration',
   LOOP: 'loop',
+  SUBWORKFLOW: 'subworkflow',
   CODE: 'code',
   TEMPLATE_TRANSFORM: 'template-transform',
   VARIABLE_AGGREGATE: 'variable-aggregate',
@@ -191,6 +193,12 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     inputs: ['images'],
     outputs: ['savedImageFiles', 'savedImageFileIds', 'savedImageUrls'],
   },
+  'http-request': {
+    label: 'HTTP JSON 请求',
+    description: '同步调用 JSON 接口，输出响应并选择失败策略。',
+    inputs: ['requestUrl'],
+    outputs: ['httpResponse', 'httpStatusCode', 'httpBodyText', 'httpOk', 'httpError'],
+  },
   'url-fetch': {
     label: 'URL Fetch',
     description: 'Fetch a public web page and expose cleaned text for downstream nodes.',
@@ -213,7 +221,7 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
     label: 'FFmpeg 分离音频 / Whisper 提取文本',
     description: 'Python AI Runtime 使用 FFmpeg 抽取音频，并通过 faster-whisper 生成转写文本。',
     inputs: ['fileUrl'],
-    outputs: ['transcription', 'srtObjectKey', 'durationSeconds'],
+    outputs: ['transcription', 'segments', 'srtObjectKey', 'durationSeconds'],
   },
   summary: {
     label: 'LLM 总结',
@@ -235,7 +243,7 @@ const NODE_COPY_BY_KIND: Record<string, { label: string; description: string; in
   },
   'template-transform': {
     label: '模板转换',
-    description: '使用工作流上下文变量渲染 {{ variable }} 模板。',
+    description: '渲染文本模板，或通过字段路径、对象构造和数组 map/filter 映射 JSON。',
     inputs: ['variables'],
     outputs: ['renderedText'],
   },

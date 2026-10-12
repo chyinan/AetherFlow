@@ -40,6 +40,9 @@ public class AsrNodeExecutor implements AiNodeExecutor {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("text", response.getText());
         output.put("durationSeconds", response.getDurationSeconds());
+        output.put("segments", response.getSegments() == null ? List.of() : response.getSegments().stream()
+                .map(segment -> Map.<String, Object>of("start", segment.start(), "end", segment.end(), "text", segment.text()))
+                .toList());
         List<AiArtifact> artifacts = new ArrayList<>();
         if (response.getSrtContent() != null && !response.getSrtContent().isBlank()) {
             String fileName = response.getSrtFileName() == null || response.getSrtFileName().isBlank()

@@ -12,17 +12,12 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.IDN;
-import java.net.InetAddress;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Locale;
-import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,7 +34,7 @@ public class UrlIngestionServiceImpl implements UrlIngestionService {
 
     @Override
     public UrlFetchResponse fetch(UrlFetchRequest request) {
-        URI uri = validateUri(request.getUrl());
+        URI uri = new UrlRequestPolicy(properties).validateUri(request.getUrl());
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(timeout())
                 .followRedirects(HttpClient.Redirect.NEVER)
@@ -68,54 +63,6 @@ public class UrlIngestionServiceImpl implements UrlIngestionService {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "url fetch interrupted");
-        }
-    }
-
-    private URI validateUri(String rawUrl) {
-        String normalized = rawUrl == null ? "" : rawUrl.trim();
-        if (normalized.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url is required");
-        }
-        URI uri;
-        try {
-            uri = new URI(normalized);
-        } catch (URISyntaxException exception) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url is invalid");
-        }
-        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
-        if (!"http".equals(scheme) && !"https".equals(scheme)) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url scheme must be http or https");
-        }
-        if (uri.getUserInfo() != null) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url user info is not allowed");
-        }
-        String host = uri.getHost();
-        if (host == null || host.isBlank()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url host is required");
-        }
-        validateHost(host);
-        return uri;
-    }
-
-    private void validateHost(String host) {
-        String asciiHost;
-        try {
-            asciiHost = IDN.toASCII(host);
-        } catch (IllegalArgumentException exception) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url host is invalid");
-        }
-        try {
-            var addresses = Arrays.asList(InetAddress.getAllByName(asciiHost));
-            if (!UrlHostPolicy.isAllowedHost(
-                    asciiHost,
-                    addresses,
-                    properties.getAllowedHosts(),
-                    properties.isRequireHostAllowlist(),
-                    properties.isAllowPrivateNetworks())) {
-                throw new BusinessException(ResultCode.BAD_REQUEST, "url host is not allowed");
-            }
-        } catch (IOException exception) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "url host cannot be resolved");
         }
     }
 
