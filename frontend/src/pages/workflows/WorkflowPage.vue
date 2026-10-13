@@ -40,10 +40,33 @@ const importingComfyUi = ref(false)
 let pageActive = true
 let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
+let pageSaveSequence = 0
+let saveNavigation: {
+  fromPath: string
+  fullPath: string
+  workflowId: string
+  navigationRevision: number
+  saveSequence: number
+} | null = null
+
+function ownsSaveNavigation(fullPath: string, fromPath?: string) {
+  return pageActive && saveNavigation !== null
+    && saveNavigation.fullPath === fullPath
+    && (fromPath === undefined || saveNavigation.fromPath === fromPath)
+    && saveNavigation.workflowId === workflowStore.workflowId
+    && saveNavigation.navigationRevision === pageNavigationRevision
+    && saveNavigation.saveSequence === pageSaveSequence
+}
 
 // 已完成的导航立即废弃旧页面请求；拒绝导航不会改变代次。
-watch(() => route.fullPath, () => {
+watch(() => route.fullPath, (to, from) => {
+  const preservesSavedCanvas = ownsSaveNavigation(to, from)
   pageNavigationRevision += 1
+  if (preservesSavedCanvas && saveNavigation) {
+    saveNavigation.navigationRevision = pageNavigationRevision
+  } else {
+    saveNavigation = null
+  }
   comfyUiImportSequence += 1
   importingComfyUi.value = false
   comfyUiImportError.value = null
@@ -265,10 +288,17 @@ function confirmDiscardUnsavedChanges() {
 onBeforeRouteLeave(confirmDiscardUnsavedChanges)
 
 onBeforeRouteUpdate((to, from) => {
-  if (to.fullPath === from.fullPath) {
+  if (to.fullPath === from.fullPath || ownsSaveNavigation(to.fullPath, from.fullPath)) {
     return true
   }
   return confirmDiscardUnsavedChanges()
+})
+// 其他异步守卫等待期间仍可能应用模板或导入新画布，提交内部导航前再次核对归属。
+const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
+  if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
+    return ownsSaveNavigation(to.fullPath, from.fullPath)
+  }
+  return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
 const pendingStartIdempotencyKey = ref<string | null>(null)
@@ -327,6 +357,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   pageActive = false
+  saveNavigation = null
+  stopGuardingSaveNavigation()
   comfyUiImportSequence += 1
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleEditorKeydown)
@@ -335,8 +367,8 @@ onBeforeUnmount(() => {
 watch(
   () => [route.params.id, route.query.projectId, route.query.name],
   async ([workflowId]) => {
-    // Run 已经保存了新画布，只规范化地址，不能重新加载覆盖当前快照。
-    if (activeRunStart?.canonicalRoute === route.fullPath) return
+    // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
+    if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
     if (!hasWorkflowContext.value) {
       workflowStore.resetToEmptyWorkflow()
       showCopilot.value = false
@@ -348,21 +380,37 @@ watch(
 )
 
 async function saveWorkflow() {
+  const saveSequence = ++pageSaveSequence
   try {
-    const beforeWorkflowId = workflowStore.workflowId
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
     const navigationRevision = pageNavigationRevision
     const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
-    if (!saved || !pageActive || navigationRevision !== pageNavigationRevision) return
+    if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision) return
     const savedWorkflowId = saved.workflowId
     if (projectId) {
       projectStore.linkWorkflowToProject(projectId, savedWorkflowId)
     }
-    if (beforeWorkflowId !== savedWorkflowId) {
-      await router.replace({
+    if (String(route.params.id || 'new') !== savedWorkflowId) {
+      const canonicalRoute = {
         path: `/workflows/${savedWorkflowId}`,
         query: projectId ? { projectId } : undefined,
-      })
+      }
+      // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
+      const navigation = {
+        fromPath: route.fullPath,
+        fullPath: router.resolve(canonicalRoute).fullPath,
+        workflowId: savedWorkflowId,
+        navigationRevision: pageNavigationRevision,
+        saveSequence,
+      }
+      saveNavigation = navigation
+      try {
+        const failure = await router.replace(canonicalRoute)
+        if (failure || saveNavigation !== navigation || saveSequence !== pageSaveSequence
+          || !ownsSaveNavigation(route.fullPath)) return
+      } finally {
+        if (saveNavigation === navigation) saveNavigation = null
+      }
     }
     projectStore.updateWorkflowStatus(savedWorkflowId, 'ready')
   } catch {
