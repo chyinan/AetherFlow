@@ -2,6 +2,7 @@ package com.aetherflow.ai.copilot.service;
 
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatRequest;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatResponse;
+import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationMetadata;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotMessageResponse;
 
@@ -16,7 +17,12 @@ public interface CopilotService {
 
     CopilotChatResponse planWorkflow(Long userId, CopilotChatRequest request);
 
-    CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta);
+    default CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta) {
+        return stream(userId, request, metadata -> { }, onDelta);
+    }
+
+    CopilotChatResponse stream(Long userId, CopilotChatRequest request,
+                              Consumer<CopilotConversationMetadata> onConversation, Consumer<String> onDelta);
 
     List<CopilotConversationSummary> listConversations(Long userId, int limit);
 

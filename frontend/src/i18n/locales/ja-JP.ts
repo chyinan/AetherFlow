@@ -1535,6 +1535,7 @@ export const jaJP = {
   copilot: {
     newConversation: '新しいチャット',
     historyUnavailable: '選択した会話はこのワークフローでは利用できません。次のメッセージで新しいチャットを開始します。',
+    historyIdentityUnconfirmed: '会話 ID の確認前に接続が途切れたため、安全に再開できません。別の会話への誤接続を防ぐため送信を停止しました。「新しいチャット」を選び、質問全体を再入力してください。',
     historyLoadFailed: '履歴を読み込めませんでした。会話の選択は保持されています。パネルを開き直すと再試行できます。',
     newConversationHint: 'キャンバスと履歴を保持して、新しい会話を開始します',
     editor: {

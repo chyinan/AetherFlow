@@ -20,7 +20,7 @@ import {
 import { copilotApi } from '@/services/api/copilotApi'
 import { renderCopilotMarkdown } from '@/services/copilot/copilotMarkdown'
 import { buildCanvasEditContext, compileCanvasEdit } from '@/services/copilot/copilotCanvasEdit'
-import { conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
+import { UNCONFIRMED_CONVERSATION, conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import { modelApi } from '@/services/api/modelApi'
 import { workflowApi } from '@/services/api/workflowApi'
 import type { CopilotMessage } from '@/types/copilot'
@@ -39,7 +39,8 @@ const canvasEditPendingId = ref<string | null>(null)
 const prompt = ref('')
 const loading = ref(false)
 const conversationSelectionPending = ref(false)
-const interactionPending = computed(() => loading.value || conversationSelectionPending.value)
+const conversationIdentityUnconfirmed = ref(false)
+const interactionPending = computed(() => loading.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
 const modelsLoading = ref(false)
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -147,6 +148,11 @@ async function loadConversationHistory() {
   const scopeKeyAtStart = conversationSessionKey(props.context)
   const selection = readConversationSelection(scopeKeyAtStart)
   if (selection === 'new') return
+  if (selection === UNCONFIRMED_CONVERSATION) {
+    conversationIdentityUnconfirmed.value = true
+    historyNotice.value = t('copilot.historyIdentityUnconfirmed')
+    return
+  }
   // 选择已按用户、项目和工作流（含草稿名称）隔离，临时加载失败不能把续聊变成新会话。
   if (selection) {
     conversationId.value = selection
@@ -220,7 +226,10 @@ function enterPlannerMode() {
 
 function rememberConversation(id: string | undefined) {
   conversationId.value = id
-  if (id) writeConversationSelection(conversationSessionKey(props.context), id)
+  if (id) {
+    conversationIdentityUnconfirmed.value = false
+    writeConversationSelection(conversationSessionKey(props.context), id)
+  }
 }
 
 function resetConversationState() {
@@ -238,6 +247,7 @@ function resetConversationState() {
   appliedActionIds.value.clear()
   loading.value = false
   conversationSelectionPending.value = false
+  conversationIdentityUnconfirmed.value = false
   applyingPlan.value = false
   conversationId.value = undefined
   historyNotice.value = ''
@@ -373,7 +383,7 @@ interface SendPromptOptions {
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
-  if (conversationSelectionPending.value) return
+  if (conversationSelectionPending.value || conversationIdentityUnconfirmed.value) return
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
     await sendCanvasEdit(value)
     return
@@ -411,6 +421,15 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   })
   const controller = new AbortController()
   chatController.value = controller
+  const scopeKeyAtStart = conversationSessionKey(props.context)
+  const stillCurrent = () => !controller.signal.aborted && chatController.value === controller
+    && sessionAtStart === plannerSessionSequence && workflowIdAtStart === props.context?.workflowId
+    && scopeKeyAtStart === conversationSessionKey(props.context)
+  if (!conversationId.value) {
+    // 先记住未确认状态；断线或关闭后不把未知会话悄悄当成可续聊的新会话。
+    conversationIdentityUnconfirmed.value = true
+    writeConversationSelection(scopeKeyAtStart, UNCONFIRMED_CONVERSATION)
+  }
   try {
     const model = selectedModel.value
     const assistantMessage = await copilotApi.stream(requestText, {
@@ -424,8 +443,12 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         ? buildWorkflowCopilotContext(intent, props.context)
         : undefined,
       signal: controller.signal,
+      onConversation: (id) => {
+        if (!stillCurrent()) return
+        rememberConversation(id)
+      },
       onDelta: (delta) => {
-        if (sessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId) return
+        if (!stillCurrent()) return
         const index = messages.value.findIndex((message) => message.id === assistantMessageId)
         const current = index >= 0 ? messages.value[index] : undefined
         if (current) {
@@ -436,9 +459,9 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         }
       },
     })
-    if (sessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId) return
+    if (!stillCurrent()) return
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)
-    rememberConversation(assistantMessage.conversationId)
+    rememberConversation(assistantMessage.conversationId ?? conversationId.value)
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
     if (current) {
       messages.value[assistantMessageIndex] = {
@@ -448,7 +471,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
       }
     }
   } catch (error) {
-    if (sessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId) return
+    if (!stillCurrent()) return
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)
     const apiError = toApiError(error, 'ai')
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
@@ -463,6 +486,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     if (chatController.value === controller && sessionAtStart === plannerSessionSequence) {
       chatController.value = null
       loading.value = false
+      if (conversationIdentityUnconfirmed.value) historyNotice.value = t('copilot.historyIdentityUnconfirmed')
     }
   }
 }

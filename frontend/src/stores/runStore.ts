@@ -73,6 +73,27 @@ function isNodeOutputSummary(output?: string) {
     || /^(idle|queued|pending|running|retrying|waiting|paused|success|failed|cancelled|skipped)$/i.test(output)))
 }
 
+function mergeNodeOutput(existing: RunNodeState, incoming: RunNodeState) {
+  if (incoming.output === undefined) return existing.output
+  if (!existing.output) return incoming.output
+  if (!isNodeOutputSummary(existing.output) && isNodeOutputSummary(incoming.output)) return existing.output
+  // 同状态回放可能只带部分属性；补齐字段而不是用节点类型等元数据擦除错误原因。
+  if (existing.status === incoming.status) {
+    try {
+      const currentAttributes: unknown = JSON.parse(existing.output)
+      const incomingAttributes: unknown = JSON.parse(incoming.output)
+      if (currentAttributes && incomingAttributes
+        && typeof currentAttributes === 'object' && typeof incomingAttributes === 'object'
+        && !Array.isArray(currentAttributes) && !Array.isArray(incomingAttributes)) {
+        return JSON.stringify({ ...currentAttributes, ...incomingAttributes })
+      }
+    } catch {
+      // 普通文本输出继续按原来的新值优先规则处理。
+    }
+  }
+  return incoming.output
+}
+
 function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveCurrent = false): WorkflowRun {
   // 局部节点可能推导出 success/failed；只有后端确认的终态才能锁定 HTTP 协调。
   const currentTerminal = isBackendTerminalRun(current)
@@ -98,10 +119,8 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
       continue
     }
     const merged = { ...existing, ...definedFields(node) }
-    // NODE_STARTED 等占位摘要不能擦除详细输出，但 HTTP 中的真实新属性仍可更新。
-    if (existing.output && !isNodeOutputSummary(existing.output) && isNodeOutputSummary(node.output)) {
-      merged.output = existing.output
-    }
+    // HTTP 与实时事件采用同样的信息保留规则。
+    merged.output = mergeNodeOutput(existing, node)
     if (node.label === node.nodeId) merged.label = existing.label
     if (existing.durationMs !== undefined) merged.durationMs = Math.max(existing.durationMs, node.durationMs ?? 0)
     if (merged.status !== 'paused' && merged.approval?.approvalStatus === 'pending') merged.approval = undefined
@@ -249,11 +268,16 @@ export const useRunStore = defineStore('run', {
         }
       }
     },
-    async refreshRuns() {
+    async refreshRuns(runId?: string) {
       this.initialized = false
+      // 路由重试必须重新走完整选择流程，并在异步读取前取得新的选择代际。
+      if (runId) {
+        await this.selectRun(runId, { refreshLogs: true })
+        return
+      }
       await this.loadRuns()
     },
-    async selectRun(runId: string) {
+    async selectRun(runId: string, options: { refreshLogs?: boolean } = {}) {
       const selectionRequestId = ++this.selectionRequestId
       const isCurrentSelection = () => this.selectionRequestId === selectionRequestId
       this.loading = true
@@ -274,11 +298,12 @@ export const useRunStore = defineStore('run', {
         this.currentRun = selectedRun
         const cachedLogs = this.logsByRunId[runId]
         this.logs = cachedLogs ?? []
-        const selectedLogs = cachedLogs ?? await runApi.getLogs(runId)
+        const selectedLogs = options.refreshLogs || !cachedLogs ? await runApi.getLogs(runId) : cachedLogs
         if (!isCurrentSelection() || this.currentRun?.id !== runId) {
           return
         }
-        this.logs = selectedLogs
+        // 同一运行的刷新保留请求期间收到的实时日志。
+        this.logs = mergeLogs(selectedLogs, this.logs)
         this.logsByRunId[runId] = this.logs
         await this.recoverCurrentRunRuntime({ expectedRunId: runId, selectionRequestId })
         if (!isCurrentSelection() || this.currentRun?.id !== runId) {
@@ -344,9 +369,13 @@ export const useRunStore = defineStore('run', {
         : { ...patch, approval: undefined }
       this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       if (state) {
-        Object.assign(state, normalizedPatch.label === patch.nodeId
-          ? { ...normalizedPatch, label: state.label }
-          : normalizedPatch)
+        const merged = { ...definedFields(normalizedPatch) }
+        // 事件占位摘要与缺省字段不能抹掉 HTTP 或先前事件恢复的详情。
+        merged.output = mergeNodeOutput(state, patch)
+        if (normalizedPatch.label === patch.nodeId) merged.label = state.label
+        if (state.durationMs !== undefined) merged.durationMs = Math.max(state.durationMs, patch.durationMs ?? 0)
+        Object.assign(state, merged)
+        if (patch.status !== 'paused' && !patch.approval) state.approval = undefined
       } else {
         this.currentRun.nodeStates.push(normalizedPatch)
       }

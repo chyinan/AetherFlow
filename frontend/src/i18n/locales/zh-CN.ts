@@ -1541,6 +1541,7 @@ export const zhCN = {
   copilot: {
     newConversation: '新对话',
     historyUnavailable: '当前工作流已无法使用所选历史会话，下一条消息将开启新对话。',
+    historyIdentityUnconfirmed: '连接在确认会话编号前中断，无法安全恢复这次对话。为避免误接其他会话，已暂停发送；请点击“新对话”重新提供完整问题。',
     historyLoadFailed: '历史记录加载失败，已保留会话选择；重新打开面板可重试。',
     newConversationHint: '清空聊天上下文并开启新会话，保留当前画布和历史记录',
     editor: {

@@ -48,6 +48,10 @@ public final class CopilotDtos {
             com.aetherflow.ai.copilot.service.CopilotCanvasEdits.Edit edit
     ) { }
 
+    /** 已提交用户消息的会话标识，必须先于模型流输出发送。 */
+    public record CopilotConversationMetadata(String conversationId) {
+    }
+
     public record CopilotConversationSummary(
             String id,
             String title,

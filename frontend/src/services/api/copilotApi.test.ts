@@ -132,4 +132,38 @@ describe('copilotApi', () => {
       id: 'msg-plan-2', plan, planBaseRevision: 10, planBaseVersion: 3, planBaseFingerprint: '01abcdea',
     }])
   })
+
+  it.each([
+    { frames: [{ event: 'conversation', data: { conversationId: 'conv-12' } }], existing: 'conv-11' },
+    { frames: [{ event: 'conversation', data: { conversationId: 'conv-11' } }, { event: 'conversation', data: { conversationId: 'conv-12' } }] },
+    { frames: [{ event: 'conversation', data: { conversationId: 'conv-11' } }, { event: 'complete', data: { conversationId: 'conv-12' } }] },
+    { frames: [{ event: 'conversation', data: { conversationId: '../invalid' } }] },
+  ])('拒绝非法或中途变化的会话编号：%j', async ({ frames, existing }) => {
+    const onConversation = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(frames.map(frame => `event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`).join('')))
+      controller.close()
+    } }))))
+    try {
+      await expect(copilotApi.stream('问题', { conversationId: existing, onConversation })).rejects.toThrow(/conversation/)
+      expect(onConversation.mock.calls.map(([id]) => id)).not.toContain('conv-12')
+      expect(onConversation.mock.calls.map(([id]) => id)).not.toContain('../invalid')
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it('取消后不会分发已经排队的会话元数据或增量', async () => {
+    const controller = new AbortController()
+    const onConversation = vi.fn()
+    const onDelta = vi.fn()
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      controller.abort()
+      return new Response('event: conversation\ndata: {"conversationId":"conv-11"}\n\nevent: delta\ndata: {"content":"旧文本"}\n\n')
+    }))
+    try {
+      await expect(copilotApi.stream('问题', { signal: controller.signal, onConversation, onDelta })).rejects.toThrow('Aborted')
+      expect(onConversation).not.toHaveBeenCalled()
+      expect(onDelta).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+
 })

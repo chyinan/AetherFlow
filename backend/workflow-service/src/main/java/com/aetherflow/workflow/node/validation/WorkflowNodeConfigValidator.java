@@ -49,7 +49,7 @@ public final class WorkflowNodeConfigValidator {
                 violations.add(prefix + "config field '" + field.name() + "' is required");
                 continue;
             }
-            if (value == null || !isType(field.type(), value)) {
+            if (value == null || !isFieldType(item.type(), field, value)) {
                 if (value != null) {
                     violations.add(prefix + "config field '" + field.name() + "' must be " + field.type());
                 }
@@ -63,6 +63,17 @@ public final class WorkflowNodeConfigValidator {
         }
         violations.addAll(validateCrossFieldRules(node, config));
         return List.copyOf(violations);
+    }
+
+    private static boolean isFieldType(String nodeType, WorkflowNodeConfigSchema field, Object value) {
+        // 图像工作流导入与 AI 执行使用对象；保留旧目录文本编辑格式的兼容性。
+        // 仅放行这两个节点的 workflowJson 对象，不改变其他 STRING 字段的校验。
+        if (("IMAGE_GENERATION".equals(normalize(nodeType)) || "UPSCALE".equals(normalize(nodeType)))
+                && "workflowJson".equals(field.name()) && "STRING".equals(normalize(field.type()))
+                && value instanceof Map<?, ?>) {
+            return true;
+        }
+        return isType(field.type(), value);
     }
 
     private static boolean runtimeConnectionOption(String nodeType, String fieldName, Map<String, Object> config) {

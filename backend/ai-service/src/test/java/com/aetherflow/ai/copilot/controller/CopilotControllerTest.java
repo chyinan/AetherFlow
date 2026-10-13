@@ -2,6 +2,7 @@ package com.aetherflow.ai.copilot.controller;
 
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatRequest;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatResponse;
+import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationMetadata;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotMessageResponse;
 import com.aetherflow.ai.copilot.service.CopilotService;
@@ -9,22 +10,82 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.function.Consumer;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class CopilotControllerTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+
+    @Test
+    void streamsConversationBeforeDeltaAndCompletion() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        doAnswer(invocation -> {
+            Consumer<CopilotConversationMetadata> onConversation = invocation.getArgument(2);
+            Consumer<String> onDelta = invocation.getArgument(3);
+            onConversation.accept(new CopilotConversationMetadata("conv-11"));
+            onDelta.accept("完整回答");
+            return new CopilotChatResponse("msg-22", "conv-11", "assistant", "完整回答", "22:00");
+        }).when(service).stream(eq(7L), any(CopilotChatRequest.class), any(), any());
+
+        MvcResult result = stream(service);
+
+        assertThat(result.getAsyncResult(5_000L)).isNull();
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("event:conversation\ndata:{\"conversationId\":\"conv-11\"}\n\n");
+        assertThat(eventNames(body)).containsExactly("conversation", "delta", "complete");
+    }
+
+    @Test
+    void streamsConversationBeforeErrorWhenFirstProviderChunkFails() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        IllegalStateException failure = new IllegalStateException("模型调用失败");
+        doAnswer(invocation -> {
+            Consumer<CopilotConversationMetadata> onConversation = invocation.getArgument(2);
+            onConversation.accept(new CopilotConversationMetadata("conv-11"));
+            throw failure;
+        }).when(service).stream(eq(7L), any(CopilotChatRequest.class), any(), any());
+
+        MvcResult result = stream(service);
+
+        assertThat(result.getAsyncResult(5_000L)).isSameAs(failure);
+        String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(body).contains("event:conversation\ndata:{\"conversationId\":\"conv-11\"}\n\n");
+        assertThat(body).contains("模型调用失败");
+        assertThat(eventNames(body)).containsExactly("conversation", "error");
+    }
+
+    private MvcResult stream(CopilotService service) throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new CopilotController(service)).build();
+        return mvc.perform(post("/copilot/chat/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"帮我解释错误\"}")
+                        .header("X-User-Id", "7"))
+                .andExpect(status().isOk()).andExpect(request().asyncStarted()).andReturn();
+    }
+
+    private List<String> eventNames(String body) {
+        return body.lines().filter(line -> line.startsWith("event:"))
+                .map(line -> line.substring("event:".length()).trim()).toList();
+    }
 
     @Test
     void returnsStructuredCanvasEditsForAuthenticatedCaller() throws Exception {
