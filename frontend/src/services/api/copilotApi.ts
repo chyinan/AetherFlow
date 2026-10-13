@@ -16,6 +16,7 @@ export interface CopilotAskOptions {
 }
 
 export interface CopilotStreamOptions extends CopilotAskOptions {
+  onConversation?: (conversationId: string) => void
   onDelta?: (content: string) => void
   signal?: AbortSignal
 }
@@ -154,10 +155,23 @@ export const copilotApi = {
     const decoder = new TextDecoder()
     let buffer = ''
     let completed: CopilotChatResponse | undefined
+    let confirmedConversationId = options.conversationId
 
     const handleBlock = (block: string) => {
+      if (options.signal?.aborted) throw new DOMException('Aborted', 'AbortError')
       const event = readSseEvent(block)
       if (!event || event.data === '[DONE]') return
+      if (event.event === 'conversation') {
+        const id = typeof event.data === 'object' && event.data !== null && 'conversationId' in event.data
+          ? (event.data as { conversationId?: unknown }).conversationId : undefined
+        if (typeof id !== 'string' || !/^(?:conv-)?\d+$/.test(id)
+            || (confirmedConversationId && numericConversationId(confirmedConversationId) !== numericConversationId(id))) {
+          throw new Error('invalid copilot conversation metadata')
+        }
+        confirmedConversationId = id
+        options.onConversation?.(id)
+        return
+      }
       if (event.event === 'delta') {
         const content = typeof event.data === 'object' && event.data !== null && 'content' in event.data
           ? String((event.data as { content?: unknown }).content ?? '')
@@ -172,7 +186,12 @@ export const copilotApi = {
         throw new Error(message)
       }
       if (event.event === 'complete' && typeof event.data === 'object' && event.data !== null) {
-        completed = event.data as CopilotChatResponse
+        const result = event.data as CopilotChatResponse
+        if (confirmedConversationId && result.conversationId
+            && numericConversationId(confirmedConversationId) !== numericConversationId(result.conversationId)) {
+          throw new Error('copilot conversation identity changed during stream')
+        }
+        completed = { ...result, conversationId: result.conversationId ?? confirmedConversationId }
       }
     }
 

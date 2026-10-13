@@ -150,6 +150,7 @@ class CopilotStreamingChainTest {
 
         assertThat(result.getAsyncResult(5_000L)).isNull();
         List<StreamEvent> events = events(result);
+        assertConversationFirst(events);
         assertThat(deltas(events)).containsExactlyElementsOf(chunks);
         assertThat(events).filteredOn(event -> event.name().equals("complete"))
                 .singleElement().satisfies(event -> assertThat(event.data().path("content").asText())
@@ -196,7 +197,8 @@ class CopilotStreamingChainTest {
 
         assertThat(result.getAsyncResult(5_000L)).isNull();
         assertThat(deltas(events(result))).containsExactly("备用回答");
-        assertThat(events(result)).extracting(StreamEvent::name).containsExactly("delta", "complete");
+        assertConversationFirst(events(result));
+        assertThat(events(result)).extracting(StreamEvent::name).containsExactly("conversation", "delta", "complete");
         verify(metrics).recordFailure(eq(AiProviderType.OPENAI), any(), any());
         verify(metrics, never()).recordSuccess(eq(AiProviderType.OPENAI), any());
         verify(metrics).recordSuccess(eq(AiProviderType.OLLAMA), any());
@@ -238,6 +240,7 @@ class CopilotStreamingChainTest {
     private void assertFailed(MvcResult result, String message, List<String> expectedChunks) throws Exception {
         assertThat(result.getAsyncResult(5_000L)).isInstanceOf(BusinessException.class);
         List<StreamEvent> events = events(result);
+        assertConversationFirst(events);
         assertThat(deltas(events)).containsExactlyElementsOf(expectedChunks);
         assertThat(events).filteredOn(event -> event.name().equals("error"))
                 .singleElement().satisfies(event -> assertThat(event.data().path("message").asText()).contains(message));
@@ -246,6 +249,13 @@ class CopilotStreamingChainTest {
         verify(messageMapper).insert(messages.capture());
         assertThat(messages.getValue().getRole()).isEqualTo("user");
         verify(conversationMapper, never()).updateById(any(CopilotConversationEntity.class));
+    }
+
+    private void assertConversationFirst(List<StreamEvent> events) {
+        assertThat(events).isNotEmpty();
+        assertThat(events.get(0).name()).isEqualTo("conversation");
+        assertThat(events.get(0).data().path("conversationId").asText()).isEqualTo("conv-11");
+        assertThat(events).filteredOn(event -> event.name().equals("conversation")).hasSize(1);
     }
 
     private String frames(List<String> chunks) throws Exception {

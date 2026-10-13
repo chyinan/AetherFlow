@@ -4,6 +4,7 @@ package com.aetherflow.ai.copilot.service.impl;
 
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatRequest;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotChatResponse;
+import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationMetadata;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotMessageResponse;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotWorkflowInputKind;
@@ -157,15 +158,18 @@ public class CopilotServiceImpl implements CopilotService {
     }
 
     @Override
-    public CopilotChatResponse stream(Long userId, CopilotChatRequest request, Consumer<String> onDelta) {
+    public CopilotChatResponse stream(Long userId, CopilotChatRequest request,
+                                     Consumer<CopilotConversationMetadata> onConversation, Consumer<String> onDelta) {
         requireUserId(userId);
         if (request == null || !hasText(request.getPrompt())) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot prompt is required");
         }
-        if (onDelta == null) {
+        if (onConversation == null || onDelta == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "copilot stream consumer is required");
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
+        // 用户消息事务提交后立即交付会话标识，首段输出前失败也能继续同一会话。
+        onConversation.accept(new CopilotConversationMetadata(conversationId(prepared.conversation().getId())));
         StringBuilder assistantContent = new StringBuilder();
         aiProviderRouter.stream(providerRequest(request, prepared.history(), userId), response -> {
             if (response != null && response.text() != null && !response.text().isEmpty()) {

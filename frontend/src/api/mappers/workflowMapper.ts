@@ -1,4 +1,5 @@
 // pattern: Functional Core
+import { toRaw } from 'vue'
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { classifierRoutes } from '../../utils/workflowNodeConfig.ts'
@@ -99,6 +100,44 @@ function stringValue(value: unknown, fallback = '') {
 function optionalString(value: unknown) {
   const normalized = stringValue(value)
   return normalized || undefined
+}
+
+// 保存边界递归解除普通配置里的 Vue 代理，再由原生克隆校验数据。
+// 保留循环引用和非普通对象的克隆语义，不用 JSON 编解码静默丢弃值。
+function unwrapConfigValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const raw = toRaw(value)
+  if (seen.has(raw)) return seen.get(raw)
+  const prototype = Object.getPrototypeOf(raw)
+  if (!Array.isArray(raw) && prototype !== Object.prototype && prototype !== null) return raw
+  const result = Array.isArray(raw) ? new Array(raw.length) : Object.create(prototype)
+  seen.set(raw, result)
+  for (const [key, nested] of Object.entries(raw)) {
+    Object.defineProperty(result, key, {
+      value: unwrapConfigValue(nested, seen),
+      enumerable: true, configurable: true, writable: true,
+    })
+  }
+  return result
+}
+
+function cloneConfigValue(value: unknown) {
+  return structuredClone(unwrapConfigValue(value))
+}
+
+// AI 执行器读取 Map：对象原样保真，编辑器中的合法对象 JSON 文本也规范为对象。
+// 其他旧值继续沿用原有保存行为，本修复不额外收紧配置校验。
+function normalizeWorkflowJson(value: unknown): Record<string, unknown> | string | undefined {
+  if (isRecord(value)) return cloneConfigValue(value) as Record<string, unknown>
+  const text = optionalString(value)
+  if (!text) return undefined
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (isRecord(parsed)) return parsed
+  } catch {
+    // 无法解析的旧文本由原有配置校验与运行流程处理。
+  }
+  return text
 }
 
 function optionalModel(value: unknown) {
@@ -344,6 +383,7 @@ function normalizePromptConfig(config: Record<string, unknown>, nextNodes: strin
 }
 
 function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const workflowJson = normalizeWorkflowJson(config.workflowJson)
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'SD_WEBUI'),
@@ -367,13 +407,14 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
     ...(optionalString(config.vae) ? { vae: optionalString(config.vae) } : {}),
     ...(Array.isArray(config.lora) ? { lora: config.lora } : {}),
     ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
-    ...(optionalString(config.workflowJson) ? { workflowJson: optionalString(config.workflowJson) } : {}),
+    ...(workflowJson === undefined ? {} : { workflowJson }),
     ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
     ...(isRecord(config.options) ? { options: config.options } : {}),
   }, nextNodes)
 }
 
 function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  const workflowJson = normalizeWorkflowJson(config.workflowJson)
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'COMFYUI'),
@@ -382,7 +423,7 @@ function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: stri
     scale: Math.max(1, Math.floor(numberValue(config.scale, 2))),
     ...(optionalString(config.upscaler) ? { upscaler: optionalString(config.upscaler) } : {}),
     ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
-    ...(optionalString(config.workflowJson) ? { workflowJson: optionalString(config.workflowJson) } : {}),
+    ...(workflowJson === undefined ? {} : { workflowJson }),
     ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
     ...(isRecord(config.options) ? { options: config.options } : {}),
   }, nextNodes)
@@ -538,7 +579,7 @@ function normalizeHumanConfig(config: Record<string, unknown>, nextNodes: string
 
 function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const normalized = withNextNodes({
-    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
+    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: cloneConfigValue(config.bodyNodes) } : {}),
     itemVariable: stringValue(config.itemVariable, 'item'),
     indexVariable: stringValue(config.indexVariable, 'iterationIndex'),
     concurrency: Math.min(8, Math.max(1, Math.floor(numberValue(config.concurrency, 1)))),
@@ -557,7 +598,7 @@ function normalizeIterationConfig(config: Record<string, unknown>, nextNodes: st
 
 function normalizeLoopConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const normalized = withNextNodes({
-    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: structuredClone(config.bodyNodes) } : {}),
+    ...(Array.isArray(config.bodyNodes) ? { bodyNodes: cloneConfigValue(config.bodyNodes) } : {}),
     indexVariable: stringValue(config.indexVariable, 'loopIteration'),
     inputVariable: stringValue(config.inputVariable ?? config.input, 'state'),
     outputVariable: stringValue(config.outputVariable ?? config.output, 'loopState'),

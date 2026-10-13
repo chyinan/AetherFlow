@@ -59,8 +59,9 @@ public class CopilotController {
         SseEmitter emitter = new SseEmitter(65_000L);
         CompletableFuture.runAsync(() -> {
             try {
-                CopilotChatResponse response = copilotService.stream(userId, request, delta -> send(emitter,
-                        "delta", Map.of("content", delta)));
+                CopilotChatResponse response = copilotService.stream(userId, request,
+                        metadata -> send(emitter, "conversation", metadata),
+                        delta -> send(emitter, "delta", Map.of("content", delta)));
                 send(emitter, "complete", response);
                 emitter.complete();
             } catch (RuntimeException exception) {

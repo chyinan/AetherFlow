@@ -223,7 +223,8 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     nodeId: event.nodeId,
     label: event.nodeId,
     status: event.attributes?.nested === true && event.attributes?.itemStatus === 'FAILED' ? 'failed' : mapRuntimeEventToNodeStatus(event),
-    output: event.eventType,
+    // 与 HTTP 节点摘要一致，优先展示实际事件属性（包括具体失败原因）。
+    output: Object.keys(event.attributes ?? {}).length > 0 ? JSON.stringify(event.attributes) : event.eventType,
     ...(approval ? { approval } : {}),
     ...(event.attributes?.reused === true ? { reused: true } : {}),
   }

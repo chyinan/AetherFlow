@@ -1,6 +1,9 @@
 // pattern: Imperative Shell
 import { tokenManager } from '@/api/client/tokenManager'
 
+// 首轮已发送但尚未收到持久化后的会话 ID，禁止猜测最近会话。
+export const UNCONFIRMED_CONVERSATION = 'pending'
+
 type ConversationScope = {
   workflowId?: string
   projectId?: number | null

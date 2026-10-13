@@ -236,6 +236,7 @@ export const useWorkflowStore = defineStore('workflow', {
   state: () => ({
     workflowId: 'new',
     workflowName: 'Untitled Workflow',
+    workflowDescription: '',
     backendDefinitionId: null as number | null,
     backendVersion: null as number | null,
     createIdempotencyKey: null as string | null,
@@ -319,6 +320,7 @@ export const useWorkflowStore = defineStore('workflow', {
       workflowLoadRequestCounter += 1
       this.workflowId = workflow.id
       this.workflowName = workflow.name
+      this.workflowDescription = workflow.description ?? ''
       this.backendDefinitionId = workflow.backendDefinitionId ?? null
       this.backendVersion = workflow.backendVersion ?? null
       this.createIdempotencyKey = workflow.backendDefinitionId || dirty ? null : this.createIdempotencyKey
@@ -522,6 +524,7 @@ export const useWorkflowStore = defineStore('workflow', {
       workflowLoadRequestCounter += 1
       this.workflowId = 'new'
       this.workflowName = 'Untitled Workflow'
+      this.workflowDescription = ''
       this.backendDefinitionId = null
       this.backendVersion = null
       this.createIdempotencyKey = null
@@ -601,6 +604,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.saving = false
         this.workflowId = workflow.id
         this.workflowName = nextWorkflowName
+        this.workflowDescription = workflow.description ?? ''
         this.backendDefinitionId = nextBackendDefinitionId
         this.backendVersion = workflow.backendVersion ?? null
         this.projectId = workflow.projectId ?? null
@@ -644,6 +648,7 @@ export const useWorkflowStore = defineStore('workflow', {
         const savedWorkflow = await workflowApi.saveWorkflow({
           id: this.workflowId,
           name: this.workflowName,
+          description: this.workflowDescription,
           projectId: options.projectId ?? this.projectId ?? undefined,
           backendDefinitionId: this.backendDefinitionId ?? undefined,
           nodes: this.nodes,

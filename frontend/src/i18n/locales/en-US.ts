@@ -1533,6 +1533,7 @@ export const enUS = {
   copilot: {
     newConversation: 'New chat',
     historyUnavailable: 'The selected conversation is no longer available for this workflow. Your next message will start a new chat.',
+    historyIdentityUnconfirmed: 'The connection ended before the conversation ID was confirmed. This chat cannot be safely resumed. Sending is paused to avoid using another conversation; choose New chat and provide your full question again.',
     historyLoadFailed: 'Conversation history could not be loaded. Your selected conversation is kept; reopen the panel to retry.',
     newConversationHint: 'Start a fresh conversation while keeping the canvas and previous history',
     editor: {

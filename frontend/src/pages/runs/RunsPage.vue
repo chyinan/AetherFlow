@@ -112,7 +112,8 @@ function selectRun(runId: string) {
 
 function refreshRuns() {
   dismissedApprovalKey.value = null
-  void runStore.refreshRuns()
+  const runId = Array.isArray(route.params.id) ? route.params.id[0] : route.params.id
+  void runStore.refreshRuns(runId)
 }
 
 function dismissApproval() {
