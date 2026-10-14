@@ -518,4 +518,76 @@ describe('取消运行的异步目标与订阅隔离', () => {
     expect(store.currentRun).toBeNull()
     expect(store.realtimeSubscriptionId).toBe(0)
   })
+
+  it.each(['success', 'failed'] as const)('取消确认覆盖节点局部推断的 %s，保留节点详情', async (status) => {
+    const store = setupStore()
+    const cancellation = deferred<void>()
+    mocks.cancelWorkflowInstance.mockReturnValue(cancellation.promise)
+    const pending = store.cancelCurrentRun()
+    subscription(0).handlers.onNodePatch?.({ nodeId: 'node-run-a', label: '局部节点', status, output: '保留具体输出' })
+    expect(store.currentRun).toMatchObject({ status, backendStatus: 'RUNNING' })
+    cancellation.resolve(undefined)
+    await pending
+    expect(store.currentRun).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
+    expect(store.runs[0]).toEqual(store.currentRun)
+    expect(store.currentRun?.nodeStates[0]?.output).toBe('保留具体输出')
+    expect(subscription(0).stop).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['SUCCESS', 'FAILED', 'CANCELLED'])('并发节点更新不阻止恢复后端权威终态 %s', async (backendStatus) => {
+    const store = setupStore()
+    const recovery = deferred<RuntimeRecovery>()
+    mocks.recoverRuntime.mockReturnValue(recovery.promise)
+    const pending = store.recoverCurrentRunRuntime()
+    store.patchNodeState({ nodeId: 'node-run-a', label: '节点', status: 'running', durationMs: 60 })
+    recovery.resolve({ nodePatches: [], logs: [], runPatch: { status: backendStatus.toLowerCase() as WorkflowRun['status'], backendStatus, progress: 100 } })
+    await pending
+    expect(store.currentRun).toMatchObject({ backendStatus, progress: 100 })
+  })
+
+  it('没有并发事件时允许 WAITING 恢复较低的实际运行进度', async () => {
+    const store = setupStore()
+    store.patchCurrentRun({ status: 'paused', backendStatus: 'WAITING', progress: 100 })
+    mocks.recoverRuntime.mockResolvedValue({ nodePatches: [], logs: [], runPatch: { status: 'running', backendStatus: 'RUNNING', progress: 25 } })
+    await store.recoverCurrentRunRuntime()
+    expect(store.currentRun).toMatchObject({ status: 'running', backendStatus: 'RUNNING', progress: 25 })
+  })
+
+  it('两个同运行恢复请求乱序返回时只采用较新请求', async () => {
+    const store = setupStore()
+    const older = deferred<RuntimeRecovery>()
+    const newer = deferred<RuntimeRecovery>()
+    mocks.recoverRuntime.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const first = store.recoverCurrentRunRuntime()
+    const second = store.recoverCurrentRunRuntime()
+    newer.resolve({ nodePatches: [], logs: [log('newer')], runPatch: { progress: 70, currentNodeId: 'new-node' } })
+    await second
+    older.resolve({ nodePatches: [], logs: [log('older')], runPatch: { progress: 20, currentNodeId: 'old-node' } })
+    await first
+    expect(store.currentRun).toMatchObject({ progress: 70, currentNodeId: 'new-node' })
+    expect(store.logs.map(entry => entry.id)).not.toContain('older')
+  })
+
+  it.each(['RUNNING', 'SUCCESS'] as const)('并发更新 B 时仍补齐漏收的 A 历史节点，保留较新摘要或采用 %s 权威终态', async (backendStatus) => {
+    const store = setupStore()
+    const recovery = deferred<RuntimeRecovery>()
+    mocks.recoverRuntime.mockReturnValue(recovery.promise)
+    const pending = store.recoverCurrentRunRuntime()
+    store.patchCurrentRun({ status: 'running', backendStatus: 'RUNNING', progress: 75, currentNodeId: 'node-b' })
+    store.patchNodeState({ nodeId: 'node-b', label: '实时节点 B', status: 'running', retryCount: 2, output: '较新输出' })
+    store.patchCurrentRun({ progress: 75 })
+    recovery.resolve({
+      logs: [log('history-a')],
+      nodePatches: [
+        { nodeId: 'node-run-a', label: '历史节点 A', status: 'success', output: '离线期间的输出' },
+        { nodeId: 'node-b', label: '旧节点 B', status: 'paused', retryCount: 0, output: '旧输出' },
+      ],
+      runPatch: { status: backendStatus === 'SUCCESS' ? 'success' : 'running', backendStatus, progress: backendStatus === 'SUCCESS' ? 100 : 20 },
+    })
+    await pending
+    expect(store.currentRun?.nodeStates[0]).toMatchObject({ status: 'success', output: '离线期间的输出' })
+    expect(store.currentRun?.nodeStates[1]).toMatchObject({ status: 'running', retryCount: 2, output: '较新输出' })
+    expect(store.currentRun).toMatchObject({ backendStatus, progress: backendStatus === 'SUCCESS' ? 100 : 75, currentNodeId: 'node-b' })
+    expect(store.logs.map(entry => entry.id)).toContain('history-a')
+  })
 })
