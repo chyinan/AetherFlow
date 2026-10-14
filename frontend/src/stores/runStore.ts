@@ -160,6 +160,8 @@ export const useRunStore = defineStore('run', {
     selectionRequestId: 0,
     runsLoadRequestId: 0,
     runUpdateVersions: {} as Record<string, number>,
+    runtimeRecoveryRequestId: 0,
+    nodeUpdateVersions: {} as Record<string, Record<string, number>>,
     realtimeSubscriptionId: 0,
     realtimeRunId: null as string | null,
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
@@ -355,7 +357,7 @@ export const useRunStore = defineStore('run', {
         this.logsByRunId[this.currentRun.id] = this.logs
       }
     },
-    patchNodeState(patch: RunNodeState) {
+    patchNodeState(patch: RunNodeState, options: { inferRunStatus?: boolean } = {}) {
       if (!this.currentRun || isCancelledRun(this.currentRun)) {
         return
       }
@@ -368,6 +370,8 @@ export const useRunStore = defineStore('run', {
         ? patch
         : { ...patch, approval: undefined }
       this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
+      const nodeVersions = this.nodeUpdateVersions[this.currentRun.id] ??= {}
+      nodeVersions[patch.nodeId] = (nodeVersions[patch.nodeId] ?? 0) + 1
       if (state) {
         const merged = { ...definedFields(normalizedPatch) }
         // 事件占位摘要与缺省字段不能抹掉 HTTP 或先前事件恢复的详情。
@@ -380,7 +384,8 @@ export const useRunStore = defineStore('run', {
         this.currentRun.nodeStates.push(normalizedPatch)
       }
       // 后端确认终态后，节点只能补齐详情；尚未恢复完整的节点局部推导结果仍需重新计算。
-      if (this.currentRun.backendStatus !== 'SUCCESS' && this.currentRun.backendStatus !== 'FAILED') {
+      if (options.inferRunStatus !== false
+        && this.currentRun.backendStatus !== 'SUCCESS' && this.currentRun.backendStatus !== 'FAILED') {
         const completed = this.currentRun.nodeStates.filter((node) => ['success', 'failed', 'skipped'].includes(node.status)).length
         this.currentRun.progress = Math.round((completed / Math.max(this.currentRun.nodeStates.length, 1)) * 100)
         if (this.currentRun.nodeStates.some((node) => node.status === 'failed')) {
@@ -548,9 +553,9 @@ export const useRunStore = defineStore('run', {
       await cancelWorkflowInstance(instanceId)
       const runInList = this.runs.find((item) => item.id === runId)
       const currentRun = this.currentRun?.id === runId ? this.currentRun : null
-      // 刷新列表可能先于详情得到终态，迟到的取消确认也不能覆盖它。
-      if ((runInList && isTerminalRunStatus(runInList.status))
-        || (currentRun && isTerminalRunStatus(currentRun.status))) {
+      // 只保护后端确认的终态；节点局部推断的 success/failed 不能忽略取消确认。
+      if ((runInList && isBackendTerminalRun(runInList) && !isCancelledRun(runInList))
+        || (currentRun && isBackendTerminalRun(currentRun) && !isCancelledRun(currentRun))) {
         return true
       }
       const patch: Partial<WorkflowRun> = { status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 }
@@ -569,6 +574,10 @@ export const useRunStore = defineStore('run', {
     async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {
       const targetRun = this.currentRun
       const expectedRunId = options.expectedRunId ?? targetRun?.id
+      const selectionRequestId = options.selectionRequestId ?? this.selectionRequestId
+      const recoveryRequestId = ++this.runtimeRecoveryRequestId
+      const updateVersion = expectedRunId ? (this.runUpdateVersions[expectedRunId] ?? 0) : 0
+      const nodeVersions = { ...(expectedRunId ? this.nodeUpdateVersions[expectedRunId] : undefined) }
       // 只丢弃跨越取消完成的旧恢复；之后主动读取已取消运行仍可补齐历史日志。
       const wasCancelled = Boolean(targetRun && isCancelledRun(targetRun))
       const isCurrentTarget = () => Boolean(
@@ -576,7 +585,8 @@ export const useRunStore = defineStore('run', {
         && expectedRunId
         && this.currentRun?.id === expectedRunId
         && (wasCancelled || !isCancelledRun(this.currentRun))
-        && (options.selectionRequestId === undefined || this.selectionRequestId === options.selectionRequestId),
+        && this.selectionRequestId === selectionRequestId
+        && this.runtimeRecoveryRequestId === recoveryRequestId,
       )
       if (!targetRun || !expectedRunId || !runtimeWorkflowIdFromRun(targetRun)) {
         return
@@ -604,9 +614,19 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      recovery.nodePatches.forEach((patch) => this.patchNodeState(patch))
-
-      if (this.currentRun && recovery.runPatch) {
+      // HTTP 没有服务端版本：请求期间被更新的节点及运行中摘要不能回退。
+      // 终态仍以服务端为准，且不使用进度单调假设阻止 WAITING 恢复等合法回退。
+      const updatedWhileRecovering = (this.runUpdateVersions[expectedRunId] ?? 0) !== updateVersion
+      const currentNodeVersions = { ...this.nodeUpdateVersions[expectedRunId] }
+      recovery.nodePatches.forEach((patch) => {
+        if ((currentNodeVersions[patch.nodeId] ?? 0) === (nodeVersions[patch.nodeId] ?? 0)) {
+          // 补齐未并发变更的历史节点，但不能用局部节点推断覆盖较新的运行摘要。
+          this.patchNodeState(patch, { inferRunStatus: !updatedWhileRecovering })
+        }
+      })
+      const authoritativeTerminal = recovery.runPatch?.backendStatus
+        && ['SUCCESS', 'FAILED', 'CANCELLED'].includes(recovery.runPatch.backendStatus)
+      if (this.currentRun && recovery.runPatch && (!updatedWhileRecovering || authoritativeTerminal)) {
         this.patchCurrentRun(recovery.runPatch)
       }
 

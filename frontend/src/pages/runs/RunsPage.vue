@@ -34,7 +34,7 @@ type HumanApprovalCompletion = {
   snapshot: RuntimeExecutionSnapshot
 }
 
-const canCancelCurrentRun = computed(() => ['queued', 'running', 'waiting'].includes(runStore.currentRun?.status ?? ''))
+const canCancelCurrentRun = computed(() => ['queued', 'running', 'paused'].includes(runStore.currentRun?.status ?? ''))
 
 async function cancelCurrentRun() {
   if (cancelling.value || !canCancelCurrentRun.value) {
