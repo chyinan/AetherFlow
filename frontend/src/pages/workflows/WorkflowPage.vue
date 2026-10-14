@@ -9,6 +9,7 @@ import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
 import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
+import { workflowStartIntent } from '@/utils/workflowStartIntent'
 import { toApiError } from '@/api/client/apiError'
 import { importComfyUiWorkflow } from '@/api/modules/workflow'
 import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
@@ -301,7 +302,7 @@ const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
   return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
-const pendingStartIdempotencyKey = ref<string | null>(null)
+let pendingStart: { intent: string; idempotencyKey: string } | null = null
 let startNavigationGeneration = 0
 let activeRunStart: {
   generation: number
@@ -313,7 +314,7 @@ function invalidateRunStart() {
   startNavigationGeneration += 1
   activeRunStart = null
   startingRun.value = false
-  pendingStartIdempotencyKey.value = null
+  pendingStart = null
 }
 
 const stopWatchingStartNavigation = router.afterEach((to, from, failure) => {
@@ -486,7 +487,6 @@ async function startRun() {
   }
 
   startingRun.value = true
-  pendingStartIdempotencyKey.value ||= crypto.randomUUID()
   const operation = {
     generation: startNavigationGeneration,
     workflowId: workflowStore.workflowId,
@@ -496,7 +496,6 @@ async function startRun() {
   const ownsOperation = () => activeRunStart === operation
     && operation.generation === startNavigationGeneration
   const ownsWorkflow = () => ownsOperation() && operation.workflowId === workflowStore.workflowId
-  const idempotencyKey = pendingStartIdempotencyKey.value
   const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
   workflowStore.setRunError(null)
   try {
@@ -512,6 +511,16 @@ async function startRun() {
         return
       }
     }
+
+    const intent = workflowStartIntent({
+      id: workflowStore.workflowId,
+      name: workflowStore.workflowName,
+      nodes: workflowStore.nodes,
+      edges: workflowStore.edges,
+    }, fileId)
+    // 上次回执失败不代表未启动；改配置必须明确选择新运行，不能静默重复执行。
+    if (pendingStart && pendingStart.intent !== intent
+      && !window.confirm(t('workflow.runChangedIntentConfirm'))) return
 
     const editRevision = workflowStore.editRevision
     const submittedWorkflow = {
@@ -542,6 +551,11 @@ async function startRun() {
       workflowStore.setRunError(t('workflow.runRequiresBackendDefinition'))
       return
     }
+    // 只有真正派发时才替换意图；保存失败、取消或迟到保存都保留原重试键。
+    if (!pendingStart || pendingStart.intent !== intent) {
+      pendingStart = { intent, idempotencyKey: crypto.randomUUID() }
+    }
+    const idempotencyKey = pendingStart.idempotencyKey
     const result = await workflowApi.startRun(
       operation.workflowId,
       fileId ? { fileId } : {},
@@ -549,7 +563,7 @@ async function startRun() {
     )
     // 已派发的后端运行可从历史重新发现，但迟到响应不能接管新页面。
     if (!ownsWorkflow()) return
-    pendingStartIdempotencyKey.value = null
+    pendingStart = null
     const run = runStore.createRunFromWorkflow({
       runId: result.runId,
       workflowId: operation.workflowId,

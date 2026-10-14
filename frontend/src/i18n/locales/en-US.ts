@@ -365,6 +365,7 @@ export const enUS = {
     waitingForInput: 'Waiting for external input',
     startingRun: 'Starting',
     runFailed: 'Run failed',
+    runChangedIntentConfirm: 'The previous start is unconfirmed and may already be running. The configuration or input has changed. Start a separate run with the new configuration? Cancel keeps your edits without starting a run.',
     runFailedUnknown: 'Unknown error',
     runRequiresFileId: 'Upload the TED video first, wait for the backend file ID, then run the workflow.',
     runRequiresBackendDefinition: 'This workflow has not been saved to the backend, so a real TED demo run cannot start.',

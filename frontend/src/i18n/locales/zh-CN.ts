@@ -371,6 +371,7 @@ export const zhCN = {
     waitingForInput: '等待外部输入',
     startingRun: '启动中',
     runFailed: '启动失败',
+    runChangedIntentConfirm: '上一次启动结果尚未确认，旧运行可能已在执行。当前配置或输入已改变，是否按新配置另起一次运行？取消将保留修改，不会发起运行。',
     runFailedUnknown: '未知错误',
     runRequiresFileId: '请先上传视频文件，等待上传完成并获得后端文件 ID 后再运行工作流。',
     runRequiresBackendDefinition: '当前工作流尚未成功保存到后端，不能启动运行。',

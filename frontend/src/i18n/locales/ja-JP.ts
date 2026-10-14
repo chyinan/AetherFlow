@@ -367,6 +367,7 @@ export const jaJP = {
     waitingForInput: '外部入力を待機中',
     startingRun: '開始中',
     runFailed: '実行に失敗しました',
+    runChangedIntentConfirm: '前回の開始結果は未確認で、すでに実行中の可能性があります。設定または入力が変更されています。新しい設定で別の実行を開始しますか？キャンセルすると編集内容を保持し、実行は開始しません。',
     runFailedUnknown: '不明なエラー',
     runRequiresFileId: '先に動画をアップロードしてバックエンドの fileId を取得してください。',
     runRequiresBackendDefinition: 'このワークフローはバックエンドに保存されていないため実行できません。',
