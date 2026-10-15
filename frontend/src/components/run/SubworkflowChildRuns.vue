@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { listWorkflowChildRuns, type WorkflowChildRunSummary } from '@/api/modules/workflow'
 
 const props = defineProps<{ instanceId: number }>()
+const route = useRoute()
 const expanded = ref(false)
 const loading = ref(false)
 const error = ref('')
@@ -52,11 +53,11 @@ onBeforeUnmount(() => { active = false; invalidate() })
       <p v-if="!loading && !error && !records.length" class="text-xs text-text-muted">当前运行还没有子工作流调用记录</p>
       <article v-for="record in records" :key="`${record.parentNodeId}:${record.childInstanceId}`" class="rounded-md border border-app-border bg-app-bg2 p-3 text-xs">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <RouterLink :to="`/runs/run-${record.childInstanceId}`" class="font-semibold text-primary underline" data-testid="child-run-link">打开子运行 #{{ record.childInstanceId }}</RouterLink>
+          <RouterLink :to="{ path: `/runs/run-${record.childInstanceId}`, query: route.query }" class="font-semibold text-primary underline" data-testid="child-run-link">打开子运行 #{{ record.childInstanceId }}</RouterLink>
           <span>{{ record.reused ? '复用已完成结果' : record.status === 'COMPLETED' ? '调用已处理' : '等待子流程完成' }}</span>
         </div>
         <p class="mt-2 break-all text-text-secondary">{{ record.parentNodeId }} · 定义 #{{ record.definitionId }} · v{{ record.definitionVersion }}</p>
-        <RouterLink v-if="record.reused && record.sourceParentInstanceId" :to="`/runs/run-${record.sourceParentInstanceId}`" class="mt-2 inline-block text-primary underline" data-testid="source-run-link">查看原父运行 #{{ record.sourceParentInstanceId }}</RouterLink>
+        <RouterLink v-if="record.reused && record.sourceParentInstanceId" :to="{ path: `/runs/run-${record.sourceParentInstanceId}`, query: route.query }" class="mt-2 inline-block text-primary underline" data-testid="source-run-link">查看原父运行 #{{ record.sourceParentInstanceId }}</RouterLink>
       </article>
     </div>
   </section>

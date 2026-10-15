@@ -4,19 +4,19 @@ import { computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import ImageExecutionFailureCard from '@/components/run/ImageExecutionFailureCard.vue'
 import { useRunStore } from '@/stores/runStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { useUiStore } from '@/stores/uiStore'
 import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
-import { imageExecutionFailureMessages, parseImageExecutionFailure, type ImageExecutionFailure } from '@/utils/imageExecutionFailure'
+import { parseImageExecutionFailure, type ImageExecutionFailure } from '@/utils/imageExecutionFailure'
 
 const runStore = useRunStore()
 const workflowStore = useWorkflowStore()
 const uiStore = useUiStore()
 const visibleLogs = computed(() => runStore.logs.slice(-24).map((log) => ({ ...log, imageFailure: log.imageFailure ?? parseImageExecutionFailure(log.message) })))
 const { t } = useI18n()
-const { t: failureText } = useI18n({ useScope: 'local', messages: imageExecutionFailureMessages })
 const emit = defineEmits<{
   close: []
 }>()
@@ -67,19 +67,12 @@ async function locate(nodeId: string | undefined, failure: ImageExecutionFailure
       </p>
       <div
         v-for="log in visibleLogs"
-        :key="log.id"
+        :key="`${runStore.currentRun?.id ?? ''}:${log.id}`"
         class="grid grid-cols-[64px_44px_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-slate-300 hover:bg-white/5"
       >
         <span class="text-slate-500">{{ log.time }}</span>
         <span class="text-primary">{{ log.level }}</span>
-        <div v-if="log.imageFailure" class="space-y-2 break-words" data-testid="image-execution-failure" role="alert">
-          <p class="font-semibold text-red-300">{{ failureText('title', { provider: log.imageFailure.provider === 'COMFYUI' ? 'ComfyUI' : log.imageFailure.provider === 'SD_WEBUI' ? 'Stable Diffusion WebUI' : 'AI Service', stage: failureText(`stages.${log.imageFailure.stage}`) }) }}</p>
-          <p>{{ failureText(`reasons.${log.imageFailure.reason}`) }}</p>
-          <p>{{ failureText(`actions.${log.imageFailure.field}`) }}</p>
-          <p class="text-slate-400">{{ failureText(['TIMEOUT', 'INTERRUPTED'].includes(log.imageFailure.reason) ? 'pending' : 'retry') }}</p>
-          <button v-if="canLocate(log.nodeId)" type="button" class="rounded border border-white/20 px-2 py-1 text-primary hover:bg-white/10" data-testid="locate-image-failure" @click="locate(log.nodeId, log.imageFailure)">{{ failureText('locate', { field: failureText(`fields.${log.imageFailure.field}`) }) }}</button>
-          <p v-else class="text-slate-400">{{ failureText('noNode', { field: failureText(`fields.${log.imageFailure.field}`) }) }}</p>
-        </div>
+        <ImageExecutionFailureCard v-if="log.imageFailure" :failure="log.imageFailure" :node-id="log.nodeId" :can-locate="canLocate(log.nodeId)" dark @locate="locate(log.nodeId, log.imageFailure)" />
         <span v-else class="break-words">{{ log.message }}</span>
       </div>
     </div>

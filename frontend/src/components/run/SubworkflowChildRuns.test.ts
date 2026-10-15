@@ -62,3 +62,14 @@ describe('子工作流运行入口', () => {
     expect(wrapper.text()).toContain('当前运行还没有子工作流调用记录')
   })
 })
+
+it('子运行和来源运行链接保留历史筛选，后退恢复原查询', async () => {
+  api.listWorkflowChildRuns.mockResolvedValue([{ ...row, reused: true, sourceParentInstanceId: 9 }])
+  const { wrapper, router } = await render()
+  await router.replace({ path: '/runs/run-1', query: { workflowId: '77', status: 'FAILED', page: '3', q: 'meeting' } })
+  await wrapper.get('[data-testid="toggle-child-runs"]').trigger('click'); await flushPromises()
+  expect(wrapper.get('[data-testid="source-run-link"]').attributes('href')).toContain('page=3')
+  await wrapper.get('[data-testid="child-run-link"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.query).toEqual({ workflowId: '77', status: 'FAILED', page: '3', q: 'meeting' })
+  router.back(); await flushPromises(); expect(router.currentRoute.value.path).toBe('/runs/run-1'); expect(router.currentRoute.value.query.page).toBe('3')
+})

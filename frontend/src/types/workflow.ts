@@ -63,6 +63,7 @@ export type NodeTemplateAvailability = {
 }
 
 export interface NodeTemplate {
+  outputSchema?: Array<import('@/api/modules/node').WorkflowNodeVariableSchema>
   configSchema?: Array<import('@/api/modules/node').WorkflowNodeConfigSchema>
   kind: WorkflowNodeKind
   label: string

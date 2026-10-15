@@ -308,7 +308,43 @@ async function getLogs(runId: string) {
   throw new Error(`invalid workflow run id: ${runId}`)
 }
 
+export interface RunPageQuery {
+  workflowId?: string
+  status?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface RunPage {
+  items: WorkflowRun[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export async function listRunsPage(query: RunPageQuery = {}): Promise<RunPage> {
+  const page = Math.max(1, Math.min(1_000_000, Math.trunc(query.page || 1)))
+  const pageSize = Math.max(1, Math.min(100, Math.trunc(query.pageSize || 20)))
+  const params = { page, pageSize, ...(query.workflowId ? { workflowId: query.workflowId } : {}), ...(query.status ? { status: query.status } : {}) }
+  try {
+    // 每次只读取用户请求的页；名称搜索由界面明确限定在这一页。
+    const result = await listWorkflowInstances(params)
+    const items = (Array.isArray(result.items) ? result.items : []).map(mapBackendRun)
+    const total = typeof result.total === 'number' && Number.isFinite(result.total)
+      ? Math.max(0, result.total) : (page - 1) * pageSize + items.length
+    return { items, total, page, pageSize }
+  } catch (error) {
+    if (shouldUseMockFallback(error, 'workflow')) {
+      const filtered = mockRuns.filter(run => (!query.workflowId || run.workflowId === query.workflowId)
+        && (!query.status || (run.backendStatus ?? ({ queued: 'PENDING', running: 'RUNNING', paused: 'WAITING', success: 'SUCCESS', failed: 'FAILED', cancelled: 'CANCELLED' }[run.status])) === query.status))
+      return delay({ items: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize })
+    }
+    throw error
+  }
+}
+
 async function listRuns() {
+  // 保留既有概览统计语义；历史界面必须显式使用单页 API。
   try {
     const items: WorkflowRunViewDTO[] = []
     const pageSize = 50
@@ -318,22 +354,19 @@ async function listRuns() {
       const pageItems = Array.isArray(result.items) ? result.items : []
       items.push(...pageItems)
       const total = typeof result.total === 'number' ? result.total : items.length
-      if (pageItems.length === 0 || items.length >= total || pageItems.length < pageSize) {
-        break
-      }
+      if (pageItems.length === 0 || items.length >= total || pageItems.length < pageSize) break
       page += 1
     }
     return items.map(mapBackendRun)
   } catch (error) {
-    if (shouldUseMockFallback(error, 'workflow')) {
-      return delay(mockRuns)
-    }
+    if (shouldUseMockFallback(error, 'workflow')) return delay(mockRuns)
     throw error
   }
 }
 
 export const runApi = {
   listRuns,
+  listRunsPage,
   getRun,
   getLogs,
   recoverRuntime,

@@ -99,7 +99,7 @@ it('页面取消等待响应时收到全部节点完成，取消确认仍覆盖�
   expect(store.currentRun).toMatchObject({ status: 'success', backendStatus: 'RUNNING', progress: 100 })
   cancellation.resolve(undefined); await flushPromises()
   expect(store.currentRun).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
-  expect(store.runs.find(run => run.id === 'run-1')).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED' })
+  expect(store.historyRuns.find(run => run.id === 'run-1')).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED' })
   expect(store.realtimeRunId).toBeNull()
   expect(wrapper!.findAll('button').find(button => button.text() === i18n.global.t('runs.cancel'))).toBeUndefined()
 })
