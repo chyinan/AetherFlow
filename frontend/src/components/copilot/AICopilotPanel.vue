@@ -803,7 +803,8 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       planPreview.value = { ...preview, structurallyValid: false, runtimeReady: false, issues: [apiError.message] }
     }
   } finally {
-    applyingPlan.value = false
+    // 旧会话的最终校验不能解除新会话正在应用的等待锁。
+    if (sessionAtStart === plannerSessionSequence) applyingPlan.value = false
   }
 }
 

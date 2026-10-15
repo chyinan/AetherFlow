@@ -51,3 +51,12 @@ other databases where an earlier V25 may already have been applied. If one
 has, stop before running these renumbered files and review that database's
 Flyway history and schema with its owner. No database was accessed or changed
 as part of this implementation.
+
+## 最终应用校验的会话归属
+
+- “应用方案”的等待锁属于点击时的会话。新建会话、切换工作流或离开后返回原工作流，会使旧会话的最终校验失效
+- 旧请求迟到成功或失败，不得解除新会话尚在等待的应用锁，不能因此重复发起校验或覆盖新方案已应用的提示
+- 同一会话的重复点击仍只发起一次最终校验；当前校验失败后可以重新规划并应用，成功应用保留一次撤销/重做
+- 离开会话不承诺撤销服务器已收到的只读校验。此次只修正前端等待状态，不改变保存、启动、后端校验或会话持久化
+
+回归使用 jsdom、真实 Vue/Pinia/组件和工作流 store，API 响应受控；覆盖旧成功/失败、新会话、工作流切换、A→B→A、重复点击与失败恢复。不是实际浏览器、网络时序、后端或 Provider 验收。
