@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -92,7 +93,7 @@ async function setup(path = '/workflows/101?projectId=11') {
   wrapper = mount(RouterView, {
     global: {
       plugins: [pinia, router, i18n],
-      stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+      stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
     },
   })
   await flushPromises()
@@ -157,9 +158,9 @@ describe('工作流保存与导入的生命周期归属', () => {
     const pending = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValue(pending.promise)
     await saveButton().trigger('click')
-    vi.mocked(window.confirm).mockReturnValue(false)
-    await router.push('/workflows/102?projectId=22')
-    await flushPromises()
+    expect(await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'), 'stay')).toBe(true)
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
 
     expect(router.currentRoute.value.params.id).toBe('101')
     pending.resolve(definition('101'))
@@ -174,7 +175,7 @@ describe('工作流保存与导入的生命周期归属', () => {
     const pending = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValue(pending.promise)
     await saveButton().trigger('click')
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
 
     expect(store.workflowId).toBe('102')
@@ -201,15 +202,16 @@ describe('工作流保存与导入的生命周期归属', () => {
     const pending = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValue(pending.promise)
     await saveButton().trigger('click')
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     const bNode = store.addNodeFromTemplate(nodeTemplates.find((template) => template.kind === 'start')!, { x: 0, y: 0 })!
     store.updateNodeConfig(bNode.id, 'label', 'B unsaved edit')
-    vi.mocked(window.confirm).mockClear().mockReturnValue(false)
+    vi.mocked(window.confirm).mockClear()
     pending.resolve(definition('101'))
     await flushPromises()
 
     expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
     expect(router.currentRoute.value.query.projectId).toBe('22')
     expect(store.dirty).toBe(true)
     expect(store.nodes[0]!.data.config.label).toBe('B unsaved edit')
@@ -219,7 +221,7 @@ describe('工作流保存与导入的生命周期归属', () => {
 
   it('新页面自己的保存成功正常更新所属项目与就绪状态', async () => {
     const { store, router, link, status } = await setup()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     store.addNodeFromTemplate(nodeTemplates.find((template) => template.kind === 'start')!, { x: 0, y: 0 })
     api.saveWorkflow.mockResolvedValue(definition('102'))
@@ -238,7 +240,7 @@ describe('工作流保存与导入的生命周期归属', () => {
     api.importComfyUi.mockReturnValueOnce(pending.promise)
     await importFile()
     expect(api.importComfyUi).toHaveBeenCalledTimes(1)
-    if (action === '导航') await router.push('/workflows/102?projectId=22')
+    if (action === '导航') await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     if (action === '编辑') store.updateNodeConfig(start.id, 'label', '新编辑')
     if (action === '撤销') store.undo()
     if (action === '重置') store.resetToEmptyWorkflow()
@@ -254,7 +256,7 @@ describe('工作流保存与导入的生命周期归属', () => {
     const { router } = await setup()
     const reading = deferred<string>()
     await importFile(reading.promise)
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     reading.resolve('{}')
     await flushPromises()
@@ -268,7 +270,7 @@ describe('工作流保存与导入的生命周期归属', () => {
     const second = deferred<WorkflowDefinitionDTO>()
     api.importComfyUi.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
     await importFile()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     await importFile()
     first.reject(new Error('旧导入错误'))
@@ -345,9 +347,9 @@ describe('工作流保存与导入的生命周期归属', () => {
       await importFile()
     }
     const originalPath = router.currentRoute.value.fullPath
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
-    await router.push(originalPath)
+    await resolveWorkflowNavigation(wrapper!, router.push(originalPath))
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe(originalPath)

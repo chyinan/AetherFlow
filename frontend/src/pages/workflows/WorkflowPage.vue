@@ -3,12 +3,15 @@
 import { Copy, FileJson, FolderKanban, Library, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow, X } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter, type RouteLocationNormalized } from 'vue-router'
 
 import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
 import NodeInspector from '@/components/workflow/NodeInspector.vue'
 import WorkflowPreflight from '@/components/workflow/WorkflowPreflight.vue'
 import WorkflowStarterGuide from '@/components/workflow/WorkflowStarterGuide.vue'
+import UnsavedNavigationDialog from '@/components/workflow/UnsavedNavigationDialog.vue'
+import RunNodeRecoveryBanner from '@/components/workflow/RunNodeRecoveryBanner.vue'
+import { continuityMessages } from '@/components/workflow/continuityMessages'
 import { preflightMessages } from '@/components/workflow/preflightMessages'
 import { buildWorkflowPreflight, type PreflightIssue } from '@/utils/workflowPreflight'
 import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
@@ -38,7 +41,12 @@ const uiStore = useUiStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-const { t: pt } = useI18n({ useScope: 'local', messages: preflightMessages })
+const { t: pt } = useI18n({ useScope: 'local', messages: {
+  'zh-CN': { ...preflightMessages['zh-CN'], ...continuityMessages['zh-CN'] },
+  'en-US': { ...preflightMessages['en-US'], ...continuityMessages['en-US'] },
+  'ja-JP': { ...preflightMessages['ja-JP'], ...continuityMessages['ja-JP'] },
+} })
+const ct = pt
 const showPreflight = ref(false)
 const showStarterGuide = ref(false)
 const supportsStarterGuide = computed(() => workflowStore.nodes.some((node) => node.data.kind === 'image-generation') || (workflowStore.nodes.some((node) => node.data.kind === 'whisper') && workflowStore.nodes.some((node) => node.data.kind === 'summary')))
@@ -54,6 +62,13 @@ async function locatePreflightIssue(issue: PreflightIssue) {
   if (issue.field) requestNodeConfigFieldFocus(issue.nodeId, issue.field)
 }
 const showCopilot = ref(false)
+async function locateSourceRunNode(nodeId: string) {
+  if (!workflowStore.nodes.some((node) => node.id === nodeId)) return
+  workflowStore.nodes.forEach((node) => { node.selected = node.id === nodeId })
+  uiStore.setSelectedNode(nodeId)
+  await nextTick()
+  await canvasRef.value?.focusNode?.(nodeId)
+}
 const showRunConsole = ref(false)
 const startingRun = ref(false)
 const importingComfyUi = ref(false)
@@ -306,19 +321,78 @@ function confirmDiscardUnsavedChanges() {
   return window.confirm(t('workflow.unsavedChangesConfirm'))
 }
 
-onBeforeRouteLeave(confirmDiscardUnsavedChanges)
+type PendingNavigation = { fromPath: string; fullPath: string; resolve: (allowed: boolean) => void }
+const pendingNavigation = ref<PendingNavigation | null>(null)
+const leaveSaveBusy = ref(false)
+const leaveSaveError = ref('')
+let approvedNavigation: { fromPath: string; fullPath: string; editRevision: number } | null = null
+
+function settleNavigation(allowed: boolean) {
+  const pending = pendingNavigation.value
+  if (!pending) return
+  pendingNavigation.value = null
+  leaveSaveError.value = ''
+  approvedNavigation = allowed
+    ? { fromPath: pending.fromPath, fullPath: pending.fullPath, editRevision: workflowStore.editRevision }
+    : null
+  pending.resolve(allowed)
+}
+
+function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
+  if (to.fullPath === from.fullPath) return true
+  if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
+    return ownsSaveNavigation(to.fullPath, from.fullPath)
+  }
+  // 新目标取代旧目标；旧保存只能结束请求，不能替用户决定新的导航。
+  settleNavigation(false)
+  approvedNavigation = null
+  // 纯节点定位或锚点只改变查看上下文，不替换画布，也不能丢弃未保存内容。
+  if (to.path === from.path
+    && routeQueryString(to.query.projectId) === routeQueryString(from.query.projectId)
+    && routeQueryString(to.query.name) === routeQueryString(from.query.name)) return true
+  if (!workflowStore.dirty) return true
+  return new Promise<boolean>((resolve) => {
+    pendingNavigation.value = { fromPath: from.fullPath, fullPath: to.fullPath, resolve }
+  })
+}
+
+async function saveBeforeLeaving() {
+  const pending = pendingNavigation.value
+  if (!pending || leaveSaveBusy.value || workflowStore.saving) return
+  leaveSaveBusy.value = true
+  leaveSaveError.value = ''
+  const ownsRequest = () => pageActive && pendingNavigation.value === pending
+  try {
+    const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
+    const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
+    if (!ownsRequest()) return
+    if (!saved || workflowStore.dirty) {
+      leaveSaveError.value = ct(saved ? 'leaveChanged' : 'leaveFailed')
+      return
+    }
+    if (projectId) projectStore.linkWorkflowToProject(projectId, saved.workflowId)
+    projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
+    // 继续原来的 push/back/replace，保留历史语义，不额外跳转规范化地址。
+    settleNavigation(true)
+  } catch {
+    if (ownsRequest()) leaveSaveError.value = workflowStore.savingError || ct('leaveFailed')
+  } finally {
+    leaveSaveBusy.value = false
+  }
+}
+
+onBeforeRouteLeave(requestNavigation)
 
 onBeforeRouteUpdate((to, from) => {
-  if (to.fullPath === from.fullPath || ownsSaveNavigation(to.fullPath, from.fullPath)) {
-    return true
-  }
-  return confirmDiscardUnsavedChanges()
+  return requestNavigation(to, from)
 })
 // 其他异步守卫等待期间仍可能应用模板或导入新画布，提交内部导航前再次核对归属。
 const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
+  if (approvedNavigation?.fullPath === to.fullPath && approvedNavigation.fromPath === from.fullPath
+    && approvedNavigation.editRevision !== workflowStore.editRevision) return requestNavigation(to, from)
   return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
@@ -378,6 +452,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   pageActive = false
+  settleNavigation(false)
   saveNavigation = null
   stopGuardingSaveNavigation()
   comfyUiImportSequence += 1
@@ -386,7 +461,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [route.params.id, route.query.projectId, route.query.name],
+  [() => route.params.id, () => routeQueryString(route.query.projectId), () => routeQueryString(route.query.name)],
   async ([workflowId]) => {
     // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
     if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
@@ -408,7 +483,7 @@ async function saveWorkflow() {
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
     const navigationRevision = pageNavigationRevision
     const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
-    if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision) return
+    if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision || pendingNavigation.value) return
     const savedWorkflowId = saved.workflowId
     if (projectId) {
       projectStore.linkWorkflowToProject(projectId, savedWorkflowId)
@@ -416,7 +491,14 @@ async function saveWorkflow() {
     if (String(route.params.id || 'new') !== savedWorkflowId) {
       const canonicalRoute = {
         path: `/workflows/${savedWorkflowId}`,
-        query: projectId ? { projectId } : undefined,
+        query: {
+          ...(projectId ? { projectId } : {}),
+          ...(route.query.sourceRunId ? {
+            sourceRunId: route.query.sourceRunId,
+            nodeId: route.query.nodeId,
+            runReturnLocation: route.query.runReturnLocation,
+          } : {}),
+        },
       }
       // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
       const navigation = {
@@ -665,6 +747,8 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
+  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="settleNavigation(true)" @stay="settleNavigation(false)" />
+  <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined">
   <input
     ref="comfyUiFileInput"
     type="file"
@@ -838,7 +922,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </header>
 
-    <div class="max-h-[45vh] overflow-y-auto"><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
+    <div class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />
@@ -906,4 +990,5 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </div>
   </section>
+  </div>
 </template>

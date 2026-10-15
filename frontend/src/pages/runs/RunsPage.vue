@@ -14,6 +14,7 @@ import FailedNodeRerunDialog from '@/components/run/FailedNodeRerunDialog.vue'
 import type { RunNodeState } from '@/types/run'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
+import { runArtifactsLocation } from '@/utils/runNavigation'
 import { runHistoryMessages } from './runHistoryMessages'
 import { directRunId, matchesRunHistorySearch, readRunHistoryQuery, runHistoryPageSizes, runHistoryStatuses } from './runHistoryQuery'
 
@@ -437,7 +438,7 @@ watch(
               <div class="mt-3 flex flex-wrap items-center gap-2">
                 <RouterLink
                   data-testid="view-run-artifacts"
-                  :to="{ path: '/files', query: { runId: runStore.currentRun.id } }"
+                  :to="runArtifactsLocation(runStore.currentRun.id, route.fullPath)"
                   class="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-xs font-medium text-primary transition hover:border-primary"
                 >
                   {{ historyText('viewArtifacts') }}
@@ -450,7 +451,7 @@ watch(
               </div>
             </div>
             <div class="grid min-h-0 min-w-0 gap-4 overflow-hidden lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]">
-              <RunTimeline class="min-h-0 min-w-0" :run-id="runStore.currentRun?.id" :nodes="selectedDetailReady ? runStore.currentRun?.nodeStates ?? [] : []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
+              <RunTimeline class="min-h-0 min-w-0" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :return-location="route.fullPath" :nodes="selectedDetailReady ? runStore.currentRun?.nodeStates ?? [] : []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
               <LogStream class="min-h-0 min-w-0" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
             </div>
           </div>

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { mockProjects } from '@/services/mock/projectMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
@@ -83,7 +84,7 @@ async function setup(path = '/workflows/101?projectId=11') {
   await router.isReady()
   wrapper = mount(RouterView, { global: {
     plugins: [pinia, router, i18n],
-    stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+    stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
   } })
   await flushPromises()
   return { store, runs, projects, status, link, router }
@@ -124,7 +125,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     }
     await clickRun()
     expect(api.startRun).not.toHaveBeenCalled()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     expect(store.workflowId).toBe('102')
     pending.resolve(definition('101'))
@@ -144,9 +145,9 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     if (stage === 'save') api.saveWorkflow.mockReturnValueOnce(pending.promise)
     else api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
-    await router.push('/workflows/101?projectId=11')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/101?projectId=11'))
     await flushPromises()
     pending.resolve(stage === 'save' ? definition('101') : result)
     await flushPromises()
@@ -162,7 +163,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     const pending = deferred<typeof result>()
     api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     const selected = runs.createRunFromWorkflow({ ...result, runId: 'run-902', workflowId: '102', workflowName: 'Workflow 102', nodes: store.nodes, backendInstanceId: 902, definitionId: 102 })
     const logs = [...runs.logs]
@@ -185,7 +186,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     if (stage === 'save') api.saveWorkflow.mockReturnValueOnce(pending.promise)
     else api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
-    await router.push('/elsewhere')
+    await resolveWorkflowNavigation(wrapper!, router.push('/elsewhere'))
     await flushPromises()
     pending.resolve(stage === 'save' ? definition('101') : result)
     await flushPromises()
@@ -218,13 +219,12 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     else api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
     store.dirty = true
-    vi.mocked(window.confirm).mockReturnValue(false)
-    await router.push('/workflows/102?projectId=22')
-    await flushPromises()
+    expect(await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'), 'stay')).toBe(true)
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
     expect(router.currentRoute.value.path).toBe('/workflows/101')
-    vi.mocked(window.confirm).mockReturnValue(true)
     pending.resolve(stage === 'save' ? definition('101') : result)
-    await flushPromises()
+    await resolveWorkflowNavigation(wrapper!, undefined)
     expect(api.startRun).toHaveBeenCalledTimes(1)
     expect(runs.currentRun?.workflowId).toBe('101')
     expect(router.currentRoute.value.path).toBe('/runs/run-901')
@@ -236,7 +236,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     if (stage === 'save') api.saveWorkflow.mockReturnValueOnce(pending.promise)
     else { store.nodes.push(node('upload', 'upload')); store.nodes[0]!.data.config.fileId = '42'; files.loadFiles.mockReturnValueOnce(pending.promise) }
     await clickRun()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     pending.reject(new Error('A 的准备工作失败'))
     await flushPromises()
@@ -252,7 +252,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     api.startRun.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise)
     await clickRun()
     const aKey = api.startRun.mock.calls[0]![2].idempotencyKey
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     await clickRun()
     expect(api.startRun).toHaveBeenCalledTimes(2)
@@ -329,7 +329,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     router.beforeEach((to) => to.path === '/workflows/101' ? guard.promise : true)
     api.saveWorkflow.mockResolvedValueOnce(definition('101'))
     await clickRun()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     guard.resolve(true)
     await flushPromises()
@@ -357,7 +357,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     const pending = deferred<typeof result>()
     api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
-    await router.push('/workflows/101?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/101?projectId=22'))
     await flushPromises()
     pending.resolve(result)
     await flushPromises()
@@ -413,7 +413,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     api.saveWorkflow.mockReturnValueOnce(save.promise)
     await clickRun()
     api.getWorkflow.mockReturnValueOnce(load.promise)
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
     expect(store.workflowId).toBe('101')
     save.resolve(definition('101'))
@@ -430,9 +430,9 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     const pending = deferred<typeof result>()
     api.startRun.mockReturnValueOnce(pending.promise)
     await clickRun()
-    await router.push('/workflows/102?projectId=22')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
     await flushPromises()
-    await router.push('/workflows/101?projectId=11')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/101?projectId=11'))
     await flushPromises()
     pending.reject(new Error('旧 A 的失败'))
     await flushPromises()

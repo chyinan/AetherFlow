@@ -56,32 +56,38 @@ async function setup(path = '/runs/run-1') {
     { path: '/runs', name: 'runs', component: RunsPage },
     { path: '/runs/:id', name: 'run-detail', component: RunsPage },
     { path: '/files', name: 'files', component: FilesPage },
+    { path: '/workflows/:id', component: { template: '<div />' } },
   ] })
   await router.push(path); await router.isReady()
   wrapper = mount(RouterView, { global: { plugins: [pinia, router, i18n], stubs: {
-    HumanApprovalDialog: true, FailedNodeRerunDialog: true, SubworkflowChildRuns: true, RunTimeline: true, LogStream: true, FileUploader: true,
+    HumanApprovalDialog: true, FailedNodeRerunDialog: true, SubworkflowChildRuns: true, LogStream: true, FileUploader: true,
   } } })
   await flushPromises()
   return { router, store: useRunStore() }
 }
 
 it('运行详情链接以当前 run.id 打开成品页，真实文件映射只留下目标运行的同名成品', async () => {
-  const { router, store } = await setup('/runs/run-2?workflowId=workflow-101')
+  const source = '/runs/run-2?q=meeting&workflowId=workflow-101&status=SUCCESS&page=3&pageSize=50&tag=a&tag=b#detail'
+  const { router, store } = await setup(source)
   store.currentRun!.artifactNames = ['meeting-summary.md']
   await flushPromises()
   const entry = wrapper!.get('[data-testid="view-run-artifacts"]')
   expect(entry.element.tagName).toBe('A')
-  expect(entry.attributes('href')).toBe('/files?runId=run-2')
+  expect(router.resolve(entry.attributes('href')!).query).toEqual({ runId: 'run-2', runReturnLocation: source })
   expect(entry.text()).toBe('查看本次成品')
   await entry.trigger('click'); await flushPromises()
-  expect(router.currentRoute.value.fullPath).toBe('/files?runId=run-2')
+  expect(router.currentRoute.value.query).toEqual({ runId: 'run-2', runReturnLocation: source })
   expect(useFileStore().artifactFiles.map(file => file.linkedRunId)).toEqual(['run-1', 'run-2'])
   expect(wrapper!.findAll('[title="meeting-summary.md"]')).toHaveLength(1)
   expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual(['/runs/run-2'])
   expect(mocks.get.mock.calls.some(call => call[0].includes('/download'))).toBe(false)
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
+  await wrapper!.get('[data-testid="return-source-run"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.fullPath).toBe(source)
+  expect(wrapper!.get('[data-testid="history-page-size"]').element).toHaveProperty('value', '50')
+  await wrapper!.get('[data-testid="view-run-artifacts"]').trigger('click'); await flushPromises()
   router.back(); await flushPromises()
-  expect(router.currentRoute.value.fullPath).toBe('/runs/run-2?workflowId=workflow-101')
-  expect(wrapper!.get('[data-testid="view-run-artifacts"]').attributes('href')).toBe('/files?runId=run-2')
+  expect(router.currentRoute.value.fullPath).toBe(source)
   router.forward(); await flushPromises()
   expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual(['/runs/run-2'])
 })
@@ -125,4 +131,28 @@ it.each([
   i18n.global.locale.value = locale
   await flushPromises()
   expect(wrapper!.get('[data-testid="view-run-artifacts"]').text()).toBe(text)
+})
+
+it('真实详情把精确失败节点、当前工作流和运行历史来源传递给编辑页', async () => {
+  const source = '/runs/run-2?workflowId=workflow-101&status=FAILED&page=4&pageSize=50#detail'
+  const { router, store } = await setup(source)
+  store.patchNodeState({ nodeId: 'summary-node', label: '摘要', status: 'failed' })
+  await flushPromises()
+  await wrapper!.get('[data-testid="edit-failed-node"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/workflows/workflow-101')
+  expect(router.currentRoute.value.query).toEqual({ nodeId: 'summary-node', sourceRunId: 'run-2', runReturnLocation: source })
+})
+
+it('切换运行详情的等待和失败期间不泄漏旧失败节点编辑链接', async () => {
+  const { router, store } = await setup()
+  store.patchNodeState({ nodeId: 'summary-node', label: '摘要', status: 'failed' })
+  await flushPromises()
+  expect(wrapper!.find('[data-testid="edit-failed-node"]').exists()).toBe(true)
+  const original = mocks.get.getMockImplementation()!
+  const pending = deferred<unknown>()
+  mocks.get.mockImplementation((url: string) => url === '/workflow-instances/3' ? pending.promise : original(url))
+  await router.push('/runs/run-3'); await flushPromises()
+  expect(wrapper!.find('[data-testid="edit-failed-node"]').exists()).toBe(false)
+  pending.reject(new Error('模拟详情加载失败')); await flushPromises()
+  expect(wrapper!.find('[data-testid="edit-failed-node"]').exists()).toBe(false)
 })

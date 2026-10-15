@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -102,7 +103,7 @@ async function setup(path = '/workflows/new?projectId=11') {
   wrapper = mount(RouterView, {
     global: {
       plugins: [pinia, router, i18n],
-      stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+      stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
     },
   })
   await flushPromises()
@@ -134,10 +135,13 @@ describe('创建已落库但回执丢失后的编辑恢复', () => {
     expect(store.nodes.find(n => n.id === start.id)!.data.config.variables).toEqual({ prompt: '不能丢失的新编辑' })
     expect(wrapper!.get('[role="alert"]').text()).toContain(i18n.global.t('workflow.createRecoveredPendingSave'))
     expect(JSON.parse(persisted.definitionJson).nodes[0].config.variables).toEqual({ prompt: '第一次' })
-    vi.mocked(window.confirm).mockReturnValue(false)
     const current = router.currentRoute.value.fullPath
-    await router.push('/workflows/new?projectId=22'); await flushPromises()
-    expect(window.confirm).toHaveBeenCalledTimes(1)
+    const navigation = router.push('/workflows/new?projectId=22')
+    await flushPromises()
+    expect(wrapper!.findAll('[data-testid="unsaved-navigation-dialog"]')).toHaveLength(1)
+    expect(await resolveWorkflowNavigation(wrapper!, navigation, 'stay')).toBe(true)
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
     expect(router.currentRoute.value.fullPath).toBe(current)
     failUpdate = mode === '补保存失败'
     await saveButton().trigger('click'); await flushPromises()

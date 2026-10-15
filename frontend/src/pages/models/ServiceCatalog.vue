@@ -8,6 +8,8 @@ import { getWorkflowCapabilities, type AiWorkflowCapabilities } from '@/api/modu
 import { useAuthStore } from '@/stores/authStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { modelRoleMessages } from './modelRoleMessages'
+import CapabilitySupportDialog from '@/components/workflow/CapabilitySupportDialog.vue'
+import { isWorkflowCapabilitySnapshot } from '@/utils/capabilitySupport'
 
 const { t, te } = useI18n({ useScope: 'local', messages: modelRoleMessages })
 const auth = useAuthStore()
@@ -25,13 +27,6 @@ const services = computed(() => [...new Set(snapshot.value?.supportedNodeTypes ?
   reason: snapshot.value?.unavailableReasons[type],
 })))
 const availableCount = computed(() => services.value.filter((service) => service.available).length)
-function validSnapshot(value: AiWorkflowCapabilities) {
-  const strings = (list: unknown): list is string[] => Array.isArray(list) && list.every((entry) => typeof entry === 'string' && Boolean(entry.trim()))
-  return value && typeof value.runtimeReachable === 'boolean'
-    && strings(value.supportedNodeTypes) && strings(value.executableNodeTypes)
-    && value.unavailableReasons && typeof value.unavailableReasons === 'object' && !Array.isArray(value.unavailableReasons)
-    && Object.values(value.unavailableReasons).every((reason) => typeof reason === 'string')
-}
 async function refresh() {
   if (loading.value || auth.isAdmin || !auth.isAuthenticated) return
   const current = ++requestId
@@ -43,7 +38,7 @@ async function refresh() {
   try {
     const result = await getWorkflowCapabilities()
     if (!alive || current !== requestId || owner !== identity.value) return
-    if (!validSnapshot(result)) throw new Error('Invalid capability snapshot')
+    if (!isWorkflowCapabilitySnapshot(result)) throw new Error('无效的能力快照')
     snapshot.value = result
   } catch {
     if (alive && current === requestId && owner === identity.value) failed.value = true
@@ -72,8 +67,8 @@ onBeforeUnmount(() => { alive = false; requestId += 1 })
           <div class="mt-4 flex flex-wrap gap-3"><RouterLink to="/projects" class="rounded-lg bg-primary px-4 py-2 text-sm text-white">{{ t('workflows') }}</RouterLink><RouterLink v-if="editorPath" :to="editorPath" class="rounded-lg border border-app-border px-4 py-2 text-sm text-primary">{{ t('editor') }}</RouterLink></div>
         </section>
         <p v-if="loading" role="status" class="rounded-xl border border-app-border bg-white p-6 text-sm text-text-secondary">{{ t('loading') }}</p>
-        <section v-else-if="failed" role="alert" data-testid="capability-error" class="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 class="font-semibold">{{ t('failed') }}</h2><p class="mt-2 text-sm leading-6">{{ t('failedHint') }}</p><button type="button" class="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm" @click="refresh">{{ t('retry') }}</button></section>
-        <section v-else-if="snapshot && !services.length" data-testid="capability-empty" class="rounded-xl border border-dashed border-app-border bg-white p-6"><h2 class="font-semibold">{{ t('empty') }}</h2><p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('emptyHint') }}</p></section>
+        <section v-else-if="failed" role="alert" data-testid="capability-error" class="rounded-xl border border-amber-200 bg-amber-50 p-5"><h2 class="font-semibold">{{ t('failed') }}</h2><p class="mt-2 text-sm leading-6">{{ t('failedHint') }}</p><div class="mt-3 flex flex-wrap gap-2"><button type="button" class="rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm" @click="refresh">{{ t('retry') }}</button><CapabilitySupportDialog capability-type="UNKNOWN" category="CHECK_FAILED" :workflow-id="editorPath ? workflow.workflowId : undefined" /></div></section>
+        <section v-else-if="snapshot && !services.length" data-testid="capability-empty" class="rounded-xl border border-dashed border-app-border bg-white p-6"><h2 class="font-semibold">{{ t('empty') }}</h2><p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('emptyHint') }}</p><div class="mt-3"><CapabilitySupportDialog capability-type="UNKNOWN" category="NOT_REPORTED" :workflow-id="editorPath ? workflow.workflowId : undefined" /></div></section>
         <template v-else-if="snapshot">
           <p role="status" class="text-sm text-text-muted">{{ t('summary', { available: availableCount, total: services.length }) }}</p>
           <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -82,6 +77,7 @@ onBeforeUnmount(() => { alive = false; requestId += 1 })
               <p class="mt-3 text-sm leading-6 text-text-secondary">{{ te(`descriptions.${service.type}`) ? t(`descriptions.${service.type}`) : t('genericDescription') }}</p>
               <p v-if="!service.available" class="mt-3 break-words rounded-lg bg-app-bg2 p-3 text-sm text-text-secondary"><span class="font-medium">{{ t('reason') }}: </span>{{ service.reason || t('noReason') }}</p>
               <p class="mt-4 text-sm leading-6 text-text-muted">{{ t(service.available ? 'availableHint' : 'unavailableHint') }}</p>
+              <div v-if="!service.available" class="mt-3"><CapabilitySupportDialog :capability-type="service.type" :category="snapshot.runtimeReachable ? 'CAPABILITY_UNAVAILABLE' : 'RUNTIME_UNREACHABLE'" :workflow-id="editorPath ? workflow.workflowId : undefined" /></div>
             </article>
           </section>
           <p class="text-xs leading-5 text-text-muted">{{ t('finalCheck') }}</p>

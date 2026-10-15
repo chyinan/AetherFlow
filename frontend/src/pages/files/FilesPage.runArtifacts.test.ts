@@ -163,15 +163,54 @@ it('重复查询参数取首个值，空白参数保持普通文件页语义', a
   expect(downloadButtons()).toHaveLength(4)
 })
 
+it('直接打开成品深链时无需运行缓存，也提供可用的来源运行返回入口', async () => {
+  const { router } = await setup('/files?runId=run-2')
+  const link = wrapper!.get('[data-testid="return-source-run"]')
+  expect(link.attributes('href')).toBe('/runs/run-2')
+  await link.trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/runs/run-2')
+})
+
+it('来源返回保存历史筛选和分页，清除运行筛选同时移除其返回上下文', async () => {
+  const source = '/runs/run-2?q=meeting&workflowId=workflow-10&status=FAILED&page=4&pageSize=50&tag=a&tag=b#detail'
+  const { router } = await setup(`/files?runId=run-2&runReturnLocation=${encodeURIComponent(source)}&keep=yes#files`)
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
+  await wrapper!.get('[data-testid="clear-run-filter"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.query).toEqual({ keep: 'yes' })
+  expect(router.currentRoute.value.hash).toBe('#files')
+  expect(wrapper!.find('[data-testid="return-source-run"]').exists()).toBe(false)
+  router.back(); await flushPromises()
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
+  await wrapper!.get('[data-testid="return-source-run"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.fullPath).toBe(source)
+})
+
+it('重复查询及路由变化只依据当前筛选生成返回入口，绝不沿用旧运行来源', async () => {
+  const { router } = await setup('/files?runId=run-2&runId=run-1&runReturnLocation=%2Fruns%2Frun-2%3Fpage%3D3&runReturnLocation=%2Fruns%2Frun-1')
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2?page=3')
+  await router.push({ query: { ...router.currentRoute.value.query, runId: 'run-1' } }); await flushPromises()
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-1')
+  router.back(); await flushPromises()
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2?page=3')
+  router.forward(); await flushPromises()
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-1')
+})
+
+it.each(['https://outside.example/runs/run-2', '//outside.example', '/runs/run-99?page=4', '/workflows/workflow-1'])('无效或不同来源的返回位置安全回退：%s', async source => {
+  await setup(`/files?runId=run-2&runReturnLocation=${encodeURIComponent(source)}`)
+  expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2')
+})
+
 it.each([
-  ['zh-CN', '本次成品 · 运行 run-404', '清除运行筛选', '尚未找到运行 run-404'],
-  ['en-US', 'Artifacts · Run run-404', 'Clear run filter', 'No artifact files found for run run-404'],
-  ['ja-JP', '成果物 · 実行 run-404', '実行の絞り込みを解除', '実行 run-404 の成果物ファイルはまだありません'],
-] as const)('筛选、清除和空态支持 %s，并响应运行时语言切换', async (locale, filter, clear, empty) => {
+  ['zh-CN', '本次成品 · 运行 run-404', '清除运行筛选', '尚未找到运行 run-404', '返回来源运行'],
+  ['en-US', 'Artifacts · Run run-404', 'Clear run filter', 'No artifact files found for run run-404', 'Return to source run'],
+  ['ja-JP', '成果物 · 実行 run-404', '実行の絞り込みを解除', '実行 run-404 の成果物ファイルはまだありません', '元の実行に戻る'],
+] as const)('筛选、清除和空态支持 %s，并响应运行时语言切换', async (locale, filter, clear, empty, returnText) => {
   await setup('/files?runId=run-404')
   i18n.global.locale.value = locale
   await flushPromises()
   expect(wrapper!.get('[data-testid="run-artifact-filter"]').text()).toContain(filter)
   expect(wrapper!.get('[data-testid="clear-run-filter"]').text()).toBe(clear)
   expect(wrapper!.get('[data-testid="run-artifact-empty"]').text()).toContain(empty)
+  expect(wrapper!.get('[data-testid="return-source-run"]').text()).toBe(returnText)
 })
