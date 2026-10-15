@@ -26,6 +26,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { useModalFocus } from '@/composables/useModalFocus'
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import StatusDot from '@/components/ui/StatusDot.vue'
 import { runtimeEnv } from '@/config/runtimeEnv'
@@ -104,6 +105,11 @@ const memberForm = ref({
   email: '',
   role: 'Operator' as WorkspaceMember['role'],
 })
+const providerDialog = ref<HTMLElement | null>(null)
+const memberDialog = ref<HTMLElement | null>(null)
+const settingsModalOpen = computed(() => showProviderConfigDialog.value || showMemberDialog.value)
+useModalFocus(showProviderConfigDialog, providerDialog, closeProviderConfig)
+useModalFocus(showMemberDialog, memberDialog, closeMemberDialog)
 const telegramSaving = ref(false)
 const telegramTesting = ref(false)
 const telegramMessage = ref('')
@@ -1010,7 +1016,7 @@ watch(
 
 <template>
   <section class="h-full bg-app-bg p-4 sm:p-5 lg:p-6">
-    <div class="grid h-full min-h-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-[20px] border border-app-border bg-white shadow-panel">
+    <div :inert="settingsModalOpen ? true : undefined" class="grid h-full min-h-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-[20px] border border-app-border bg-white shadow-panel">
       <header class="flex items-center justify-between gap-3 border-b border-app-border bg-white px-5">
       <div class="min-w-0">
         <div class="flex items-center gap-2">
@@ -2075,11 +2081,15 @@ watch(
 
     <div
       v-if="showProviderConfigDialog && selectedProvider && canManageAdminSettings"
-      class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-50 grid min-h-0 place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
+      @wheel.self.prevent
+      @touchmove.self.prevent
       @click.self="closeProviderConfig"
     >
-      <form
-        class="w-full max-w-2xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
+      <section
+        ref="providerDialog"
+        tabindex="-1"
+        class="settings-dialog flex min-h-0 min-w-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
         role="dialog"
         aria-modal="true"
         data-testid="provider-config-dialog"
@@ -2087,87 +2097,91 @@ watch(
         :aria-busy="providerConfigSaving"
         @submit.prevent="saveProviderConfig"
       >
-        <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
+        <form class="flex min-h-0 flex-1 flex-col">
+        <header class="flex shrink-0 items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <div class="min-w-0">
-            <p class="text-base font-semibold text-text-primary">{{ t('settings.providerConfigTitle', { provider: selectedProvider.name }) }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('settings.providerConfigHint') }}</p>
+            <p class="truncate text-base font-semibold text-text-primary" :title="t('settings.providerConfigTitle', { provider: selectedProvider.name })">{{ t('settings.providerConfigTitle', { provider: selectedProvider.name }) }}</p>
           </div>
           <button
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary"
             :title="t('settings.close')"
+            :aria-label="t('settings.close')"
             @click="closeProviderConfig"
           >
             <X class="h-4 w-4" />
           </button>
         </header>
 
-        <fieldset :disabled="providerConfigSaving" class="space-y-4 p-5">
-          <div class="rounded-lg border border-app-border bg-app-bg2 p-4">
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p class="text-sm font-semibold text-text-primary">{{ selectedProvider.name }}</p>
-                <p class="mt-1 text-xs text-text-muted">{{ selectedProvider.description }}</p>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]" data-testid="settings-dialog-scroll">
+          <fieldset :disabled="providerConfigSaving" class="min-w-0 space-y-4 p-5">
+            <p class="text-sm leading-6 text-text-secondary">{{ t('settings.providerConfigHint') }}</p>
+            <div class="rounded-lg border border-app-border bg-app-bg2 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-text-primary">{{ selectedProvider.name }}</p>
+                  <p class="mt-1 text-xs text-text-muted">{{ selectedProvider.description }}</p>
+                </div>
+                <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(selectedProvider.status)">
+                  {{ selectedProvider.apiKeyConfigured ? t('settings.apiKeyConfigured') : t('settings.apiKeyMissing') }}
+                </span>
               </div>
-              <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(selectedProvider.status)">
-                {{ selectedProvider.apiKeyConfigured ? t('settings.apiKeyConfigured') : t('settings.apiKeyMissing') }}
-              </span>
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                <span
+                  v-for="tag in selectedProvider.tags"
+                  :key="tag"
+                  class="rounded-md bg-white px-2 py-1 text-[11px] text-text-muted"
+                >
+                  {{ tag }}
+                </span>
+              </div>
             </div>
-            <div class="mt-3 flex flex-wrap gap-1.5">
-              <span
-                v-for="tag in selectedProvider.tags"
-                :key="tag"
-                class="rounded-md bg-white px-2 py-1 text-[11px] text-text-muted"
-              >
-                {{ tag }}
+  
+            <label class="flex items-center justify-between gap-3 rounded-lg border border-app-border bg-white px-4 py-3">
+              <span>
+                <span class="block text-sm font-medium text-text-primary">{{ t('settings.enableProvider') }}</span>
+                <span class="mt-1 block text-xs text-text-muted">{{ t('settings.enableProviderHint') }}</span>
               </span>
-            </div>
-          </div>
+              <input v-model="providerConfigForm.enabled" type="checkbox" class="h-5 w-5 shrink-0 rounded border-app-border text-primary focus:ring-primary" />
+            </label>
+  
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerApiKey') }}</span>
+              <input
+                v-model="providerConfigForm.apiKey"
+                type="password"
+                autocomplete="off"
+                class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                :placeholder="selectedProvider.apiKeyConfigured ? t('settings.keepExistingApiKey') : t('settings.providerApiKeyPlaceholder')"
+              />
+              <span class="mt-1 block text-xs text-text-muted">{{ t('settings.providerApiKeyHint') }}</span>
+            </label>
+  
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerBaseUrl') }}</span>
+              <input
+                v-model="providerConfigForm.baseUrl"
+                class="h-10 w-full rounded-md border border-app-border px-3 font-mono text-sm outline-none focus:border-primary"
+                placeholder="https://api.example.com/v1"
+              />
+            </label>
+  
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerDefaultModel') }}</span>
+              <input
+                v-model="providerConfigForm.defaultModel"
+                class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                placeholder="qwen/qwen3.5-9b"
+              />
+            </label>
+  
+            <p v-if="providerConfigError" role="alert" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
+              {{ providerConfigError }}
+            </p>
+          </fieldset>
+        </div>
 
-          <label class="flex items-center justify-between gap-3 rounded-lg border border-app-border bg-white px-4 py-3">
-            <span>
-              <span class="block text-sm font-medium text-text-primary">{{ t('settings.enableProvider') }}</span>
-              <span class="mt-1 block text-xs text-text-muted">{{ t('settings.enableProviderHint') }}</span>
-            </span>
-            <input v-model="providerConfigForm.enabled" type="checkbox" class="h-5 w-5 rounded border-app-border text-primary focus:ring-primary" />
-          </label>
-
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerApiKey') }}</span>
-            <input
-              v-model="providerConfigForm.apiKey"
-              type="password"
-              autocomplete="off"
-              class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
-              :placeholder="selectedProvider.apiKeyConfigured ? t('settings.keepExistingApiKey') : t('settings.providerApiKeyPlaceholder')"
-            />
-            <span class="mt-1 block text-xs text-text-muted">{{ t('settings.providerApiKeyHint') }}</span>
-          </label>
-
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerBaseUrl') }}</span>
-            <input
-              v-model="providerConfigForm.baseUrl"
-              class="h-10 w-full rounded-md border border-app-border px-3 font-mono text-sm outline-none focus:border-primary"
-              placeholder="https://api.example.com/v1"
-            />
-          </label>
-
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.providerDefaultModel') }}</span>
-            <input
-              v-model="providerConfigForm.defaultModel"
-              class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
-              placeholder="qwen/qwen3.5-9b"
-            />
-          </label>
-
-          <p v-if="providerConfigError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
-            {{ providerConfigError }}
-          </p>
-        </fieldset>
-
-        <footer class="flex flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
+        <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
           <button
             type="button"
             class="rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition hover:text-text-primary"
@@ -2183,16 +2197,21 @@ watch(
             {{ providerConfigSaving ? t('settings.savingProviderConfig') : t('settings.saveProviderConfig') }}
           </button>
         </footer>
-      </form>
+        </form>
+      </section>
     </div>
 
     <div
       v-if="showMemberDialog && canManageAdminSettings"
-      class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-50 grid min-h-0 place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
+      @wheel.self.prevent
+      @touchmove.self.prevent
       @click.self="closeMemberDialog"
     >
-      <form
-        class="w-full max-w-xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
+      <section
+        ref="memberDialog"
+        tabindex="-1"
+        class="settings-dialog flex min-h-0 min-w-0 w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
         role="dialog"
         aria-modal="true"
         data-testid="member-record-dialog"
@@ -2200,56 +2219,60 @@ watch(
         :aria-busy="memberSaving"
         @submit.prevent="saveMember"
       >
-        <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
-          <div>
+        <form class="flex min-h-0 flex-1 flex-col">
+        <header class="flex shrink-0 items-start justify-between gap-4 border-b border-app-border px-5 py-4">
+          <div class="min-w-0">
             <p class="text-base font-semibold text-text-primary">{{ roleText('addMember') }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ roleText('addMemberHint') }}</p>
           </div>
           <button
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary"
             :title="t('settings.close')"
+            :aria-label="t('settings.close')"
             @click="closeMemberDialog"
           >
             <X class="h-4 w-4" />
           </button>
         </header>
 
-        <fieldset :disabled="memberSaving" class="space-y-4 p-5">
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberName') }}</span>
-            <input
-              v-model="memberForm.name"
-              class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
-              :placeholder="t('settings.memberNamePlaceholder')"
-            />
-          </label>
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberEmail') }}</span>
-            <input
-              v-model="memberForm.email"
-              type="email"
-              class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
-              placeholder="ops@aetherflow.local"
-            />
-          </label>
-          <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ roleText('memberRole') }}</span>
-            <select
-              v-model="memberForm.role"
-              class="h-10 w-full rounded-md border border-app-border bg-white px-3 text-sm outline-none focus:border-primary"
-            >
-              <option v-for="role in memberRoleOptions" :key="role" :value="role">
-                {{ t(`settings.roles.${role.toLowerCase()}`) }}
-              </option>
-            </select>
-          </label>
-          <p v-if="memberError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
-            {{ memberError }}
-          </p>
-        </fieldset>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-wrap:anywhere]" data-testid="settings-dialog-scroll">
+          <fieldset :disabled="memberSaving" class="min-w-0 space-y-4 p-5">
+            <p class="text-sm leading-6 text-text-secondary">{{ roleText('addMemberHint') }}</p>
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberName') }}</span>
+              <input
+                v-model="memberForm.name"
+                class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                :placeholder="t('settings.memberNamePlaceholder')"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberEmail') }}</span>
+              <input
+                v-model="memberForm.email"
+                type="email"
+                class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary"
+                placeholder="ops@aetherflow.local"
+              />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm font-medium text-text-secondary">{{ roleText('memberRole') }}</span>
+              <select
+                v-model="memberForm.role"
+                class="h-10 w-full rounded-md border border-app-border bg-white px-3 text-sm outline-none focus:border-primary"
+              >
+                <option v-for="role in memberRoleOptions" :key="role" :value="role">
+                  {{ t(`settings.roles.${role.toLowerCase()}`) }}
+                </option>
+              </select>
+            </label>
+            <p v-if="memberError" role="alert" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
+              {{ memberError }}
+            </p>
+          </fieldset>
+        </div>
 
-        <footer class="flex flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
+        <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
           <button
             type="button"
             class="rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition hover:text-text-primary"
@@ -2265,7 +2288,15 @@ watch(
             {{ memberSaving ? roleText('savingMember') : roleText('saveMember') }}
           </button>
         </footer>
-      </form>
+        </form>
+      </section>
     </div>
   </section>
 </template>
+
+<style scoped>
+.settings-dialog {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+</style>
