@@ -5,7 +5,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Node } from '@vue-flow/core'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
@@ -24,6 +24,16 @@ const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
 const suppressNextPaletteClick = ref(false)
 let requestedFocusNodeId: string | null = null
 let initialFitTimer: number | undefined
+function cancelPendingFocus() {
+  requestedFocusNodeId = null
+  window.clearTimeout(initialFitTimer)
+  initialFitTimer = undefined
+}
+// 只跟踪真实图编辑和节点集合；尺寸测量、运行状态与选择标记不取消首次布局重试。
+watch([
+  () => workflowStore.editRevision,
+  () => JSON.stringify(workflowStore.nodes.map((node) => node.id)),
+], cancelPendingFocus, { flush: 'sync' })
 async function focusRequestedNode() {
   const nodeId = requestedFocusNodeId
   if (!nodeId || !workflowStore.nodes.some((node) => node.id === nodeId)) return
@@ -81,6 +91,7 @@ const availableTemplates = computed(() =>
 )
 
 function selectNode(nodeId: string) {
+  cancelPendingFocus()
   uiStore.setSelectedNode(nodeId)
   if (!workflowStore.nodes.some((node) => node.id === nodeId)) {
     return
@@ -251,15 +262,17 @@ onMounted(() => {
     ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2 })
   }, 80)
 })
-onBeforeUnmount(() => { requestedFocusNodeId = null; window.clearTimeout(initialFitTimer) })
+onBeforeUnmount(cancelPendingFocus)
 
 defineExpose({
+  cancelPendingFocus,
   async focusNode(nodeId: string) {
     if (!workflowStore.nodes.some((node) => node.id === nodeId)) return
     requestedFocusNodeId = nodeId
     await focusRequestedNode()
   },
   async fitCanvas() {
+    cancelPendingFocus()
     await nextTick()
     await flow.fitView({ padding: 0.2, duration: 220 })
   },

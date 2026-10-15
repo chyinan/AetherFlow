@@ -9,9 +9,9 @@ import { continuityMessages } from './continuityMessages'
 
 const props = defineProps<{
   workflowId: string; definitionId: number | null; version: number | null; nodes: WorkflowGraphNode[]
-  nodeId?: string; sourceRunId?: string; returnLocation?: string
+  nodeId?: string; sourceRunId?: string; returnLocation?: string; interactionRevision?: number
 }>()
-const emit = defineEmits<{ locate: [nodeId: string] }>()
+const emit = defineEmits<{ locate: [nodeId: string]; autoLocate: [nodeId: string, interactionRevision: number] }>()
 const { t } = useI18n({ useScope: 'local', messages: continuityMessages })
 const loading = ref(false)
 const verified = ref(false)
@@ -19,6 +19,9 @@ const failed = ref(false)
 const errorDetails = ref('')
 let requestId = 0
 let active = true
+let sourceIntent = ''
+let sourceInteractionRevision = 0
+let automaticLocationConsumed = false
 const exists = computed(() => props.nodes.some((node) => node.id === props.nodeId))
 const scoped = computed(() => Boolean(props.nodeId?.includes('/')))
 const canLocate = computed(() => verified.value && exists.value && !scoped.value)
@@ -31,6 +34,13 @@ async function loadSource() {
   failed.value = false
   loading.value = false
   const { sourceRunId, nodeId, workflowId, definitionId } = props
+  const intent = JSON.stringify([sourceRunId, nodeId])
+  if (intent !== sourceIntent) {
+    sourceIntent = intent
+    sourceInteractionRevision = props.interactionRevision ?? 0
+    automaticLocationConsumed = false
+  }
+  const interactionRevision = sourceInteractionRevision
   if (!sourceRunId || !nodeId || !workflowId) { failed.value = true; return }
   loading.value = true
   const ownsRequest = () => active && current === requestId
@@ -44,7 +54,11 @@ async function loadSource() {
       return
     }
     verified.value = true
-    if (canLocate.value) emit('locate', nodeId)
+    // 同一来源只尝试自动定位一次；保存后的 ID 规范化仅重验，不抢回用户视图。
+    if (canLocate.value && !automaticLocationConsumed) {
+      automaticLocationConsumed = true
+      emit('autoLocate', nodeId, interactionRevision)
+    }
     const logs = await runApi.getLogs(sourceRunId).catch(() => [])
     if (!ownsRequest()) return
     const message = logs.filter((log) => log.nodeId === nodeId && log.level === 'error').at(-1)?.message

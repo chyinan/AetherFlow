@@ -62,11 +62,22 @@ async function locatePreflightIssue(issue: PreflightIssue) {
   if (issue.field) requestNodeConfigFieldFocus(issue.nodeId, issue.field)
 }
 const showCopilot = ref(false)
-async function locateSourceRunNode(nodeId: string) {
+const editorInteractionRevision = ref(0)
+function noteEditorInteraction() {
+  editorInteractionRevision.value += 1
+  canvasRef.value?.cancelPendingFocus?.()
+}
+// 选择、编辑和未落库输入都优先于旧来源请求的自动定位。
+watch([() => uiStore.selectedNodeId, () => workflowStore.editRevision], noteEditorInteraction, { flush: 'sync' })
+async function locateSourceRunNode(nodeId: string, automaticRevision?: number) {
+  if (automaticRevision !== undefined
+    && (automaticRevision !== editorInteractionRevision.value || pendingNavigation.value)) return
   if (!workflowStore.nodes.some((node) => node.id === nodeId)) return
   workflowStore.nodes.forEach((node) => { node.selected = node.id === nodeId })
   uiStore.setSelectedNode(nodeId)
+  const acceptedRevision = editorInteractionRevision.value
   await nextTick()
+  if (!pageActive || acceptedRevision !== editorInteractionRevision.value || uiStore.selectedNodeId !== nodeId) return
   await canvasRef.value?.focusNode?.(nodeId)
 }
 const showRunConsole = ref(false)
@@ -748,7 +759,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
 
 <template>
   <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="settleNavigation(true)" @stay="settleNavigation(false)" />
-  <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined">
+  <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"
     type="file"
@@ -922,7 +933,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </header>
 
-    <div class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
+    <div class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />

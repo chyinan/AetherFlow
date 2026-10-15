@@ -25,17 +25,17 @@ async function setup(props: Record<string, unknown> = {}) {
 describe('失败节点恢复来源与精确定位', () => {
   it('验证来源后精确定位、显示错误和版本边界，并保留返回运行历史查询', async () => {
     const view = await setup()
-    expect(view.emitted('locate')).toEqual([['summary-1']])
+    expect(view.emitted('autoLocate')).toEqual([['summary-1', 0]])
     expect(view.text()).toContain('模型不可用')
     expect(view.get('[data-testid="source-version-warning"]').text()).toContain('版本 4')
     expect(view.text()).toContain('不能确认与当时完全一致')
     expect(view.get('[data-action="return-source-run"]').attributes('href')).toBe('/runs/run-1?status=failed&page=3#timeline')
     await view.get('[data-action="locate-source-node"]').trigger('click')
-    expect(view.emitted('locate')).toEqual([['summary-1'], ['summary-1']])
+    expect(view.emitted('locate')).toEqual([['summary-1']])
   })
   it('节点删除、版本变化不猜名称或其他ID，且删除后的按钮立即失效', async () => {
     const view = await setup({ nodes: [node('renamed-summary')], version: 8 })
-    expect(view.emitted('locate')).toBeUndefined()
+    expect(view.emitted('autoLocate')).toBeUndefined()
     expect(view.text()).toContain('可能已被删除或替换')
     expect(view.text()).toContain('版本 8')
     await view.setProps({ nodes: [node('summary-1')] })
@@ -46,7 +46,7 @@ describe('失败节点恢复来源与精确定位', () => {
   it('循环子节点不拆分映射到根节点', async () => {
     api.getRun.mockResolvedValue(run('run-1', '101', 'loop-1/iteration-2/summary'))
     const view = await setup({ nodeId: 'loop-1/iteration-2/summary', nodes: [node('loop-1')] })
-    expect(view.emitted('locate')).toBeUndefined()
+    expect(view.emitted('autoLocate')).toBeUndefined()
     expect(view.text()).toContain('属于循环或子流程')
   })
   it.each([
@@ -54,7 +54,7 @@ describe('失败节点恢复来源与精确定位', () => {
   ])('不属于目标定义或失败节点的来源不定位也不读取错误详情', async (value) => {
     api.getRun.mockResolvedValue(value)
     const view = await setup()
-    expect(view.emitted('locate')).toBeUndefined()
+    expect(view.emitted('autoLocate')).toBeUndefined()
     expect(view.text()).toContain('无法确认来源运行或节点')
     expect(api.getLogs).not.toHaveBeenCalled()
   })
@@ -65,7 +65,7 @@ describe('失败节点恢复来源与精确定位', () => {
     api.getLogs.mockResolvedValueOnce([{ nodeId: 'other', level: 'error', message: '新错误' }])
     await view.setProps({ sourceRunId: 'run-2', nodeId: 'other', returnLocation: '/runs/run-2?page=7' }); await flushPromises()
     first.resolve(run()); await flushPromises()
-    expect(view.emitted('locate')).toEqual([['other']])
+    expect(view.emitted('autoLocate')).toEqual([['other', 0]])
     expect(view.text()).toContain('新错误')
     expect(view.text()).not.toContain('模型不可用')
     expect(view.get('[data-action="return-source-run"]').attributes('href')).toBe('/runs/run-2?page=7')
@@ -73,7 +73,7 @@ describe('失败节点恢复来源与精确定位', () => {
   it('迟到旧错误日志与卸载请求均不能发出新定位或覆盖反馈', async () => {
     const oldLogs = deferred<any>(); api.getLogs.mockReturnValueOnce(oldLogs.promise)
     const locate = vi.fn()
-    const view = await setup({ onLocate: locate })
+    const view = await setup({ onAutoLocate: locate })
     api.getRun.mockResolvedValueOnce(run('run-2', '101', 'other')); api.getLogs.mockResolvedValueOnce([])
     await view.setProps({ sourceRunId: 'run-2', nodeId: 'other' }); await flushPromises()
     oldLogs.resolve([{ nodeId: 'summary-1', level: 'error', message: '旧错误' }]); await flushPromises()
@@ -82,7 +82,7 @@ describe('失败节点恢复来源与精确定位', () => {
     await view.setProps({ sourceRunId: 'run-3' }); await flushPromises()
     view.unmount(); wrapper = undefined
     late.resolve(run('run-3', '101', 'other')); await flushPromises()
-    expect(locate.mock.calls).toEqual([['summary-1'], ['other']])
+    expect(locate.mock.calls).toEqual([['summary-1', 0], ['other', 0]])
   })
   it('读取失败可重试，错误文本不会进入href且以纯文本显示', async () => {
     api.getRun.mockRejectedValueOnce(new Error('denied'))
@@ -97,7 +97,7 @@ describe('失败节点恢复来源与精确定位', () => {
   it('日志读取失败仍保留有效定位、版本提示及返回链', async () => {
     api.getLogs.mockRejectedValueOnce(new Error('unavailable'))
     const view = await setup({ version: null })
-    expect(view.emitted('locate')).toEqual([['summary-1']])
+    expect(view.emitted('autoLocate')).toEqual([['summary-1', 0]])
     expect(view.text()).toContain('没有可读取的节点错误详情')
     expect(view.text()).toContain('运行接口未提供源定义版本')
   })
