@@ -338,6 +338,7 @@ export const jaJP = {
     saved: '保存済み',
     saving: '保存中',
     saveFailed: '保存に失敗しました',
+    createRecoveredPendingSave: 'ワークフロー ID を確認しました。新しい編集の同期を確認するため、もう一度保存してください。',
     saveFailedUnknown: '不明なエラー',
     importComfyUi: 'ComfyUI をインポート',
     importingComfyUi: 'インポート中',
@@ -809,6 +810,8 @@ export const jaJP = {
     },
   },
   runs: {
+    cancelErrorTitle: 'キャンセル結果は未確認です',
+    cancelErrorHint: 'キャンセル要求の成功を確認できませんでした。更新して最新の状態を確認し、必要に応じて再度キャンセルしてください。',
     rerunReused: '再利用済み・再呼び出しなし',
     rerunNode: 'ノードを再実行',
     rerunTitle: '失敗したノードを再実行：{node}',
