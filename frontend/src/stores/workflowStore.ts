@@ -8,6 +8,7 @@ import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node
 import { i18n } from '@/i18n'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
+import { isWorkflowCapabilitySnapshot } from '@/utils/capabilitySupport'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
@@ -290,18 +291,27 @@ export const useWorkflowStore = defineStore('workflow', {
       ])
       // 已关闭向导、切换节点或被新请求取代的结果不能覆盖当前能力。
       if (sequence !== this.nodeTemplatesRequestSequence || !isCurrent()) return false
-      const templates = catalogResult.status === 'fulfilled'
-        ? mergeTemplates(nodeTemplates, catalogResult.value
-          .map(templateFromCatalogItem)
-          .filter((template): template is NodeTemplate => template !== null))
-        : nodeTemplates
-      const capabilities = capabilityResult.status === 'fulfilled'
+      let catalogLoaded = catalogResult.status === 'fulfilled' && Array.isArray(catalogResult.value)
+        && catalogResult.value.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item))
+      const capabilitiesLoaded = capabilityResult.status === 'fulfilled' && isWorkflowCapabilitySnapshot(capabilityResult.value)
+      let templates = nodeTemplates
+      if (catalogLoaded && catalogResult.status === 'fulfilled') {
+        try {
+          templates = mergeTemplates(nodeTemplates, catalogResult.value
+            .map(templateFromCatalogItem)
+            .filter((template): template is NodeTemplate => template !== null))
+        } catch {
+          // 损坏的目录不能阻止能力失败关闭，也不能保留“目录已确认”的旧标记。
+          catalogLoaded = false
+        }
+      }
+      const capabilities = capabilitiesLoaded && capabilityResult.status === 'fulfilled'
         ? capabilityResult.value
         : unavailableWorkflowCapabilities('AI capability service unavailable')
-      this.nodeCatalogLoaded = catalogResult.status === 'fulfilled'
-      this.capabilitiesLoaded = capabilityResult.status === 'fulfilled'
+      this.nodeCatalogLoaded = catalogLoaded
+      this.capabilitiesLoaded = capabilitiesLoaded
       this.templates = applyWorkflowCapabilities(templates, capabilities)
-      return capabilityResult.status === 'fulfilled'
+      return capabilitiesLoaded
     },
     async loadWorkflowTemplates() {
       this.workflowTemplatesLoading = true

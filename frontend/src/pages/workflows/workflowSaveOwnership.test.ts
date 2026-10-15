@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowDefinition } from '@/types/workflow'
@@ -74,7 +75,7 @@ async function setup() {
   wrapper = mount(RouterView, {
     global: {
       plugins: [pinia, router, i18n],
-      stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+      stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
     },
   })
   await flushPromises()
@@ -133,9 +134,9 @@ describe('工作流保存反馈归属', () => {
     const pending = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValueOnce(pending.promise)
     await saveButton().trigger('click')
-    await router.push('/workflows/102')
-    await flushPromises()
-    expect(window.confirm).toHaveBeenCalled()
+    expect(await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102'))).toBe(true)
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
     expect(store.workflowId).toBe('102')
     if (outcome === '成功') pending.resolve(definition('101', 2))
     else pending.reject(new Error('Workflow A 保存请求超时'))
@@ -159,7 +160,7 @@ describe('工作流保存反馈归属', () => {
     api.saveWorkflow.mockReturnValueOnce(savingA.promise)
     await saveButton().trigger('click')
     api.getWorkflow.mockReturnValueOnce(loadingB.promise)
-    await router.push('/workflows/102')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102'))
     await flushPromises()
     expect(store.loading).toBe(true)
     expect(store.saving).toBe(false)
@@ -183,7 +184,7 @@ describe('工作流保存反馈归属', () => {
     const savingB = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValueOnce(savingA.promise).mockReturnValueOnce(savingB.promise)
     await saveButton().trigger('click')
-    await router.push('/workflows/102')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102'))
     await flushPromises()
     store.addNodeFromTemplate(nodeTemplates.find((template) => template.kind === 'start')!, { x: 0, y: 0 })
     // 直接调用真实 Store，另行验证导航后的按钮可用状态。
@@ -213,7 +214,7 @@ describe('工作流保存反馈归属', () => {
     const savingA = deferred<WorkflowDefinition>()
     const error = new Error('加载期间保存 A 失败')
     api.getWorkflow.mockReturnValueOnce(loadingB.promise)
-    await router.push('/workflows/102')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102'))
     await flushPromises()
     expect(store.loading).toBe(true)
     expect(store.workflowId).toBe('101')
@@ -241,7 +242,7 @@ describe('工作流保存反馈归属', () => {
     const savingA = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValueOnce(savingA.promise).mockResolvedValueOnce(definition('102', 2))
     await saveButton().trigger('click')
-    await router.push('/workflows/102')
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102'))
     await flushPromises()
     store.addNodeFromTemplate(nodeTemplates.find((template) => template.kind === 'start')!, { x: 0, y: 0 })
     await flushPromises()

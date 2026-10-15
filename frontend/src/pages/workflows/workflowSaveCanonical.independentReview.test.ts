@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -84,7 +85,7 @@ async function setup(path = '/workflows/new?projectId=11') {
   wrapper = mount(RouterView, {
     global: {
       plugins: [pinia, router, i18n],
-      stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+      stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
     },
   })
   await flushPromises()
@@ -125,6 +126,7 @@ describe('独立审查：普通保存规范化边界', () => {
   await saveButton().trigger('click'); await flushPromises()
   gate.resolve(true); await flushPromises()
   expect(router.currentRoute.value.params.id).toBe('new')
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   expect(store.dirty).toBe(true); expect(http.get).not.toHaveBeenCalled()
   saving.resolve(undefined); await flushPromises()
   expect(router.currentRoute.value.params.id).toBe('201')
@@ -138,11 +140,14 @@ describe('独立审查：普通保存规范化边界', () => {
   const remove = router.beforeEach(to => to.params.id === '201' ? gate.promise : undefined)
   await saveButton().trigger('click'); await flushPromises()
   store.updateNodeConfig(start.id, 'variables', { revision: 'keep' })
-  vi.mocked(window.confirm).mockReturnValue(false)
-  await router.push('/workflows/202?projectId=22'); await flushPromises()
+  const navigation = router.push('/workflows/202?projectId=22')
+  await flushPromises()
+  expect(wrapper!.findAll('[data-testid="unsaved-navigation-dialog"]')).toHaveLength(1)
+  expect(await resolveWorkflowNavigation(wrapper!, navigation, 'stay')).toBe(true)
   gate.resolve(true); await flushPromises()
   expect(router.currentRoute.value.params.id).toBe('new')
-  expect(store.dirty).toBe(true); expect(window.confirm).toHaveBeenCalledTimes(1)
+  expect(store.dirty).toBe(true); expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   remove(); await saveButton().trigger('click'); await flushPromises()
   expect(router.currentRoute.value.params.id).toBe('201')
   expect(http.get).not.toHaveBeenCalled()
@@ -174,9 +179,11 @@ describe('独立审查：普通保存规范化边界', () => {
   router.beforeEach(to => to.params.id === '201' ? gate.promise : undefined)
   await saveButton().trigger('click'); await flushPromises()
   store.updateNodeConfig(start.id, 'variables', { revision: 'keep' })
-  vi.mocked(window.confirm).mockReturnValue(false)
   gate.resolve('/workflows/202?projectId=22'); await flushPromises()
-  expect(window.confirm).toHaveBeenCalledTimes(1)
+  expect(wrapper!.findAll('[data-testid="unsaved-navigation-dialog"]')).toHaveLength(1)
+  expect(await resolveWorkflowNavigation(wrapper!, undefined, 'stay')).toBe(true)
+  expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   expect(router.currentRoute.value.params.id).toBe('new')
   expect(store.dirty).toBe(true); expect(status).not.toHaveBeenCalled()
  })

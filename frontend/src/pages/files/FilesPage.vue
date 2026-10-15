@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Database, FileInput, FolderOpen, PackageCheck, RefreshCw } from 'lucide-vue-next'
+import { ArrowLeft, Database, FileInput, FolderOpen, PackageCheck, RefreshCw } from 'lucide-vue-next'
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import FileAssetList from '@/components/file/FileAssetList.vue'
 import FileUploader from '@/components/file/FileUploader.vue'
 import { useFileStore } from '@/stores/fileStore'
+import { runReturnLocation } from '@/utils/runNavigation'
 import { runArtifactMessages } from './runArtifactMessages'
 
 const fileStore = useFileStore()
@@ -22,10 +23,12 @@ const runFilterId = computed(() => {
 const visibleArtifacts = computed(() => runFilterId.value
   ? fileStore.artifactFiles.filter(file => file.linkedRunId === runFilterId.value)
   : fileStore.artifactFiles)
+const sourceRunLocation = computed(() => runReturnLocation(runFilterId.value, route.query.runReturnLocation))
 
 function clearRunFilter() {
   const query = { ...route.query }
   delete query.runId
+  delete query.runReturnLocation
   void router.push({ path: route.path, query, hash: route.hash })
 }
 
@@ -92,9 +95,15 @@ async function toggleFileSource(fileId: string) {
             <p class="break-all text-sm font-semibold text-text-primary">{{ artifactText('filter', { runId: runFilterId }) }}</p>
             <p class="mt-1 text-xs text-text-secondary">{{ artifactText('filterHint') }}</p>
           </div>
-          <button type="button" data-testid="clear-run-filter" class="shrink-0 rounded-md border border-app-border bg-white px-3 py-2 text-xs font-medium text-primary hover:border-primary/30" @click="clearRunFilter">
-            {{ artifactText('clear') }}
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <RouterLink :to="sourceRunLocation" data-testid="return-source-run" class="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-white px-3 py-2 text-xs font-medium text-primary hover:border-primary">
+              <ArrowLeft class="h-3.5 w-3.5" />
+              {{ artifactText('returnRun') }}
+            </RouterLink>
+            <button type="button" data-testid="clear-run-filter" class="shrink-0 rounded-md border border-app-border bg-white px-3 py-2 text-xs font-medium text-primary hover:border-primary/30" @click="clearRunFilter">
+              {{ artifactText('clear') }}
+            </button>
+          </div>
         </section>
         <FileUploader v-else />
         <div v-if="fileStore.loadError" class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error" role="alert">

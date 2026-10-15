@@ -31,7 +31,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -46,6 +46,9 @@ import StructuredMappingEditor from './StructuredMappingEditor.vue'
 import { defaultMapping } from '@/utils/structuredMapping'
 import SubworkflowConfigPanel from './SubworkflowConfigPanel.vue'
 import WhisperEnvironmentDialog from './WhisperEnvironmentDialog.vue'
+import CapabilitySupportDialog from './CapabilitySupportDialog.vue'
+import { capabilitySupportMessages } from './capabilitySupportMessages'
+import { capabilityForNode } from '@/utils/capabilitySupport'
 import type { ImageConnectionProvider } from '@/api/modules/nodeConnections'
 import {
   getNodeCatalog,
@@ -53,6 +56,7 @@ import {
   type WorkflowNodeConfigSchema,
 } from '@/api/modules/node'
 import { useDifyStore } from '@/stores/difyStore'
+import { useAuthStore } from '@/stores/authStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useModelStore } from '@/stores/modelStore'
 import { useRunStore } from '@/stores/runStore'
@@ -72,12 +76,14 @@ const difyStore = useDifyStore()
 const fileStore = useFileStore()
 const modelStore = useModelStore()
 const runStore = useRunStore()
+const authStore = useAuthStore()
 const selectedNode = computed(() => {
   const selectedByFlow = workflowStore.nodes.find((node) => node.selected)
   const selectedByStore = workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId)
   return selectedByFlow ?? selectedByStore ?? null
 })
 const { t, te } = useI18n()
+const { t: ct } = useI18n({ useScope: 'local', messages: capabilitySupportMessages })
 const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
@@ -136,9 +142,50 @@ const selectedUnavailableReason = computed(() => {
   if (['image-generation', 'upscale'].includes(kind) && String(selectedNode.value?.data.config?.connectionId ?? '').trim()) return null
   const template = workflowStore.templates.find((item) => item.kind === kind)
   return template?.availability?.available === false
-    ? template.availability.reason
+    ? template.availability.reason || ct('unavailable')
     : null
 })
+const selectedCapability = computed(() => capabilityForNode(selectedNode.value?.data.kind))
+const capabilityChecking = ref(false)
+const capabilityCheckState = ref<'' | 'checked' | 'checkFailed' | 'catalogFailed' | 'superseded' | 'cancelled'>('')
+const capabilityContext = computed(() => JSON.stringify([
+  workflowStore.workflowId, selectedNode.value?.id, selectedNode.value?.data.kind,
+  authStore.token, authStore.user?.id, authStore.user?.userId, authStore.isAdmin,
+]))
+let capabilityCheckSequence = 0
+let inspectorAlive = true
+function cancelCapabilityCheck() {
+  capabilityCheckSequence += 1
+  capabilityChecking.value = false
+  capabilityCheckState.value = 'cancelled'
+}
+async function recheckCapabilities() {
+  if (!selectedNode.value || !selectedCapability.value || capabilityChecking.value) return
+  const sequence = ++capabilityCheckSequence
+  const context = capabilityContext.value
+  const isCurrent = () => inspectorAlive && sequence === capabilityCheckSequence && context === capabilityContext.value
+  capabilityChecking.value = true
+  capabilityCheckState.value = ''
+  try {
+    // 仅更新能力和目录；现有响应式预检会重算，不保存图、不更改选中节点，也不启动任务。
+    const pending = workflowStore.loadNodeTemplates(isCurrent)
+    const storeSequence = workflowStore.nodeTemplatesRequestSequence
+    const loaded = await pending
+    if (!isCurrent()) return
+    capabilityCheckState.value = storeSequence !== workflowStore.nodeTemplatesRequestSequence ? 'superseded'
+      : !loaded ? 'checkFailed' : !workflowStore.nodeCatalogLoaded ? 'catalogFailed' : 'checked'
+  } catch {
+    if (isCurrent()) capabilityCheckState.value = 'checkFailed'
+  } finally {
+    if (isCurrent()) capabilityChecking.value = false
+  }
+}
+watch(capabilityContext, () => {
+  capabilityCheckSequence += 1
+  capabilityChecking.value = false
+  capabilityCheckState.value = ''
+}, { flush: 'sync' })
+onBeforeUnmount(() => { inspectorAlive = false; capabilityCheckSequence += 1 })
 const workflowNeedsFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 const imageSchemaKinds = new Set<WorkflowNodeKind>(['prompt', 'image-generation', 'upscale', 'save-image'])
 const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
@@ -690,6 +737,14 @@ onMounted(() => {
       <div v-if="selectedUnavailableReason" class="mx-5 mt-4 rounded-lg border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm leading-6 text-status-warning">
         {{ t('workflow.capabilityUnavailable') }}：{{ selectedUnavailableReason }}
       </div>
+      <section v-if="selectedCapability" data-testid="node-capability-recovery" :aria-busy="capabilityChecking" class="mx-5 mt-3 space-y-2">
+        <div class="flex flex-wrap gap-2">
+          <button type="button" data-action="recheck-node-capabilities" :disabled="capabilityChecking" class="rounded-lg border border-app-border px-3 py-2 text-xs text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-50" @click="recheckCapabilities">{{ ct(capabilityChecking ? 'checking' : 'check') }}</button>
+          <button v-if="capabilityChecking" type="button" data-action="cancel-node-capabilities" class="rounded-lg px-3 py-2 text-xs text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="cancelCapabilityCheck">{{ ct('cancel') }}</button>
+          <CapabilitySupportDialog v-if="selectedUnavailableReason || capabilityCheckState === 'checkFailed' || capabilityCheckState === 'catalogFailed'" :key="capabilityContext" :capability-type="selectedCapability" :category="!workflowStore.capabilitiesLoaded || capabilityCheckState === 'checkFailed' || capabilityCheckState === 'catalogFailed' ? 'CHECK_FAILED' : 'CAPABILITY_UNAVAILABLE'" :workflow-id="workflowStore.workflowId" :node-id="selectedNode.id" />
+        </div>
+        <p v-if="capabilityCheckState" data-testid="node-capability-check-status" :role="capabilityCheckState === 'checkFailed' || capabilityCheckState === 'catalogFailed' ? 'alert' : 'status'" class="text-xs leading-5 text-text-secondary">{{ ct(capabilityCheckState) }}</p>
+      </section>
 
       <div v-if="activeTab === 'settings'" class="min-h-0 flex-1 overflow-y-auto">
         <div v-if="isImageConnectionNode" class="px-5 pt-5">

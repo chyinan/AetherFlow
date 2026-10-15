@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { i18n } from '@/i18n'
+import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -84,7 +85,7 @@ async function setup(path = '/workflows/new?projectId=11') {
   wrapper = mount(RouterView, {
     global: {
       plugins: [pinia, router, i18n],
-      stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+      stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
     },
   })
   await flushPromises()
@@ -106,6 +107,7 @@ describe('普通保存后的地址规范化', () => {
   expect(store.workflowId).toBe('201'); expect(router.currentRoute.value.params.id).toBe('201')
   expect(store.dirty).toBe(false); expect(http.post).toHaveBeenCalledTimes(1)
   expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
  })
  it('已有工作流保存期间编辑仍保留新配置与脏状态', async () => {
   const { store, router, start } = await setup('/workflows/201?projectId=11')
@@ -116,6 +118,7 @@ describe('普通保存后的地址规范化', () => {
   expect(store.nodes.find(n => n.id === start.id)!.data.config.variables).toEqual({ revision: 'newer' })
   expect(store.dirty).toBe(true); expect(router.currentRoute.value.params.id).toBe('201')
   expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
  })
  it('首次保存期间继续编辑不弹离开确认、不重载画布，并在第二次保存持久化新编辑', async () => {
   const { store, router, start } = await setup()
@@ -125,9 +128,9 @@ describe('普通保存后的地址规范化', () => {
   expect(http.post.mock.calls[0]![1].nodes.map((n: any) => n.nodeType)).toEqual(['START', 'END'])
   store.updateNodeConfig(start.id, 'variables', { revision: 'newer' })
   const history = JSON.stringify(store.historyPast)
-  vi.mocked(window.confirm).mockReturnValue(false)
   saving.resolve(undefined); await flushPromises()
   expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   expect(router.currentRoute.value.params.id).toBe('201')
   expect(store.workflowId).toBe('201'); expect(store.backendDefinitionId).toBe(201)
   expect(store.dirty).toBe(true)
@@ -173,9 +176,13 @@ describe('普通保存后的地址规范化', () => {
   const { store, router, start } = await setup()
   await saveButton().trigger('click'); await flushPromises()
   store.updateNodeConfig(start.id, 'variables', { revision: 'unsaved' })
-  vi.mocked(window.confirm).mockReturnValue(false)
-  await router.push('/workflows/202?projectId=22'); await flushPromises()
-  expect(window.confirm).toHaveBeenCalledExactlyOnceWith(i18n.global.t('workflow.unsavedChangesConfirm'))
+  const navigation = router.push('/workflows/202?projectId=22')
+  await flushPromises()
+  expect(wrapper!.findAll('[data-testid="unsaved-navigation-dialog"]')).toHaveLength(1)
+  expect(wrapper!.get('[data-testid="unsaved-navigation-dialog"]').text()).toContain('离开前保存工作流？')
+  expect(await resolveWorkflowNavigation(wrapper!, navigation, 'stay')).toBe(true)
+  expect(window.confirm).not.toHaveBeenCalled()
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   expect(router.currentRoute.value.params.id).toBe('201'); expect(store.dirty).toBe(true)
  })
  it('内部规范化等待期间真正导航到其他工作流，迟到导航不重载或标记其他页面', async () => {
@@ -187,7 +194,7 @@ describe('普通保存后的地址规范化', () => {
     if (url === '/workflows/definitions/202') return { id: 202, name: 'Other', version: 1, projectId: 22, definitionJson: JSON.stringify({ nodes: [] }) }
     throw new Error('Unexpected GET '+url)
   })
-  await router.push('/workflows/202?projectId=22'); await flushPromises()
+  await resolveWorkflowNavigation(wrapper!, router.push('/workflows/202?projectId=22')); await flushPromises()
   const snapshot = JSON.stringify(store.$state)
   navigation.resolve(true); await flushPromises()
   expect(router.currentRoute.value.params.id).toBe('202'); expect(store.workflowId).toBe('202')

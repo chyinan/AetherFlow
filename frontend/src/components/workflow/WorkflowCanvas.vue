@@ -5,7 +5,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Node } from '@vue-flow/core'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
@@ -22,6 +22,15 @@ const flow = useVueFlow()
 const { t } = useI18n()
 const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
 const suppressNextPaletteClick = ref(false)
+let requestedFocusNodeId: string | null = null
+let initialFitTimer: number | undefined
+async function focusRequestedNode() {
+  const nodeId = requestedFocusNodeId
+  if (!nodeId || !workflowStore.nodes.some((node) => node.id === nodeId)) return
+  await nextTick()
+  if (nodeId !== requestedFocusNodeId || !workflowStore.nodes.some((node) => node.id === nodeId)) return
+  await flow.fitView({ nodes: [nodeId], padding: 0.4, maxZoom: 1, duration: 220 })
+}
 const implementedNodeKinds = new Set<WorkflowNodeKind>([
   'start',
   'prompt',
@@ -237,12 +246,19 @@ function deleteNode(nodeId: string) {
 }
 
 onMounted(() => {
-  window.setTimeout(() => {
+  initialFitTimer = window.setTimeout(() => {
+    if (requestedFocusNodeId) { void focusRequestedNode(); return }
     ;(flow as unknown as { fitView?: (options?: unknown) => void }).fitView?.({ padding: 0.2 })
   }, 80)
 })
+onBeforeUnmount(() => { requestedFocusNodeId = null; window.clearTimeout(initialFitTimer) })
 
 defineExpose({
+  async focusNode(nodeId: string) {
+    if (!workflowStore.nodes.some((node) => node.id === nodeId)) return
+    requestedFocusNodeId = nodeId
+    await focusRequestedNode()
+  },
   async fitCanvas() {
     await nextTick()
     await flow.fitView({ padding: 0.2, duration: 220 })
@@ -303,6 +319,7 @@ defineExpose({
         fit-view-on-init
         @connect="workflowStore.addConnection"
         @node-click="onNodeClick"
+        @nodes-initialized="focusRequestedNode"
       >
         <Background pattern-color="#94A3B8" :gap="24" :size="1" />
         <MiniMap pannable zoomable node-color="#2563EB" mask-color="rgba(248, 250, 252, 0.72)" />
