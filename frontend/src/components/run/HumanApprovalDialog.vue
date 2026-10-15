@@ -1,16 +1,19 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Check, Hand, LoaderCircle, X, XCircle } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
 import { approveHumanNode, type RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import type { HumanApprovalDetails } from '@/types/run'
 
-export interface HumanApprovalRequestView {
+export interface HumanApprovalTarget {
   instanceId: number | string
   nodeId: string
+}
+
+export interface HumanApprovalRequestView extends HumanApprovalTarget {
   nodeLabel: string
   details: HumanApprovalDetails
 }
@@ -21,13 +24,29 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  completed: [{ approved: boolean; snapshot: RuntimeExecutionSnapshot }]
+  completed: [{ approved: boolean; snapshot: RuntimeExecutionSnapshot }, HumanApprovalTarget]
 }>()
 
 const { t } = useI18n()
 const comment = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
+let generation = 0
+
+// 同一个弹窗可被下一审批复用，意见、等待和回执都必须属于原始目标。
+watch([() => String(props.request.instanceId), () => props.request.nodeId], () => {
+  generation += 1
+  comment.value = ''
+  saving.value = false
+  error.value = null
+}, { flush: 'sync' })
+
+function close() {
+  generation += 1
+  emit('close')
+}
+
+onBeforeUnmount(() => { generation += 1 })
 
 function errorMessage(value: unknown) {
   return toApiError(value, 'runtime').message
@@ -38,20 +57,26 @@ async function submit(approved: boolean) {
     return
   }
 
+  const request = props.request
+  const target: HumanApprovalTarget = { instanceId: request.instanceId, nodeId: request.nodeId }
+  const current = generation
+  const isCurrent = () => current === generation
+    && String(props.request.instanceId) === String(target.instanceId)
+    && props.request.nodeId === target.nodeId
   saving.value = true
   error.value = null
   try {
-    const snapshot = await approveHumanNode(props.request.instanceId, props.request.nodeId, {
+    const snapshot = await approveHumanNode(target.instanceId, target.nodeId, {
       approved,
       comment: comment.value.trim() || undefined,
-      reviewer: props.request.details.reviewer,
+      reviewer: request.details.reviewer,
       method: 'webapp',
     })
-    emit('completed', { approved, snapshot })
+    if (isCurrent()) emit('completed', { approved, snapshot }, target)
   } catch (cause) {
-    error.value = errorMessage(cause)
+    if (isCurrent()) error.value = errorMessage(cause)
   } finally {
-    saving.value = false
+    if (isCurrent()) saving.value = false
   }
 }
 </script>
@@ -61,14 +86,14 @@ async function submit(approved: boolean) {
     <div
       class="fixed inset-0 z-[80] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       role="presentation"
-      @click.self="emit('close')"
+      @click.self="close"
     >
       <section
         class="w-full max-w-lg overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="human-approval-title"
-        @keydown.esc="emit('close')"
+        @keydown.esc="close"
       >
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <div class="flex min-w-0 items-start gap-3">
@@ -84,7 +109,7 @@ async function submit(approved: boolean) {
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             :aria-label="t('runs.approval.close')"
-            @click="emit('close')"
+            @click="close"
           >
             <X class="h-4 w-4" />
           </button>
