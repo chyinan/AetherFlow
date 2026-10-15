@@ -234,7 +234,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     const { store, router } = await setup()
     const pending = deferred<never>()
     if (stage === 'save') api.saveWorkflow.mockReturnValueOnce(pending.promise)
-    else { store.nodes.push(node('upload', 'upload')); files.loadFiles.mockReturnValueOnce(pending.promise) }
+    else { store.nodes.push(node('upload', 'upload')); store.nodes[0]!.data.config.fileId = '42'; files.loadFiles.mockReturnValueOnce(pending.promise) }
     await clickRun()
     await router.push('/workflows/102?projectId=22')
     await flushPromises()

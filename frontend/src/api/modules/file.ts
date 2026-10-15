@@ -23,6 +23,7 @@ export interface FileAssetMetadataView {
   size?: number | string
   mime?: string
   status?: string
+  // 工作流生成的成品记录存储运行实例 ID；输入文件的关联不用于推断运行。
   workflowId?: string
   result?: string
   downloadUrl?: string

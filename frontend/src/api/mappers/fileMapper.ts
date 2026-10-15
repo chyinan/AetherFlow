@@ -123,6 +123,14 @@ function formatDateTime(value?: string) {
   return formatLocaleDateTime(date)
 }
 
+function artifactRunId(workflowId?: string) {
+  const id = workflowId?.trim()
+  if (!id || !/^[1-9]\d*$/.test(id)) {
+    return undefined
+  }
+  return `run-${id}`
+}
+
 export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset {
   const id = String(view.id ?? view.backendFileId ?? `file-${Date.now()}`)
   const backendFileId = view.backendFileId ?? view.id
@@ -142,6 +150,8 @@ export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset 
     mime,
     status: mapUploadStatus(view.status ?? 'READY') as FileStatus,
     workflowId: view.workflowId,
+    // 工作流产物的后端 workflowId 来自运行上下文，即实例 ID，而非定义 ID。
+    linkedRunId: source === 'artifact' ? artifactRunId(view.workflowId) : undefined,
     result: isExportArtifact ? i18n.global.t('files.mockResults.generatedByRun') : view.result || i18n.global.t('files.mockResults.readyInput'),
     downloadUrl: view.downloadUrl,
     objectKey: view.objectKey,

@@ -27,7 +27,6 @@ import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowNodeKind } from '@/types/workflow'
-import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
 import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 const workflowStore = useWorkflowStore()
@@ -46,7 +45,7 @@ const supportsStarterGuide = computed(() => workflowStore.nodes.some((node) => n
 function locateStarterNode(nodeId: string, field: string) { void locatePreflightIssue({ id: 'guide', level: 'unknown', code: '', nodeId, field }) }
 function startGuidedRun() { showPreflight.value = true; void startRun() }
 function openGuidedResults() { if (currentWorkflowRun.value) void router.push(`/runs/${currentWorkflowRun.value.id}`) }
-const preflightIssues = computed(() => buildWorkflowPreflight({ id: workflowStore.workflowId, name: workflowStore.workflowName, nodes: workflowStore.nodes, edges: workflowStore.edges }, workflowStore.templates, { catalogLoaded: workflowStore.nodeCatalogLoaded, capabilitiesLoaded: workflowStore.capabilitiesLoaded, runtimeFileId: selectedInputFileId() ?? fileStore.latestBackendInputFileId }))
+const preflightIssues = computed(() => buildWorkflowPreflight({ id: workflowStore.workflowId, name: workflowStore.workflowName, nodes: workflowStore.nodes, edges: workflowStore.edges }, workflowStore.templates, { catalogLoaded: workflowStore.nodeCatalogLoaded, capabilitiesLoaded: workflowStore.capabilitiesLoaded, runtimeFileId: selectedInputFileId() }))
 async function locatePreflightIssue(issue: PreflightIssue) {
   if (!issue.nodeId || !workflowStore.nodes.some((node) => node.id === issue.nodeId)) return
   workflowStore.nodes.forEach((node) => { node.selected = node.id === issue.nodeId })
@@ -114,7 +113,6 @@ const runButtonLabel = computed(() => currentWorkflowRunWaiting.value
     ? t('status.running')
     : t('workflow.run'),
 )
-const requiresFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 
 const hasWorkflowContext = computed(() => {
   return String(route.params.id || '') !== 'new'
@@ -493,9 +491,9 @@ function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates
 function selectedInputFileId() {
   const startNode = workflowStore.nodes.find((node) => node.data.kind === 'start')
   const configuredFileId = startNode?.data.config.fileId
-  return configuredFileId === undefined || configuredFileId === null || configuredFileId === ''
+  return configuredFileId === undefined || configuredFileId === null || String(configuredFileId).trim() === ''
     ? undefined
-    : String(configuredFileId)
+    : String(configuredFileId).trim()
 }
 
 function runErrorMessage(error: unknown) {
@@ -506,12 +504,25 @@ function runErrorMessage(error: unknown) {
   return details || t('workflow.runFailedUnknown')
 }
 
+function blockInvalidRunInput() {
+  const missingInput = preflightIssues.value.find((issue) => issue.code === 'missingInputFile')
+  if (preflightIssues.value.some((issue) => issue.level === 'blocking')) {
+    showPreflight.value = true
+    if (missingInput) {
+      workflowStore.setRunError(t('workflow.runRequiresFileId'))
+      void locatePreflightIssue(missingInput)
+    }
+    return true
+  }
+  return false
+}
+
 async function startRun() {
   if (runButtonBusy.value || workflowStore.saving) {
     return
   }
 
-  if (preflightIssues.value.some((issue) => issue.level === 'blocking')) { showPreflight.value = true; return }
+  if (blockInvalidRunInput()) return
   startingRun.value = true
   const operation = {
     generation: startNavigationGeneration,
@@ -527,16 +538,13 @@ async function startRun() {
   try {
     await runStore.loadRuns({ selectDefault: false, workflowId: operation.workflowId })
     if (!ownsWorkflow()) return
-    let fileId: string | undefined
-    if (requiresFileInput.value) {
+    if (selectedInputFileId()) {
       await fileStore.loadFiles()
       if (!ownsWorkflow()) return
-      fileId = selectedInputFileId() ?? fileStore.latestBackendInputFileId
-      if (!fileId) {
-        workflowStore.setRunError(t('workflow.runRequiresFileId'))
-        return
-      }
     }
+    if (blockInvalidRunInput()) return
+    // 只提交用户本次明确配置的输入，不从全局文件列表猜测。
+    const fileId = selectedInputFileId()
 
     const intent = workflowStartIntent({
       id: workflowStore.workflowId,

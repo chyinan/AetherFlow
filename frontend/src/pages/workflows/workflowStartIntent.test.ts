@@ -222,15 +222,15 @@ it('新配置保存失败后撤销，原始启动键仍保留', async () => {
 it('输入文件改变需要新意图确认，取消后恢复原输入仍沿用旧键', async () => {
   const { store } = await setup()
   store.nodes.push(node('upload-1', 'upload'))
-  files.latestBackendInputFileId = 'file-1'
+  store.nodes[0]!.data.config.fileId = 'file-1'
   api.startRun.mockRejectedValue(new Error('超时'))
   await clickRun()
   const key = api.startRun.mock.calls[0]![2].idempotencyKey
-  files.latestBackendInputFileId = 'file-2'
+  store.nodes[0]!.data.config.fileId = 'file-2'
   vi.mocked(window.confirm).mockReturnValue(false)
   await clickRun()
   expect(api.startRun).toHaveBeenCalledTimes(1)
-  files.latestBackendInputFileId = 'file-1'
+  store.nodes[0]!.data.config.fileId = 'file-1'
   await clickRun()
   expect(api.startRun.mock.calls[1]![2].idempotencyKey).toBe(key)
 })
@@ -252,11 +252,11 @@ it('选择、移动节点和保存版本变化不会创建新的运行意图', a
 it('确认使用新的文件输入后换键，连续重试仍保留新键', async () => {
   const { store } = await setup()
   store.nodes.push(node('upload-1', 'upload'))
-  files.latestBackendInputFileId = 'file-1'
+  store.nodes[0]!.data.config.fileId = 'file-1'
   api.startRun.mockRejectedValue(new Error('超时'))
   await clickRun()
   const original = api.startRun.mock.calls[0]![2].idempotencyKey
-  files.latestBackendInputFileId = 'file-2'
+  store.nodes[0]!.data.config.fileId = 'file-2'
   await clickRun()
   const next = api.startRun.mock.calls[1]![2].idempotencyKey
   expect(next).not.toBe(original)

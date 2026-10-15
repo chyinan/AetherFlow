@@ -2,6 +2,7 @@
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import type { NodeTemplate, WorkflowDefinition } from '@/types/workflow'
 import { validateMapping } from '@/utils/structuredMapping'
+import { workflowNeedsRuntimeFileInput } from '@/utils/workflowInputRequirements'
 import { upstreamVariables } from '@/utils/workflowVariables'
 
 export interface PreflightIssue { id: string; level: 'blocking' | 'warning' | 'unknown'; code: string; nodeId?: string; nodeLabel?: string; field?: string; detail?: string }
@@ -29,6 +30,10 @@ const requiredAlternatives: Record<string, string[]> = {
 export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: ReadonlyArray<NodeTemplate>, options: { catalogLoaded: boolean; capabilitiesLoaded: boolean; runtimeFileId?: string } ): PreflightIssue[] {
   const issues: PreflightIssue[] = []
   const add = (level: PreflightIssue['level'], code: string, extra: Partial<PreflightIssue> = {}) => issues.push({ id: `${extra.nodeId ?? 'workflow'}:${extra.field ?? code}:${code}:${issues.length}`, level, code, ...extra })
+  if (!options.runtimeFileId && workflowNeedsRuntimeFileInput(workflow, templates)) {
+    const start = workflow.nodes.find((node) => node.data.kind === 'start')
+    add('blocking', 'missingInputFile', { nodeId: start?.id, nodeLabel: start?.data.label, field: 'fileId' })
+  }
   if (!workflow.nodes.length) add('blocking', 'empty')
   const ids = new Set(workflow.nodes.map((node) => node.id))
   if (ids.size !== workflow.nodes.length) add('blocking', 'duplicateNodes')

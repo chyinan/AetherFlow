@@ -372,7 +372,7 @@ export const jaJP = {
     runFailed: '実行に失敗しました',
     runChangedIntentConfirm: '前回の開始結果は未確認で、すでに実行中の可能性があります。設定または入力が変更されています。新しい設定で別の実行を開始しますか？キャンセルすると編集内容を保持し、実行は開始しません。',
     runFailedUnknown: '不明なエラー',
-    runRequiresFileId: '先に動画をアップロードしてバックエンドの fileId を取得してください。',
+    runRequiresFileId: '開始ノードで今回の入力ファイルを選択してください。アップロード中の場合は完了を待ってください。',
     runRequiresBackendDefinition: 'このワークフローはバックエンドに保存されていないため実行できません。',
     emptyTitle: 'ワークフローが選択されていません',
     emptyHint: 'ワークフローはプロジェクトに属します。プロジェクトページから選択するか新規作成してください。',
