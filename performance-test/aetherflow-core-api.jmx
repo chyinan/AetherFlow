@@ -147,8 +147,8 @@ vars.put(&apos;file_url&apos;, props.get(&apos;file_url&apos;) ?: &apos;https://
           <stringProp name="scriptLanguage">groovy</stringProp>
         </JSR223Sampler>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Gateway - status" enabled="true">
-          <stringProp name="HTTPSampler.path">/gateway/status</stringProp>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Gateway - actuator health" enabled="true">
+          <stringProp name="HTTPSampler.path">/actuator/health</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
           <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
@@ -380,8 +380,8 @@ if (token) {
           </elementProp>
         </HTTPSamplerProxy>
         <hashTree/>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="AI Provider - metrics" enabled="true">
-          <stringProp name="HTTPSampler.path">/ai/provider/metrics</stringProp>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="AI Provider - current user policy" enabled="true">
+          <stringProp name="HTTPSampler.path">/ai/provider/policy/user</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
           <stringProp name="HTTPSampler.method">GET</stringProp>
           <boolProp name="HTTPSampler.use_keepalive">true</boolProp>

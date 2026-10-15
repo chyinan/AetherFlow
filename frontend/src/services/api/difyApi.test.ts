@@ -102,8 +102,10 @@ describe('monitoring API mappings', () => {
   it('does not call administrator-only provider telemetry for an operator', async () => {
     mocks.getProviderMetrics.mockClear()
     mocks.getProviderLogs.mockClear()
+    mocks.getRuntimeMetrics.mockClear()
     const metrics = await difyApi.listMonitorMetrics({ includeProviderTelemetry: false })
 
+    expect(mocks.getRuntimeMetrics).not.toHaveBeenCalled()
     expect(mocks.getProviderMetrics).not.toHaveBeenCalled()
     expect(mocks.getProviderLogs).not.toHaveBeenCalled()
     expect(metrics.find((metric) => metric.id === 'provider-calls')).toMatchObject({ value: '--', tone: 'degraded' })

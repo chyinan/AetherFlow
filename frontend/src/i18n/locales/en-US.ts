@@ -7,6 +7,8 @@ export const enUS = {
   landing: {
     title: 'Public Home',
     nav: {
+    personalHome: 'My workbench',
+    adminOverview: 'Admin overview',
       workspace: 'Market',
       workflow: 'Workflows',
       observability: 'Observability',

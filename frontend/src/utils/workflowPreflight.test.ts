@@ -47,4 +47,39 @@ describe('静态预检分类与保存契约', () => {
     const graph = workflow([node('a', 'start'), node('a', 'summary')]); graph.edges = [{ id: 'broken', source: 'a', target: 'missing' }]
     expect(buildWorkflowPreflight(graph, nodeTemplates, known).map((item) => item.code)).toEqual(expect.arrayContaining(['duplicateNodes', 'danglingEdge']))
   })
+  const imageTemplate: NodeTemplate = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: [
+    { name: 'provider', type: 'STRING', required: true, options: ['SD_WEBUI', 'COMFYUI'] },
+    { name: 'mode', type: 'STRING', options: ['txt2img', 'img2img', 'workflow'] },
+    { name: 'sampler', type: 'STRING', options: ['Euler', 'Euler a', 'DPM++ 2M'] },
+    { name: 'scheduler', type: 'STRING', options: ['normal', 'karras'] },
+  ] }
+  it.each(['dpmpp_2m', 'euler_ancestral'])('默认 ComfyUI 保留运行时 sampler %s 并交给服务端验证', (sampler) => {
+    const input = [node('image', 'image-generation', { provider: 'COMFYUI', mode: 'workflow', sampler })]
+    const before = structuredClone(input)
+    const issues = check(input, [imageTemplate])
+    expect(issues.filter((issue) => issue.level === 'blocking')).toEqual([])
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'connectionUnknown', level: 'unknown' }))
+    expect(issues).toContainEqual(expect.objectContaining({ code: 'serverRequired', level: 'unknown' }))
+    expect(input).toEqual(before)
+  })
+  it.each(['COMFYUI', 'SD_WEBUI'])('省略 %s 的可选空 sampler/scheduler 不产生枚举错误', (provider) => {
+    const issues = check([node('image', 'image-generation', { provider, sampler: ' ', scheduler: '' })], [imageTemplate])
+    expect(issues.filter((issue) => issue.level === 'blocking')).toEqual([])
+  })
+  it.each([undefined, 'connection-test'])('不放宽真实非法 provider/mode（连接=%s）', (connectionId) => {
+    const issues = check([node('image', 'image-generation', { provider: 'INVALID', mode: 'invalid', connectionId, sampler: 'dpmpp_2m' })], [imageTemplate])
+    expect(issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'provider', code: 'enum', level: 'blocking' }),
+      expect.objectContaining({ field: 'mode', code: 'enum', level: 'blocking' }),
+    ]))
+  })
+  it('默认 SD WebUI 仍阻止真实非法 sampler 和 scheduler', () => {
+    const issues = check([node('image', 'image-generation', { provider: 'SD_WEBUI', sampler: 'not-a-sampler', scheduler: 'invalid' })], [imageTemplate])
+    expect(issues.filter((issue) => issue.code === 'enum').map((issue) => issue.field)).toEqual(['sampler', 'scheduler'])
+  })
+  it('默认 ComfyUI 不因静态 SD 枚举阻止动态 upscaler', () => {
+    const template: NodeTemplate = { ...nodeTemplates.find((item) => item.kind === 'upscale')!, configSchema: [{ name: 'upscaler', type: 'STRING', options: ['Lanczos'] }] }
+    expect(check([node('upscale', 'upscale', { provider: 'COMFYUI', upscaler: 'bilinear' })], [template]).filter((issue) => issue.level === 'blocking')).toEqual([])
+  })
+
 })

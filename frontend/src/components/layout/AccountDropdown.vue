@@ -36,7 +36,7 @@ function openAccount() {
   void router.push({ path: '/account', query: { from: router.currentRoute.value.fullPath } })
 }
 
-function openSettings(tab: 'provider' | 'members') {
+function openSettings(tab: 'provider' | 'members' | 'language') {
   closeMenu()
   void router.push({ path: '/settings', query: { tab, from: router.currentRoute.value.fullPath } })
 }
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm text-text-secondary transition hover:bg-app-bg2 hover:text-text-primary"
-              @click="openSettings('provider')"
+              @click="openSettings(authStore.isAdmin ? 'provider' : 'language')"
             >
               <span class="flex items-center gap-3">
                 <Settings2 class="h-4 w-4" />

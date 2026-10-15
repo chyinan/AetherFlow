@@ -44,7 +44,8 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         String path = exchange.getRequest().getURI().getPath();
-        if (!securityProperties.isAuthEnabled() || isPermitAll(path)) {
+        // 明确的管理员端点不能被历史宽白名单或开发认证开关降级为公开接口。
+        if (!requiresAdminRole(path) && (!securityProperties.isAuthEnabled() || isPermitAll(path))) {
             return chain.filter(stripGatewayIdentityHeaders(exchange));
         }
 
@@ -109,7 +110,20 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     }
 
     private boolean requiresAdminRole(String path) {
-        return pathMatcher.match("/ai/provider/config/**", path)
+        // 仅匹配平台共享指标；个人实例进度、任务详情和能力目录继续按用户归属授权。
+        return java.util.Set.of(
+                        "/workflow/runtime/metrics",
+                        "/workflow/node/metrics",
+                        "/workflow/embedding/metrics",
+                        "/workflow/ocr/metrics",
+                        "/task/metrics",
+                        "/file/status",
+                        "/file/metrics",
+                        "/auth/status",
+                        "/auth/metrics",
+                        "/gateway/status"
+                ).contains(path)
+                || pathMatcher.match("/ai/provider/config/**", path)
                 || pathMatcher.match("/ai/provider/policy", path)
                 || pathMatcher.match("/ai/provider/policy/recover/**", path)
                 || pathMatcher.match("/ai/provider/metrics", path)

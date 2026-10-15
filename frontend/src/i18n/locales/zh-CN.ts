@@ -7,6 +7,8 @@ export const zhCN = {
   landing: {
     title: '公开首页',
     nav: {
+    personalHome: '我的工作台',
+    adminOverview: '管理概览',
       workspace: '市场',
       workflow: '工作流',
       observability: '观测',

@@ -1,4 +1,4 @@
-export type ModelProviderStatus = 'online' | 'degraded' | 'offline'
+export type ModelProviderStatus = 'online' | 'degraded' | 'offline' | 'unknown'
 export type ModelKind = 'chat' | 'asr' | 'embedding' | 'media'
 
 export interface ModelProvider {
@@ -27,7 +27,7 @@ export interface ModelCatalogItem {
   kind: ModelKind
   contextWindow: string
   priceHint: string
-  status: 'ready' | 'warming' | 'disabled'
+  status: 'ready' | 'warming' | 'disabled' | 'unknown'
   tags: string[]
 }
 

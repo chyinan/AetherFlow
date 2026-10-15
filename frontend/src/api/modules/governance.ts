@@ -1,4 +1,6 @@
 // pattern: Imperative Shell
+import { toApiError } from '@/api/client/apiError'
+import type { ApiErrorSource } from '@/types/api'
 import { apiClient } from '@/api/client/apiClient'
 
 export type WorkflowNodeMetricsSnapshot = {
@@ -60,7 +62,7 @@ export type GatewayStatusResponse = {
   routes?: string[]
 }
 
-export type GovernanceSnapshot = {
+export type GovernanceDataSnapshot = {
   workflowNode: WorkflowNodeMetricsSnapshot | null
   embedding: EmbeddingMetricsSnapshot | null
   ocr: OCRMetricsSnapshot | null
@@ -72,32 +74,42 @@ export type GovernanceSnapshot = {
   gateway: GatewayStatusResponse | null
 }
 
-function settledValue<T>(result: PromiseSettledResult<T>): T | null {
-  return result.status === 'fulfilled' ? result.value : null
+export type GovernanceResourceKey = keyof GovernanceDataSnapshot
+export type GovernanceResourceState = 'available' | 'forbidden' | 'unavailable'
+export type GovernanceSnapshot = GovernanceDataSnapshot & {
+  resources: Partial<Record<GovernanceResourceKey, GovernanceResourceState>>
 }
 
-export async function getGovernanceSnapshot(): Promise<GovernanceSnapshot> {
-  const results = await Promise.allSettled([
-    apiClient.get<WorkflowNodeMetricsSnapshot>('/workflow/node/metrics', { source: 'workflow' }),
-    apiClient.get<EmbeddingMetricsSnapshot>('/workflow/embedding/metrics', { source: 'workflow' }),
-    apiClient.get<OCRMetricsSnapshot>('/workflow/ocr/metrics', { source: 'workflow' }),
-    apiClient.get<QueueHealthSnapshot>('/task/metrics', { source: 'task' }),
-    apiClient.get<FileStatusResponse>('/file/status', { source: 'file' }),
-    apiClient.get<FileMetricsResponse>('/file/metrics', { source: 'file' }),
-    apiClient.get<AuthMetricsResponse>('/auth/status', { source: 'auth' }),
-    apiClient.get<AuthMetricsResponse>('/auth/metrics', { source: 'auth' }),
-    apiClient.get<GatewayStatusResponse>('/gateway/status', { source: 'gateway' }),
-  ])
+const requests: Record<GovernanceResourceKey, { path: string; source: ApiErrorSource }> = {
+  workflowNode: { path: '/workflow/node/metrics', source: 'workflow' },
+  embedding: { path: '/workflow/embedding/metrics', source: 'workflow' },
+  ocr: { path: '/workflow/ocr/metrics', source: 'workflow' },
+  queue: { path: '/task/metrics', source: 'task' },
+  fileStatus: { path: '/file/status', source: 'file' },
+  fileMetrics: { path: '/file/metrics', source: 'file' },
+  authStatus: { path: '/auth/status', source: 'auth' },
+  authMetrics: { path: '/auth/metrics', source: 'auth' },
+  gateway: { path: '/gateway/status', source: 'gateway' },
+}
 
-  return {
-    workflowNode: settledValue(results[0]),
-    embedding: settledValue(results[1]),
-    ocr: settledValue(results[2]),
-    queue: settledValue(results[3]),
-    fileStatus: settledValue(results[4]),
-    fileMetrics: settledValue(results[5]),
-    authStatus: settledValue(results[6]),
-    authMetrics: settledValue(results[7]),
-    gateway: settledValue(results[8]),
+export const governanceResourceKeys = Object.keys(requests) as GovernanceResourceKey[]
+
+export async function getGovernanceSnapshot(keys = governanceResourceKeys): Promise<GovernanceSnapshot> {
+  const snapshot: GovernanceSnapshot = {
+    workflowNode: null, embedding: null, ocr: null, queue: null,
+    fileStatus: null, fileMetrics: null, authStatus: null, authMetrics: null, gateway: null,
+    resources: {},
   }
+  await Promise.all(keys.map(async (key) => {
+    const request = requests[key]
+    try {
+      const value = await apiClient.get(request.path, { source: request.source })
+      Object.assign(snapshot, { [key]: value })
+      snapshot.resources[key] = 'available'
+    } catch (error) {
+      const apiError = toApiError(error, request.source)
+      snapshot.resources[key] = apiError.status === 403 ? 'forbidden' : 'unavailable'
+    }
+  }))
+  return snapshot
 }

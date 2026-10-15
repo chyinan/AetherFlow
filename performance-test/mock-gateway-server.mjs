@@ -1,5 +1,7 @@
 // pattern: Imperative Shell
 import http from 'node:http'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
 const portIndex = process.argv.indexOf('--port')
 const port = portIndex >= 0 ? Number(process.argv[portIndex + 1]) : 18080
@@ -23,7 +25,7 @@ async function readJson(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
-const server = http.createServer(async (request, response) => {
+export async function handleRequest(request, response) {
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`)
   response.setHeader('Content-Type', 'application/json; charset=utf-8')
 
@@ -31,8 +33,24 @@ const server = http.createServer(async (request, response) => {
     response.end(result({ status: 'UP' }))
     return
   }
-  if (url.pathname === '/gateway/status') {
-    response.end(result({ status: 'UP', service: 'gateway-service' }))
+  if (url.pathname === '/actuator/health') {
+    response.end(JSON.stringify({ status: 'UP' }))
+    return
+  }
+  // 默认合成身份仅为 USER；旧计划误调管理员端点时必须失败。
+  if (url.pathname === '/gateway/status' || url.pathname === '/ai/provider/metrics') {
+    const code = request.headers?.authorization ? 403 : 401
+    response.statusCode = code
+    response.end(JSON.stringify({ code, message: 'Administrator role is required' }))
+    return
+  }
+  if (url.pathname === '/ai/provider/policy/user') {
+    if (request.headers?.authorization !== 'Bearer contract-test-token') {
+      response.statusCode = 401
+      response.end(JSON.stringify({ code: 401, message: 'Authenticated user is required' }))
+      return
+    }
+    response.end(result({ providers: [], enableFailover: true }))
     return
   }
   if (url.pathname === '/auth/register' || url.pathname === '/auth/login') {
@@ -47,7 +65,7 @@ const server = http.createServer(async (request, response) => {
     response.end(result({ status: 'UP' }))
     return
   }
-  if (url.pathname === '/ai/provider/status' || url.pathname === '/ai/provider/metrics') {
+  if (url.pathname === '/ai/provider/status') {
     response.end(result({ metrics: {}, providers: [] }))
     return
   }
@@ -75,15 +93,19 @@ const server = http.createServer(async (request, response) => {
 
   response.statusCode = 404
   response.end(JSON.stringify({ code: 404, message: `Unhandled contract-test route ${request.method} ${url.pathname}` }))
-})
-
-server.listen(port, '127.0.0.1', () => {
-  process.stdout.write(`READY ${port}\n`)
-})
-
-function close() {
-  server.close(() => process.exit(0))
 }
 
-process.on('SIGINT', close)
-process.on('SIGTERM', close)
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  const server = http.createServer(handleRequest)
+  server.listen(port, '127.0.0.1', () => {
+    process.stdout.write(`READY ${port}\n`)
+  })
+
+  function close() {
+    server.close(() => process.exit(0))
+  }
+
+  process.on('SIGINT', close)
+  process.on('SIGTERM', close)
+
+}

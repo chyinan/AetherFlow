@@ -25,7 +25,6 @@ public class GatewaySecurityProperties {
             "/login/oauth2/**",
             "/actuator/health",
             "/health",
-            "/gateway/status",
             "/notify/ws",
             "/workflow/runtime/ws/**",
             "/swagger-ui/**",

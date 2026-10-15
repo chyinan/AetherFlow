@@ -48,10 +48,13 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
       let value = config[field.name]
       if (normalized.nodeType === 'IMAGE_GENERATION' && field.name === 'prompt' && blank(value)) value = config.promptVariable
       if (field.required && blank(value)) { add('blocking', 'required', { ...location, field: field.name }); continue }
-      if (value == null) continue
+      if (blank(value) && !field.required) continue
       const imageWorkflowObject = ['IMAGE_GENERATION', 'UPSCALE'].includes(normalized.nodeType) && field.name === 'workflowJson' && isObject(value)
       if (!imageWorkflowObject && !typeMatches(field.type, value)) add('blocking', 'type', { ...location, field: field.name, detail: field.type })
-      const dynamicOption = ['IMAGE_GENERATION', 'UPSCALE'].includes(normalized.nodeType) && !blank(config.connectionId) && ['sampler', 'scheduler', 'upscaler'].includes(field.name)
+      // ComfyUI 默认服务与显式连接均依赖运行时目录，不能套用 SD WebUI 的显示名称。
+      // 本静态检查未持有有效连接的实时目录，保留 connectionUnknown 和服务端最终门禁。
+      const dynamicImageConnection = !blank(config.connectionId) || String(config.provider).trim().toUpperCase() === 'COMFYUI'
+      const dynamicOption = ['IMAGE_GENERATION', 'UPSCALE'].includes(normalized.nodeType) && dynamicImageConnection && ['sampler', 'scheduler', 'upscaler'].includes(field.name)
       if (!dynamicOption && field.options?.length && typeof value === 'string' && !field.options.some((option) => option.toLowerCase() === value.trim().toLowerCase())) add('blocking', 'enum', { ...location, field: field.name, detail: field.options.join(', ') })
     }
     const alternatives = requiredAlternatives[normalized.nodeType]
