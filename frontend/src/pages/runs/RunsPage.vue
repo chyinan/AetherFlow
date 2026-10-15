@@ -97,7 +97,14 @@ type HumanApprovalCompletion = {
   snapshot: RuntimeExecutionSnapshot
 }
 
-const canCancelCurrentRun = computed(() => selectedDetailReady.value && ['queued', 'running', 'paused'].includes(runStore.currentRun?.status ?? ''))
+const canCancelCurrentRun = computed(() => {
+  const run = runStore.currentRun
+  if (!selectedDetailReady.value || !run) return false
+  // 已知节点的局部完成不代表运行结束，取消入口以服务端状态为准。
+  return run.backendStatus
+    ? ['PENDING', 'RUNNING', 'RETRYING', 'WAITING'].includes(run.backendStatus)
+    : ['queued', 'running', 'paused'].includes(run.status)
+})
 
 async function cancelCurrentRun() {
   const runId = runStore.currentRun?.id
