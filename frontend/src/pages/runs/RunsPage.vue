@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { toApiError } from '@/api/client/apiError'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
-import HumanApprovalDialog, { type HumanApprovalRequestView } from '@/components/run/HumanApprovalDialog.vue'
+import HumanApprovalDialog, { type HumanApprovalRequestView, type HumanApprovalTarget } from '@/components/run/HumanApprovalDialog.vue'
 import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
 import SubworkflowChildRuns from '@/components/run/SubworkflowChildRuns.vue'
@@ -121,7 +121,9 @@ async function cancelCurrentRun() {
 const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
   if (!selectedDetailReady.value) return null
   const run = runStore.currentRun
-  const pendingNode = run?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
+  // 运行已结束时，历史节点上的 pending 不能重新变成可执行审批。
+  if (!run || ['SUCCESS', 'FAILED', 'CANCELLED'].includes(run.backendStatus ?? '')) return null
+  const pendingNode = run.nodeStates.find((node) => node.status === 'paused' && node.approval?.approvalStatus === 'pending')
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || !pendingNode?.approval || !instanceId || !Number.isInteger(instanceId) || instanceId <= 0) {
     return null
@@ -219,14 +221,15 @@ function dismissApproval() {
   }
 }
 
-async function completeApproval({ approved, snapshot }: HumanApprovalCompletion) {
-  const pendingNode = runStore.currentRun?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
-  if (!pendingNode) {
+async function completeApproval({ approved, snapshot }: HumanApprovalCompletion, target: HumanApprovalTarget) {
+  const request = approvalDialogRequest.value
+  // 完成回执只能更新本次提交的节点，不能改写后来打开的运行或下一审批。
+  if (!request || String(request.instanceId) !== String(target.instanceId) || request.nodeId !== target.nodeId) {
     return
   }
 
   runStore.applyHumanApprovalSnapshot({
-    nodeId: pendingNode.nodeId,
+    nodeId: target.nodeId,
     approved,
     snapshot,
   })
