@@ -374,7 +374,7 @@ export const zhCN = {
     runFailed: '启动失败',
     runChangedIntentConfirm: '上一次启动结果尚未确认，旧运行可能已在执行。当前配置或输入已改变，是否按新配置另起一次运行？取消将保留修改，不会发起运行。',
     runFailedUnknown: '未知错误',
-    runRequiresFileId: '请先上传视频文件，等待上传完成并获得后端文件 ID 后再运行工作流。',
+    runRequiresFileId: '请在开始节点选择本次输入文件；如需上传，请等待上传完成后再运行。',
     runRequiresBackendDefinition: '当前工作流尚未成功保存到后端，不能启动运行。',
     emptyTitle: '还没有选中工作流',
     emptyHint: '工作流必须归属于某个项目。请先进入项目页，打开已有项目工作流，或在项目卡片中创建新的工作流。',

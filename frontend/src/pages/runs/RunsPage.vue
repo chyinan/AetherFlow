@@ -434,7 +434,15 @@ watch(
 
               <SubworkflowChildRuns v-if="runStore.currentRun.backendInstanceId" :key="runStore.currentRun.id" :instance-id="runStore.currentRun.backendInstanceId" />
 
-              <div class="mt-3 flex flex-wrap gap-2">
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <RouterLink
+                  data-testid="view-run-artifacts"
+                  :to="{ path: '/files', query: { runId: runStore.currentRun.id } }"
+                  class="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2 py-1 text-xs font-medium text-primary transition hover:border-primary"
+                >
+                  {{ historyText('viewArtifacts') }}
+                  <ArrowRight class="h-3 w-3" />
+                </RouterLink>
                 <span v-for="artifact in runStore.currentRun.artifactNames" :key="artifact" class="inline-flex items-center gap-1 rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">
                   <Boxes class="h-3 w-3 text-primary" />
                   {{ artifact }}

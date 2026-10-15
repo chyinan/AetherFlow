@@ -1,5 +1,6 @@
 export const runHistoryMessages = {
   'zh-CN': {
+    viewArtifacts: '查看本次成品',
     search: '本页名称 / 运行 ID', searchHint: '名称和 ID 关键词只搜索已加载的这一页；工作流和状态筛选由服务器执行',
     workflow: '工作流 ID', workflowHint: '留空显示全部工作流，可输入完整工作流 ID', all: '全部状态', status: '运行状态', apply: '应用筛选', clear: '清除筛选',
     openId: '按完整运行 ID 打开', idHint: '例如 run-123 或 123，不受列表筛选限制', open: '打开运行', invalidId: '请输入有效的完整运行 ID，例如 run-123 或 123',
@@ -8,6 +9,7 @@ export const runHistoryMessages = {
     loading: '正在加载这一页…', error: '这一页加载失败，未显示旧筛选结果', retry: '重试此页', stale: '页码已超出当前结果范围', first: '返回第一页', detailLoading: '正在加载目标运行…',
   },
   'en-US': {
+    viewArtifacts: 'View this run’s artifacts',
     search: 'Name / run ID on this page', searchHint: 'Name and ID keywords search only this loaded page. Workflow and status filters run on the server',
     workflow: 'Workflow ID', workflowHint: 'Leave blank for all workflows, or enter the full workflow ID', all: 'All statuses', status: 'Run status', apply: 'Apply filters', clear: 'Clear filters',
     openId: 'Open a full run ID', idHint: 'For example, run-123 or 123; independent of list filters', open: 'Open run', invalidId: 'Enter a valid full run ID, for example run-123 or 123',
@@ -16,6 +18,7 @@ export const runHistoryMessages = {
     loading: 'Loading this page…', error: 'This page failed to load. Previous filter results are hidden', retry: 'Retry page', stale: 'This page is beyond the current result range', first: 'Go to first page', detailLoading: 'Loading the selected run…',
   },
   'ja-JP': {
+    viewArtifacts: 'この実行の成果物を表示',
     search: 'このページの名前 / 実行 ID', searchHint: '名前と ID のキーワードは読み込み済みのこのページのみを検索します。ワークフローと状態はサーバーで絞り込みます',
     workflow: 'ワークフロー ID', workflowHint: '空欄で全ワークフローを表示。完全な ID を入力できます', all: 'すべての状態', status: '実行状態', apply: '絞り込みを適用', clear: '絞り込みを解除',
     openId: '完全な実行 ID で開く', idHint: '例：run-123 または 123。一覧の絞り込みとは独立しています', open: '実行を開く', invalidId: 'run-123 または 123 など、有効な完全な実行 ID を入力してください',

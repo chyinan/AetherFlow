@@ -368,7 +368,7 @@ export const enUS = {
     runFailed: 'Run failed',
     runChangedIntentConfirm: 'The previous start is unconfirmed and may already be running. The configuration or input has changed. Start a separate run with the new configuration? Cancel keeps your edits without starting a run.',
     runFailedUnknown: 'Unknown error',
-    runRequiresFileId: 'Upload the TED video first, wait for the backend file ID, then run the workflow.',
+    runRequiresFileId: 'Select this run’s input file in the start node. If uploading, wait until the upload finishes.',
     runRequiresBackendDefinition: 'This workflow has not been saved to the backend, so a real TED demo run cannot start.',
     emptyTitle: 'No workflow selected',
     emptyHint: 'A workflow must belong to a project. Open the Projects page, choose an existing project workflow, or create a new workflow from a project card.',
