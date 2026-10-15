@@ -335,11 +335,11 @@ export const difyApi = {
   async listMonitorMetrics(options: MonitorDataOptions = {}) {
     const includeProviderTelemetry = options.includeProviderTelemetry !== false
     const [runtimeResult, providerMetricsResult, providerLogsResult] = await Promise.allSettled([
-      getRuntimeMetrics(),
+      includeProviderTelemetry ? getRuntimeMetrics() : Promise.resolve(null),
       includeProviderTelemetry ? getProviderMetrics() : Promise.resolve(null),
       includeProviderTelemetry ? getProviderLogs(50) : Promise.resolve(null),
     ])
-    const runtimeMetrics = runtimeResult.status === 'fulfilled' ? runtimeResult.value : {}
+    const runtimeMetrics = runtimeResult.status === 'fulfilled' ? runtimeResult.value : null
     const providerMetrics = providerMetricsResult.status === 'fulfilled' ? providerMetricsResult.value : { metrics: {} }
     const providerLogs = providerLogsResult.status === 'fulfilled' ? providerLogsResult.value : { logs: [] }
     const providerTelemetryAvailable = includeProviderTelemetry
@@ -375,7 +375,7 @@ export const difyApi = {
       metric('provider-latency', 'Max provider latency', providerTelemetryAvailable ? `${providerTotals.latency}ms` : '--', '', providerTelemetryAvailable && providerTotals.latency <= 3000 ? 'online' : 'degraded'),
       metric('provider-cost', 'Observed estimated cost', providerTelemetryAvailable ? observedCost : '--', '', providerTelemetryAvailable && observedCosts.length > 0 ? 'online' : 'degraded'),
       metric('provider-error-rate', 'Provider error rate', providerTelemetryAvailable ? errorRate : '--', '', providerTelemetryAvailable && observedFailures === 0 ? 'online' : 'degraded'),
-      metric('runtime-workflows', 'Runtime workflows', numberOr(runtimeMetrics.currentWorkflowCount), '', 'online'),
+      metric('runtime-workflows', 'Runtime workflows', optionalNumber(runtimeMetrics?.currentWorkflowCount) ?? '--', '', runtimeMetrics ? 'online' : 'degraded'),
     ]
   },
   async listConversationLogs(options: MonitorDataOptions = {}) {

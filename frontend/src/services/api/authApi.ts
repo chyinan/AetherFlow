@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 
+import { productCapabilities } from '@/product/roleCapabilities'
 import { toApiError } from '@/api/client/apiError'
 import { tokenManager, type AuthSession, type AuthSessionUserSnapshot } from '@/api/client/tokenManager'
 import {
@@ -252,6 +253,8 @@ export const authApi = {
     }
   },
   async getServiceStatuses() {
+    // 在线账号与令牌数量是平台运维数据；个人页不以此探测服务可用性。
+    if (!productCapabilities(tokenManager.readSession()?.user).managePlatform) return []
     try {
       return mapAuthStatusToServiceStatuses(await authStatus())
     } catch (error) {

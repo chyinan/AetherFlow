@@ -1,33 +1,44 @@
 <script setup lang="ts">
-import { Activity, BarChart3, BookOpen, Brain, Building2, FileText, FolderKanban, Workflow } from 'lucide-vue-next'
+import { Activity, BarChart3, BookOpen, Brain, Building2, FileText, FolderKanban, LayoutDashboard, ShieldCheck, Workflow } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+
+import { useAuthStore } from '@/stores/authStore'
+import { roleMessages } from '@/product/roleMessages'
 
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 
 const navItems = [
+  { key: 'home', to: '/home', icon: LayoutDashboard },
   { key: 'projects', to: '/projects', icon: FolderKanban },
   { key: 'workspaces', to: '/workspaces', icon: Building2 },
   { key: 'workflows', to: '', icon: Workflow },
   { key: 'runs', to: '/runs', icon: Activity },
   { key: 'knowledge', to: '/knowledge', icon: BookOpen },
   { key: 'files', to: '/files', icon: FileText },
+  { key: 'admin', to: '/admin', icon: ShieldCheck },
   { key: 'monitor', to: '/monitor', icon: BarChart3 },
   { key: 'models', to: '/models', icon: Brain },
 ] as const
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const authStore = useAuthStore()
+const copy = computed(() => roleMessages(locale.value))
 const route = useRoute()
 const projectStore = useProjectStore()
 const workflowStore = useWorkflowStore()
 const optimisticActiveKey = ref<string | null>(null)
 
 const translatedNavItems = computed(() =>
-  navItems.map((item) => ({
+  navItems.filter((item) => authStore.isAdmin || !['admin', 'monitor'].includes(item.key)).map((item) => ({
     ...item,
-    label: t(`nav.${item.key}`),
+    label: item.key === 'home' ? copy.value.home
+      : item.key === 'admin' ? copy.value.admin
+        : item.key === 'monitor' ? copy.value.platformStatus
+          : item.key === 'models' ? (authStore.isAdmin ? copy.value.serviceManagement : copy.value.serviceCatalog)
+            : item.key === 'runs' ? copy.value.myRuns : t(`nav.${item.key}`),
     to: item.key === 'workflows' ? workflowNavTarget.value : item.to,
   })),
 )
@@ -83,7 +94,7 @@ function isNavActive(key: string) {
 <template>
   <aside class="relative z-30 row-span-2 flex h-screen w-[72px] flex-col items-center overflow-visible bg-sidebar py-4 text-text-inverse">
     <RouterLink
-      to="/projects"
+      :to="authStore.isAdmin ? '/admin' : '/home'"
       class="mb-6 grid h-10 w-10 place-items-center rounded-lg bg-primary text-white shadow-node"
       :title="t('app.name')"
     >
@@ -91,7 +102,8 @@ function isNavActive(key: string) {
     </RouterLink>
 
     <nav
-      class="flex w-full flex-1 flex-col items-center justify-center gap-5 pb-16 pt-1"
+      :aria-label="authStore.isAdmin ? copy.management : copy.personal"
+      class="flex w-full flex-1 flex-col items-center justify-start gap-2 overflow-y-auto pb-3 pt-1"
     >
       <RouterLink
         v-for="item in translatedNavItems"
@@ -103,8 +115,10 @@ function isNavActive(key: string) {
         <a
           :href="href"
           :title="item.label"
+          :data-navigation="item.key"
+          :aria-current="isNavActive(item.key) ? 'page' : undefined"
           :aria-label="item.label"
-          class="group relative grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-[box-shadow,background-color,border-color,color] duration-150 ease-out"
+          class="group relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-[box-shadow,background-color,border-color,color] duration-150 ease-out"
           :class="
             isNavActive(item.key)
               ? '!border-primary !bg-primary !text-white shadow-[0_8px_18px_rgba(37,99,235,0.26)]'

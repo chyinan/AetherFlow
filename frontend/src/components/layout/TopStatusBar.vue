@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { Bell } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { roleMessages } from '@/product/roleMessages'
 import { useI18n } from 'vue-i18n'
 
 import AccountDropdown from './AccountDropdown.vue'
@@ -10,7 +12,10 @@ import { useUiStore } from '@/stores/uiStore'
 
 const authStore = useAuthStore()
 const uiStore = useUiStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const route = useRoute()
+const copy = computed(() => roleMessages(locale.value))
+const managementContext = computed(() => ['/admin', '/monitor', '/models'].includes(route.path) && authStore.isAdmin)
 const showNotifications = ref(false)
 
 const notificationItems = computed(() => uiStore.notifications.slice(0, 10))
@@ -55,8 +60,8 @@ onBeforeUnmount(() => {
   <header class="relative z-[100] flex h-14 items-center justify-between border-b border-app-border bg-white/90 px-5 backdrop-blur">
     <div class="flex items-center gap-4">
       <div>
-        <p class="text-xs text-text-muted">{{ t('workspace.label') }}</p>
-        <p class="text-sm font-semibold text-text-primary">{{ authStore.workspace }}</p>
+        <p class="text-xs text-text-muted">{{ managementContext ? copy.management : copy.personal }}</p>
+        <p class="text-sm font-semibold text-text-primary">{{ managementContext ? copy.roleAdmin : authStore.workspace }}</p>
       </div>
     </div>
 

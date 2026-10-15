@@ -13,7 +13,10 @@ import {
   ShieldCheck,
   Shuffle,
 } from 'lucide-vue-next'
-import { computed, onMounted } from 'vue'
+import { computed, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import ServiceCatalog from './ServiceCatalog.vue'
+import { modelRoleMessages } from './modelRoleMessages'
 import { useI18n } from 'vue-i18n'
 
 import StatusDot from '@/components/ui/StatusDot.vue'
@@ -23,6 +26,8 @@ import { useAuthStore } from '@/stores/authStore'
 const modelStore = useModelStore()
 const authStore = useAuthStore()
 const { t } = useI18n()
+const { t: roleText } = useI18n({ useScope: 'local', messages: modelRoleMessages })
+const managementBusy = computed(() => Boolean(modelStore.loading || modelStore.switchingProviderId || modelStore.recoveringProviderId))
 
 const selectedProvider = computed(() => modelStore.selectedProvider)
 const canManageProviders = computed(() => authStore.isAdmin)
@@ -65,6 +70,7 @@ function selectProvider(providerId: string) {
 function providerTone(status: string) {
   if (status === 'online') return 'online'
   if (status === 'degraded') return 'degraded'
+  if (status === 'unknown') return 'paused'
   return 'offline'
 }
 
@@ -81,8 +87,8 @@ function isLocalProvider(provider: { providerType?: string; id: string; runtime?
   return providerType === 'OLLAMA' || providerType === 'LOCAL_MODEL' || String(provider.runtime ?? '').toLowerCase().includes('local')
 }
 
-function hasProviderQuota(provider: { providerType?: string; id: string; runtime?: string; quotaLimit?: number }) {
-  return !isLocalProvider(provider) && typeof provider.quotaLimit === 'number' && provider.quotaLimit > 0
+function hasProviderQuota(provider: { providerType?: string; id: string; runtime?: string; quotaLimit?: number } | undefined) {
+  return Boolean(provider && !isLocalProvider(provider) && typeof provider.quotaLimit === 'number' && provider.quotaLimit > 0)
 }
 
 function quotaStatusText(provider: { providerType?: string; id: string; runtime?: string }) {
@@ -90,24 +96,29 @@ function quotaStatusText(provider: { providerType?: string; id: string; runtime?
 }
 
 function refreshStatus() {
-  void modelStore.refreshStatus()
+  if (!canManageProviders.value || managementBusy.value) return
+  void modelStore.refreshStatus({ management: true })
 }
 
 function switchPrimary() {
+  if (!canManageProviders.value || managementBusy.value) return
   void modelStore.switchSelectedProviderToPrimary()
 }
 
 function recoverProvider() {
+  if (!canManageProviders.value || managementBusy.value) return
   void modelStore.recoverSelectedProvider()
 }
 
-onMounted(() => {
-  void modelStore.loadModels()
-})
+watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canManageProviders.value], () => {
+  modelStore.clearSnapshot()
+  if (canManageProviders.value) void modelStore.loadModels({ management: true })
+}, { immediate: true })
 </script>
 
 <template>
-  <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
+  <ServiceCatalog v-if="!canManageProviders" />
+  <section v-else data-testid="model-management" class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
     <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
       <div class="flex items-center gap-2">
         <Brain class="h-4 w-4 text-ai" />
@@ -117,9 +128,10 @@ onMounted(() => {
         </div>
       </div>
       <div class="flex items-center gap-2">
+        <RouterLink :to="{ path: '/settings', query: { tab: 'provider', from: '/models' } }" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary">{{ roleText('configuration') }}</RouterLink>
         <button
           class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-          :disabled="modelStore.loading"
+          :disabled="managementBusy"
           @click="refreshStatus"
         >
           <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': modelStore.loading }" />
@@ -130,6 +142,11 @@ onMounted(() => {
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="flex min-h-full w-full flex-col gap-4">
+        <p v-if="modelStore.loading" role="status" class="rounded-lg border border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminLoading') }}</p>
+        <p v-else-if="managementBusy" role="status" class="rounded-lg border border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('busy') }}</p>
+        <p v-if="!modelStore.loading && !modelStore.error && !modelStore.providers.length" data-testid="management-empty" class="rounded-lg border border-dashed border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminEmpty') }}</p>
+        <p v-if="modelStore.error && modelStore.providers.length" role="status" class="text-sm text-status-warning">{{ roleText('backendFailure') }}</p>
+        <p v-if="modelStore.snapshotSource === 'mock' && modelStore.providers.length" role="status" data-testid="model-demo-warning" class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{{ roleText('demo') }}</p>
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article
             v-for="card in summaryCards"
@@ -145,7 +162,7 @@ onMounted(() => {
           </article>
         </section>
 
-        <section v-if="modelStore.error || modelStore.operationError" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <section v-if="modelStore.error || modelStore.operationError" role="alert" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-start gap-2">
               <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
@@ -158,7 +175,7 @@ onMounted(() => {
             </div>
             <button
               class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="modelStore.loading"
+              :disabled="managementBusy"
               @click="refreshStatus"
             >
               <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': modelStore.loading }" />
@@ -202,7 +219,7 @@ onMounted(() => {
                     </div>
                     <p class="mt-1 text-xs text-text-muted">{{ provider.runtime }} · {{ provider.endpoint }}</p>
                   </div>
-                  <StatusDot :tone="providerTone(provider.status)" :label="provider.status" />
+                  <StatusDot :tone="providerTone(provider.status)" :label="provider.status === 'unknown' ? roleText('unknown') : provider.status" />
                 </div>
                 <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-text-secondary">
                   <div class="rounded-md bg-app-bg2 p-2">
@@ -211,7 +228,7 @@ onMounted(() => {
                   </div>
                   <div class="rounded-md bg-app-bg2 p-2">
                     <p class="text-text-muted">{{ t('models.latencyLabel') }}</p>
-                    <p class="mt-1 font-medium text-text-primary">{{ provider.latencyMs }}ms</p>
+                    <p class="mt-1 font-medium text-text-primary">{{ provider.latencyMs > 0 ? `${provider.latencyMs}ms` : '--' }}</p>
                   </div>
                 </div>
                 <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
@@ -254,11 +271,11 @@ onMounted(() => {
                   </div>
                   <p class="mt-1 text-xs leading-5 text-text-secondary">{{ policy.description }}</p>
                   <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
+                    <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.primary') }}</p>
                     <p class="mt-1 font-medium text-text-primary">{{ policy.primaryModel || t('common.none') }}</p>
                     </div>
-                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
+                    <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.fallback') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ policy.fallbackModels.join(' -> ') || '--' }}</p>
                     </div>
@@ -295,7 +312,7 @@ onMounted(() => {
                 <div class="flex flex-wrap items-center gap-2">
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-                    :disabled="!selectedProvider || selectedProvider.active || modelStore.loading || modelStore.switchingProviderId === selectedProvider.id"
+                    :disabled="!selectedProvider || selectedProvider.active || managementBusy || modelStore.snapshotSource !== 'real'"
                     @click="switchPrimary"
                   >
                     <Shuffle class="h-3.5 w-3.5" />
@@ -303,7 +320,7 @@ onMounted(() => {
                   </button>
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-                    :disabled="!selectedProvider || modelStore.loading || modelStore.recoveringProviderId === selectedProvider.id"
+                    :disabled="!selectedProvider || managementBusy || modelStore.snapshotSource !== 'real'"
                     @click="recoverProvider"
                   >
                     <RotateCcw class="h-3.5 w-3.5" :class="{ 'animate-spin': modelStore.recoveringProviderId === selectedProvider?.id }" />
@@ -340,7 +357,7 @@ onMounted(() => {
                               : 'bg-slate-100 text-text-secondary'
                         "
                       >
-                        {{ t(`status.${model.status}`) }}
+                        {{ model.status === 'unknown' ? roleText('unknown') : t(`status.${model.status}`) }}
                       </span>
                     </div>
                     <p class="mt-3 text-xs text-text-secondary">{{ t('models.priceHint') }}: {{ model.priceHint }}</p>
@@ -383,7 +400,7 @@ onMounted(() => {
                     <p class="mt-1 break-all text-sm text-text-primary">{{ selectedProvider.endpoint }}</p>
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
+                    <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.health') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.healthStatus || '--' }}</p>
                     </div>

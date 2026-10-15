@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { i18n } from '@/i18n/index'
 import type { AuthUser } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
+import { defaultProductPath } from '@/product/roleCapabilities'
 
 type RouteRole = AuthUser['role']
 
@@ -44,6 +45,24 @@ export const router = createRouter({
       name: 'landing',
       component: () => import('@/pages/landing/LandingPage.vue'),
       meta: { layout: 'auth', titleKey: 'landing.title' },
+    },
+    {
+      path: '/entry',
+      name: 'product-entry',
+      component: () => import('@/pages/home/PersonalWorkbench.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/home',
+      name: 'personal-home',
+      component: () => import('@/pages/home/PersonalWorkbench.vue'),
+      meta: { requiresAuth: true, titleKey: 'nav.personalHome', roles: ['owner', 'operator'] },
+    },
+    {
+      path: '/admin',
+      name: 'admin-overview',
+      component: () => import('@/pages/home/AdminOverview.vue'),
+      meta: { requiresAuth: true, titleKey: 'nav.adminOverview', roles: ['owner', 'operator'], requiresAdmin: true },
     },
     {
       path: '/projects',
@@ -101,7 +120,7 @@ export const router = createRouter({
       path: '/monitor',
       name: 'monitor',
       component: () => import('@/pages/monitor/MonitorPage.vue'),
-      meta: { requiresAuth: true, titleKey: 'monitor.title', roles: ['owner', 'operator'] },
+      meta: { requiresAuth: true, titleKey: 'monitor.title', roles: ['owner', 'operator'], requiresAdmin: true },
     },
     {
       path: '/account',
@@ -123,7 +142,7 @@ router.beforeEach(async (to) => {
 
   if (to.name === 'login') {
     if (await authStore.ensureFreshSession()) {
-      return { path: '/projects' }
+      return { path: defaultProductPath(authStore.isAdmin) }
     }
 
     return true
@@ -136,6 +155,14 @@ router.beforeEach(async (to) => {
 
   if (!(await authStore.ensureFreshSession())) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.name === 'product-entry') {
+    return { path: defaultProductPath(authStore.isAdmin) }
+  }
+
+  if (to.matched.some((record) => record.meta.requiresAdmin) && !authStore.isAdmin) {
+    return { path: '/home', query: { notice: 'admin-required' } }
   }
 
   const roles = readRouteRoles(to)

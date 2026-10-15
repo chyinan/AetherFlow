@@ -1,15 +1,26 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+
+import { useAuthStore } from '@/stores/authStore'
+import { roleMessages } from '@/product/roleMessages'
 
 import { runtimeEnv } from '@/config/runtimeEnv'
 import SidebarNav from './SidebarNav.vue'
 import TopStatusBar from './TopStatusBar.vue'
 
 const route = useRoute()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const authStore = useAuthStore()
+const router = useRouter()
+const copy = computed(() => roleMessages(locale.value))
+watch(() => authStore.isAdmin, (isAdmin) => {
+  if (!isAdmin && route.matched.some((record) => record.meta.requiresAdmin)) {
+    void router.replace({ path: '/home', query: { notice: 'admin-required' } })
+  }
+})
 const showMockBanner = computed(() => runtimeEnv.mockFallback)
 const isSettingsPage = computed(() => route.name === 'settings')
 const isAccountPage = computed(() => route.name === 'account')
@@ -36,6 +47,7 @@ const isAccountPage = computed(() => route.name === 'account')
     <SidebarNav class="col-start-1 row-span-2 row-start-1" />
     <TopStatusBar class="col-start-2 row-start-1" />
     <main id="main-content" tabindex="-1" class="col-start-2 row-start-2 min-h-0 min-w-0 overflow-hidden">
+      <div v-if="route.query.notice === 'admin-required'" role="status" class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">{{ copy.restricted }}</div>
       <RouterView />
     </main>
   </div>

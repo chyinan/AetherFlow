@@ -21,7 +21,7 @@ onMounted(async () => {
     const accessToken = params.get('accessToken')
     const state = params.get('state')
     const provider = params.get('provider')
-    const redirectPath = safeInternalRedirect(params.get('redirect'))
+    const redirectPath = safeInternalRedirect(params.get('redirect'), '/entry')
     if (!accessToken || !state || (provider !== 'github' && provider !== 'google')) {
       throw new Error(t('auth.oauthLoginFailed'))
     }

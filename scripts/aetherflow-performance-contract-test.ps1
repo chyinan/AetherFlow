@@ -11,6 +11,10 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $mockServer = Join-Path $repositoryRoot "performance-test/mock-gateway-server.mjs"
 $runner = Join-Path $PSScriptRoot "aetherflow-run-performance.ps1"
 $node = (Get-Command node -ErrorAction Stop).Source
+& $node --test (Join-Path $repositoryRoot "performance-test/mock-gateway-server.test.mjs")
+if ($LASTEXITCODE -ne 0) {
+    throw "Role-aware performance source contract failed."
+}
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 $listener.Start()
 $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port

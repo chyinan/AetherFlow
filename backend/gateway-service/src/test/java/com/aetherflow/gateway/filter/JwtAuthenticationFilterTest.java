@@ -298,6 +298,67 @@ class JwtAuthenticationFilterTest {
         assertThat(exchange.getResponse().getStatusCode()).isNull();
     }
 
+    @Test
+    void sharedOperationsRequireAdministratorClaims() {
+        List<String> paths = List.of(
+                "/workflow/runtime/metrics", "/workflow/node/metrics",
+                "/workflow/embedding/metrics", "/workflow/ocr/metrics", "/task/metrics",
+                "/file/status", "/file/metrics", "/auth/status", "/auth/metrics", "/gateway/status");
+        for (String path : paths) {
+            assertRouteAccess(path, null, HttpStatus.UNAUTHORIZED, false);
+            assertRouteAccess(path, List.of(), HttpStatus.FORBIDDEN, false);
+            assertRouteAccess(path, List.of("USER"), HttpStatus.FORBIDDEN, false);
+            assertRouteAccess(path, List.of("ADMIN"), null, true);
+            assertRouteAccess(path, List.of("OWNER"), null, true);
+        }
+    }
+
+    @Test
+    void operationsRoleContractTakesPrecedenceOverLegacyPublicPathConfiguration() {
+        securityProperties.setPermitAll(List.of("/**"));
+        assertRouteAccess("/gateway/status", null, HttpStatus.UNAUTHORIZED, false);
+        assertRouteAccess("/auth/status", List.of("USER"), HttpStatus.FORBIDDEN, false);
+        assertRouteAccess("/file/metrics", List.of("ADMIN"), null, true);
+        securityProperties.setAuthEnabled(false);
+        assertRouteAccess("/gateway/status", null, HttpStatus.UNAUTHORIZED, false);
+        assertRouteAccess("/task/metrics", List.of("USER"), HttpStatus.FORBIDDEN, false);
+        assertRouteAccess("/task/metrics", List.of("OWNER"), null, true);
+    }
+
+    @Test
+    void preservesPersonalWorkAndExecutionCapabilitiesForRegularUsers() {
+        List.of(
+                "/workflow/runtime/observability/1001", "/workflow/runtime/events/1001",
+                "/workflow/runtime/stream/1001", "/workflow-instances/1001", "/tasks/1001",
+                "/workflows/1001", "/files/1001", "/auth/me", "/auth/profile",
+                "/workflow/node/catalog", "/ai/provider/capabilities", "/ai/provider/policy/user"
+        ).forEach(path -> assertRouteAccess(path, List.of("USER"), null, true));
+    }
+
+    @Test
+    void preservesAnonymousHealthProbes() {
+        List.of("/health", "/actuator/health")
+                .forEach(path -> assertRouteAccess(path, null, null, true));
+    }
+
+    private void assertRouteAccess(String path, List<String> roles, HttpStatus status, boolean allowed) {
+        MockServerHttpRequest.BaseBuilder<?> request = MockServerHttpRequest.get(path);
+        if (roles != null) {
+            String token = jwtTokenProvider.createToken(new JwtUserClaims(7L, "synthetic-user", roles));
+            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        // 外部请求头不能替代已签名令牌中的角色。
+        request.header("X-Roles", "ADMIN");
+        MockServerWebExchange exchange = MockServerWebExchange.from(request.build());
+        AtomicBoolean forwarded = new AtomicBoolean();
+        newFilter(token -> Mono.just(false)).filter(exchange, next -> {
+            forwarded.set(true);
+            return Mono.empty();
+        }).block(Duration.ofSeconds(1));
+        assertThat(forwarded.get()).as("%s roles=%s", path, roles).isEqualTo(allowed);
+        assertThat(exchange.getResponse().getStatusCode()).as("%s roles=%s", path, roles).isEqualTo(status);
+    }
+
     private JwtAuthenticationFilter newFilter(TokenBlacklistService tokenBlacklistService) {
         return new JwtAuthenticationFilter(
                 jwtTokenProvider,

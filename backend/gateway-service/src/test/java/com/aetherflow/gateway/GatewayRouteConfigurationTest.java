@@ -3,6 +3,7 @@ package com.aetherflow.gateway;
 // pattern: Imperative Shell
 
 import com.aetherflow.gateway.config.GatewaySentinelProperties;
+import com.aetherflow.gateway.config.GatewaySecurityProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,6 +37,15 @@ class GatewayRouteConfigurationTest {
 
     @Autowired
     private GatewaySentinelProperties sentinelProperties;
+
+    @Autowired
+    private GatewaySecurityProperties securityProperties;
+
+    @Test
+    void configuredPublicPathsKeepHealthButExcludeOperationsSnapshot() {
+        assertThat(securityProperties.getPermitAll()).contains("/health", "/actuator/health")
+                .doesNotContain("/gateway/status");
+    }
 
     @Test
     void openApiAggregationRoutesRewriteGatewayPrefixesToServiceApiDocs() {

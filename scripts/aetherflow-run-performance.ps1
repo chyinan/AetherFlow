@@ -69,7 +69,8 @@ $jmeter = Resolve-JMeterExecutable $JMeterPath
 
 if (-not $SkipPreflight) {
     Assert-HttpEndpoint "${Protocol}://${HostName}:${Port}/health"
-    Assert-HttpEndpoint "${Protocol}://${HostName}:${Port}/gateway/status"
+    # 预检只读取匿名健康探针，不依赖管理员运维快照。
+    Assert-HttpEndpoint "${Protocol}://${HostName}:${Port}/actuator/health"
 }
 if (-not $SkipUpload -and -not (Test-Path -LiteralPath $uploadFile)) {
     throw "Upload scenario is enabled but its fixture is missing: $uploadFile"
