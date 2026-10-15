@@ -342,6 +342,7 @@ export const zhCN = {
     saved: '已保存',
     saving: '保存中',
     saveFailed: '保存失败',
+    createRecoveredPendingSave: '工作流 ID 已确认；请再次保存，以确认当前新编辑已同步。',
     saveFailedUnknown: '未知错误',
     importComfyUi: '导入 ComfyUI',
     importingComfyUi: '导入中',
@@ -813,6 +814,8 @@ export const zhCN = {
     },
   },
   runs: {
+    cancelErrorTitle: '取消结果未确认',
+    cancelErrorHint: '取消请求未获得成功确认。请刷新查看最新状态，必要时再次取消。',
     rerunReused: '已复用，不重复调用',
     rerunNode: '局部重跑',
     rerunTitle: '重跑失败节点：{node}',

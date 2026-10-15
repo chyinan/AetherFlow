@@ -336,6 +336,7 @@ export const enUS = {
     saved: 'Saved',
     saving: 'Saving',
     saveFailed: 'Save failed',
+    createRecoveredPendingSave: 'The workflow ID is confirmed. Save again to confirm your newer edits are synchronized.',
     saveFailedUnknown: 'Unknown error',
     importComfyUi: 'Import ComfyUI',
     importingComfyUi: 'Importing',
@@ -807,6 +808,8 @@ export const enUS = {
     },
   },
   runs: {
+    cancelErrorTitle: 'Cancellation not confirmed',
+    cancelErrorHint: 'The cancellation request was not confirmed. Refresh to check the latest status, then cancel again if needed.',
     rerunReused: 'Reused, no repeated call',
     rerunNode: 'Rerun node',
     rerunTitle: 'Rerun failed node: {node}',

@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { toApiError } from '@/api/client/apiError'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import HumanApprovalDialog, { type HumanApprovalRequestView } from '@/components/run/HumanApprovalDialog.vue'
 import LogStream from '@/components/run/LogStream.vue'
@@ -19,7 +20,15 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const dismissedApprovalKey = ref<string | null>(null)
-const cancelling = ref(false)
+const cancellingRunIds = ref(new Set<string>())
+const cancellationErrors = ref<Record<string, string>>({})
+const cancelling = computed(() => Boolean(runStore.currentRun && cancellingRunIds.value.has(runStore.currentRun.id)))
+const cancellationError = computed(() => {
+  const run = runStore.currentRun
+  // 节点局部推断终态不能确认取消结果，只有后端权威终态才能隐藏提示。
+  return run && !['SUCCESS', 'FAILED', 'CANCELLED'].includes(run.backendStatus ?? '')
+    ? cancellationErrors.value[run.id] : undefined
+})
 const rerunNode = ref<RunNodeState | null>(null)
 const canRerun = computed(() => runStore.currentRun?.backendStatus === 'FAILED' && Boolean(runStore.currentRun?.backendInstanceId))
 
@@ -37,14 +46,21 @@ type HumanApprovalCompletion = {
 const canCancelCurrentRun = computed(() => ['queued', 'running', 'paused'].includes(runStore.currentRun?.status ?? ''))
 
 async function cancelCurrentRun() {
-  if (cancelling.value || !canCancelCurrentRun.value) {
+  const runId = runStore.currentRun?.id
+  if (!runId || cancelling.value || !canCancelCurrentRun.value) {
     return
   }
-  cancelling.value = true
+  cancellingRunIds.value.add(runId)
+  delete cancellationErrors.value[runId]
   try {
     await runStore.cancelCurrentRun()
+  } catch (error) {
+    // 取消响应失败不代表后端没有执行；错误与等待状态都只属于发起请求的运行。
+    const apiError = toApiError(error, 'workflow')
+    const status = apiError.status ? `HTTP ${apiError.status}: ` : ''
+    cancellationErrors.value[runId] = `${status}${apiError.message}`
   } finally {
-    cancelling.value = false
+    cancellingRunIds.value.delete(runId)
   }
 }
 
@@ -263,6 +279,12 @@ watch(
                     {{ cancelling ? t('runs.cancelling') : t('runs.cancel') }}
                   </button>
                 </div>
+              </div>
+
+              <div v-if="cancellationError" role="alert" data-testid="cancel-error" class="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p class="font-semibold">{{ t('runs.cancelErrorTitle') }}</p>
+                <p class="mt-1">{{ t('runs.cancelErrorHint') }}</p>
+                <p class="mt-1 break-words text-xs">{{ cancellationError }}</p>
               </div>
 
               <div class="mt-4 grid gap-3 md:grid-cols-4">

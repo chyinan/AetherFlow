@@ -240,6 +240,7 @@ export const useWorkflowStore = defineStore('workflow', {
     backendDefinitionId: null as number | null,
     backendVersion: null as number | null,
     createIdempotencyKey: null as string | null,
+    createIntent: null as { workflow: WorkflowDefinition; editRevision: number } | null,
     projectId: null as number | null,
     templates: nodeTemplates,
     nodeTemplatesRequestSequence: 0,
@@ -324,6 +325,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.backendDefinitionId = workflow.backendDefinitionId ?? null
       this.backendVersion = workflow.backendVersion ?? null
       this.createIdempotencyKey = workflow.backendDefinitionId || dirty ? null : this.createIdempotencyKey
+      if (!this.createIdempotencyKey) this.createIntent = null
       this.projectId = workflow.projectId ?? this.projectId ?? null
       this.nodes = graph.nodes
       this.edges = graph.edges
@@ -528,6 +530,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.backendDefinitionId = null
       this.backendVersion = null
       this.createIdempotencyKey = null
+      this.createIntent = null
       this.projectId = null
       this.nodes = cloneNodes()
       this.edges = cloneEdges()
@@ -605,6 +608,8 @@ export const useWorkflowStore = defineStore('workflow', {
         this.workflowId = workflow.id
         this.workflowName = nextWorkflowName
         this.workflowDescription = workflow.description ?? ''
+        this.createIdempotencyKey = null
+        this.createIntent = null
         this.backendDefinitionId = nextBackendDefinitionId
         this.backendVersion = workflow.backendVersion ?? null
         this.projectId = workflow.projectId ?? null
@@ -641,11 +646,9 @@ export const useWorkflowStore = defineStore('workflow', {
         && saveRequestId === this.workflowSaveRequestSequence
       this.saving = true
       this.savingError = null
+      const recoveringCreation = !this.backendDefinitionId && Boolean(this.createIntent)
       try {
-        if (!this.backendDefinitionId && !this.createIdempotencyKey) {
-          this.createIdempotencyKey = crypto.randomUUID()
-        }
-        const savedWorkflow = await workflowApi.saveWorkflow({
+        const currentWorkflow: WorkflowDefinition = {
           id: this.workflowId,
           name: this.workflowName,
           description: this.workflowDescription,
@@ -654,20 +657,40 @@ export const useWorkflowStore = defineStore('workflow', {
           nodes: this.nodes,
           edges: this.edges,
           backendVersion: this.backendVersion ?? undefined,
-        }, { ...options, idempotencyKey: this.createIdempotencyKey ?? undefined })
+        }
+        if (!this.backendDefinitionId && !this.createIntent) {
+          // 记录创建键首次提交的意图；相同键的响应不能确认之后修改过的内容。
+          const workflow = structuredClone(unwrapWorkflowCloneValue(currentWorkflow)) as WorkflowDefinition
+          this.createIdempotencyKey ??= crypto.randomUUID()
+          this.createIntent = { workflow, editRevision: editRevisionAtStart }
+        }
+        const createIntent = !this.backendDefinitionId ? this.createIntent : null
+        const savedRevision = createIntent?.editRevision ?? editRevisionAtStart
+        const savedWorkflow = await workflowApi.saveWorkflow(
+          // 允许修正被拒绝的定义；服务端若已落库则返回原记录，后面仍按首次 revision 保守确认。
+          currentWorkflow,
+          { ...options, idempotencyKey: this.createIdempotencyKey ?? undefined },
+        )
         if (!ownsSaveState()) {
           return
         }
         this.workflowId = savedWorkflow.id
-        this.workflowName = savedWorkflow.name
+        if (this.editRevision === savedRevision) this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.backendVersion = savedWorkflow.backendVersion ?? this.backendVersion ?? null
         if (this.backendDefinitionId) {
           this.createIdempotencyKey = null
+          this.createIntent = null
         }
         this.projectId = savedWorkflow.projectId ?? this.projectId ?? null
-        if (this.editRevision === editRevisionAtStart) {
+        if (this.editRevision === savedRevision) {
           this.markSaved()
+        } else {
+          this.dirty = true
+          if (recoveringCreation) {
+            // 已恢复真实 ID，但新编辑尚未更新到服务端；阻止保存后直接启动或复制旧定义。
+            throw new Error(i18n.global.t('workflow.createRecoveredPendingSave'))
+          }
         }
         // 调用方只能为仍有效的成功保存执行页面收尾。
         return { workflowId: savedWorkflow.id }
