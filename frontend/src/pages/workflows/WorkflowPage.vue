@@ -1,12 +1,17 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Copy, FileJson, FolderKanban, Library, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow, X } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 
 import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
 import NodeInspector from '@/components/workflow/NodeInspector.vue'
+import WorkflowPreflight from '@/components/workflow/WorkflowPreflight.vue'
+import WorkflowStarterGuide from '@/components/workflow/WorkflowStarterGuide.vue'
+import { preflightMessages } from '@/components/workflow/preflightMessages'
+import { buildWorkflowPreflight, type PreflightIssue } from '@/utils/workflowPreflight'
+import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { workflowStartIntent } from '@/utils/workflowStartIntent'
@@ -34,6 +39,21 @@ const uiStore = useUiStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+const { t: pt } = useI18n({ useScope: 'local', messages: preflightMessages })
+const showPreflight = ref(false)
+const showStarterGuide = ref(false)
+const supportsStarterGuide = computed(() => workflowStore.nodes.some((node) => node.data.kind === 'image-generation') || (workflowStore.nodes.some((node) => node.data.kind === 'whisper') && workflowStore.nodes.some((node) => node.data.kind === 'summary')))
+function locateStarterNode(nodeId: string, field: string) { void locatePreflightIssue({ id: 'guide', level: 'unknown', code: '', nodeId, field }) }
+function startGuidedRun() { showPreflight.value = true; void startRun() }
+function openGuidedResults() { if (currentWorkflowRun.value) void router.push(`/runs/${currentWorkflowRun.value.id}`) }
+const preflightIssues = computed(() => buildWorkflowPreflight({ id: workflowStore.workflowId, name: workflowStore.workflowName, nodes: workflowStore.nodes, edges: workflowStore.edges }, workflowStore.templates, { catalogLoaded: workflowStore.nodeCatalogLoaded, capabilitiesLoaded: workflowStore.capabilitiesLoaded, runtimeFileId: selectedInputFileId() ?? fileStore.latestBackendInputFileId }))
+async function locatePreflightIssue(issue: PreflightIssue) {
+  if (!issue.nodeId || !workflowStore.nodes.some((node) => node.id === issue.nodeId)) return
+  workflowStore.nodes.forEach((node) => { node.selected = node.id === issue.nodeId })
+  uiStore.setSelectedNode(issue.nodeId)
+  await nextTick()
+  if (issue.field) requestNodeConfigFieldFocus(issue.nodeId, issue.field)
+}
 const showCopilot = ref(false)
 const showRunConsole = ref(false)
 const startingRun = ref(false)
@@ -275,6 +295,8 @@ function resetWorkflow() {
   if (workflowStore.dirty && !window.confirm(t('workflow.resetConfirm'))) {
     return
   }
+  showStarterGuide.value = false
+  showPreflight.value = false
   workflowStore.clearCurrentWorkflow()
   uiStore.setSelectedNode(null)
 }
@@ -376,6 +398,8 @@ watch(
       showRunConsole.value = false
       return
     }
+    showStarterGuide.value = false
+    showPreflight.value = false
     await loadRouteWorkflow(String(workflowId || 'new'))
   },
 )
@@ -461,6 +485,7 @@ function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates
     return
   }
   workflowStore.useWorkflowTemplate(template)
+  showStarterGuide.value = supportsStarterGuide.value
   uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
   showingWorkflowTemplates.value = false
 }
@@ -486,6 +511,7 @@ async function startRun() {
     return
   }
 
+  if (preflightIssues.value.some((issue) => issue.level === 'blocking')) { showPreflight.value = true; return }
   startingRun.value = true
   const operation = {
     generation: startNavigationGeneration,
@@ -499,7 +525,7 @@ async function startRun() {
   const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
   workflowStore.setRunError(null)
   try {
-    await runStore.loadRuns({ selectDefault: false })
+    await runStore.loadRuns({ selectDefault: false, workflowId: operation.workflowId })
     if (!ownsWorkflow()) return
     let fileId: string | undefined
     if (requiresFileInput.value) {
@@ -733,7 +759,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
     </div>
   </section>
 
-  <section v-else class="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+  <section v-else class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
     <header class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
@@ -793,6 +819,8 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
           <Save class="h-4 w-4" />
           {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveWorkflow') : t('workflow.saved') }}
         </button>
+        <button v-if="supportsStarterGuide" type="button" data-action="workflow-guide" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="showStarterGuide = !showStarterGuide">{{ pt('guide') }}</button>
+        <button type="button" data-action="workflow-preflight" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="showPreflight = !showPreflight">{{ pt('title') }}</button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :title="runButtonBusy ? runButtonLabel : undefined" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
           <LoaderCircle v-if="runButtonBusy && !currentWorkflowRunWaiting" class="h-4 w-4 animate-spin" />
           <PauseCircle v-else-if="currentWorkflowRunWaiting" class="h-4 w-4" />
@@ -802,6 +830,7 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </header>
 
+    <div class="max-h-[45vh] overflow-y-auto"><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />

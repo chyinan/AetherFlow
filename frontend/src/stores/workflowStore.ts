@@ -213,6 +213,7 @@ export function templateFromCatalogItem(item: WorkflowNodeCatalogItem): NodeTemp
     outputs: variableNames(item.outputVariables).length > 0 ? variableNames(item.outputVariables) : fallback?.outputs ?? [],
     capabilities: item.capabilities ?? fallback?.capabilities,
     configSchema: item.configSchema,
+    outputSchema: item.outputVariables,
   }
 }
 
@@ -244,6 +245,8 @@ export const useWorkflowStore = defineStore('workflow', {
     projectId: null as number | null,
     templates: nodeTemplates,
     nodeTemplatesRequestSequence: 0,
+    nodeCatalogLoaded: false,
+    capabilitiesLoaded: false,
     workflowTemplates: [] as WorkflowDefinition[],
     workflowTemplatesLoading: false,
     workflowTemplatesError: null as string | null,
@@ -295,6 +298,8 @@ export const useWorkflowStore = defineStore('workflow', {
       const capabilities = capabilityResult.status === 'fulfilled'
         ? capabilityResult.value
         : unavailableWorkflowCapabilities('AI capability service unavailable')
+      this.nodeCatalogLoaded = catalogResult.status === 'fulfilled'
+      this.capabilitiesLoaded = capabilityResult.status === 'fulfilled'
       this.templates = applyWorkflowCapabilities(templates, capabilities)
       return capabilityResult.status === 'fulfilled'
     },

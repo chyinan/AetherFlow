@@ -6,7 +6,7 @@ import { toApiError } from '@/api/client/apiError'
 import { mapRuntimeStateToRunStatus } from '@/api/mappers/runtimeMapper'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import { i18n } from '@/i18n'
-import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun } from '@/services/api/runApi'
+import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun, type RunPageQuery } from '@/services/api/runApi'
 import { cancelWorkflowInstance, getStartedRunLink } from '@/services/api/workflowApi'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
 import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
@@ -150,11 +150,21 @@ type RunRecoveryOptions = {
 export const useRunStore = defineStore('run', {
   state: () => ({
     runs: [] as WorkflowRun[],
+    historyRuns: [] as WorkflowRun[],
+    historyRequestId: 0,
+    workflowRuns: [] as WorkflowRun[],
+    workflowRunsId: null as string | null,
+    workflowRequestId: 0,
     currentRun: null as WorkflowRun | null,
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
     loading: false,
     logsLoading: false,
+    historyLoading: false,
+    historyError: null as string | null,
+    historyTotal: 0,
+    historyPage: 1,
+    historyPageSize: 20,
     error: null as string | null,
     initialized: false,
     selectionRequestId: 0,
@@ -173,12 +183,74 @@ export const useRunStore = defineStore('run', {
           acc[run.status] += 1
           return acc
         },
-        { queued: 0, running: 0, success: 0, failed: 0, paused: 0 } as Record<WorkflowRun['status'], number>,
+        { queued: 0, running: 0, success: 0, failed: 0, paused: 0, cancelled: 0 } as Record<WorkflowRun['status'], number>,
       ),
     currentRunProgress: (state) => state.currentRun?.progress ?? 0,
   },
   actions: {
-    async loadRuns(options: { selectDefault?: boolean } = {}) {
+    mergeLoadedRuns(loadedRuns: WorkflowRun[], updateVersions: Record<string, number>, scope: 'global' | 'history' | 'workflow' = 'global') {
+      const currentRuns = new Map([...this.runs, ...this.workflowRuns, ...this.historyRuns].map((run) => [run.id, run]))
+      if (this.currentRun) {
+        const listedRun = currentRuns.get(this.currentRun.id)
+        currentRuns.set(this.currentRun.id, listedRun
+          ? mergeRunSnapshot(listedRun, this.currentRun)
+          : this.currentRun)
+      }
+      const mergedRuns = loadedRuns.map((run) => {
+        const current = currentRuns.get(run.id)
+        return current ? mergeRunSnapshot(current, run,
+          (updateVersions[run.id] ?? 0) !== (this.runUpdateVersions[run.id] ?? 0)) : run
+      })
+      if (scope === 'history') this.historyRuns = mergedRuns
+      else if (scope === 'workflow') this.workflowRuns = mergedRuns
+      else this.runs = mergedRuns
+      if (this.currentRun) {
+        this.currentRun = mergedRuns.find((run) => run.id === this.currentRun?.id) ?? this.currentRun
+        if (isCancelledRun(this.currentRun) && this.realtimeRunId === this.currentRun.id) {
+          this.stopRunRealtime()
+        }
+      }
+    },
+    async loadHistoryPage(query: RunPageQuery) {
+      const requestId = ++this.historyRequestId
+      const isCurrentLoad = () => requestId === this.historyRequestId
+      const updateVersions = { ...this.runUpdateVersions }
+      this.historyLoading = true
+      this.historyError = null
+      // 分页结果、加载代际与既有概览缓存分离，不改变全局统计口径。
+      try {
+        const result = await runApi.listRunsPage(query)
+        if (!isCurrentLoad()) return
+        this.mergeLoadedRuns(result.items, updateVersions, 'history')
+        this.historyTotal = result.total
+        this.historyPage = result.page
+        this.historyPageSize = result.pageSize
+      } catch (error) {
+        if (isCurrentLoad()) this.historyError = errorMessage(error)
+      } finally {
+        if (isCurrentLoad()) this.historyLoading = false
+      }
+    },
+    async loadWorkflowRuns(workflowId: string) {
+      const requestId = ++this.workflowRequestId
+      const selectionRequestId = this.selectionRequestId
+      const isCurrentLoad = () => requestId === this.workflowRequestId && selectionRequestId === this.selectionRequestId
+      const updateVersions = { ...this.runUpdateVersions }
+      this.workflowRunsId = null
+      try {
+        const result = await runApi.listRunsPage({ workflowId, page: 1, pageSize: 50 })
+        if (!isCurrentLoad()) return
+        this.mergeLoadedRuns(result.items, updateVersions, 'workflow')
+        this.workflowRunsId = workflowId
+      } catch (error) {
+        if (isCurrentLoad()) this.error = errorMessage(error)
+      }
+    },
+    async loadRuns(options: { selectDefault?: boolean; workflowId?: string } = {}) {
+      if (options.workflowId) {
+        await this.loadWorkflowRuns(options.workflowId)
+        return
+      }
       const selectDefault = options.selectDefault ?? true
       const runsLoadRequestId = ++this.runsLoadRequestId
       const isCurrentLoad = () => this.runsLoadRequestId === runsLoadRequestId
@@ -218,24 +290,7 @@ export const useRunStore = defineStore('run', {
         if (!isCurrentLoad()) {
           return
         }
-        const currentRuns = new Map(this.runs.map((run) => [run.id, run]))
-        if (this.currentRun) {
-          const listedRun = currentRuns.get(this.currentRun.id)
-          currentRuns.set(this.currentRun.id, listedRun
-            ? mergeRunSnapshot(listedRun, this.currentRun)
-            : this.currentRun)
-        }
-        this.runs = loadedRuns.map((run) => {
-          const current = currentRuns.get(run.id)
-          return current ? mergeRunSnapshot(current, run,
-            (updateVersions[run.id] ?? 0) !== (this.runUpdateVersions[run.id] ?? 0)) : run
-        })
-        if (this.currentRun) {
-          this.currentRun = this.runs.find((run) => run.id === this.currentRun?.id) ?? this.currentRun
-          if (isCancelledRun(this.currentRun) && this.realtimeRunId === this.currentRun.id) {
-            this.stopRunRealtime()
-          }
-        }
+        this.mergeLoadedRuns(loadedRuns, updateVersions)
         if (selectDefault) {
           const selectedRun = this.currentRun ?? this.runs[0] ?? null
           const selectionRequestId = this.selectionRequestId
@@ -279,23 +334,29 @@ export const useRunStore = defineStore('run', {
       }
       await this.loadRuns()
     },
-    async selectRun(runId: string, options: { refreshLogs?: boolean } = {}) {
+    async selectRun(runId: string, options: { refreshLogs?: boolean; historyReady?: Promise<void>; skipList?: boolean; prefetchedRun?: WorkflowRun } = {}) {
       const selectionRequestId = ++this.selectionRequestId
       const isCurrentSelection = () => this.selectionRequestId === selectionRequestId
       this.loading = true
       this.logsLoading = true
       this.error = null
       try {
-        await this.loadRuns({ selectDefault: false })
+        if (options.historyReady) await options.historyReady
+        if (!isCurrentSelection()) return
+        if (!options.skipList) await this.loadRuns({ selectDefault: false })
         if (!isCurrentSelection()) {
           return
         }
         this.loading = true
         this.logsLoading = true
-        const localRun = this.runs.find((run) => run.id === runId)
-        const selectedRun = localRun ?? (await runApi.getRun(runId))
+        const localRun = options.prefetchedRun ?? (options.skipList ? this.historyRuns : this.runs).find((run) => run.id === runId)
+        const updateVersion = this.runUpdateVersions[runId] ?? 0
+        let selectedRun = localRun ?? (await runApi.getRun(runId))
         if (!isCurrentSelection()) {
           return
+        }
+        if (this.currentRun?.id === runId) {
+          selectedRun = mergeRunSnapshot(this.currentRun, selectedRun, updateVersion !== (this.runUpdateVersions[runId] ?? 0))
         }
         this.currentRun = selectedRun
         const cachedLogs = this.logsByRunId[runId]
@@ -324,8 +385,11 @@ export const useRunStore = defineStore('run', {
       }
     },
     async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
-      await this.loadRuns({ selectDefault: false })
-      const run = this.runs.find((item) =>
+      // 工作流最近运行可能不在全局第一页，必须按工作流定向读取。
+      const selectionRequestId = ++this.selectionRequestId
+      await this.loadRuns({ selectDefault: false, workflowId })
+      if (selectionRequestId !== this.selectionRequestId || this.workflowRunsId !== workflowId) return null
+      const run = this.workflowRuns.find((item) =>
         item.workflowId === workflowId
         || (typeof definitionId === 'number' && item.definitionId === definitionId),
       )
@@ -334,7 +398,7 @@ export const useRunStore = defineStore('run', {
         return null
       }
       if (this.currentRun?.id !== run.id) {
-        await this.selectRun(run.id)
+        await this.selectRun(run.id, { skipList: true, prefetchedRun: run })
       }
       return this.currentRun
     },
@@ -346,6 +410,7 @@ export const useRunStore = defineStore('run', {
       this.logs = []
       this.loading = false
       this.logsLoading = false
+      this.historyLoading = false
       this.error = null
     },
     appendLog(entry: RunLogEntry) {
@@ -397,9 +462,9 @@ export const useRunStore = defineStore('run', {
           this.currentRun.status = 'running'
         }
       }
-      const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
-      if (runInList) {
-        Object.assign(runInList, this.currentRun)
+      for (const runs of [this.runs, this.historyRuns, this.workflowRuns]) {
+        const runInList = runs.find((run) => run.id === this.currentRun?.id)
+        if (runInList) Object.assign(runInList, this.currentRun)
       }
       const workflowStore = useWorkflowStore()
       if (runBelongsToWorkflow(this.currentRun, workflowStore)) {
@@ -420,9 +485,9 @@ export const useRunStore = defineStore('run', {
       }
       this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       Object.assign(this.currentRun, patch)
-      const runInList = this.runs.find((run) => run.id === this.currentRun?.id)
-      if (runInList) {
-        Object.assign(runInList, this.currentRun)
+      for (const runs of [this.runs, this.historyRuns, this.workflowRuns]) {
+        const runInList = runs.find((run) => run.id === this.currentRun?.id)
+        if (runInList) Object.assign(runInList, this.currentRun)
       }
       if (this.currentRun.status === 'success') {
         refreshArtifactsForRun(this.currentRun.id)
@@ -551,16 +616,16 @@ export const useRunStore = defineStore('run', {
       }
       const runId = run.id
       await cancelWorkflowInstance(instanceId)
-      const runInList = this.runs.find((item) => item.id === runId)
+      const cachedRuns = [this.runs, this.historyRuns, this.workflowRuns].flatMap(runs => runs.filter(item => item.id === runId))
       const currentRun = this.currentRun?.id === runId ? this.currentRun : null
       // 只保护后端确认的终态；节点局部推断的 success/failed 不能忽略取消确认。
-      if ((runInList && isBackendTerminalRun(runInList) && !isCancelledRun(runInList))
+      if (cachedRuns.some(run => isBackendTerminalRun(run) && !isCancelledRun(run))
         || (currentRun && isBackendTerminalRun(currentRun) && !isCancelledRun(currentRun))) {
         return true
       }
       const patch: Partial<WorkflowRun> = { status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 }
       // 按目标分别修改取消字段，保留列表与详情各自较新的节点、耗时等数据。
-      for (const target of [runInList, currentRun]) {
+      for (const target of [...cachedRuns, currentRun]) {
         if (target && !isCancelledRun(target)) {
           this.runUpdateVersions[runId] = (this.runUpdateVersions[runId] ?? 0) + 1
           Object.assign(target, patch)

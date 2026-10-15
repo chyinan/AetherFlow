@@ -37,6 +37,7 @@ import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
+import UpstreamVariableSelector from './UpstreamVariableSelector.vue'
 import LoopBodyEditor from './LoopBodyEditor.vue'
 import LoopRunResults from './LoopRunResults.vue'
 import HttpRequestConfigPanel from './HttpRequestConfigPanel.vue'
@@ -332,9 +333,11 @@ async function locateImageConfig(field: string, nodeId: string) {
   if (schema) dynamicMode.value = fieldMode(schema)
   await nextTick()
   if (selectedNode.value?.id !== nodeId) return
-  if (!focusNodeConfigField(nodeId, field) && connectionFields.has(field)) {
-    focusNodeConfigField(nodeId, 'connectionId')
-  }
+  if (focusNodeConfigField(nodeId, field)) return
+  if (connectionFields.has(field) && focusNodeConfigField(nodeId, 'connectionId')) return
+  // 旧配置或复合编辑器无对应字段时，仍将焦点移入所选节点，不能声称已聚焦不存在的控件。
+  const inspector = Array.from(document.querySelectorAll<HTMLElement>('[data-node-inspector]')).find((element) => element.dataset.nodeInspector === nodeId)
+  inspector?.focus()
 }
 
 function applyImageInput(values: Record<string, unknown>, nodeId: string) {
@@ -621,7 +624,7 @@ onMounted(() => {
 
 <template>
   <aside class="relative z-20 flex h-full min-h-0 w-full flex-col border-l border-app-border bg-white lg:w-[420px]">
-    <div v-if="selectedNode" :data-node-inspector="selectedNode.id" class="flex min-h-0 flex-1 flex-col" @aetherflow-focus-config="handleConfigFocus">
+    <div v-if="selectedNode" :data-node-inspector="selectedNode.id" tabindex="-1" class="flex min-h-0 flex-1 flex-col" @aetherflow-focus-config="handleConfigFocus">
       <header class="border-b border-app-border bg-white">
         <div class="flex items-start justify-between gap-3 px-5 pt-5">
           <div class="flex min-w-0 items-center gap-3">
@@ -745,7 +748,7 @@ onMounted(() => {
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.selectExistingFile') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileId', '')" @change="handleTextInput('fileId', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileId" :value="textConfig('fileId', '')" @change="handleTextInput('fileId', $event)">
               <option value="">{{ t('workflow.inspector.noFileSelected') }}</option>
               <option v-for="file in selectableInputFiles" :key="file.id" :value="file.backendFileId">
                 {{ file.name }} · fileId={{ file.backendFileId }}
@@ -770,7 +773,7 @@ onMounted(() => {
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileIdVariable" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
           </label>
         </section>
 
@@ -781,19 +784,19 @@ onMounted(() => {
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileUrlVariable" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
           </label>
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">Operation</span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('operation', 'extract-audio')" @change="handleTextInput('operation', $event)">
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="operation" :value="textConfig('operation', 'extract-audio')" @change="handleTextInput('operation', $event)">
                 <option value="extract-audio">extract-audio</option>
                 <option value="convert">convert</option>
               </select>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">Output format</span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('outputFormat', 'wav')" @change="handleTextInput('outputFormat', $event)">
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="outputFormat" :value="textConfig('outputFormat', 'wav')" @change="handleTextInput('outputFormat', $event)">
                 <option value="wav">wav</option>
                 <option value="mp3">mp3</option>
                 <option value="m4a">m4a</option>
@@ -809,19 +812,12 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'whisper'" class="space-y-5 p-5">
-          <WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" :refresh-capabilities="workflowStore.loadNodeTemplates" />
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileUrlVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileUrlVariable', 'fileUrl')" @input="handleTextInput('fileUrlVariable', $event)" />
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
-            <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.whisperFileIdFallbackHint') }}</p>
-          </label>
+          <div data-config-field="whisperEnvironment" tabindex="-1"><WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" :refresh-capabilities="workflowStore.loadNodeTemplates" /></div>
+          <UpstreamVariableSelector :key="`${selectedNode.id}-fileUrlVariable`" :node-id="selectedNode.id" field="fileUrlVariable" :label="t('workflow.inspector.fileUrlVariable')" :model-value="textConfig('fileUrlVariable', 'fileUrl')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('fileUrl', ''))" @update:model-value="updateConfig('fileUrlVariable', $event)" />
+          <UpstreamVariableSelector :key="`${selectedNode.id}-fileIdVariable`" :node-id="selectedNode.id" field="fileIdVariable" :label="t('workflow.inspector.fileIdVariable')" :model-value="textConfig('fileIdVariable', 'fileId')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="NUMBER" :fixed-value-active="Boolean(textConfig('fileId', ''))" @update:model-value="updateConfig('fileIdVariable', $event)" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrLanguage') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'auto')" @change="handleTextInput('language', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="language" :value="textConfig('language', 'auto')" @change="handleTextInput('language', $event)">
               <option value="auto">auto</option>
               <option value="zh">zh</option>
               <option value="en">en</option>
@@ -829,7 +825,7 @@ onMounted(() => {
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrPrompt') }}</span>
-            <textarea class="min-h-28 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+            <textarea class="min-h-28 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="prompt" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
           </label>
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary">
             {{ t('workflow.inspector.whisperRuntimeHint') }}
@@ -839,25 +835,25 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'translate'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.textVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('textVariable', 'transcription')" @input="handleTextInput('textVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="textVariable" :value="textConfig('textVariable', 'transcription')" @input="handleTextInput('textVariable', $event)" />
           </label>
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.sourceLanguage') }}</span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('sourceLanguage', 'auto')" @change="handleTextInput('sourceLanguage', $event)">
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="sourceLanguage" :value="textConfig('sourceLanguage', 'auto')" @change="handleTextInput('sourceLanguage', $event)">
                 <option v-for="language in translationSourceLanguages" :key="language" :value="language">{{ language }}</option>
               </select>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.targetLanguage') }}</span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('targetLanguage', 'English')" @change="handleTextInput('targetLanguage', $event)">
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="targetLanguage" :value="textConfig('targetLanguage', 'English')" @change="handleTextInput('targetLanguage', $event)">
                 <option v-for="language in translationTargetLanguages" :key="language" :value="language">{{ language }}</option>
               </select>
             </label>
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
@@ -865,31 +861,28 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'summary'" class="space-y-5 p-5">
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.textVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('textVariable', 'transcription')" @input="handleTextInput('textVariable', $event)" />
-          </label>
+          <UpstreamVariableSelector :key="`${selectedNode.id}-textVariable`" :node-id="selectedNode.id" field="textVariable" :label="t('workflow.inspector.textVariable')" :model-value="textConfig('textVariable', 'transcription')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('text', ''))" @update:model-value="updateConfig('textVariable', $event)" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.summaryLanguage') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'Chinese')" @change="handleTextInput('language', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="language" :value="textConfig('language', 'Chinese')" @change="handleTextInput('language', $event)">
               <option v-for="language in summaryLanguages" :key="language" :value="language">{{ language }}</option>
             </select>
           </label>
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.provider') }} <span class="text-status-error">*</span></span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('provider', 'ollama')" @change="handleTextInput('provider', $event)">
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="provider" :value="textConfig('provider', 'ollama')" @change="handleTextInput('provider', $event)">
                 <option v-for="provider in summaryProviders" :key="provider" :value="provider">{{ provider }}</option>
               </select>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('model', 'qwen3.5:9b')" @input="handleTextInput('model', $event)" />
+              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', 'qwen3.5:9b')" @input="handleTextInput('model', $event)" />
             </label>
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.summaryPrompt') }}</span>
-            <textarea class="min-h-40 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm leading-6 outline-none focus:border-primary" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+            <textarea class="min-h-40 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm leading-6 outline-none focus:border-primary" data-config-field="prompt" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
           </label>
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm leading-6 text-text-secondary">
             {{ t('workflow.inspector.summaryPromptHint') }}
@@ -899,21 +892,18 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'export'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.exportFormat') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('format', 'MARKDOWN')" @change="handleTextInput('format', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="format" :value="textConfig('format', 'MARKDOWN')" @change="handleTextInput('format', $event)">
               <option v-for="format in exportFormats" :key="format" :value="format">{{ format }}</option>
             </select>
           </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.sourceVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('sourceVariable', 'summary')" @input="handleTextInput('sourceVariable', $event)" />
-          </label>
+          <UpstreamVariableSelector :key="`${selectedNode.id}-sourceVariable`" :node-id="selectedNode.id" field="sourceVariable" :label="t('workflow.inspector.sourceVariable')" :model-value="textConfig('sourceVariable', 'summary')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="" :fixed-value-active="Boolean(textConfig('content', ''))" @update:model-value="updateConfig('sourceVariable', $event)" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputFileName') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('fileName', 'meeting-summary.md')" @input="handleTextInput('fileName', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileName" :value="textConfig('fileName', 'meeting-summary.md')" @input="handleTextInput('fileName', $event)" />
           </label>
           <label class="block border-t border-app-border pt-4">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputDirectoryOptional') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none" :placeholder="t('workflow.inspector.outputDirectoryPlaceholder')" :value="textConfig('outputDirectory', '')" @input="handleTextInput('outputDirectory', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none" :placeholder="t('workflow.inspector.outputDirectoryPlaceholder')" data-config-field="outputDirectory" :value="textConfig('outputDirectory', '')" @input="handleTextInput('outputDirectory', $event)" />
             <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.outputDirectoryHint') }}</p>
           </label>
         </section>
@@ -921,23 +911,16 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'llm'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('promptVariable', 'question')" @input="handleTextInput('promptVariable', $event)" />
-          </label>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.contextVariable') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('contextVariable', '')" @input="handleTextInput('contextVariable', $event)" />
-            <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.contextVariableHint') }}</p>
-          </label>
+          <UpstreamVariableSelector :key="`${selectedNode.id}-promptVariable`" :node-id="selectedNode.id" field="promptVariable" :label="t('workflow.inspector.inputVariable')" :model-value="textConfig('promptVariable', 'question')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('prompt', ''))" @update:model-value="updateConfig('promptVariable', $event)" />
+          <UpstreamVariableSelector :key="`${selectedNode.id}-contextVariable`" :node-id="selectedNode.id" field="contextVariable" :label="t('workflow.inspector.contextVariable')" :model-value="textConfig('contextVariable', '')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('context', ''))" @update:model-value="updateConfig('contextVariable', $event)" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.contextText') }}</span>
-            <textarea class="min-h-24 w-full resize-y rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.contextTextPlaceholder')" :value="textConfig('context', '')" @input="handleTextInput('context', $event)" />
+            <textarea class="min-h-24 w-full resize-y rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.contextTextPlaceholder')" data-config-field="context" :value="textConfig('context', '')" @input="handleTextInput('context', $event)" />
           </label>
           <label class="flex items-center justify-between border-t border-app-border pt-4 text-sm font-semibold text-text-primary">
             {{ t('workflow.inspector.reasoningTags') }}
@@ -957,11 +940,11 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'knowledge-retrieval'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.queryText') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('queryText', '')" @input="handleTextInput('queryText', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="queryText" :value="textConfig('queryText', '')" @input="handleTextInput('queryText', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.queryVariable') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('queryVariable', 'question')" @input="handleTextInput('queryVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="queryVariable" :value="textConfig('queryVariable', 'question')" @input="handleTextInput('queryVariable', $event)" />
           </label>
           <div>
             <div class="mb-2 flex items-center justify-between">
@@ -1005,13 +988,13 @@ onMounted(() => {
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">Top K</span>
               <div class="flex items-center gap-3">
-                <input type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
-                <input type="number" min="1" max="50" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" data-config-field="topK" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="number" min="1" max="50" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" data-config-field="topK" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
               </div>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</span>
-              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'retrievalContext')" @input="handleTextInput('outputVariable', $event)" />
+              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" data-config-field="outputVariable" :value="textConfig('outputVariable', 'retrievalContext')" @input="handleTextInput('outputVariable', $event)" />
             </label>
             <label class="flex items-center justify-between text-sm font-semibold text-text-primary">
               <span>{{ t('workflow.inspector.metadataFilter') }}</span>
@@ -1020,7 +1003,7 @@ onMounted(() => {
             <textarea
               class="min-h-20 w-full rounded-lg border border-app-border bg-white px-3 py-2 font-mono text-xs outline-none focus:border-primary"
               :placeholder="t('workflow.inspector.metadataFilterPlaceholder')"
-              :value="textConfig('metadataFilter', '')"
+              data-config-field="metadataFilter" :value="textConfig('metadataFilter', '')"
               @input="handleMetadataFilterInput"
             />
             <p v-if="metadataFilterError" class="text-xs leading-5 text-status-error" role="alert">{{ metadataFilterError }}</p>
@@ -1041,8 +1024,8 @@ onMounted(() => {
             </div>
             <div class="space-y-2">
               <div class="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :value="textConfig('outputName', 'answer')" :aria-label="t('workflow.inspector.responseFieldName')" @input="handleTextInput('outputName', $event)" />
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('outputValue', '')" @input="handleTextInput('outputValue', $event)" />
+                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" data-config-field="outputName" :value="textConfig('outputName', 'answer')" :aria-label="t('workflow.inspector.responseFieldName')" @input="handleTextInput('outputName', $event)" />
+                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" data-config-field="outputValue" :value="textConfig('outputValue', '')" @input="handleTextInput('outputValue', $event)" />
               </div>
             </div>
           </div>
@@ -1051,20 +1034,20 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'agent'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.agentStrategy') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('strategy', 'plan')" @change="handleTextInput('strategy', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="strategy" :value="textConfig('strategy', 'plan')" @change="handleTextInput('strategy', $event)">
               <option value="plan">{{ t('workflow.inspector.planOnly') }}</option>
             </select>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.taskVariable') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('taskVariable', 'question')" @input="handleTextInput('taskVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="taskVariable" :value="textConfig('taskVariable', 'question')" @input="handleTextInput('taskVariable', $event)" />
           </label>
           <div class="rounded-xl bg-app-bg2 p-5">
             <Brain class="h-10 w-10 rounded-lg bg-white p-2 text-primary shadow-sm" />
@@ -1088,11 +1071,11 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'question-understand'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('inputVariable', 'question')" @input="handleTextInput('inputVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="inputVariable" :value="textConfig('inputVariable', 'question')" @input="handleTextInput('inputVariable', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
@@ -1112,14 +1095,14 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'question-classifier'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('inputVariable', 'text')" @input="handleTextInput('inputVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="inputVariable" :value="textConfig('inputVariable', 'text')" @input="handleTextInput('inputVariable', $event)" />
           </label>
           <div class="rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-3">
@@ -1137,8 +1120,8 @@ onMounted(() => {
             </div>
           </div>
           <div class="space-y-3">
-            <textarea class="min-h-24 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.classPlaceholder', { name: 'CLASS 1' })" :value="textConfig('class1', 'CLASS 1')" @input="handleTextInput('class1', $event)" />
-            <textarea class="min-h-24 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.classPlaceholder', { name: 'CLASS 2' })" :value="textConfig('class2', 'CLASS 2')" @input="handleTextInput('class2', $event)" />
+            <textarea class="min-h-24 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.classPlaceholder', { name: 'CLASS 1' })" data-config-field="class1" :value="textConfig('class1', 'CLASS 1')" @input="handleTextInput('class1', $event)" />
+            <textarea class="min-h-24 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.classPlaceholder', { name: 'CLASS 2' })" data-config-field="class2" :value="textConfig('class2', 'CLASS 2')" @input="handleTextInput('class2', $event)" />
           </div>
         </section>
 
@@ -1150,12 +1133,12 @@ onMounted(() => {
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('variable', '')" @input="handleTextInput('variable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="variable" :value="textConfig('variable', '')" @input="handleTextInput('variable', $event)" />
           </label>
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionOperator') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('operator', 'EXISTS')" @change="handleTextInput('operator', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="operator" :value="textConfig('operator', 'EXISTS')" @change="handleTextInput('operator', $event)">
               <option v-for="operator in conditionOperators" :key="operator.value" :value="operator.value">
                 {{ t(operator.labelKey) }}
               </option>
@@ -1164,17 +1147,17 @@ onMounted(() => {
 
           <label v-if="conditionNeedsValue" class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionValue') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="value" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
           </label>
 
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionTrueBranch') }}</span>
-              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('trueBranch', 'true')" @input="handleTextInput('trueBranch', $event)" />
+              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" data-config-field="trueBranch" :value="textConfig('trueBranch', 'true')" @input="handleTextInput('trueBranch', $event)" />
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionFalseBranch') }}</span>
-              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('falseBranch', 'false')" @input="handleTextInput('falseBranch', $event)" />
+              <input class="w-full rounded-lg border border-app-border bg-app-bg2 px-3 py-3 font-mono text-sm outline-none focus:border-primary" data-config-field="falseBranch" :value="textConfig('falseBranch', 'false')" @input="handleTextInput('falseBranch', $event)" />
             </label>
           </div>
         </section>
@@ -1239,31 +1222,31 @@ onMounted(() => {
           </div>
           <label class="block">
               <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.input') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">{{ selectedKind === 'iteration' ? 'Array' : 'Object' }}</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('inputVariable', textConfig('input', selectedKind === 'iteration' ? 'items' : 'state'))" @input="handleTextInput('inputVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="inputVariable" :value="textConfig('inputVariable', textConfig('input', selectedKind === 'iteration' ? 'items' : 'state'))" @input="handleTextInput('inputVariable', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 flex items-center justify-between text-sm font-semibold text-text-primary">{{ t('workflow.inspector.output') }} <span class="rounded-md border border-app-border px-2 py-1 text-xs text-text-muted">{{ selectedKind === 'iteration' ? 'Array' : 'Object' }}</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('outputVariable', textConfig('output', selectedKind === 'iteration' ? 'iterationItems' : 'loopState'))" @input="handleTextInput('outputVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="outputVariable" :value="textConfig('outputVariable', textConfig('output', selectedKind === 'iteration' ? 'iterationItems' : 'loopState'))" @input="handleTextInput('outputVariable', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.maxIterations') }}</span>
-            <input type="number" min="0" class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" :value="numberConfig('maxIterations', selectedKind === 'iteration' ? 12 : 10)" @input="handleNumberInput('maxIterations', $event)" />
+            <input type="number" min="0" class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" data-config-field="maxIterations" :value="numberConfig('maxIterations', selectedKind === 'iteration' ? 12 : 10)" @input="handleNumberInput('maxIterations', $event)" />
           </label>
           <label v-if="selectedKind === 'loop'" class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" data-config-field="stopWhen" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
           </label>
           <label v-if="selectedKind === 'iteration'" class="block text-sm">每项变量名称
-            <input aria-label="每项变量名称" class="mt-2 w-full rounded border p-2" :value="textConfig('itemVariable', 'item')" @input="handleTextInput('itemVariable', $event)" />
+            <input aria-label="每项变量名称" class="mt-2 w-full rounded border p-2" data-config-field="itemVariable" :value="textConfig('itemVariable', 'item')" @input="handleTextInput('itemVariable', $event)" />
           </label>
           <label class="block text-sm">索引变量名称
-            <input aria-label="索引变量名称" class="mt-2 w-full rounded border p-2" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
+            <input aria-label="索引变量名称" class="mt-2 w-full rounded border p-2" data-config-field="indexVariable" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
           </label>
           <label v-if="selectedKind === 'iteration'" class="block text-sm">同时等待的任务上限（1–8）
-            <input aria-label="批次并发上限" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
+            <input aria-label="批次并发上限" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" data-config-field="concurrency" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
           </label>
           <label v-if="selectedKind === 'iteration'" class="block text-sm">某项失败时
-            <select aria-label="批次失败策略" class="mt-2 w-full rounded border p-2" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">停止批次</option><option value="CONTINUE">保留失败项并继续</option></select>
+            <select aria-label="批次失败策略" class="mt-2 w-full rounded border p-2" data-config-field="failureStrategy" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">停止批次</option><option value="CONTINUE">保留失败项并继续</option></select>
           </label>
           <LoopBodyEditor :key="selectedNode?.id" :model-value="configValue('bodyNodes', [])" :catalog="nodeCatalog" @update:model-value="updateConfig('bodyNodes', $event)" />
         </section>
@@ -1276,7 +1259,7 @@ onMounted(() => {
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.codeLanguage') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('language', 'python3')" @change="handleTextInput('language', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="language" :value="textConfig('language', 'python3')" @change="handleTextInput('language', $event)">
               <option value="python3">Python 3</option>
             </select>
           </label>
@@ -1286,22 +1269,22 @@ onMounted(() => {
               <span>{{ t('workflow.inspector.code') }}</span>
               <span class="text-xs font-medium text-text-muted">{{ textConfig('language', 'python3') }}</span>
             </div>
-            <textarea class="h-48 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultPythonCode" :value="textConfig('code', '')" @input="handleTextInput('code', $event)" />
+            <textarea class="h-48 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultPythonCode" data-config-field="code" :value="textConfig('code', '')" @input="handleTextInput('code', $event)" />
           </div>
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'codeResult')" @input="handleTextInput('outputVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" data-config-field="outputVariable" :value="textConfig('outputVariable', 'codeResult')" @input="handleTextInput('outputVariable', $event)" />
           </label>
         </section>
 
         <section v-else-if="selectedKind === 'template-transform'" class="space-y-5 p-5">
           <label class="block text-sm font-semibold">转换模式
-            <select class="mt-2 w-full rounded-lg border border-app-border bg-app-bg px-3 py-3 text-sm" :value="textConfig('transformMode', 'text')" @change="changeTransformMode">
+            <select class="mt-2 w-full rounded-lg border border-app-border bg-app-bg px-3 py-3 text-sm" data-config-field="transformMode" :value="textConfig('transformMode', 'text')" @change="changeTransformMode">
               <option value="text">文本模板</option><option value="structured">结构化数据映射</option>
             </select>
           </label>
-          <StructuredMappingEditor v-if="textConfig('transformMode', 'text') === 'structured' && selectedNode" :key="selectedNode.id" :node-id="selectedNode.id" :config="selectedNode.data.config ?? {}" @apply="applyStructuredMapping" />
+          <StructuredMappingEditor data-config-field="mapping" tabindex="-1" v-if="textConfig('transformMode', 'text') === 'structured' && selectedNode" :key="selectedNode.id" :node-id="selectedNode.id" :config="selectedNode.data.config ?? {}" @apply="applyStructuredMapping" />
           <template v-else>
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.templateVariablesTitle') }}</p>
@@ -1312,11 +1295,11 @@ onMounted(() => {
               <span>{{ t('workflow.inspector.code') }}</span>
               <span class="text-xs text-text-muted">{{ t('workflow.inspector.templateSyntax') }}</span>
             </div>
-            <textarea class="h-56 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultJinjaTemplate" :value="textConfig('template', '')" @input="handleTextInput('template', $event)" />
+            <textarea class="h-56 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultJinjaTemplate" data-config-field="template" :value="textConfig('template', '')" @input="handleTextInput('template', $event)" />
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
-            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'renderedText')" @input="handleTextInput('outputVariable', $event)" />
+            <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 font-mono text-sm outline-none focus:border-primary" data-config-field="outputVariable" :value="textConfig('outputVariable', 'renderedText')" @input="handleTextInput('outputVariable', $event)" />
           </label>
           </template>
         </section>
@@ -1324,7 +1307,7 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'document-extractor'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.fileIdVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="fileIdVariable" :value="textConfig('fileIdVariable', 'fileId')" @input="handleTextInput('fileIdVariable', $event)" />
             <p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.fileTypes', { types: fileTypes.join(', ') }) }}</p>
           </label>
           <div>
@@ -1344,11 +1327,11 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'variable-assigner'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.assignedVariable') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :value="textConfig('variable', 'conversation.summary')" @input="handleTextInput('variable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="variable" :value="textConfig('variable', 'conversation.summary')" @input="handleTextInput('variable', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.assignedValue') }}</span>
-            <textarea class="min-h-28 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
+            <textarea class="min-h-28 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="value" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
           </label>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
@@ -1356,12 +1339,12 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'variable-aggregate'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariables') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.inputVariablesPlaceholder')" :value="textConfig('variables', 'left,right')" @input="handleTextInput('variables', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.inputVariablesPlaceholder')" data-config-field="variables" :value="textConfig('variables', 'left,right')" @input="handleTextInput('variables', $event)" />
             <p class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.inputVariablesHint') }}</p>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariableName') }}</span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 font-mono text-sm outline-none focus:border-primary" :value="textConfig('outputVariable', 'merged')" @input="handleTextInput('outputVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 font-mono text-sm outline-none focus:border-primary" data-config-field="outputVariable" :value="textConfig('outputVariable', 'merged')" @input="handleTextInput('outputVariable', $event)" />
           </label>
           <p class="text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.variableAggregateHint') }}</p>
         </section>
@@ -1369,18 +1352,18 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'parameter-extractor'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
               <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.inputVariable') }} <span class="text-status-error">*</span></span>
-            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" :value="textConfig('inputVariable', 'text')" @input="handleTextInput('inputVariable', $event)" />
+            <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="inputVariable" :value="textConfig('inputVariable', 'text')" @input="handleTextInput('inputVariable', $event)" />
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.instruction') }}</span>
-            <textarea class="min-h-32 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.instructionPlaceholder')" :value="textConfig('instruction', '')" @input="handleTextInput('instruction', $event)" />
+            <textarea class="min-h-32 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.instructionPlaceholder')" data-config-field="instruction" :value="textConfig('instruction', '')" @input="handleTextInput('instruction', $event)" />
           </label>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.advancedSettings') }} <ChevronDown class="inline h-4 w-4" /></p>
         </section>

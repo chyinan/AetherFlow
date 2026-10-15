@@ -28,7 +28,11 @@ vi.mock('@/api/modules/workflow', async (importOriginal) => ({
 vi.mock('@/services/api/runApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/api/runApi')>()
   return { ...original, runApi: { ...original.runApi,
-    listRuns: mocks.listRuns, getRun: mocks.getRun, getLogs: mocks.getLogs, recoverRuntime: mocks.recoverRuntime,
+    listRuns: mocks.listRuns,
+    listRunsPage: async (query: { page?: number; pageSize?: number }) => {
+      const items = await mocks.listRuns() ?? []
+      return { items, total: items.length, page: query.page ?? 1, pageSize: query.pageSize ?? 20 }
+    }, getRun: mocks.getRun, getLogs: mocks.getLogs, recoverRuntime: mocks.recoverRuntime,
   } }
 })
 vi.mock('@/services/api/workflowApi', async (importOriginal) => ({
@@ -43,7 +47,7 @@ vi.mock('./uiStore', () => ({ useUiStore: () => ({
   startNotificationStream: mocks.startNotificationStream, stopNotificationStream: mocks.stopNotificationStream,
 }) }))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { id: 'run-a' } }),
+  useRoute: () => ({ path: '/runs/run-a', params: { id: 'run-a' }, query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
 
@@ -96,6 +100,7 @@ describe('运行历史刷新与所选详情协调', () => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
     mocks.subscribeRun.mockImplementation(() => vi.fn())
+    mocks.listRuns.mockResolvedValue([run()])
     mocks.getLogs.mockResolvedValue([])
     mocks.recoverRuntime.mockResolvedValue({ nodePatches: [], logs: [] })
     mocks.refreshArtifactsFromBackend.mockResolvedValue(undefined)
@@ -213,7 +218,7 @@ describe('运行历史刷新与所选详情协调', () => {
       expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(true)
       expect(wrapper.text()).toContain('50%')
       expect(store.currentRun?.nodeStates[0]).toMatchObject({ label: '节点 A', status: 'success', output: '完整详细输出', durationMs: 90 })
-      expect(store.runs[0]).toEqual(store.currentRun)
+      expect(store.historyRuns[0]).toEqual(store.currentRun)
     } finally {
       wrapper.unmount()
     }
@@ -266,7 +271,7 @@ describe('运行历史刷新与所选详情协调', () => {
       expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(false)
       expect(wrapper.text()).toContain('100%')
       expect(wrapper.text()).toContain('900ms')
-      expect(store.statusCounts[status]).toBe(1)
+      expect(store.historyRuns.filter(run => run.status === status)).toHaveLength(1)
     } finally {
       wrapper.unmount()
     }

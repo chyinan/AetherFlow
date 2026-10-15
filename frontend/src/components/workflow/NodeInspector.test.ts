@@ -112,7 +112,7 @@ describe('节点配置与后端执行语义一致', () => {
 
     expect(llmPanel).toContain("textConfig('promptVariable'")
     expect(llmPanel).toContain("textConfig('contextVariable'")
-    expect(llmPanel).toContain("handleTextInput('contextVariable'")
+    expect(llmPanel).toContain("updateConfig('contextVariable'")
   })
 
   it('LLM 面板不展示后端未实现的视觉、节点重试和 fallback 配置', () => {
