@@ -249,6 +249,7 @@ export const useWorkflowStore = defineStore('workflow', {
     nodeCatalogLoaded: false,
     capabilitiesLoaded: false,
     workflowTemplates: [] as WorkflowDefinition[],
+    workflowTemplatesRequestSequence: 0,
     workflowTemplatesLoading: false,
     workflowTemplatesError: null as string | null,
     nodes: cloneNodes(),
@@ -313,18 +314,27 @@ export const useWorkflowStore = defineStore('workflow', {
       this.templates = applyWorkflowCapabilities(templates, capabilities)
       return capabilitiesLoaded
     },
+    invalidateWorkflowTemplatesLoad() {
+      this.workflowTemplatesRequestSequence += 1
+      this.workflowTemplatesLoading = false
+      this.workflowTemplatesError = null
+    },
     async loadWorkflowTemplates() {
+      const requestSequence = ++this.workflowTemplatesRequestSequence
       this.workflowTemplatesLoading = true
       this.workflowTemplatesError = null
       try {
-        this.workflowTemplates = await workflowApi.listWorkflowTemplates()
+        const templates = await workflowApi.listWorkflowTemplates()
+        if (requestSequence !== this.workflowTemplatesRequestSequence) return
+        this.workflowTemplates = templates
         return this.workflowTemplates
       } catch (error) {
+        if (requestSequence !== this.workflowTemplatesRequestSequence) return
         const details = error instanceof Error && error.message ? error.message : 'workflow templates unavailable'
         this.workflowTemplatesError = details
         throw error
       } finally {
-        this.workflowTemplatesLoading = false
+        if (requestSequence === this.workflowTemplatesRequestSequence) this.workflowTemplatesLoading = false
       }
     },
     applyWorkflowDefinition(workflow: WorkflowDefinition, dirty = false) {

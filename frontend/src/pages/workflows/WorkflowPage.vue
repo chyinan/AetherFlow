@@ -116,6 +116,8 @@ watch(() => route.fullPath, (to, from) => {
   comfyUiImportSequence += 1
   importingComfyUi.value = false
   comfyUiImportError.value = null
+  showingWorkflowTemplates.value = false
+  workflowStore.invalidateWorkflowTemplatesLoad()
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
@@ -444,10 +446,11 @@ onMounted(async () => {
     fileStore.loadFiles(),
   ])
   if (!hasWorkflowContext.value) {
-    await Promise.allSettled([projectReady, auxiliaryLoads])
+    // 空白入口只在进入时清理；辅助读取返回时用户可能已经打开或编辑了新画布。
     workflowStore.resetToEmptyWorkflow()
     runStore.clearCurrentRun()
     initializingWorkflow.value = false
+    await Promise.allSettled([projectReady, auxiliaryLoads])
     return
   }
   try {
@@ -467,6 +470,7 @@ onBeforeUnmount(() => {
   saveNavigation = null
   stopGuardingSaveNavigation()
   comfyUiImportSequence += 1
+  workflowStore.invalidateWorkflowTemplatesLoad()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleEditorKeydown)
 })
@@ -562,12 +566,14 @@ async function openWorkflowTemplates() {
   if (workflowStore.workflowTemplatesLoading) {
     return
   }
+  const navigationRevision = pageNavigationRevision
+  const ownsRequest = () => pageActive && navigationRevision === pageNavigationRevision
   workflowStore.setRunError(null)
   try {
-    await workflowStore.loadWorkflowTemplates()
-    showingWorkflowTemplates.value = true
+    const templates = await workflowStore.loadWorkflowTemplates()
+    if (ownsRequest() && templates) showingWorkflowTemplates.value = true
   } catch (error) {
-    workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
+    if (ownsRequest()) workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
   }
 }
 
@@ -623,9 +629,13 @@ async function startRun() {
     canonicalRoute: undefined as string | undefined,
   }
   activeRunStart = operation
+  // 未保存模板共享 new 身份；派发前必须仍是点击时的画布，派发后保留原运行回执。
+  const editRevision = workflowStore.editRevision
+  let dispatched = false
   const ownsOperation = () => activeRunStart === operation
     && operation.generation === startNavigationGeneration
   const ownsWorkflow = () => ownsOperation() && operation.workflowId === workflowStore.workflowId
+    && (dispatched || workflowStore.editRevision === editRevision)
   const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
   workflowStore.setRunError(null)
   try {
@@ -649,7 +659,6 @@ async function startRun() {
     if (pendingStart && pendingStart.intent !== intent
       && !window.confirm(t('workflow.runChangedIntentConfirm'))) return
 
-    const editRevision = workflowStore.editRevision
     const submittedWorkflow = {
       workflowName: workflowStore.workflowName,
       nodes: workflowStore.nodes.map((node) => ({ ...node, data: { ...node.data } })),
@@ -683,6 +692,7 @@ async function startRun() {
       pendingStart = { intent, idempotencyKey: crypto.randomUUID() }
     }
     const idempotencyKey = pendingStart.idempotencyKey
+    dispatched = true
     const result = await workflowApi.startRun(
       operation.workflowId,
       fileId ? { fileId } : {},
