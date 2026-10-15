@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -44,6 +44,9 @@ const healthClass: Record<ProjectHealth, string> = {
 const showCreatePanel = ref(false)
 const draftName = ref('')
 const draftScenario = ref<ProjectSummary['scenario']>('media')
+const creatingProject = ref(false)
+const createProjectFailed = ref(false)
+let createProjectGeneration = 0
 const showWorkflowPanel = ref(false)
 const workflowDraftName = ref('')
 const workflowDraftProjectId = ref('')
@@ -87,10 +90,21 @@ function workflowsFor(project: ProjectSummary) {
 }
 
 function openCreateProject() {
+  createProjectGeneration += 1
+  creatingProject.value = false
+  createProjectFailed.value = false
   draftName.value = t('projects.defaultProjectName')
   draftScenario.value = 'media'
   showCreatePanel.value = true
 }
+
+function closeCreateProject() {
+  createProjectGeneration += 1
+  showCreatePanel.value = false
+  creatingProject.value = false
+  createProjectFailed.value = false
+}
+onBeforeUnmount(closeCreateProject)
 
 function openCreateWorkflow(project: ProjectSummary) {
   workflowDraftProjectId.value = project.id
@@ -138,13 +152,23 @@ async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary
 
 async function submitCreate() {
   const name = draftName.value.trim()
-  if (!name) {
+  if (!name || creatingProject.value) {
     return
   }
-  const project = await projectStore.createProject({ name, scenario: draftScenario.value })
-  showCreatePanel.value = false
-  await router.push('/projects')
-  projectStore.selectProject(project.id)
+  const generation = createProjectGeneration
+  creatingProject.value = true
+  createProjectFailed.value = false
+  try {
+    const project = await projectStore.createProject({ name, scenario: draftScenario.value })
+    // 已提交请求仍可能创建成功；旧回执只补充列表，不接管新弹框或页面选择。
+    if (generation !== createProjectGeneration) return
+    projectStore.selectProject(project.id)
+    showCreatePanel.value = false
+  } catch {
+    if (generation === createProjectGeneration) createProjectFailed.value = true
+  } finally {
+    if (generation === createProjectGeneration) creatingProject.value = false
+  }
 }
 
 function openProject(project: ProjectSummary) {
@@ -382,25 +406,25 @@ async function retryLoadProjects() {
     </main>
 
     <div v-if="showCreatePanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
-      <form class="w-full max-w-md rounded-lg border border-app-border bg-white p-5 shadow-panel" @submit.prevent="submitCreate">
+      <form class="w-full max-w-md rounded-lg border border-app-border bg-white p-5 shadow-panel" :aria-busy="creatingProject" @submit.prevent="submitCreate">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
             <p class="text-sm font-semibold text-text-primary">{{ t('projects.createProjectTitle') }}</p>
             <p class="text-xs text-text-muted">{{ t('projects.createPanelHint') }}</p>
           </div>
-          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="showCreatePanel = false">
+          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="closeCreateProject">
             {{ t('common.close') }}
           </button>
         </div>
 
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.nameLabel') }}</span>
-          <input v-model="draftName" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+          <input v-model="draftName" :disabled="creatingProject" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60" />
         </label>
 
         <label class="mt-4 block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.scenario') }}</span>
-          <select v-model="draftScenario" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary">
+          <select v-model="draftScenario" :disabled="creatingProject" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60">
             <option value="media">{{ t('projects.scenarios.media') }}</option>
             <option value="document">{{ t('projects.scenarios.document') }}</option>
             <option value="knowledge">{{ t('projects.scenarios.knowledge') }}</option>
@@ -408,12 +432,15 @@ async function retryLoadProjects() {
           </select>
         </label>
 
+        <p v-if="createProjectFailed" role="alert" class="mt-4 text-sm text-status-warning">{{ t('projects.createFailedHint') }}</p>
+        <p v-if="creatingProject" role="status" class="mt-4 text-sm text-text-muted">{{ t('projects.creatingHint') }}</p>
+
         <div class="mt-5 flex justify-end gap-2">
-          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="showCreatePanel = false">
+          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="closeCreateProject">
             {{ t('common.close') }}
           </button>
-          <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
-            {{ t('projects.createProject') }}
+          <button type="submit" :disabled="creatingProject || !draftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
+            {{ creatingProject ? t('common.loading') : t('projects.createProject') }}
           </button>
         </div>
       </form>

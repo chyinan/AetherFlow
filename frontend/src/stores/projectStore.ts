@@ -271,7 +271,6 @@ export const useProjectStore = defineStore('project', {
         description: i18n.global.t('projects.projectDescription'),
       })
       this.projects = [...this.projects, project]
-      this.currentProjectId = project.id
       return project
     },
   },
