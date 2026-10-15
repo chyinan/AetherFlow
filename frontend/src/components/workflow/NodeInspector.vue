@@ -65,6 +65,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
 import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
+import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 import { SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS } from '@/utils/knowledgeFileSupport'
 
 type ConfigValue = unknown
@@ -194,8 +195,18 @@ const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
   upscale: 'UPSCALE',
   'save-image': 'SAVE_IMAGE',
 }
+// 运行历史仍在加载或读取失败时，全局当前运行可能属于上一个画布。
+const currentWorkflowRun = computed(() =>
+  runStore.currentRun && workflowRunBelongsToWorkflow(
+    runStore.currentRun,
+    workflowStore.workflowId,
+    workflowStore.backendDefinitionId,
+  )
+    ? runStore.currentRun
+    : null,
+)
 const selectedRunNode = computed(() =>
-  runStore.currentRun?.nodeStates.find((node) => node.nodeId === selectedNode.value?.id),
+  currentWorkflowRun.value?.nodeStates.find((node) => node.nodeId === selectedNode.value?.id),
 )
 const runtimeText = computed(() =>
   selectedRunNode.value?.output
@@ -1576,7 +1587,7 @@ onMounted(() => {
             <div class="rounded-lg bg-app-bg2 px-3 py-2">
               <p class="text-text-muted">{{ t('workflow.inspector.runResult') }}</p>
               <p class="mt-2 whitespace-pre-wrap text-sm leading-6 text-text-primary">{{ runtimeText || t('workflow.inspector.noRunResult') }}</p>
-              <LoopRunResults v-if="selectedKind === 'iteration' || selectedKind === 'loop'" :instance-id="runStore.currentRun?.backendInstanceId ?? runStore.currentRun?.runtimeWorkflowId" :node-id="selectedNode.id" :run-status="runStore.currentRun?.backendStatus" />
+              <LoopRunResults v-if="selectedKind === 'iteration' || selectedKind === 'loop'" :instance-id="currentWorkflowRun?.backendInstanceId ?? currentWorkflowRun?.runtimeWorkflowId" :node-id="selectedNode.id" :run-status="currentWorkflowRun?.backendStatus" />
             </div>
           </div>
         </section>
