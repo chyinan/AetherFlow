@@ -1,19 +1,34 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { BarChart3, ShieldAlert, Timer, TrendingUp } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { getGovernanceSnapshot, type GovernanceSnapshot } from '@/api/modules/governance'
+import { getGovernanceSnapshot, governanceResourceKeys, type GovernanceResourceKey, type GovernanceSnapshot } from '@/api/modules/governance'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useAuthStore } from '@/stores/authStore'
-import { useDifyStore } from '@/stores/difyStore'
-import type { ConversationLog } from '@/types/dify'
+import { difyApi } from '@/services/api/difyApi'
+import { roleMessages } from '@/product/roleMessages'
+import { monitorRoleMessages } from './monitorRoleMessages'
+import type { ConversationLog, MonitorMetric } from '@/types/dify'
 import { formatDate, formatTime } from '@/utils/localeFormat'
 
-const difyStore = useDifyStore()
+// 运维视图单独持有遥测，不加载或汇总用户知识库和其他私有工作内容。
+const difyStore = reactive({
+  metrics: [] as MonitorMetric[], conversations: [] as ConversationLog[],
+  metricsAvailable: false, conversationsAvailable: false,
+  get successfulConversationCount() { return this.conversations.filter((item) => item.status === 'success').length },
+  get failedConversationCount() { return this.conversations.filter((item) => item.status === 'failed').length },
+  get reviewQueue() { return this.conversations.filter((item) => item.reviewRequired) },
+})
 const authStore = useAuthStore()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const copy = computed(() => monitorRoleMessages(locale.value))
+const roleCopy = computed(() => roleMessages(locale.value))
+const telemetryLoading = ref(false)
+const retryingSources = ref<GovernanceResourceKey[]>([])
+let requestEpoch = 0
+const identityKey = computed(() => JSON.stringify([authStore.user?.id, authStore.user?.userId, authStore.user?.rawRoles]))
 const selectedConversationId = ref('')
 const governanceSnapshot = ref<GovernanceSnapshot | null>(null)
 const governanceLoading = ref(false)
@@ -273,41 +288,94 @@ function latencyClass(latencyMs: number, status: ConversationLog['status']) {
   return 'text-text-primary'
 }
 
-async function loadGovernance() {
-  governanceLoading.value = true
-  governanceError.value = false
+async function loadGovernance(key?: GovernanceResourceKey) {
+  if (!authStore.isAdmin || governanceLoading.value || (key && retryingSources.value.includes(key))) return
+  const epoch = requestEpoch
+  const identity = identityKey.value
+  if (key) retryingSources.value.push(key)
+  else governanceLoading.value = true
+  const current = () => epoch === requestEpoch && identity === identityKey.value && authStore.isAdmin
   try {
-    governanceSnapshot.value = await getGovernanceSnapshot()
-  } catch {
-    governanceError.value = true
+    const next = await getGovernanceSnapshot(key ? [key] : undefined)
+    if (!current()) return
+    if (key && governanceSnapshot.value) {
+      Object.assign(governanceSnapshot.value, { [key]: next[key] })
+      governanceSnapshot.value.resources[key] = next.resources[key]
+    } else governanceSnapshot.value = next
+    governanceError.value = Object.values(governanceSnapshot.value.resources).some((state) => state !== 'available')
   } finally {
-    governanceLoading.value = false
+    if (current()) {
+      if (key) retryingSources.value = retryingSources.value.filter((item) => item !== key)
+      else governanceLoading.value = false
+    }
   }
 }
 
-onMounted(async () => {
-  await Promise.allSettled([
-    difyStore.loadSurface({ includeProviderTelemetry: authStore.isAdmin }),
-    loadGovernance(),
+async function loadTelemetry() {
+  if (!authStore.isAdmin || telemetryLoading.value) return
+  const epoch = requestEpoch
+  const identity = identityKey.value
+  telemetryLoading.value = true
+  const results = await Promise.allSettled([
+    difyApi.listMonitorMetrics({ includeProviderTelemetry: true }),
+    difyApi.listConversationLogs({ includeProviderTelemetry: true }),
   ])
+  if (epoch !== requestEpoch || identity !== identityKey.value || !authStore.isAdmin) return
+  const [metrics, logs] = results
+  difyStore.metrics = metrics.status === 'fulfilled' ? metrics.value : []
+  difyStore.conversations = logs.status === 'fulfilled' ? logs.value : []
+  difyStore.metricsAvailable = metrics.status === 'fulfilled' && metrics.value.every((item) => item.value !== '--')
+  difyStore.conversationsAvailable = logs.status === 'fulfilled'
   selectedConversationId.value = difyStore.reviewQueue[0]?.id ?? difyStore.conversations[0]?.id ?? ''
-})
+  telemetryLoading.value = false
+}
+
+function refreshPlatform() {
+  void loadGovernance()
+  void loadTelemetry()
+}
+
+watch(identityKey, () => {
+  requestEpoch += 1
+  governanceSnapshot.value = null
+  governanceLoading.value = false
+  governanceError.value = false
+  retryingSources.value = []
+  telemetryLoading.value = false
+  difyStore.metrics = []
+  difyStore.conversations = []
+  difyStore.metricsAvailable = false
+  difyStore.conversationsAvailable = false
+  if (authStore.isAdmin) refreshPlatform()
+}, { immediate: true })
+onBeforeUnmount(() => { requestEpoch += 1 })
 </script>
 
 <template>
-  <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
-    <header class="flex items-center border-b border-app-border bg-white px-5">
+  <section v-if="!authStore.isAdmin" class="p-8" role="status">
+    <h1 class="text-lg font-semibold">{{ roleCopy.adminRequired }}</h1>
+    <RouterLink to="/home" class="mt-4 inline-block text-primary underline">{{ roleCopy.backHome }}</RouterLink>
+  </section>
+  <section v-else class="grid h-full grid-rows-[auto_minmax(0,1fr)]">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border bg-white px-5 py-3">
       <div class="flex items-center gap-2">
         <BarChart3 class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">{{ t('monitor.title') }}</p>
-          <p class="text-xs text-text-muted">{{ t('monitor.subtitle') }}</p>
+          <p class="text-sm font-semibold text-text-primary">{{ copy.title }}</p>
+          <p class="text-xs text-text-muted">{{ copy.subtitle }}</p>
         </div>
+      </div>
+      <div class="flex items-center gap-3 text-sm">
+        <RouterLink to="/home" class="text-primary underline">{{ roleCopy.home }}</RouterLink>
+        <RouterLink to="/models" class="text-primary underline">{{ roleCopy.serviceManagement }}</RouterLink>
+        <button type="button" class="rounded border border-app-border px-3 py-1.5 disabled:opacity-50" :disabled="governanceLoading || telemetryLoading || retryingSources.length > 0" @click="refreshPlatform">{{ copy.refresh }}</button>
       </div>
     </header>
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="grid min-h-full w-full grid-rows-[auto_minmax(0,1fr)] gap-4">
+        <p class="text-xs text-text-muted">{{ roleCopy.adminScope }}</p>
+        <p v-if="!telemetryLoading && (!difyStore.metricsAvailable || !difyStore.conversationsAvailable)" role="status" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{{ copy.unavailableTelemetry }}</p>
         <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
             <div class="flex items-center gap-2 text-text-muted">
@@ -325,7 +393,7 @@ onMounted(async () => {
               <p class="text-sm font-semibold text-text-primary">{{ t('monitor.governance.title') }}</p>
               <p class="mt-1 text-xs text-text-muted">{{ t('monitor.governance.subtitle') }}</p>
             </div>
-            <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-1.5 text-xs font-medium text-text-secondary hover:border-primary/30 hover:text-primary disabled:opacity-60" :disabled="governanceLoading" @click="loadGovernance">
+            <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-1.5 text-xs font-medium text-text-secondary hover:border-primary/30 hover:text-primary disabled:opacity-60" :disabled="governanceLoading || retryingSources.length > 0" @click="loadGovernance()">
               <TrendingUp class="h-3.5 w-3.5" :class="governanceLoading ? 'animate-pulse' : ''" />
               {{ t('common.refresh') }}
             </button>
@@ -333,6 +401,12 @@ onMounted(async () => {
           <p v-if="governanceError" class="mt-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs text-status-error" role="alert">
             {{ t('monitor.governance.loadFailed') }}
           </p>
+          <ul v-if="governanceSnapshot" class="mt-3 grid gap-2 text-xs md:grid-cols-2" aria-label="Service data availability">
+            <li v-for="key in governanceResourceKeys" :key="key" class="flex items-center justify-between gap-2 rounded border border-app-border p-2" :data-source="key">
+              <span>{{ copy.resources[key] }} · {{ copy[governanceSnapshot.resources[key] ?? 'unavailable'] }}</span>
+              <button v-if="governanceSnapshot.resources[key] !== 'available'" type="button" class="shrink-0 text-primary underline disabled:opacity-50" :disabled="governanceLoading || retryingSources.includes(key)" @click="loadGovernance(key)">{{ retryingSources.includes(key) ? t('common.loading') : copy.retry }}</button>
+            </li>
+          </ul>
           <div v-if="governanceLoading" class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-busy="true">
             <div v-for="index in 4" :key="index" class="h-32 animate-pulse rounded-md bg-app-bg2" />
           </div>
@@ -375,6 +449,8 @@ onMounted(async () => {
                 <span class="text-xs text-text-muted">{{ t('monitor.eventCount', { count: monitorEventRows.length }) }}</span>
               </div>
 
+              <p v-if="telemetryLoading" role="status" class="p-3 text-sm text-text-muted">{{ copy.loading }}</p>
+              <p v-else-if="difyStore.conversationsAvailable && monitorEventRows.length === 0" role="status" class="p-3 text-sm text-text-muted">{{ copy.noEvents }}</p>
               <div class="space-y-3">
               <button
                 v-for="log in monitorEventRows"

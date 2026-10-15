@@ -22,7 +22,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-vue-next'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -39,7 +39,9 @@ import { useSettingsStore } from '@/stores/settingsStore'
 import type { SettingsModelProvider, WorkspaceMember, WorkspaceSettings } from '@/types/settings'
 import { formatTime } from '@/utils/localeFormat'
 import { getStoredTimezone, setStoredTimezone } from '@/i18n/locale'
+import { defaultProductPath } from '@/product/roleCapabilities'
 import { safeInternalRedirect } from '@/utils/safeRedirectPath'
+import { settingsRoleMessage, type SettingsRoleMessage } from './settingsRoleMessages'
 
 type SettingsTab = 'provider' | 'members' | 'billing' | 'data-source' | 'api' | 'custom' | 'language'
 
@@ -51,7 +53,15 @@ const fileStore = useFileStore()
 const modelStore = useModelStore()
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const roleText = (key: SettingsRoleMessage, params?: Record<string, string>) => settingsRoleMessage(locale.value, key, params)
+const accessNotice = ref<SettingsRoleMessage | null>(null)
+let sessionGeneration = 0
+let mounted = false
+let resourceGeneration = 0
+let loadingResourceTab: SettingsTab | null = null
+const resourcesLoading = ref(false)
+const resourcesFailed = ref(false)
 
 const validTabs: SettingsTab[] = ['provider', 'members', 'billing', 'data-source', 'api', 'custom', 'language']
 const providerSearch = ref('')
@@ -87,6 +97,8 @@ const providerConfigForm = ref({
 const showMemberDialog = ref(false)
 const memberSaving = ref(false)
 const memberError = ref('')
+const memberMessage = ref('')
+const memberBusyIds = ref<string[]>([])
 const memberForm = ref({
   name: '',
   email: '',
@@ -111,6 +123,7 @@ const vectorStoreLoading = ref(false)
 const vectorStoreSaving = ref(false)
 const vectorStoreTesting = ref(false)
 const vectorStoreMessage = ref('')
+const vectorStoreLoadFailed = ref(false)
 const vectorStoreConfig = ref<VectorStoreConfig | null>(null)
 const vectorStoreForm = ref({
   enabled: false,
@@ -141,21 +154,39 @@ const timezoneOptions = [
 ] as const
 
 const memberRoleOptions: WorkspaceMember['role'][] = ['Owner', 'Admin', 'Operator', 'Viewer']
-const adminOnlyTabs = new Set<SettingsTab>(['members', 'billing', 'custom'])
-const canManageAdminSettings = computed(() => authStore.isAdmin)
-const visibleWorkspaceNav = computed(() => workspaceNav.filter((item) => (
-  canManageAdminSettings.value || !adminOnlyTabs.has(item.id)
-)))
+const adminOnlyTabs = new Set<SettingsTab>(['provider', 'members', 'billing', 'custom'])
+const canManageAdminSettings = computed(() => authStore.isAuthenticated && authStore.isAdmin)
+const capabilityNav = workspaceNav.filter((item) => !adminOnlyTabs.has(item.id))
+const visibleAdminNav = computed(() => canManageAdminSettings.value ? workspaceNav.filter((item) => adminOnlyTabs.has(item.id)) : [])
 
 function readRouteTab(): SettingsTab {
-  const tab = String(route.query.tab ?? 'provider')
-  if (!validTabs.includes(tab as SettingsTab) || (!canManageAdminSettings.value && adminOnlyTabs.has(tab as SettingsTab))) {
-    return 'provider'
+  const tab = String(route.query.tab ?? (canManageAdminSettings.value ? 'provider' : 'language'))
+  if (!validTabs.includes(tab as SettingsTab)) {
+    accessNotice.value = 'invalidTab'
+    return 'language'
+  }
+  if (!canManageAdminSettings.value && adminOnlyTabs.has(tab as SettingsTab)) {
+    accessNotice.value = 'denied'
+    return 'language'
   }
   return tab as SettingsTab
 }
 
 const activeTab = ref<SettingsTab>(readRouteTab())
+
+function syncRouteTab() {
+  activeTab.value = readRouteTab()
+  if (route.query.tab && route.query.tab !== activeTab.value) {
+    void router.replace({ path: '/settings', query: { ...route.query, tab: activeTab.value } })
+  }
+}
+
+function requireAdminAction() {
+  if (canManageAdminSettings.value && authStore.isAuthenticated) return true
+  accessNotice.value = 'denied'
+  activeTab.value = 'language'
+  return false
+}
 
 watch(timezone, (value) => {
   setStoredTimezone(value)
@@ -369,12 +400,12 @@ const dataAccessCards = computed(() => [
     titleKey: 'settings.dataAccessVectorStore',
     detailKey: 'settings.dataAccessVectorStoreHint',
     endpoint: `${runtimeEnv.apiBase}/knowledge/vector-stores`,
-    status: vectorStoreForm.value.enabled ? 'configured' : 'disabled',
-    value: vectorStoreForm.value.enabled ? 'Qdrant' : t('settings.statusLabels.disabled'),
+    status: vectorStoreConfig.value?.enabled ? 'configured' : 'disabled',
+    value: vectorStoreConfig.value?.enabled ? 'Qdrant' : t('settings.statusLabels.disabled'),
     valueLabelKey: 'settings.dataAccessState',
     icon: Server,
   },
-])
+].filter((card) => card.titleKey !== 'settings.dataAccessVectorStore' || (canManageAdminSettings.value && Boolean(vectorStoreConfig.value))))
 
 const dataPipelineCards = computed(() => [
   {
@@ -477,12 +508,18 @@ const developerEndpointCards = computed(() => [
 ])
 
 function selectTab(tab: SettingsTab) {
+  accessNotice.value = null
+  if (adminOnlyTabs.has(tab) && !requireAdminAction()) return
   activeTab.value = tab
   void router.replace({ path: '/settings', query: { ...route.query, tab } })
 }
 
 function closeSettings() {
-  void router.push(safeInternalRedirect(route.query.from))
+  const fallback = defaultProductPath(authStore.isAdmin)
+  const target = safeInternalRedirect(route.query.from, fallback)
+  const destination = router.resolve(target)
+  const unusable = destination.matched.length === 0 || ['/settings', '/login', '/auth/oauth/callback', '/entry'].includes(destination.path)
+  void router.push(unusable ? fallback : target)
 }
 
 function markSaved() {
@@ -495,15 +532,19 @@ async function retrySettingsLoad() {
 }
 
 async function saveSettings() {
-  if (workspaceSaving.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || workspaceSaving.value || settingsStore.loading || !settingsStore.workspace) return
   workspaceSaveError.value = ''
   workspaceSaving.value = true
   try {
     await settingsStore.saveWorkspace({ ...workspaceDraft })
+    if (session !== sessionGeneration) return
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     workspaceSaveError.value = error instanceof Error ? error.message : t('common.error')
   } finally {
+    if (session !== sessionGeneration) return
     workspaceSaving.value = false
   }
 }
@@ -511,12 +552,13 @@ async function saveSettings() {
 watch(
   () => settingsStore.workspace,
   (workspace) => {
-    if (workspace) Object.assign(workspaceDraft, workspace)
+    Object.assign(workspaceDraft, workspace ?? { name: '', slug: '', region: '', environment: 'dev', defaultTimeoutMin: 45, retentionDays: 30 })
   },
   { immediate: true },
 )
 
 function openDefaultModelSettings() {
+  if (!requireAdminAction()) return
   showDefaultModelSettings.value = true
 }
 
@@ -530,6 +572,7 @@ function openModelRuntime() {
 }
 
 function installProvider(providerId: string) {
+  if (!requireAdminAction()) return
   const provider = settingsStore.modelProviders.find((item) => item.id === providerId)
   if (provider) {
     openProviderConfig(provider)
@@ -537,6 +580,7 @@ function installProvider(providerId: string) {
 }
 
 function openProviderConfig(provider: SettingsModelProvider) {
+  if (!requireAdminAction()) return
   selectedProvider.value = provider
   providerConfigForm.value = {
     enabled: provider.enabled,
@@ -553,10 +597,12 @@ function closeProviderConfig() {
   showProviderConfigDialog.value = false
   selectedProvider.value = null
   providerConfigError.value = ''
+  providerConfigForm.value.apiKey = ''
 }
 
 async function saveProviderConfig() {
-  if (!selectedProvider.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || !selectedProvider.value || providerConfigSaving.value) return
   providerConfigSaving.value = true
   providerConfigError.value = ''
   try {
@@ -567,12 +613,16 @@ async function saveProviderConfig() {
       baseUrl: providerConfigForm.value.baseUrl.trim(),
       defaultModel: providerConfigForm.value.defaultModel.trim(),
     })
+    if (session !== sessionGeneration) return
     markSaved()
     showProviderConfigDialog.value = false
     selectedProvider.value = null
+    providerConfigForm.value.apiKey = ''
   } catch (error) {
+    if (session !== sessionGeneration) return
     providerConfigError.value = error instanceof Error ? error.message : t('settings.providerConfigFailed')
   } finally {
+    if (session !== sessionGeneration) return
     providerConfigSaving.value = false
   }
 }
@@ -582,6 +632,7 @@ function providerActionLabel(provider: SettingsModelProvider) {
 }
 
 function openMemberDialog() {
+  if (!requireAdminAction()) return
   memberForm.value = {
     name: '',
     email: '',
@@ -598,6 +649,8 @@ function closeMemberDialog() {
 }
 
 async function saveMember() {
+  const session = sessionGeneration
+  if (!requireAdminAction() || memberSaving.value) return
   const name = memberForm.value.name.trim()
   const email = memberForm.value.email.trim()
   if (!name || !email) {
@@ -613,42 +666,70 @@ async function saveMember() {
       email,
       role: memberForm.value.role,
     })
+    if (session !== sessionGeneration) return
     markSaved()
     showMemberDialog.value = false
+    memberMessage.value = roleText('memberSaved')
+    memberForm.value = { name: '', email: '', role: 'Operator' }
   } catch (error) {
+    if (session !== sessionGeneration) return
     memberError.value = error instanceof Error ? error.message : t('settings.memberFormFailed')
   } finally {
+    if (session !== sessionGeneration) return
     memberSaving.value = false
   }
 }
 
 async function changeMemberRole(member: WorkspaceMember, event: Event) {
+  const session = sessionGeneration
+  if (!requireAdminAction() || memberBusyIds.value.includes(member.id)) return
   const target = event.target as HTMLSelectElement | null
   const role = target?.value as WorkspaceMember['role']
   if (!role || role === member.role) return
+  memberBusyIds.value = [...memberBusyIds.value, member.id]
+  memberError.value = ''
+  memberMessage.value = ''
   try {
     await settingsStore.updateWorkspaceMember(member.id, { role })
+    if (session !== sessionGeneration) return
+    memberMessage.value = roleText('memberUpdated')
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
+    if (target) target.value = member.role
     memberError.value = error instanceof Error ? error.message : t('settings.roleUpdateFailed')
+  } finally {
+    if (session !== sessionGeneration) return
+    memberBusyIds.value = memberBusyIds.value.filter((id) => id !== member.id)
   }
 }
 
 async function removeMember(member: WorkspaceMember) {
-  if (member.role === 'Owner') return
-  if (!window.confirm(t('settings.deleteMemberConfirm', { name: member.name }))) {
+  const session = sessionGeneration
+  if (!requireAdminAction() || memberBusyIds.value.includes(member.id)) return
+  if (!window.confirm(roleText('deleteMemberConfirm', { name: member.name }))) {
     return
   }
+  memberBusyIds.value = [...memberBusyIds.value, member.id]
+  memberError.value = ''
+  memberMessage.value = ''
   try {
     await settingsStore.deleteWorkspaceMember(member.id)
+    if (session !== sessionGeneration) return
+    memberMessage.value = roleText('memberRemoved')
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     memberError.value = error instanceof Error ? error.message : t('settings.memberDeleteFailed')
+  } finally {
+    if (session !== sessionGeneration) return
+    memberBusyIds.value = memberBusyIds.value.filter((id) => id !== member.id)
   }
 }
 
 async function saveTelegramIntegration() {
-  if (telegramSaving.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || telegramSaving.value || telegramTesting.value) return
   telegramSaving.value = true
   telegramMessage.value = ''
   try {
@@ -657,36 +738,48 @@ async function saveTelegramIntegration() {
       botToken: telegramForm.value.botToken.trim() || null,
       chatId: telegramForm.value.chatId.trim(),
     })
+    if (session !== sessionGeneration) return
     telegramForm.value.botToken = ''
     telegramMessage.value = t('settings.telegramSaved')
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     telegramMessage.value = error instanceof Error ? error.message : t('settings.telegramSaveFailed')
   } finally {
+    if (session !== sessionGeneration) return
     telegramSaving.value = false
   }
 }
 
 async function testTelegramIntegration() {
-  if (telegramTesting.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || telegramTesting.value || telegramSaving.value || !settingsStore.telegramIntegration?.enabled) return
   telegramTesting.value = true
   telegramMessage.value = ''
   try {
-    await settingsStore.testTelegramIntegration()
+    const response = await settingsStore.testTelegramIntegration()
+    if (session !== sessionGeneration) return
+    if (response.success !== true) throw new Error(response.message || roleText('testFailed'))
     telegramMessage.value = t('settings.telegramTestSent')
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     telegramMessage.value = error instanceof Error ? error.message : t('settings.telegramTestFailed')
   } finally {
+    if (session !== sessionGeneration) return
     telegramTesting.value = false
   }
 }
 
 async function loadVectorStoreConfig() {
+  const session = sessionGeneration
+  if (!requireAdminAction() || vectorStoreLoading.value || vectorStoreSaving.value || vectorStoreTesting.value) return
+  vectorStoreLoadFailed.value = false
   vectorStoreLoading.value = true
   vectorStoreMessage.value = ''
   try {
     const config = await settingsApi.getVectorStoreConfig()
+    if (session !== sessionGeneration) return
     vectorStoreConfig.value = config
     vectorStoreForm.value = {
       enabled: Boolean(config.enabled),
@@ -696,13 +789,18 @@ async function loadVectorStoreConfig() {
       apiKey: '',
     }
   } catch (error) {
+    if (session !== sessionGeneration) return
+    vectorStoreLoadFailed.value = true
+    vectorStoreConfig.value = null
     vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreLoadFailed')
   } finally {
+    if (session !== sessionGeneration) return
     vectorStoreLoading.value = false
   }
 }
 
 async function testUrlFetch() {
+  const session = sessionGeneration
   if (urlFetchTesting.value) return
   const url = urlFetchForm.value.url.trim()
   if (!url) {
@@ -713,15 +811,18 @@ async function testUrlFetch() {
   urlFetchMessage.value = ''
   urlFetchResult.value = null
   try {
-    urlFetchResult.value = await settingsApi.fetchUrl({
+    const result = await settingsApi.fetchUrl({
       url,
       maxChars: Math.max(1000, Math.floor(urlFetchForm.value.maxChars || 20000)),
     })
+    if (session !== sessionGeneration) return
+    urlFetchResult.value = result
     urlFetchMessage.value = t('settings.urlFetchSuccess')
-    markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     urlFetchMessage.value = error instanceof Error ? error.message : t('settings.urlFetchFailed')
   } finally {
+    if (session !== sessionGeneration) return
     urlFetchTesting.value = false
   }
 }
@@ -737,32 +838,41 @@ function vectorStorePayload() {
 }
 
 async function testVectorStore() {
-  if (vectorStoreTesting.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || vectorStoreTesting.value || vectorStoreSaving.value || vectorStoreLoading.value || !vectorStoreConfig.value) return
   vectorStoreTesting.value = true
   vectorStoreMessage.value = ''
   try {
     const response = await settingsApi.testVectorStoreConfig(vectorStorePayload())
+    if (session !== sessionGeneration) return
+    if (response.success !== true) throw new Error(response.message || roleText('testFailed'))
     vectorStoreMessage.value = response.message || t('settings.vectorStoreTestSuccess')
   } catch (error) {
+    if (session !== sessionGeneration) return
     vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreTestFailed')
   } finally {
+    if (session !== sessionGeneration) return
     vectorStoreTesting.value = false
   }
 }
 
 async function saveVectorStore() {
-  if (vectorStoreSaving.value) return
+  const session = sessionGeneration
+  if (!requireAdminAction() || vectorStoreSaving.value || vectorStoreTesting.value || vectorStoreLoading.value || !vectorStoreConfig.value) return
   vectorStoreSaving.value = true
   vectorStoreMessage.value = ''
   try {
     const config = await settingsApi.saveVectorStoreConfig(vectorStorePayload())
+    if (session !== sessionGeneration) return
     vectorStoreConfig.value = config
     vectorStoreForm.value.apiKey = ''
     vectorStoreMessage.value = t('settings.vectorStoreSaved')
     markSaved()
   } catch (error) {
+    if (session !== sessionGeneration) return
     vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreSaveFailed')
   } finally {
+    if (session !== sessionGeneration) return
     vectorStoreSaving.value = false
   }
 }
@@ -787,29 +897,107 @@ function providerAvatarClass(provider: SettingsModelProvider) {
     : 'bg-primary/10 text-primary ring-primary/20'
 }
 
+function clearSessionDrafts() {
+  sessionGeneration += 1
+  resourceGeneration += 1
+  resourcesLoading.value = false
+  resourcesFailed.value = false
+  loadingResourceTab = null
+  savedAt.value = ''
+  workspaceSaving.value = false
+  workspaceSaveError.value = ''
+  showDefaultModelSettings.value = false
+  showProviderConfigDialog.value = false
+  selectedProvider.value = null
+  providerConfigSaving.value = false
+  providerConfigError.value = ''
+  providerConfigForm.value = { enabled: false, apiKey: '', baseUrl: '', defaultModel: '' }
+  showMemberDialog.value = false
+  memberSaving.value = false
+  memberBusyIds.value = []
+  memberError.value = ''
+  memberMessage.value = ''
+  memberForm.value = { name: '', email: '', role: 'Operator' }
+  telegramSaving.value = false
+  telegramTesting.value = false
+  telegramMessage.value = ''
+  telegramForm.value = { enabled: false, botToken: '', chatId: '' }
+  vectorStoreLoading.value = false
+  vectorStoreSaving.value = false
+  vectorStoreTesting.value = false
+  vectorStoreLoadFailed.value = false
+  vectorStoreMessage.value = ''
+  vectorStoreConfig.value = null
+  vectorStoreForm.value = { enabled: false, provider: 'qdrant', baseUrl: '', collection: '', apiKey: '' }
+  urlFetchTesting.value = false
+  urlFetchMessage.value = ''
+  urlFetchResult.value = null
+  urlFetchForm.value = { url: 'https://example.com', maxChars: 20000 }
+  providerSearch.value = ''
+}
+
+async function loadTabResources() {
+  if (!mounted || !authStore.isAuthenticated || (resourcesLoading.value && loadingResourceTab === activeTab.value)) return
+  const session = sessionGeneration
+  const request = ++resourceGeneration
+  loadingResourceTab = activeTab.value
+  resourcesFailed.value = false
+  const requests: Promise<unknown>[] = []
+  if (activeTab.value === 'data-source' || activeTab.value === 'billing') {
+    requests.push(projectStore.loadProjects(), fileStore.loadFiles())
+  }
+  if (canManageAdminSettings.value && activeTab.value === 'billing') {
+    requests.push(runStore.loadRuns({ selectDefault: false }), modelStore.error
+      ? modelStore.refreshStatus({ management: true })
+      : modelStore.loadModels({ management: true }))
+  }
+  if (canManageAdminSettings.value && activeTab.value === 'data-source') {
+    requests.push(loadVectorStoreConfig())
+  }
+  resourcesLoading.value = requests.length > 0
+  const results = await Promise.allSettled(requests)
+  if (session !== sessionGeneration || request !== resourceGeneration) return
+  resourcesLoading.value = false
+  resourcesFailed.value = results.some((result) => result.status === 'rejected') || (
+    ['data-source', 'billing'].includes(activeTab.value) && Boolean(projectStore.loadError || fileStore.loadError)
+  ) || (activeTab.value === 'billing' && Boolean(runStore.error || modelStore.error))
+}
+
 onMounted(() => {
+  mounted = true
   setStoredTimezone(timezone.value)
-  void Promise.allSettled([
-    settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value }),
-    projectStore.loadProjects(),
-    runStore.loadRuns({ selectDefault: false }),
-    fileStore.loadFiles(),
-    modelStore.loadModels(),
-    canManageAdminSettings ? loadVectorStoreConfig() : Promise.resolve(),
-  ])
+  syncRouteTab()
+  void settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value })
+  loadTabResources()
 })
 
+onBeforeUnmount(() => {
+  mounted = false
+  clearSessionDrafts()
+})
+
+watch(() => route.query.tab, syncRouteTab)
+watch(activeTab, loadTabResources)
 watch(
-  () => route.query.tab,
+  () => JSON.stringify([authStore.user?.id, authStore.user?.userId, authStore.user?.username, canManageAdminSettings.value, authStore.isAuthenticated]),
   () => {
-    activeTab.value = readRouteTab()
+    clearSessionDrafts()
+    syncRouteTab()
+    if (mounted && authStore.isAuthenticated) {
+      void settingsStore.loadSettings({ includeAdmin: canManageAdminSettings.value })
+      loadTabResources()
+    }
   },
+  { flush: 'sync' },
 )
 
 watch(
   () => settingsStore.telegramIntegration,
   (integration) => {
-    if (!integration) return
+    if (!integration) {
+      telegramForm.value = { enabled: false, botToken: '', chatId: '' }
+      return
+    }
     telegramForm.value = {
       enabled: integration.enabled,
       botToken: '',
@@ -837,9 +1025,11 @@ watch(
           {{ t('settings.savedAt') }}: {{ savedAt }}
         </span>
         <button
+          v-if="canManageAdminSettings && activeTab === 'custom'"
+          data-action="save-workspace"
           type="button"
           class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-          :disabled="workspaceSaving"
+          :disabled="workspaceSaving || settingsStore.loading || !settingsStore.workspace"
           @click="saveSettings"
         >
           <Save class="h-4 w-4" />
@@ -849,13 +1039,13 @@ watch(
           type="button"
           class="inline-flex h-9 items-center gap-2 rounded-md border border-app-border bg-white px-2.5 text-sm text-text-secondary transition hover:text-text-primary"
           :title="`${t('settings.close')} (${t('settings.closeShortcut')})`"
+          data-action="close-settings"
           @click="closeSettings"
         >
           <X class="h-4 w-4" />
           <span class="hidden md:inline">{{ t('settings.close') }}</span>
         </button>
       </div>
-      <p v-if="workspaceSaveError" role="alert" class="mt-2 text-xs font-medium text-status-error">{{ workspaceSaveError }}</p>
       </header>
 
       <main class="grid min-h-0 grid-cols-[232px_minmax(0,1fr)] overflow-hidden max-lg:grid-cols-1">
@@ -872,28 +1062,13 @@ watch(
 
         <nav class="space-y-5">
           <div>
-            <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('settings.workspaceGroup') }}</p>
-            <div class="space-y-1">
-              <button
-                v-for="item in visibleWorkspaceNav"
-                :key="item.id"
-                type="button"
-                class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition"
-                :class="activeTab === item.id ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-app-bg2 hover:text-text-primary'"
-                @click="selectTab(item.id)"
-              >
-                <component :is="item.icon" class="h-4 w-4 shrink-0" />
-                <span class="truncate">{{ t(item.labelKey) }}</span>
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ t('settings.generalGroup') }}</p>
+            <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ roleText('personalGroup') }}</p>
             <div class="space-y-1">
               <button
                 v-for="item in generalNav"
                 :key="item.id"
+                :data-settings-tab="item.id"
+                :aria-current="activeTab === item.id ? 'page' : undefined"
                 type="button"
                 class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition"
                 :class="activeTab === item.id ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-app-bg2 hover:text-text-primary'"
@@ -904,10 +1079,58 @@ watch(
               </button>
             </div>
           </div>
+          <div>
+            <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ roleText('capabilityGroup') }}</p>
+            <div class="space-y-1">
+              <button
+                v-for="item in capabilityNav"
+                :key="item.id"
+                :data-settings-tab="item.id"
+                :aria-current="activeTab === item.id ? 'page' : undefined"
+                type="button"
+                class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition"
+                :class="activeTab === item.id ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-app-bg2 hover:text-text-primary'"
+                @click="selectTab(item.id)"
+              >
+                <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                <span class="truncate">{{ t(item.labelKey) }}</span>
+              </button>
+            </div>
+          </div>
+
+          <div v-if="visibleAdminNav.length">
+            <p class="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-text-muted">{{ roleText('adminGroup') }}</p>
+            <div class="space-y-1">
+              <button
+                v-for="item in visibleAdminNav"
+                :key="item.id"
+                :data-settings-tab="item.id"
+                :aria-current="activeTab === item.id ? 'page' : undefined"
+                type="button"
+                class="flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition"
+                :class="activeTab === item.id ? 'bg-primary-soft text-primary' : 'text-text-secondary hover:bg-app-bg2 hover:text-text-primary'"
+                @click="selectTab(item.id)"
+              >
+                <component :is="item.icon" class="h-4 w-4 shrink-0" />
+                <span class="truncate">{{ item.id === 'members' ? roleText('membersTitle') : t(item.labelKey) }}</span>
+              </button>
+            </div>
+          </div>
+
         </nav>
       </aside>
 
       <section class="min-h-0 overflow-y-auto p-5 max-sm:p-3">
+        <p v-if="workspaceSaveError && activeTab === 'custom'" role="alert" class="mb-4 rounded-md border border-status-error/30 bg-red-50 p-3 text-sm text-status-error">{{ workspaceSaveError }}</p>
+        <p v-if="accessNotice" data-testid="settings-access-notice" role="status" class="mb-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm leading-6 text-text-secondary">{{ roleText(accessNotice) }}</p>
+        <p v-if="settingsStore.loading" role="status" class="mb-4 text-sm text-text-muted">{{ roleText('loading') }}</p>
+        <p v-if="canManageAdminSettings && adminOnlyTabs.has(activeTab)" class="mb-4 rounded-lg border border-primary/20 bg-primary-soft p-3 text-sm leading-6 text-text-secondary">{{ roleText('adminHint') }}</p>
+        <p v-if="resourcesLoading" role="status" class="mb-4 text-sm text-text-muted">{{ roleText('loading') }}</p>
+        <div v-if="resourcesFailed" data-testid="settings-resource-error" role="status" class="mb-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
+          <p>{{ roleText('resourceLoadFailed') }}</p>
+          <button data-action="retry-settings-resources" type="button" class="mt-2 rounded-md border border-app-border bg-white px-3 py-1.5 text-sm text-primary disabled:opacity-60" :disabled="resourcesLoading" @click="loadTabResources">{{ t('common.retry') }}</button>
+        </div>
+        <p v-if="activeTab === 'billing' || activeTab === 'data-source'" class="mb-4 text-xs leading-5 text-text-muted">{{ roleText('snapshotHint') }}</p>
         <div v-if="settingsStore.loadErrorCount > 0" role="status" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
           <span>{{ t('settings.partialLoadWarning') }}</span>
           <button
@@ -920,7 +1143,7 @@ watch(
             {{ settingsStore.loading ? t('common.loading') : t('common.retry') }}
           </button>
         </div>
-        <div v-if="activeTab === 'provider'" class="space-y-4">
+        <div v-if="activeTab === 'provider' && canManageAdminSettings" class="space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p class="text-lg font-semibold text-text-primary">{{ t('settings.modelProvidersTitle') }}</p>
@@ -995,6 +1218,7 @@ watch(
                     v-if="canManageAdminSettings"
                     type="button"
                     class="inline-flex h-8 items-center gap-1.5 rounded-md border border-app-border bg-white px-3 text-xs font-medium text-text-secondary transition hover:text-primary"
+                    :data-provider-config="provider.providerKey"
                     @click="openProviderConfig(provider)"
                   >
                     <KeyRound class="h-3.5 w-3.5" />
@@ -1068,10 +1292,10 @@ watch(
           </section>
         </div>
 
-        <div v-else-if="activeTab === 'members'" class="space-y-4">
+        <div v-else-if="activeTab === 'members' && canManageAdminSettings" class="space-y-4">
           <div>
-            <p class="text-lg font-semibold text-text-primary">{{ t('settings.membersTitle') }}</p>
-            <p class="mt-1 text-sm text-text-secondary">{{ t('settings.membersHint') }}</p>
+            <p class="text-lg font-semibold text-text-primary">{{ roleText('membersTitle') }}</p>
+            <p class="mt-1 text-sm text-text-secondary">{{ roleText('membersHint') }}</p>
           </div>
 
           <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
@@ -1086,7 +1310,7 @@ watch(
                     <Edit3 class="h-4 w-4 text-text-muted" />
                   </div>
                   <p class="mt-1 text-sm text-text-secondary">
-                    {{ t('settings.memberQuota') }} {{ settingsStore.members.length }} / 10
+                    {{ roleText('memberLimit') }} {{ settingsStore.members.length }}
                   </p>
                 </div>
               </div>
@@ -1095,20 +1319,24 @@ watch(
                   v-if="canManageAdminSettings"
                   type="button"
                   class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+                  data-action="add-member-record"
                   @click="openMemberDialog"
                 >
                   <Plus class="h-4 w-4" />
-                  {{ t('settings.addMember') }}
+                  {{ roleText('addMember') }}
                 </button>
               </div>
             </div>
           </section>
 
+          <p v-if="memberError && !showMemberDialog" role="alert" class="rounded-md border border-status-error/30 bg-red-50 p-3 text-sm text-status-error">{{ memberError }}</p>
+          <p v-if="memberMessage" role="status" class="rounded-md border border-primary/20 bg-primary-soft p-3 text-sm text-text-secondary">{{ memberMessage }}</p>
+
           <section class="overflow-x-auto rounded-lg border border-app-border bg-white shadow-sm">
             <div class="grid min-w-[760px] grid-cols-[minmax(0,1.5fr)_160px_180px_96px] bg-app-bg2 px-4 py-2 text-xs font-semibold text-text-muted">
               <span>{{ t('settings.name') }}</span>
-              <span>{{ t('settings.lastSeen') }}</span>
-              <span>{{ t('settings.role') }}</span>
+              <span>{{ roleText('memberActivity') }}</span>
+              <span>{{ roleText('memberRole') }}</span>
               <span class="text-right">{{ t('settings.memberActions') }}</span>
             </div>
             <div
@@ -1130,31 +1358,35 @@ watch(
                 <select
                   class="h-8 rounded-md border border-app-border bg-white px-2 text-xs text-text-secondary outline-none focus:border-primary"
                   :value="member.role"
+                  :aria-label="`${member.name}: ${roleText('memberRole')}`"
+                  :disabled="memberBusyIds.includes(member.id)"
+                  :data-member-role="member.id"
                   @change="changeMemberRole(member, $event)"
                 >
                   <option v-for="role in memberRoleOptions" :key="role" :value="role">
                     {{ t(`settings.roles.${role.toLowerCase()}`) }}
                   </option>
                 </select>
-                <StatusDot :tone="member.status === 'active' ? 'online' : 'degraded'" :label="member.status" />
+                <StatusDot :tone="member.status === 'active' ? 'online' : 'degraded'" :label="member.status === 'active' ? roleText('statusActive') : roleText('statusInvited')" />
               </div>
               <button
                 type="button"
                 class="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-app-border bg-white px-2.5 text-xs font-medium text-text-secondary transition hover:border-status-error/50 hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="member.role === 'Owner'"
+                :disabled="memberBusyIds.includes(member.id)"
+                :data-member-remove="member.id"
                 @click="removeMember(member)"
               >
                 <Trash2 class="h-3.5 w-3.5" />
-                {{ t('settings.deleteMember') }}
+                {{ roleText('deleteMember') }}
               </button>
             </div>
             <p v-if="!settingsStore.members.length" class="border-t border-app-border p-6 text-center text-sm text-text-secondary">
-              {{ t('settings.noMembers') }}
+              {{ roleText('memberEmpty') }}
             </p>
           </section>
         </div>
 
-        <div v-else-if="activeTab === 'billing'" class="space-y-4">
+        <div v-else-if="activeTab === 'billing' && canManageAdminSettings" class="space-y-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p class="text-lg font-semibold text-text-primary">{{ t('settings.billingTitle') }}</p>
@@ -1289,6 +1521,7 @@ watch(
         </div>
 
         <div v-else-if="activeTab === 'data-source'" class="space-y-4">
+          <p v-if="!canManageAdminSettings" class="rounded-md border border-primary/20 bg-primary-soft p-3 text-sm leading-6 text-text-secondary">{{ roleText('noAdminConfig') }}</p>
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p class="text-lg font-semibold text-text-primary">{{ t('settings.dataSourcesTitle') }}</p>
@@ -1403,11 +1636,12 @@ watch(
                   <p class="text-sm font-semibold text-text-primary">{{ t('settings.vectorStoreTitle') }}</p>
                   <p class="mt-1 text-xs leading-5 text-text-muted">{{ t('settings.vectorStoreHint') }}</p>
                 </div>
-                <span class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(vectorStoreForm.enabled ? 'configured' : 'disabled')">
-                  {{ vectorStoreForm.enabled ? t('settings.statusLabels.configured') : t('settings.statusLabels.disabled') }}
+                <span v-if="vectorStoreConfig && !vectorStoreLoading" class="rounded-full border px-2 py-0.5 text-xs font-medium" :class="statusBadgeClass(vectorStoreConfig.enabled ? 'configured' : 'disabled')">
+                  {{ vectorStoreConfig.enabled ? t('settings.statusLabels.configured') : t('settings.statusLabels.disabled') }}
                 </span>
+                <span v-else class="text-xs text-text-muted">{{ vectorStoreLoading ? t('common.loading') : t('common.none') }}</span>
               </div>
-              <div class="mt-4 grid gap-3 md:grid-cols-2">
+              <fieldset :disabled="vectorStoreLoading || vectorStoreSaving || vectorStoreTesting || !vectorStoreConfig" class="mt-4 grid gap-3 md:grid-cols-2">
                 <label class="flex items-center gap-2 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-secondary">
                   <input v-model="vectorStoreForm.enabled" type="checkbox" class="h-4 w-4 rounded border-app-border text-primary focus:ring-primary" />
                   {{ t('settings.vectorStoreEnabled') }}
@@ -1446,12 +1680,13 @@ watch(
                     :placeholder="vectorStoreConfig?.apiKeyConfigured ? t('settings.keepExistingApiKey') : t('settings.optional')"
                   />
                 </label>
-              </div>
+              </fieldset>
               <div class="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
                   class="inline-flex h-9 items-center gap-2 rounded-md border border-app-border bg-white px-3 text-sm font-medium text-text-secondary transition hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-60"
-                  :disabled="vectorStoreTesting || vectorStoreLoading"
+                  :disabled="vectorStoreTesting || vectorStoreSaving || vectorStoreLoading || !vectorStoreConfig"
+                  data-action="test-vector-store"
                   @click="testVectorStore"
                 >
                   <Send class="h-4 w-4" />
@@ -1460,14 +1695,16 @@ watch(
                 <button
                   type="button"
                   class="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-                  :disabled="vectorStoreSaving || vectorStoreLoading"
+                  :disabled="vectorStoreSaving || vectorStoreTesting || vectorStoreLoading || !vectorStoreConfig"
+                  data-action="save-vector-store"
                   @click="saveVectorStore"
                 >
                   <Save class="h-4 w-4" />
                   {{ vectorStoreSaving ? t('settings.saving') : t('settings.vectorStoreSave') }}
                 </button>
               </div>
-              <p v-if="vectorStoreMessage" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
+              <button v-if="vectorStoreLoadFailed" data-action="retry-vector-store" type="button" class="mt-3 rounded-md border border-app-border px-3 py-2 text-sm text-primary disabled:opacity-60" :disabled="vectorStoreLoading" @click="loadVectorStoreConfig">{{ roleText('vectorRetry') }}</button>
+              <p v-if="vectorStoreMessage" role="status" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
                 {{ vectorStoreMessage }}
               </p>
             </article>
@@ -1671,14 +1908,14 @@ watch(
           </section>
         </div>
 
-        <div v-else-if="activeTab === 'custom'" class="space-y-4">
+        <div v-else-if="activeTab === 'custom' && canManageAdminSettings" class="space-y-4">
           <div>
             <p class="text-lg font-semibold text-text-primary">{{ t('settings.customizationTitle') }}</p>
             <p class="mt-1 text-sm text-text-secondary">{{ t('settings.customizationHint') }}</p>
           </div>
 
           <section class="rounded-lg border border-app-border bg-white p-5 shadow-sm">
-            <div class="grid gap-4 lg:grid-cols-2">
+            <fieldset :disabled="workspaceSaving || settingsStore.loading || !settingsStore.workspace" class="grid gap-4 lg:grid-cols-2">
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.workspaceName') }}</span>
                 <input v-model.trim="workspaceDraft.name" name="workspace-name" autocomplete="organization" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
@@ -1707,7 +1944,7 @@ watch(
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.artifactRetention') }}</span>
                 <input v-model.number="workspaceDraft.retentionDays" name="workspace-retention" type="number" min="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
-            </div>
+            </fieldset>
           </section>
 
           <section class="grid gap-3 lg:grid-cols-2">
@@ -1730,10 +1967,17 @@ watch(
           </section>
         </div>
 
-        <div v-else class="space-y-4">
+        <div v-else class="space-y-4" data-testid="personal-settings">
+          <section class="rounded-lg border border-primary/20 bg-primary-soft p-5">
+            <p class="text-lg font-semibold text-text-primary">{{ roleText('personalTitle') }}</p>
+            <p class="mt-2 text-sm leading-6 text-text-secondary">{{ roleText('personalHint') }}</p>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <RouterLink v-for="entry in [{ to: '/account', label: 'account' }, { to: '/models', label: 'models' }, { to: '/files', label: 'files' }, { to: '/knowledge', label: 'knowledge' }] as const" :key="entry.to" :to="entry.to" class="rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-primary">{{ roleText(entry.label) }}</RouterLink>
+            </div>
+          </section>
           <div>
             <p class="text-lg font-semibold text-text-primary">{{ t('settings.languageTitle') }}</p>
-            <p class="mt-1 text-sm text-text-secondary">{{ t('settings.languageHint') }}</p>
+            <p class="mt-1 text-sm text-text-secondary">{{ t('settings.languageHint') }} {{ roleText('autoSaved') }}</p>
           </div>
 
           <section class="rounded-lg border border-app-border bg-white p-5 shadow-sm">
@@ -1759,7 +2003,7 @@ watch(
     </div>
 
     <div
-      v-if="showDefaultModelSettings"
+      v-if="showDefaultModelSettings && canManageAdminSettings"
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       @click.self="closeDefaultModelSettings"
     >
@@ -1830,12 +2074,17 @@ watch(
     </div>
 
     <div
-      v-if="showProviderConfigDialog && selectedProvider"
+      v-if="showProviderConfigDialog && selectedProvider && canManageAdminSettings"
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       @click.self="closeProviderConfig"
     >
       <form
         class="w-full max-w-2xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
+        role="dialog"
+        aria-modal="true"
+        data-testid="provider-config-dialog"
+        :aria-label="t('settings.providerConfigTitle', { provider: selectedProvider.name })"
+        :aria-busy="providerConfigSaving"
         @submit.prevent="saveProviderConfig"
       >
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
@@ -1853,7 +2102,7 @@ watch(
           </button>
         </header>
 
-        <div class="space-y-4 p-5">
+        <fieldset :disabled="providerConfigSaving" class="space-y-4 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1916,7 +2165,7 @@ watch(
           <p v-if="providerConfigError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
             {{ providerConfigError }}
           </p>
-        </div>
+        </fieldset>
 
         <footer class="flex flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
           <button
@@ -1938,18 +2187,23 @@ watch(
     </div>
 
     <div
-      v-if="showMemberDialog"
+      v-if="showMemberDialog && canManageAdminSettings"
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       @click.self="closeMemberDialog"
     >
       <form
         class="w-full max-w-xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
+        role="dialog"
+        aria-modal="true"
+        data-testid="member-record-dialog"
+        :aria-label="roleText('addMember')"
+        :aria-busy="memberSaving"
         @submit.prevent="saveMember"
       >
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <div>
-            <p class="text-base font-semibold text-text-primary">{{ t('settings.addMemberTitle') }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('settings.addMemberHint') }}</p>
+            <p class="text-base font-semibold text-text-primary">{{ roleText('addMember') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ roleText('addMemberHint') }}</p>
           </div>
           <button
             type="button"
@@ -1961,7 +2215,7 @@ watch(
           </button>
         </header>
 
-        <div class="space-y-4 p-5">
+        <fieldset :disabled="memberSaving" class="space-y-4 p-5">
           <label class="block">
             <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberName') }}</span>
             <input
@@ -1980,7 +2234,7 @@ watch(
             />
           </label>
           <label class="block">
-            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.memberRole') }}</span>
+            <span class="mb-1 block text-sm font-medium text-text-secondary">{{ roleText('memberRole') }}</span>
             <select
               v-model="memberForm.role"
               class="h-10 w-full rounded-md border border-app-border bg-white px-3 text-sm outline-none focus:border-primary"
@@ -1993,7 +2247,7 @@ watch(
           <p v-if="memberError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
             {{ memberError }}
           </p>
-        </div>
+        </fieldset>
 
         <footer class="flex flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
           <button
@@ -2008,7 +2262,7 @@ watch(
             class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="memberSaving"
           >
-            {{ memberSaving ? t('settings.savingMember') : t('settings.saveMember') }}
+            {{ memberSaving ? roleText('savingMember') : roleText('saveMember') }}
           </button>
         </footer>
       </form>

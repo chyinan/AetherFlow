@@ -9,6 +9,8 @@ export const jaJP = {
   landing: {
     title: '公開ホーム',
     nav: {
+    personalHome: 'マイワークベンチ',
+    adminOverview: '管理の概要',
       workspace: 'マーケット',
       workflow: 'ワークフロー',
       observability: '観測',

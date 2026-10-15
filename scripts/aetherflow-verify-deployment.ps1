@@ -110,7 +110,7 @@ if ($unhealthy.Count -gt 0) {
 $normalizedBaseUrl = $PublicBaseUrl.TrimEnd('/')
 Assert-HttpEndpoint "$normalizedBaseUrl/health"
 Assert-HttpEndpoint "$normalizedBaseUrl/api/actuator/health"
-Assert-HttpEndpoint "$normalizedBaseUrl/api/gateway/status"
+# 平台运维快照需要管理员身份；上面的 Actuator 探针已覆盖网关可用性。
 
 if ($RunPerformanceSmoke) {
     $uri = [Uri]$normalizedBaseUrl

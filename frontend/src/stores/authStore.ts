@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { productCapabilities } from '@/product/roleCapabilities'
 
 import { setUnauthorizedSessionRefresher } from '@/api/client/apiClient'
 import { tokenManager, type AuthSession, type AuthSessionUserSnapshot } from '@/api/client/tokenManager'
@@ -102,14 +103,7 @@ export const useAuthStore = defineStore('auth', {
     roles: (state) => {
       return state.user?.roles ?? []
     },
-    isAdmin: (state) => {
-      const roles = [
-        ...(state.user?.rawRoles ?? []),
-        ...(state.user?.roles ?? []),
-        state.user?.role ?? '',
-      ]
-      return roles.some((role) => ['ADMIN', 'OWNER'].includes(String(role).toUpperCase()))
-    },
+    isAdmin: (state) => productCapabilities(state.user).managePlatform,
   },
   actions: {
     setActiveSession(session: AuthSession | null) {

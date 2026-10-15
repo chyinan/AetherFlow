@@ -81,7 +81,7 @@ async function submitCredentials() {
     } else {
       await authStore.login(form.username.trim(), form.password)
     }
-    await router.push(safeInternalRedirect(route.query.redirect))
+    await router.push(safeInternalRedirect(route.query.redirect, '/entry'))
   } catch {
     errorMessage.value =
       authMode.value === 'register' ? t('auth.registerUnavailable') : t('auth.loginUnavailable')
@@ -89,13 +89,13 @@ async function submitCredentials() {
 }
 
 function submitGithubProvider() {
-  const redirectPath = safeInternalRedirect(route.query.redirect)
+  const redirectPath = safeInternalRedirect(route.query.redirect, '/entry')
   const authorizeUrl = `${runtimeEnv.apiBase}/auth/oauth/github/authorize?redirect=${encodeURIComponent(redirectPath)}`
   window.location.assign(authorizeUrl)
 }
 
 function submitGoogleProvider() {
-  const redirectPath = safeInternalRedirect(route.query.redirect)
+  const redirectPath = safeInternalRedirect(route.query.redirect, '/entry')
   const authorizeUrl = `${runtimeEnv.apiBase}/oauth2/authorization/google?redirect=${encodeURIComponent(redirectPath)}`
   window.location.assign(authorizeUrl)
 }
