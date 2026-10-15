@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Activity, BarChart3, BookOpen, Brain, Building2, FileText, FolderKanban, LayoutDashboard, ShieldCheck, Workflow } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -30,6 +30,25 @@ const route = useRoute()
 const projectStore = useProjectStore()
 const workflowStore = useWorkflowStore()
 const optimisticActiveKey = ref<string | null>(null)
+const tooltip = ref<{ key: string; label: string; left: number; top: number } | null>(null)
+const tooltipElement = ref<HTMLElement | null>(null)
+
+function hideTooltip() {
+  tooltip.value = null
+}
+
+async function showTooltip(event: Event, item: { key: string; label: string }) {
+  if (!(event.currentTarget instanceof HTMLElement)) return
+  const rect = event.currentTarget.getBoundingClientRect()
+  tooltip.value = { key: item.key, label: item.label, left: rect.right + 12, top: rect.top }
+  await nextTick()
+  if (tooltip.value?.key !== item.key || !tooltipElement.value) return
+  const height = tooltipElement.value.getBoundingClientRect().height
+  tooltip.value.top = Math.max(8, Math.min(rect.top + (rect.height - height) / 2, window.innerHeight - height - 8))
+}
+
+onMounted(() => window.addEventListener('resize', hideTooltip))
+onBeforeUnmount(() => window.removeEventListener('resize', hideTooltip))
 
 const translatedNavItems = computed(() =>
   navItems.filter((item) => authStore.isAdmin || !['admin', 'monitor'].includes(item.key)).map((item) => ({
@@ -57,6 +76,8 @@ const workflowNavTarget = computed(() => {
   return '/projects?notice=empty-workflows'
 })
 
+watch(translatedNavItems, hideTooltip)
+
 const routeActiveKey = computed(() => {
   if (route.path.startsWith('/workflows')) return 'workflows'
   if (route.path.startsWith('/runs')) return 'runs'
@@ -69,6 +90,7 @@ watch(
   () => route.fullPath,
   () => {
     optimisticActiveKey.value = null
+    hideTooltip()
   },
 )
 
@@ -82,6 +104,7 @@ function markOptimisticActive(key: string) {
 }
 
 function handleNavClick(event: MouseEvent, key: string, navigate: (event?: MouseEvent) => void) {
+  hideTooltip()
   markOptimisticActive(key)
   navigate(event)
 }
@@ -95,7 +118,7 @@ function isNavActive(key: string) {
   <aside class="relative z-30 row-span-2 flex h-screen w-[72px] flex-col items-center overflow-visible bg-sidebar py-4 text-text-inverse">
     <RouterLink
       :to="authStore.isAdmin ? '/admin' : '/home'"
-      class="mb-6 grid h-10 w-10 place-items-center rounded-lg bg-primary text-white shadow-node"
+      class="mb-6 grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-node"
       :title="t('app.name')"
     >
       <Workflow class="h-5 w-5" />
@@ -103,7 +126,8 @@ function isNavActive(key: string) {
 
     <nav
       :aria-label="authStore.isAdmin ? copy.management : copy.personal"
-      class="flex w-full flex-1 flex-col items-center justify-start gap-2 overflow-y-auto pb-3 pt-1"
+      class="flex min-h-0 w-full flex-1 flex-col items-center justify-start gap-2 overflow-y-auto pb-3 pt-1"
+      @scroll="hideTooltip"
     >
       <RouterLink
         v-for="item in translatedNavItems"
@@ -114,27 +138,39 @@ function isNavActive(key: string) {
       >
         <a
           :href="href"
-          :title="item.label"
           :data-navigation="item.key"
           :aria-current="isNavActive(item.key) ? 'page' : undefined"
           :aria-label="item.label"
-          class="group relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-[box-shadow,background-color,border-color,color] duration-150 ease-out"
+          :aria-describedby="tooltip?.key === item.key ? 'sidebar-nav-tooltip' : undefined"
+          class="group relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-slate-300 shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-[box-shadow,background-color,border-color,color] duration-150 ease-out"
           :class="
             isNavActive(item.key)
               ? '!border-primary !bg-primary !text-white shadow-[0_8px_18px_rgba(37,99,235,0.26)]'
               : 'hover:border-white/20 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_6px_14px_rgba(0,0,0,0.14)]'
           "
+          @pointerenter="(event) => showTooltip(event, item)"
+          @pointerleave="hideTooltip"
+          @focus="(event) => showTooltip(event, item)"
+          @blur="hideTooltip"
+          @keydown.esc="hideTooltip"
           @pointerdown="markOptimisticActive(item.key)"
           @click="(event) => handleNavClick(event, item.key, navigate)"
         >
           <component :is="item.icon" class="h-5 w-5" />
-          <span
-            class="pointer-events-none absolute left-[68px] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-md border border-app-border bg-white px-2 py-1 text-xs font-medium text-text-primary opacity-0 shadow-panel transition-opacity group-hover:opacity-100"
-          >
-            {{ item.label }}
-          </span>
         </a>
       </RouterLink>
     </nav>
+    <Teleport to="body">
+      <span
+        v-if="tooltip"
+        id="sidebar-nav-tooltip"
+        ref="tooltipElement"
+        role="tooltip"
+        class="pointer-events-none fixed z-[130] max-h-[calc(100dvh-1rem)] overflow-hidden rounded-md border border-app-border bg-white px-2 py-1 text-xs font-medium text-text-primary shadow-panel [overflow-wrap:anywhere]"
+        :style="{ left: `${tooltip.left}px`, top: `${tooltip.top}px`, maxWidth: `min(15rem, calc(100vw - ${tooltip.left + 8}px))` }"
+      >
+        {{ tooltip.label }}
+      </span>
+    </Teleport>
   </aside>
 </template>

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import axe from 'axe-core'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -44,7 +45,7 @@ beforeEach(() => {
   vi.spyOn(settingsApi, 'getVectorStoreConfig').mockResolvedValue(vector)
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.replaceChildren(); document.body.style.overflow = ''; vi.restoreAllMocks() })
 async function setup(url = '/settings', admin = false) {
   const pinia = createPinia(); setActivePinia(pinia)
   const auth = useAuthStore()
@@ -58,7 +59,7 @@ async function setup(url = '/settings', admin = false) {
   ]
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/settings', component: SettingsPage }, ...['account', 'models', 'files', 'knowledge', 'home', 'admin', 'projects'].map((path) => ({ path: `/${path}`, component: { template: '<div>合成入口</div>' } }))] })
   await router.push(url); await router.isReady()
-  wrapper = mount(SettingsPage, { global: { plugins: [pinia, router, i18n] } })
+  wrapper = mount(SettingsPage, { attachTo: document.body, global: { plugins: [pinia, router, i18n] } })
   await flushPromises()
   return { auth, router, store: useSettingsStore(), resources }
 }
@@ -129,6 +130,90 @@ describe('按实际账号权限设计设置体验', () => {
     expect(wrapper!.find('[data-testid="provider-config-dialog"]').exists()).toBe(false)
     await wrapper!.get('[data-provider-config="fixture"]').trigger('click')
     expect(wrapper!.get<HTMLInputElement>('[data-testid="provider-config-dialog"] input[type="password"]').element.value).toBe('')
+  })
+
+  it('Provider弹窗约束滚动区，Tab循环、Escape关闭并恢复焦点和背景滚动', async () => {
+    await setup('/settings?tab=provider', true)
+    document.body.style.overflow = 'auto'
+    const trigger = wrapper!.get<HTMLButtonElement>('[data-provider-config="fixture"]')
+    trigger.element.focus()
+    await trigger.trigger('click'); await flushPromises()
+    const dialog = wrapper!.get<HTMLElement>('[data-testid="provider-config-dialog"]')
+    const close = dialog.get<HTMLButtonElement>('header button')
+    const save = dialog.get<HTMLButtonElement>('button[type="submit"]')
+    expect(document.activeElement).toBe(close.element)
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(wrapper!.find('[inert]').exists()).toBe(true)
+    expect(dialog.classes()).toContain('settings-dialog')
+    const scroll = dialog.get('[data-testid="settings-dialog-scroll"]')
+    expect(scroll.classes()).toEqual(expect.arrayContaining(['min-h-0', 'overflow-y-auto', 'overscroll-contain', '[overflow-wrap:anywhere]']))
+    expect(scroll.find('footer').exists()).toBe(false)
+    expect(dialog.get('footer').classes()).toContain('shrink-0')
+    await close.trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(save.element)
+    await save.trigger('keydown', { key: 'Tab' })
+    expect(document.activeElement).toBe(close.element)
+    trigger.element.focus()
+    expect(document.activeElement).toBe(close.element)
+    await close.trigger('keydown', { key: 'Escape' }); await flushPromises()
+    expect(wrapper!.find('[role="dialog"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+    expect(document.body.style.overflow).toBe('auto')
+    expect(wrapper!.find('[inert]').exists()).toBe(false)
+    await trigger.trigger('click'); await flushPromises()
+    expect(document.activeElement).toBe(wrapper!.get('[role="dialog"] header button').element)
+    wrapper!.unmount(); wrapper = undefined; await flushPromises()
+    expect(document.body.style.overflow).toBe('auto')
+  })
+
+  it.each(['provider', 'members'])('%s弹窗保留长错误和重试，关闭后不会保留错误或密钥', async (tab) => {
+    const longError = '合成失败-' + 'very-long-identifier'.repeat(80)
+    vi.spyOn(settingsApi, 'updateModelProviderConfig').mockRejectedValue(new Error(longError))
+    vi.spyOn(settingsApi, 'createMember').mockRejectedValue(new Error(longError))
+    await setup(`/settings?tab=${tab}`, true)
+    const trigger = wrapper!.get<HTMLButtonElement>(tab === 'provider' ? '[data-provider-config="fixture"]' : '[data-action="add-member-record"]')
+    trigger.element.focus()
+    await trigger.trigger('click'); await flushPromises()
+    const dialog = wrapper!.get('[role="dialog"]')
+    if (tab === 'provider') {
+      await dialog.get('input[type="password"]').setValue('synthetic-secret')
+    } else {
+      await dialog.findAll('input')[0]!.setValue('合成成员')
+      await dialog.get('input[type="email"]').setValue('fixture@example.test')
+    }
+    const scroll = dialog.get<HTMLElement>('[data-testid="settings-dialog-scroll"]')
+    scroll.element.scrollTop = 120
+    await dialog.trigger('submit'); await flushPromises()
+    expect(scroll.element.scrollTop).toBe(120)
+    expect(dialog.get('[data-testid="settings-dialog-scroll"] [role="alert"]').text()).toBe(longError)
+    expect(dialog.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    const result = await axe.run(dialog.element, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map((item) => item.id)).toEqual([])
+    await dialog.get('footer button[type="button"]').trigger('click'); await flushPromises()
+    expect(document.activeElement).toBe(trigger.element)
+    await trigger.trigger('click'); await flushPromises()
+    expect(wrapper!.find('[role="dialog"] [role="alert"]').exists()).toBe(false)
+    if (tab === 'provider') expect(wrapper!.get<HTMLInputElement>('input[type="password"]').element.value).toBe('')
+  })
+
+  it('成员记录保存中Escape不退出，失败后可从键盘关闭', async () => {
+    const pending = deferred<WorkspaceMember>()
+    vi.spyOn(settingsApi, 'createMember').mockReturnValue(pending.promise)
+    await setup('/settings?tab=members', true)
+    const trigger = wrapper!.get<HTMLButtonElement>('[data-action="add-member-record"]')
+    trigger.element.focus()
+    await trigger.trigger('click'); await flushPromises()
+    const dialog = wrapper!.get('[role="dialog"]')
+    await dialog.findAll('input')[0]!.setValue('合成成员')
+    await dialog.get('input[type="email"]').setValue('fixture@example.test')
+    await dialog.trigger('submit')
+    await dialog.trigger('keydown', { key: 'Escape' })
+    expect(wrapper!.find('[role="dialog"]').exists()).toBe(true)
+    expect(dialog.get('fieldset').attributes('disabled')).toBeDefined()
+    pending.reject(new Error('合成失败')); await flushPromises()
+    await dialog.trigger('keydown', { key: 'Escape' }); await flushPromises()
+    expect(wrapper!.find('[role="dialog"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
   })
 
   it('成员记录不声称创建账号或实际赋权，添加时阻止重复提交', async () => {
