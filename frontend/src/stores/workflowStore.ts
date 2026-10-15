@@ -402,9 +402,8 @@ export const useWorkflowStore = defineStore('workflow', {
       if (!this.backendDefinitionId) {
         throw new Error('backend workflow definition is required before copying')
       }
-      const copied = await workflowApi.copyWorkflow(String(this.backendDefinitionId), name)
-      this.applyWorkflowDefinition(copied)
-      return copied
+      // 复制请求只创建副本；由页面确认请求仍有效后导航，不能提前覆盖当前编辑。
+      return workflowApi.copyWorkflow(String(this.backendDefinitionId), name)
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
