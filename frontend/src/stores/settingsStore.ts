@@ -25,6 +25,7 @@ function initialState() {
     workspace: null as WorkspaceSettings | null,
     members: [] as WorkspaceMember[],
     modelProviders: [] as SettingsModelProvider[],
+    providerCatalogState: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
     dataSources: [] as DataSourceProvider[],
     apiExtensions: [] as ApiExtensionSetting[],
     billing: null as BillingSnapshot | null,
@@ -83,6 +84,7 @@ export const useSettingsStore = defineStore('settings', () => {
     const isCurrent = () => session === sessionGeneration && request === loadGeneration
     state.loading = true
     state.loadErrorCount = 0
+    state.providerCatalogState = includeAdmin ? 'loading' : 'idle'
     if (!includeAdmin) {
       state.members = []
       state.billing = null
@@ -115,6 +117,9 @@ export const useSettingsStore = defineStore('settings', () => {
         if (value !== undefined) Object.assign(state, { [key]: value })
         else Object.assign(state, { [key]: initialState()[key] })
       })
+      state.providerCatalogState = includeAdmin
+        ? results[2]!.status === 'fulfilled' ? 'ready' : 'error'
+        : 'idle'
     } finally {
       if (isCurrent()) state.loading = false
     }

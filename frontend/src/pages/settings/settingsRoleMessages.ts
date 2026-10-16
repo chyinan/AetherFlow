@@ -35,6 +35,8 @@ const zhCN = {
   statusInvited: '待处理记录',
   noAdminConfig: '共享连接配置由管理员维护。你仍可使用已开放的文件、知识库和 URL 提取能力。',
   loading: '正在加载设置…',
+  providerCatalogLoading: '正在读取模型提供方目录…',
+  providerCatalogFailed: '模型提供方目录未能加载，暂时无法确认已安装状态。请重试。',
   vectorRetry: '重试加载向量存储配置',
   testFailed: '服务端未确认测试成功，请检查配置后重试。',
 }
@@ -59,7 +61,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   memberEmpty: 'No member records yet. Adding a record does not create a login account.',
   statusActive: 'Active record', statusInvited: 'Pending record',
   noAdminConfig: 'An administrator maintains shared connections. You can still use available files, knowledge and URL extraction.',
-  loading: 'Loading settings…', vectorRetry: 'Retry vector store configuration', testFailed: 'The server did not confirm a successful test. Check the configuration and try again.',
+  loading: 'Loading settings…', providerCatalogLoading: 'Loading the model provider catalog…', providerCatalogFailed: 'The model provider catalog could not load. Installed providers cannot be confirmed yet. Please retry.', vectorRetry: 'Retry vector store configuration', testFailed: 'The server did not confirm a successful test. Check the configuration and try again.',
 }
 const jaJP: Record<keyof typeof zhCN, string> = {
   personalGroup: '個人設定', capabilityGroup: '利用できる機能', adminGroup: '管理者設定', personalTitle: '個人設定と利用できる機能',
@@ -76,7 +78,7 @@ const jaJP: Record<keyof typeof zhCN, string> = {
   memberSaved: 'メンバー記録を保存しました。アカウント作成、招待送信、実際の権限変更は行っていません。',
   memberUpdated: '記録ラベルを更新しました。ログインアカウントの権限は変更されていません。', memberRemoved: 'メンバー記録を削除しました。アカウントと権限は変更されていません。',
   memberEmpty: 'メンバー記録はありません。記録の追加でログインアカウントは作成されません。', statusActive: '有効な記録', statusInvited: '保留中の記録',
-  noAdminConfig: '共有接続は管理者が管理します。公開されたファイル、ナレッジ、URL 抽出機能は引き続き利用できます。', loading: '設定を読み込み中…', vectorRetry: 'ベクトルストア設定を再読み込み',
+  noAdminConfig: '共有接続は管理者が管理します。公開されたファイル、ナレッジ、URL 抽出機能は引き続き利用できます。', loading: '設定を読み込み中…', providerCatalogLoading: 'モデルプロバイダの一覧を読み込み中…', providerCatalogFailed: 'モデルプロバイダの一覧を読み込めませんでした。インストール状況はまだ確認できません。再試行してください。', vectorRetry: 'ベクトルストア設定を再読み込み',
   testFailed: 'サーバーでテスト成功を確認できませんでした。設定を確認して再試行してください。',
 }
 export type SettingsRoleMessage = keyof typeof zhCN
