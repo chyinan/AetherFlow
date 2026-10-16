@@ -91,6 +91,12 @@ function fileMatchesProjectRun(
   })
 }
 
+function reconcileLoadedProjects(loaded: ProjectSummary[], current: ProjectSummary[], idsAtStart: Set<string>) {
+  const loadedIds = new Set(loaded.map((project) => project.id))
+  // 只补本次读取期间确认创建的项目；之后重新读取仍以服务端列表为准。
+  return [...loaded, ...current.filter((project) => !idsAtStart.has(project.id) && !loadedIds.has(project.id))]
+}
+
 export const useProjectStore = defineStore('project', {
   state: () => ({
     projects: [] as ProjectSummary[],
@@ -151,6 +157,7 @@ export const useProjectStore = defineStore('project', {
   actions: {
     async loadProjects() {
       const requestId = ++this.loadRequestId
+      const projectIdsAtStart = new Set(this.projects.map((project) => project.id))
       const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
@@ -167,12 +174,14 @@ export const useProjectStore = defineStore('project', {
           this.loadError = error.status ? `HTTP ${error.status} · ${error.message}` : error.message
           throw projectsResult.reason
         }
-        this.projects = projectsResult.value
+        this.projects = reconcileLoadedProjects(projectsResult.value, this.projects, projectIdsAtStart)
         this.workflowSummaries = workflowsResult.status === 'fulfilled' ? workflowsResult.value : []
         if (workflowsResult.status === 'rejected') {
           this.loadError = i18n.global.t('projects.workflowLoadWarning')
         }
-        this.currentProjectId = this.currentProjectId || this.projects[0]?.id || 'project-media-ops'
+        if (!this.projects.some((project) => project.id === this.currentProjectId)) {
+          this.currentProjectId = this.projects[0]?.id || ''
+        }
       } finally {
         if (isCurrent()) {
           this.loading = false
@@ -181,6 +190,7 @@ export const useProjectStore = defineStore('project', {
     },
     async refreshProjects() {
       const requestId = ++this.loadRequestId
+      const projectIdsAtStart = new Set(this.projects.map((project) => project.id))
       const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
@@ -197,12 +207,14 @@ export const useProjectStore = defineStore('project', {
           this.loadError = error.status ? `HTTP ${error.status} · ${error.message}` : error.message
           throw projectsResult.reason
         }
-        this.projects = projectsResult.value
+        this.projects = reconcileLoadedProjects(projectsResult.value, this.projects, projectIdsAtStart)
         this.workflowSummaries = workflowsResult.status === 'fulfilled' ? workflowsResult.value : []
         if (workflowsResult.status === 'rejected') {
           this.loadError = i18n.global.t('projects.workflowLoadWarning')
         }
-        this.currentProjectId = this.projects[0]?.id || ''
+        if (!this.projects.some((project) => project.id === this.currentProjectId)) {
+          this.currentProjectId = this.projects[0]?.id || ''
+        }
       } finally {
         if (isCurrent()) {
           this.loading = false
@@ -270,7 +282,9 @@ export const useProjectStore = defineStore('project', {
         scenario: payload.scenario,
         description: i18n.global.t('projects.projectDescription'),
       })
-      this.projects = [...this.projects, project]
+      if (!this.projects.some((item) => item.id === project.id)) {
+        this.projects = [...this.projects, project]
+      }
       return project
     },
   },
