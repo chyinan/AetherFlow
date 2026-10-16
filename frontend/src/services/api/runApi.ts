@@ -13,6 +13,7 @@ import {
   mapRuntimeEventsToNodePatches,
   mapRuntimeStateToNodeStatus,
   mapRuntimeStateToRunStatus,
+  runtimeRetryCount,
 } from '@/api/mappers/runtimeMapper'
 import { getRuntimeEvents, getRuntimeObservation, type RuntimeState } from '@/api/modules/runtime'
 import { runtimeEnv } from '@/config/runtimeEnv'
@@ -121,6 +122,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
     label: node.nodeId || 'Unknown node',
     status,
     durationMs,
+    retryCount: runtimeRetryCount(node.latestEventType, node.attributes),
     ...(node.attributes?.reused === true ? { reused: true } : {}),
     output: Object.keys(node.attributes ?? {}).length > 0
       ? JSON.stringify(node.attributes)

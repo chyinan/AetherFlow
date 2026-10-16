@@ -213,6 +213,13 @@ export function mapRuntimeEventToLogEntry(event: RuntimeEvent): RunLogEntry {
   }
 }
 
+export function runtimeRetryCount(eventType?: string, attributes?: Record<string, unknown>) {
+  const attempt = attributes?.attempt
+  // 后端仅在安排重试时发布该序号；普通节点输出也可能包含同名业务字段。
+  return eventType === 'NODE_RETRYING' && typeof attempt === 'number'
+    && Number.isSafeInteger(attempt) && attempt > 0 ? attempt : undefined
+}
+
 export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | null {
   if (!event.nodeId) {
     return null
@@ -225,6 +232,7 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     status: event.attributes?.nested === true && event.attributes?.itemStatus === 'FAILED' ? 'failed' : mapRuntimeEventToNodeStatus(event),
     // 与 HTTP 节点摘要一致，优先展示实际事件属性（包括具体失败原因）。
     output: Object.keys(event.attributes ?? {}).length > 0 ? JSON.stringify(event.attributes) : event.eventType,
+    retryCount: runtimeRetryCount(event.eventType, event.attributes),
     ...(approval ? { approval } : {}),
     ...(event.attributes?.reused === true ? { reused: true } : {}),
   }
@@ -244,6 +252,10 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       const durationMs = durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
       if (durationMs !== undefined && ['success', 'failed', 'paused'].includes(patch.status)) {
         patch.durationMs = durationMs
+      }
+      const previousRetryCount = patches.get(patch.nodeId)?.retryCount
+      if (previousRetryCount !== undefined) {
+        patch.retryCount = Math.max(previousRetryCount, patch.retryCount ?? 0)
       }
       patches.set(patch.nodeId, patch)
     }
