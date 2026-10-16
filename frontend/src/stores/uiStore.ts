@@ -27,6 +27,8 @@ export interface UiNotification {
   tone: 'online' | 'degraded' | 'offline'
 }
 
+type NotificationMutation = 'markAllRead' | 'clear'
+
 const themeStorageKey = 'aetherflow.theme'
 const notificationStorageKeyPrefix = 'aetherflow.notifications'
 const realtimeNoticeCoalesceWindowMs = 5_000
@@ -157,7 +159,11 @@ function writeStoredNotifications(notifications: UiNotification[], userId?: stri
   if (typeof window === 'undefined') {
     return
   }
-  window.localStorage.setItem(notificationStorageKey(userId ?? activeNotificationUserId), JSON.stringify(notifications.slice(0, 20)))
+  try {
+    window.localStorage.setItem(notificationStorageKey(userId ?? activeNotificationUserId), JSON.stringify(notifications.slice(0, 20)))
+  } catch {
+    // 缓存只作恢复辅助，写入失败不能改变已经确认的服务端结果。
+  }
 }
 
 export const useUiStore = defineStore('ui', {
@@ -171,6 +177,10 @@ export const useUiStore = defineStore('ui', {
     theme: initialTheme as 'light' | 'dark',
     notifications: readStoredNotifications() as UiNotification[],
     notificationsLoading: false,
+    notificationLoadError: false,
+    notificationLoadRequest: 0,
+    notificationMutation: null as NotificationMutation | null,
+    notificationMutationError: null as NotificationMutation | null,
     lastRealtimeNoticeState: 'online' as 'online' | 'reconnecting' | 'offline',
     lastRealtimeNoticeAt: 0,
     lastRealtimeNoticeId: null as string | null,
@@ -284,29 +294,65 @@ export const useUiStore = defineStore('ui', {
       writeStoredNotifications(this.notifications)
     },
     async loadNotificationMessages(limit = 20) {
+      // 写入期间保留当前列表；完成后下一次显式读取继续以后端快照为准。
+      if (this.notificationMutation) {
+        return
+      }
+      const request = ++this.notificationLoadRequest
       this.notificationsLoading = true
+      this.notificationLoadError = false
       try {
         const records = await listNotificationMessages(limit)
+        if (request !== this.notificationLoadRequest) {
+          return
+        }
         this.notifications = mergeNotificationHistory(this.notifications, records.map(normalizeRecord))
         writeStoredNotifications(this.notifications)
+      } catch {
+        if (request === this.notificationLoadRequest) {
+          this.notificationLoadError = true
+        }
       } finally {
-        this.notificationsLoading = false
+        if (request === this.notificationLoadRequest) {
+          this.notificationsLoading = false
+        }
       }
     },
     async markAllNotificationsRead() {
-      try {
-        await markAllNotificationMessagesRead()
-      } finally {
-        this.notifications = this.notifications.map((item) => ({ ...item, read: true }))
-        writeStoredNotifications(this.notifications)
-      }
+      await this.runNotificationMutation('markAllRead')
     },
     async clearNotifications() {
+      await this.runNotificationMutation('clear')
+    },
+    async retryNotificationMutation() {
+      if (this.notificationMutationError) {
+        await this.runNotificationMutation(this.notificationMutationError)
+      }
+    },
+    async runNotificationMutation(action: NotificationMutation) {
+      if (this.notificationMutation) {
+        return
+      }
+      this.notificationMutation = action
+      this.notificationMutationError = null
+      // 旧读取不得越过这次写入；忽略旧回执也不能让面板一直显示加载中。
+      ++this.notificationLoadRequest
+      this.notificationsLoading = false
+      // 只变换操作起始已有的项；等待期间新建或替换的实时项交给后续读取协调。
+      const affectedItems = new Set(this.notifications)
       try {
-        await clearNotificationMessages()
-      } finally {
-        this.notifications = []
+        if (action === 'markAllRead') {
+          await markAllNotificationMessagesRead()
+          this.notifications = this.notifications.map((item) => affectedItems.has(item) ? { ...item, read: true } : item)
+        } else {
+          await clearNotificationMessages()
+          this.notifications = this.notifications.filter((item) => !affectedItems.has(item))
+        }
         writeStoredNotifications(this.notifications)
+      } catch {
+        this.notificationMutationError = action
+      } finally {
+        this.notificationMutation = null
       }
     },
     startNotificationStream(userId: number | string) {
