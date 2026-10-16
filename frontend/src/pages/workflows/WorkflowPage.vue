@@ -337,6 +337,7 @@ function confirmDiscardUnsavedChanges() {
 type PendingNavigation = { fromPath: string; fullPath: string; resolve: (allowed: boolean) => void }
 const pendingNavigation = ref<PendingNavigation | null>(null)
 const leaveSaveBusy = ref(false)
+let leaveSaveSequence = 0
 const leaveSaveError = ref('')
 let approvedNavigation: { fromPath: string; fullPath: string; editRevision: number } | null = null
 
@@ -344,6 +345,9 @@ function settleNavigation(allowed: boolean) {
   const pending = pendingNavigation.value
   if (!pending) return
   pendingNavigation.value = null
+  // 弹窗结束即释放本次导航的等待锁；同一画布仍由 Store 的 saving 防止重复保存。
+  leaveSaveSequence += 1
+  leaveSaveBusy.value = false
   leaveSaveError.value = ''
   approvedNavigation = allowed
     ? { fromPath: pending.fromPath, fullPath: pending.fullPath, editRevision: workflowStore.editRevision }
@@ -372,9 +376,10 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
 async function saveBeforeLeaving() {
   const pending = pendingNavigation.value
   if (!pending || leaveSaveBusy.value || workflowStore.saving) return
+  const saveSequence = ++leaveSaveSequence
   leaveSaveBusy.value = true
   leaveSaveError.value = ''
-  const ownsRequest = () => pageActive && pendingNavigation.value === pending
+  const ownsRequest = () => pageActive && pendingNavigation.value === pending && saveSequence === leaveSaveSequence
   try {
     const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
     const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
@@ -390,7 +395,7 @@ async function saveBeforeLeaving() {
   } catch {
     if (ownsRequest()) leaveSaveError.value = workflowStore.savingError || ct('leaveFailed')
   } finally {
-    leaveSaveBusy.value = false
+    if (saveSequence === leaveSaveSequence) leaveSaveBusy.value = false
   }
 }
 
