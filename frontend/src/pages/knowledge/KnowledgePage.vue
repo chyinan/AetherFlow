@@ -74,6 +74,7 @@ const retrying = ref(false)
 const lastRetry = ref<(() => Promise<void>) | null>(null)
 const retrievalLoading = ref(false)
 const retrievalError = ref('')
+let retrievalRequestId = 0
 const importing = ref(false)
 const saving = ref(false)
 const createdDatasetId = ref('')
@@ -222,12 +223,21 @@ function openCreateFlow(preferredSource: SourceType = 'file', targetDatasetId = 
   wizardDatasetName.value = selectedFileName.value.replace(/\.[^.]+$/, '')
 }
 
+function resetRetrievalState() {
+  // 离开或重新打开详情后，旧请求不再拥有当前页面的等待和错误状态。
+  retrievalRequestId += 1
+  retrievalLoading.value = false
+  retrievalError.value = ''
+}
+
 function backToList() {
+  resetRetrievalState()
   viewMode.value = 'datasets'
   createStep.value = 1
 }
 
 async function openDataset(datasetId: string) {
+  resetRetrievalState()
   pageError.value = ''
   lastRetry.value = null
   try {
@@ -337,6 +347,7 @@ async function runRetrievalTest() {
     retrievalError.value = t('knowledge.queryRequired')
     return
   }
+  const requestId = ++retrievalRequestId
   retrievalLoading.value = true
   retrievalError.value = ''
   pageError.value = ''
@@ -347,9 +358,13 @@ async function runRetrievalTest() {
     topK.value = normalizedTopK
     await difyStore.runRetrievalTest(query, normalizedTopK)
   } catch (error) {
-    retrievalError.value = errorMessage(error)
+    if (requestId === retrievalRequestId) {
+      retrievalError.value = errorMessage(error)
+    }
   } finally {
-    retrievalLoading.value = false
+    if (requestId === retrievalRequestId) {
+      retrievalLoading.value = false
+    }
   }
 }
 
