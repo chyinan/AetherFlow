@@ -197,7 +197,7 @@ describe('运行历史刷新与所选详情协调', () => {
     expect(store.currentRun).toMatchObject({ status, backendStatus: status.toUpperCase(), progress: status === 'failed' ? 100 : 50 })
   })
 
-  it('页面刷新纠正局部成功后恢复取消入口并保留节点详细输出', async () => {
+  it('页面刷新前后保留活动运行取消入口并保留节点详细输出', async () => {
     const store = setupStore()
     const wrapper = mount(RunsPage, { global: { plugins: [i18n], stubs: {
       HumanApprovalDialog: true, LogStream: true, RunTimeline: true,
@@ -207,7 +207,8 @@ describe('运行历史刷新与所选详情协调', () => {
       await flushPromises()
       store.patchNodeState({ nodeId: 'node-a', label: '节点 A', status: 'success', output: '完整详细输出', durationMs: 90 })
       await flushPromises()
-      expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(false)
+      // 局部完成不等于后端终态，刷新前也应允许取消仍在 RUNNING 的运行。
+      expect(wrapper.findAll('button').some((element) => element.text() === i18n.global.t('runs.cancel'))).toBe(true)
       mocks.listRuns.mockResolvedValue([run('run-a', { progress: 50, durationMs: 900, currentNodeId: 'node-b', nodeStates: [
         { nodeId: 'node-a', label: 'node-a', status: 'success', output: 'NODE_COMPLETED' },
         { nodeId: 'node-b', label: '节点 B', status: 'running' },
