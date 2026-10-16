@@ -22,7 +22,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -73,6 +73,8 @@ const timezone = ref(getStoredTimezone() === 'UTC'
     : getStoredTimezone() === 'Asia/Tokyo'
       ? 'tokyo'
       : 'shanghai')
+let lastSavedTimezone = timezone.value
+const timezoneSaveFailed = ref(false)
 const savedAt = ref('')
 const workspaceSaving = ref(false)
 const workspaceSaveError = ref('')
@@ -195,7 +197,19 @@ function requireAdminAction() {
 }
 
 watch(timezone, (value) => {
-  setStoredTimezone(value)
+  // 失败回滚只恢复界面，不能再次写入或把失败提示自动清掉。
+  if (value === lastSavedTimezone) return
+  try {
+    setStoredTimezone(value)
+    lastSavedTimezone = value
+    timezoneSaveFailed.value = false
+  } catch {
+    timezoneSaveFailed.value = true
+    // 等待 select 的当前 v-model 更新结束，再让真实选择框呈现回滚值。
+    void nextTick(() => {
+      if (timezone.value === value) timezone.value = lastSavedTimezone
+    })
+  }
 })
 
 const workspaceInitial = computed(() => {
@@ -1983,7 +1997,7 @@ watch(
           </section>
           <div>
             <p class="text-lg font-semibold text-text-primary">{{ t('settings.languageTitle') }}</p>
-            <p class="mt-1 text-sm text-text-secondary">{{ t('settings.languageHint') }} {{ roleText('autoSaved') }}</p>
+            <p class="mt-1 text-sm text-text-secondary">{{ t('settings.languageHint') }} <span v-if="!timezoneSaveFailed">{{ roleText('autoSaved') }}</span></p>
           </div>
 
           <section class="rounded-lg border border-app-border bg-white p-5 shadow-sm">
@@ -1994,12 +2008,13 @@ watch(
               </div>
               <label class="block">
                 <span class="mb-2 block text-sm font-medium text-text-secondary">{{ t('settings.timezone') }}</span>
-                <select v-model="timezone" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary">
+                <select v-model="timezone" :aria-describedby="timezoneSaveFailed ? 'settings-timezone-hint settings-timezone-save-error' : 'settings-timezone-hint'" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus:border-primary">
                   <option v-for="option in timezoneOptions" :key="option.id" :value="option.id">
                     {{ t(option.labelKey) }}
                   </option>
                 </select>
-                <span class="mt-2 block text-xs leading-5 text-text-muted">{{ t('settings.timezoneHint') }}</span>
+                <span id="settings-timezone-hint" class="mt-2 block text-xs leading-5 text-text-muted">{{ t('settings.timezoneHint') }}</span>
+                <span v-if="timezoneSaveFailed" id="settings-timezone-save-error" role="alert" class="mt-2 block text-sm leading-5 text-rose-600">{{ roleText('timezoneSaveFailed') }}</span>
               </label>
             </div>
           </section>
