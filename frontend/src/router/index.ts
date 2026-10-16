@@ -4,6 +4,7 @@ import { i18n } from '@/i18n/index'
 import type { AuthUser } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { defaultProductPath } from '@/product/roleCapabilities'
+import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 
 type RouteRole = AuthUser['role']
 
@@ -136,6 +137,9 @@ export const router = createRouter({
     },
   ],
 })
+
+// 在现有异步守卫之前记录导航意图，不改变守卫的许可结果。
+observeWorkflowNavigation(router)
 
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()

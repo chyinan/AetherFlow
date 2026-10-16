@@ -18,6 +18,7 @@ import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { workflowStartIntent } from '@/utils/workflowStartIntent'
+import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 import { toApiError } from '@/api/client/apiError'
 import { importComfyUiWorkflow } from '@/api/modules/workflow'
 import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
@@ -40,6 +41,7 @@ const projectStore = useProjectStore()
 const uiStore = useUiStore()
 const route = useRoute()
 const router = useRouter()
+const workflowNavigation = observeWorkflowNavigation(router)
 const { t } = useI18n()
 const { t: pt } = useI18n({ useScope: 'local', messages: {
   'zh-CN': { ...preflightMessages['zh-CN'], ...continuityMessages['zh-CN'] },
@@ -87,6 +89,8 @@ let pageActive = true
 let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
 let pageSaveSequence = 0
+let pageCopySequence = 0
+let copyNavigation: { fromPath: string; fullPath: string; ownsRequest: () => boolean } | null = null
 let saveNavigation: {
   fromPath: string
   fullPath: string
@@ -113,6 +117,8 @@ watch(() => route.fullPath, (to, from) => {
   } else {
     saveNavigation = null
   }
+  pageCopySequence += 1
+  copyingWorkflow.value = false
   comfyUiImportSequence += 1
   importingComfyUi.value = false
   comfyUiImportError.value = null
@@ -148,7 +154,7 @@ const hasWorkflowContext = computed(() => {
     || Boolean(routeQueryString(route.query.name))
 })
 const shouldShowEmptyWorkflowGuide = computed(() => {
-  return !hasWorkflowContext.value
+  return !hasWorkflowContext.value && workflowStore.nodes.length === 0 && !workflowStore.dirty
 })
 const copilotContext = computed(() => ({
   workflowId: workflowStore.workflowId,
@@ -357,6 +363,9 @@ function settleNavigation(allowed: boolean) {
 
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (to.fullPath === from.fullPath) return true
+  if (copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath) {
+    return copyNavigation.ownsRequest()
+  }
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
@@ -406,6 +415,9 @@ onBeforeRouteUpdate((to, from) => {
 })
 // 其他异步守卫等待期间仍可能应用模板或导入新画布，提交内部导航前再次核对归属。
 const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
+  if (copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath) {
+    return copyNavigation.ownsRequest()
+  }
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
@@ -544,26 +556,43 @@ async function saveWorkflow() {
 }
 
 async function copyWorkflow() {
-  if (!workflowStore.backendDefinitionId || copyingWorkflow.value) {
-    return
-  }
+  if (!workflowStore.backendDefinitionId || copyingWorkflow.value || workflowStore.saving) return
+  const sequence = ++pageCopySequence
+  const navigationRevision = pageNavigationRevision
+  const workflowId = workflowStore.workflowId
+  const editRevision = workflowStore.editRevision
+  const ownsRequest = () => pageActive && sequence === pageCopySequence
+    && navigationRevision === pageNavigationRevision
+    && workflowId === workflowStore.workflowId && editRevision === workflowStore.editRevision
   copyingWorkflow.value = true
   workflowStore.setRunError(null)
   try {
     if (workflowStore.dirty) {
-      await workflowStore.saveCurrentWorkflow({
+      const saved = await workflowStore.saveCurrentWorkflow({
         projectId: numericProjectId(routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id),
       })
+      // 自动保存只服务于点击时的图，不能复制保存等待期间换入或修改的图。
+      if (!saved || !ownsRequest() || workflowStore.dirty
+        || workflowNavigation.pending || pendingNavigation.value) return
     }
     const copied = await workflowStore.copyCurrentWorkflow()
-    await router.replace({
+    if (!ownsRequest() || workflowNavigation.pending || pendingNavigation.value) return
+    const target = {
       path: `/workflows/${copied.id}`,
       query: route.query.projectId ? { projectId: routeQueryString(route.query.projectId) } : undefined,
-    })
+    }
+    const navigation = { fromPath: route.fullPath, fullPath: router.resolve(target).fullPath, ownsRequest }
+    copyNavigation = navigation
+    try {
+      // 保留原画布，只有路由守卫完成后才由正常加载流程打开副本。
+      await router.replace(target)
+    } finally {
+      if (copyNavigation === navigation) copyNavigation = null
+    }
   } catch (error) {
-    workflowStore.setRunError(`${t('workflow.copyFailed')}: ${runErrorMessage(error)}`)
+    if (ownsRequest()) workflowStore.setRunError(`${t('workflow.copyFailed')}: ${runErrorMessage(error)}`)
   } finally {
-    copyingWorkflow.value = false
+    if (sequence === pageCopySequence) copyingWorkflow.value = false
   }
 }
 
