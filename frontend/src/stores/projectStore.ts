@@ -99,6 +99,7 @@ export const useProjectStore = defineStore('project', {
     loading: false,
     loadError: null as string | null,
     loadRequestId: 0,
+    workflowRenameRequestIds: {} as Record<string, number>,
   }),
   getters: {
     currentProject: (state) =>
@@ -246,14 +247,56 @@ export const useProjectStore = defineStore('project', {
       writeProjectWorkflowLinks(links)
     },
     async renameProjectWorkflow(projectId: string, workflowId: string, name: string) {
+      const requestId = (this.workflowRenameRequestIds[workflowId] ?? 0) + 1
+      this.workflowRenameRequestIds[workflowId] = requestId
+      const isCurrent = () => this.workflowRenameRequestIds[workflowId] === requestId
       const workflow = await workflowApi.getWorkflow(workflowId)
+      // 读取完成时已被新操作取代，旧调用只返回已读记录，不再派发尚未提交的写入。
+      if (!isCurrent()) return workflow
       const saved = await workflowApi.saveWorkflow({
         ...workflow,
         id: workflowId,
         name,
       })
+      // 同一工作流已有更新操作时，旧保存回执仍可返回，但不能回滚较新名称或派发旧刷新。
+      if (!isCurrent()) return saved
       this.linkWorkflowToProject(projectId, saved.id)
-      await this.loadProjects()
+      const summary = this.workflowSummaries.find((item) => item.id === workflowId)
+      const existing = summary ?? this.projects.flatMap((project) => project.workflows).find((item) => item.id === workflowId)
+      const savedProjectId = saved.projectId ?? summary?.projectId
+      const savedSummary = existing ? { ...existing, id: saved.id, name: saved.name, projectId: savedProjectId } : undefined
+      const applySavedName = () => {
+        this.workflowSummaries.forEach((item) => {
+          if (item.id === workflowId || item.id === saved.id) item.name = saved.name
+        })
+        this.projects.forEach((project) => project.workflows.forEach((item) => {
+          if (item.id === workflowId || item.id === saved.id) item.name = saved.name
+        }))
+      }
+      // 保存已确认，先保留名称；后续列表错误不能把已完成的保存改判为失败。
+      applySavedName()
+      const reloadRequestId = this.loadRequestId + 1
+      try {
+        await this.loadProjects()
+      } catch {
+        // loadProjects 已记录可单独重试的 loadError，不自动重发保存。
+      }
+      if (isCurrent() && this.loadRequestId === reloadRequestId && this.loadError) {
+        applySavedName()
+        // 仅恢复当前项目响应已给出的兄弟及本次确认条目，不接管较新的读取。
+        const project = this.projects.find((item) => item.id === projectId)
+        if (savedSummary && project
+          && !this.workflowSummaries.some((item) => item.id === saved.id)) {
+          const recovered = new Map<string, WorkflowSummary>(project.workflows.map((item) => [
+            item.id, { ...item, projectId: savedProjectId },
+          ]))
+          recovered.set(saved.id, { ...savedSummary, ...recovered.get(saved.id), name: saved.name, projectId: savedProjectId })
+          recovered.forEach((item) => {
+            if (!this.workflowSummaries.some((current) => current.id === item.id)) this.workflowSummaries.push(item)
+            if (savedProjectId === undefined) this.linkWorkflowToProject(projectId, item.id)
+          })
+        }
+      }
       return saved
     },
     async deleteProjectWorkflow(projectId: string, workflowId: string) {
