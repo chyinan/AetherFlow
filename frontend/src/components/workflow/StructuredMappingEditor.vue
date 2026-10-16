@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import { defaultMapping, transformStructured, validateMapping, whisperPromptExample, type MappingSpec, type MappingValue } from '@/utils/structuredMapping'
 
 const props = defineProps<{ nodeId: string; config: Record<string, unknown> }>()
@@ -11,10 +11,16 @@ const sample = ref('{}')
 const preview = ref('')
 const previewError = ref('')
 const applied = ref(false)
+let pendingApplication: { nodeId: string; mapping: MappingSpec; mappingJson: string; outputVariable: string } | null = null
 function cloneJson<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
 const inputClass = 'mt-1 w-full rounded-lg border border-app-border bg-app-bg px-3 py-2 text-sm text-text-primary'
 function editable(value: MappingValue): MappingValue { return { ...value, value: value.type === 'literal' ? JSON.stringify(value.value) : value.value } }
 function load() {
+  // 只认领本次应用对象的同步回传；外部替换、撤销和节点切换仍清除旧成功提示。
+  const ownApplication = pendingApplication !== null && props.nodeId === pendingApplication.nodeId
+    && toRaw(props.config.mapping) === pendingApplication.mapping && props.config.outputVariable === pendingApplication.outputVariable
+    && JSON.stringify(props.config.mapping) === pendingApplication.mappingJson
+  pendingApplication = null
   const base = defaultMapping()
   const stored = props.config.mapping && typeof props.config.mapping === 'object' && !Array.isArray(props.config.mapping)
     ? props.config.mapping as Partial<MappingSpec> : {}
@@ -22,10 +28,11 @@ function load() {
   draft.value = { ...merged, fields: (Array.isArray(merged.fields) ? merged.fields : base.fields).map((field) => ({ ...field, ...editable(field) })),
     value: editable(merged.value ?? base.value), filter: { ...base.filter, ...merged.filter, value: JSON.stringify(merged.filter?.value === undefined ? '' : merged.filter.value) } }
   outputVariable.value = String(props.config.outputVariable ?? 'mappedValue')
-  applied.value = false; preview.value = ''; previewError.value = ''
+  applied.value = ownApplication; preview.value = ''; previewError.value = ''
 }
 watch(() => [props.nodeId, props.config.mapping, props.config.outputVariable], load, { immediate: true, deep: true })
-watch([draft, outputVariable, sample], () => { preview.value = ''; previewError.value = ''; applied.value = false }, { deep: true })
+// 同步清除编辑反馈，使配置加载末尾的本次应用确认不会再被排队的草稿监听覆盖。
+watch([draft, outputVariable, sample], () => { preview.value = ''; previewError.value = ''; applied.value = false; pendingApplication = null }, { deep: true, flush: 'sync' })
 function decoded(value: MappingValue): MappingValue {
   return { ...value, value: value.type === 'literal' ? JSON.parse(String(value.value)) : value.value }
 }
@@ -57,7 +64,10 @@ function previewMapping() {
 }
 function apply() {
   if (configurationError.value) return
-  emit('apply', { transformMode: 'structured', mapping: specification(), outputVariable: outputVariable.value.trim() }, props.nodeId)
+  const mapping = specification()
+  const output = outputVariable.value.trim()
+  pendingApplication = { nodeId: props.nodeId, mapping, mappingJson: JSON.stringify(mapping), outputVariable: output }
+  emit('apply', { transformMode: 'structured', mapping, outputVariable: output }, props.nodeId)
   applied.value = true
 }
 function useWhisperExample() {
