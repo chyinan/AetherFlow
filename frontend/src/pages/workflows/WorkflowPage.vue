@@ -559,10 +559,13 @@ async function copyWorkflow() {
   if (!workflowStore.backendDefinitionId || copyingWorkflow.value || workflowStore.saving) return
   const sequence = ++pageCopySequence
   const navigationRevision = pageNavigationRevision
+  const importSequence = comfyUiImportSequence
   const workflowId = workflowStore.workflowId
   const editRevision = workflowStore.editRevision
   const ownsRequest = () => pageActive && sequence === pageCopySequence
     && navigationRevision === pageNavigationRevision
+    // 接受新导入即改变画布意图，不必等待读取或转换完成后才保护它。
+    && importSequence === comfyUiImportSequence
     && workflowId === workflowStore.workflowId && editRevision === workflowStore.editRevision
   copyingWorkflow.value = true
   workflowStore.setRunError(null)
