@@ -5,6 +5,7 @@ import { modelApi, type ModelApiSnapshot, type ModelSnapshotOptions } from '@/se
 import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog } from '@/types/model'
 import { useAuthStore } from '@/stores/authStore'
 import { formatTime } from '@/utils/localeFormat'
+import { ModelManagementRefreshError } from '@/utils/modelManagementRefreshError'
 
 interface ModelSnapshotState {
   providers: ModelProvider[]
@@ -40,6 +41,7 @@ export const useModelStore = defineStore('model', {
     loading: false,
     error: null as string | null,
     operationError: null as string | null,
+    operationRefreshWarning: null as { kind: 'switch' | 'recover'; providerName: string; error: string } | null,
     switchingProviderId: null as string | null,
     recoveringProviderId: null as string | null,
     refreshRequestId: 0,
@@ -68,7 +70,7 @@ export const useModelStore = defineStore('model', {
       this.providers = []; this.models = []; this.policies = []; this.logs = []
       this.snapshotIdentity = ''; this.snapshotManagement = false
       this.loading = false; this.switchingProviderId = null; this.recoveringProviderId = null
-      this.error = null; this.operationError = null
+      this.error = null; this.operationError = null; this.operationRefreshWarning = null
     },
     applySnapshot(snapshot: ModelSnapshotState, source: ModelApiSnapshot['source'] = 'mock') {
       this.providers = snapshot.providers
@@ -112,6 +114,8 @@ export const useModelStore = defineStore('model', {
           this.applySnapshot(snapshot, snapshot.source)
           this.snapshotIdentity = identity
           this.snapshotManagement = management
+          // 只有当前真实管理快照能确认管理操作之后的状态，普通目录或演示数据不能。
+          if (management && snapshot.source === 'real') this.operationRefreshWarning = null
         }
       } catch (error) {
         if (!isCurrent()) return
@@ -123,7 +127,7 @@ export const useModelStore = defineStore('model', {
     },
     async switchSelectedProviderToPrimary() {
       const provider = this.selectedProvider
-      if (!useAuthStore().isAdmin || this.snapshotSource !== 'real' || !provider || this.loading || this.switchingProviderId || this.recoveringProviderId) {
+      if (!useAuthStore().isAdmin || this.snapshotSource !== 'real' || !provider || this.loading || this.switchingProviderId || this.recoveringProviderId || this.operationRefreshWarning) {
         return
       }
 
@@ -141,9 +145,15 @@ export const useModelStore = defineStore('model', {
         this.applySnapshot(snapshot, snapshot.source)
         this.snapshotIdentity = identity
         this.snapshotManagement = true
-        this.selectedProviderId = snapshot.providers.find((entry) => providerTypeOf(entry) === providerType)?.id ?? provider.id
       } catch (error) {
         if (!isCurrent()) return
+        if (error instanceof ModelManagementRefreshError) {
+          const message = errorMessage(error.refreshError)
+          this.error = null
+          this.operationRefreshWarning = { kind: 'switch', providerName: provider.name, error: message }
+          this.appendOperationLog(`Provider switch confirmed for ${providerTypeOf(provider)}; snapshot refresh failed. ${message}`, 'warn')
+          return
+        }
         const message = errorMessage(error)
         this.operationError = message
         this.appendOperationLog(`Provider switch failed for ${providerTypeOf(provider)}. ${message}`, 'error')
@@ -153,7 +163,7 @@ export const useModelStore = defineStore('model', {
     },
     async recoverSelectedProvider() {
       const provider = this.selectedProvider
-      if (!useAuthStore().isAdmin || this.snapshotSource !== 'real' || !provider || this.loading || this.switchingProviderId || this.recoveringProviderId) {
+      if (!useAuthStore().isAdmin || this.snapshotSource !== 'real' || !provider || this.loading || this.switchingProviderId || this.recoveringProviderId || this.operationRefreshWarning) {
         return
       }
 
@@ -170,9 +180,15 @@ export const useModelStore = defineStore('model', {
         this.applySnapshot(snapshot, snapshot.source)
         this.snapshotIdentity = identity
         this.snapshotManagement = true
-        this.selectedProviderId = snapshot.providers.find((entry) => providerTypeOf(entry) === providerType)?.id ?? provider.id
       } catch (error) {
         if (!isCurrent()) return
+        if (error instanceof ModelManagementRefreshError) {
+          const message = errorMessage(error.refreshError)
+          this.error = null
+          this.operationRefreshWarning = { kind: 'recover', providerName: provider.name, error: message }
+          this.appendOperationLog(`Provider recovery confirmed for ${providerTypeOf(provider)}; snapshot refresh failed. ${message}`, 'warn')
+          return
+        }
         const message = errorMessage(error)
         this.operationError = message
         this.appendOperationLog(`Provider recovery failed for ${providerTypeOf(provider)}. ${message}`, 'error')

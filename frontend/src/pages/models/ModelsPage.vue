@@ -29,6 +29,7 @@ const { t } = useI18n()
 const { t: roleText } = useI18n({ useScope: 'local', messages: modelRoleMessages })
 const managementBusy = computed(() => Boolean(modelStore.loading || modelStore.switchingProviderId || modelStore.recoveringProviderId))
 
+const managementWriteDisabled = computed(() => managementBusy.value || Boolean(modelStore.operationRefreshWarning))
 const selectedProvider = computed(() => modelStore.selectedProvider)
 const canManageProviders = computed(() => authStore.isAdmin)
 
@@ -101,12 +102,12 @@ function refreshStatus() {
 }
 
 function switchPrimary() {
-  if (!canManageProviders.value || managementBusy.value) return
+  if (!canManageProviders.value || managementWriteDisabled.value) return
   void modelStore.switchSelectedProviderToPrimary()
 }
 
 function recoverProvider() {
-  if (!canManageProviders.value || managementBusy.value) return
+  if (!canManageProviders.value || managementWriteDisabled.value) return
   void modelStore.recoverSelectedProvider()
 }
 
@@ -162,15 +163,16 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
           </article>
         </section>
 
-        <section v-if="modelStore.error || modelStore.operationError" role="alert" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <section v-if="modelStore.operationRefreshWarning || modelStore.error || modelStore.operationError" role="alert" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-start gap-2">
               <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
               <div class="min-w-0">
                 <p class="font-semibold">
-                  {{ modelStore.error ? t('models.loadErrorTitle') : t('models.operationErrorTitle') }}
+                  {{ modelStore.operationRefreshWarning ? roleText('confirmedRefreshTitle') : modelStore.error ? t('models.loadErrorTitle') : t('models.operationErrorTitle') }}
                 </p>
-                <p class="mt-1 break-words text-xs">{{ modelStore.error || modelStore.operationError }}</p>
+                <p v-if="modelStore.operationRefreshWarning" class="mt-1 break-words text-xs">{{ roleText('confirmedRefreshHint', { provider: modelStore.operationRefreshWarning.providerName, operation: roleText(modelStore.operationRefreshWarning.kind === 'switch' ? 'switchOperation' : 'recoverOperation') }) }}</p>
+                <p class="mt-1 break-words text-xs">{{ modelStore.error || modelStore.operationRefreshWarning?.error || modelStore.operationError }}</p>
               </div>
             </div>
             <button
@@ -312,7 +314,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                 <div class="flex flex-wrap items-center gap-2">
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-                    :disabled="!selectedProvider || selectedProvider.active || managementBusy || modelStore.snapshotSource !== 'real'"
+                    :disabled="!selectedProvider || selectedProvider.active || managementWriteDisabled || modelStore.snapshotSource !== 'real'"
                     @click="switchPrimary"
                   >
                     <Shuffle class="h-3.5 w-3.5" />
@@ -320,7 +322,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                   </button>
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-                    :disabled="!selectedProvider || managementBusy || modelStore.snapshotSource !== 'real'"
+                    :disabled="!selectedProvider || managementWriteDisabled || modelStore.snapshotSource !== 'real'"
                     @click="recoverProvider"
                   >
                     <RotateCcw class="h-3.5 w-3.5" :class="{ 'animate-spin': modelStore.recoveringProviderId === selectedProvider?.id }" />

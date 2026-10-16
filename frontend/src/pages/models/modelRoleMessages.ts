@@ -1,6 +1,9 @@
 // pattern: Functional Core
 export const modelRoleMessages = {
   'zh-CN': {
+    confirmedRefreshTitle: '管理操作已确认，状态刷新失败',
+    confirmedRefreshHint: '对“{provider}”的{operation}已获服务端确认。下方快照尚未确认操作后的运行状态，请先刷新状态；刷新前不会再次提交管理操作。',
+    switchOperation: '主路由切换', recoverOperation: '熔断恢复',
     demo: '当前是演示数据，不代表真实服务可用性。演示快照不可执行主备切换或恢复操作。',
     title: '服务能力', subtitle: '了解平台提供的能力，再选择适合你的工作流',
     scope: '平台服务目录', scopeHint: '这里展示后端报告的服务能力。具体工作流的连接、模型和输入会在运行前再次检查。',
@@ -19,6 +22,9 @@ export const modelRoleMessages = {
     genericDescription: '后端已注册的工作流服务能力。',
   },
   'en-US': {
+    confirmedRefreshTitle: 'Management action confirmed; status refresh failed',
+    confirmedRefreshHint: 'The server confirmed {operation} for “{provider}”. The snapshot below does not confirm the resulting runtime state. Refresh status first; management writes stay disabled until then.',
+    switchOperation: 'primary routing switch', recoverOperation: 'circuit recovery',
     demo: 'Demo data does not represent live service availability. Switching and recovery are disabled for demo snapshots.',
     title: 'Service capabilities', subtitle: 'See what the platform supports before choosing a workflow',
     scope: 'Platform service catalog', scopeHint: 'These capabilities come from the backend. Connections, models and inputs are checked again before a workflow runs.',
@@ -37,6 +43,9 @@ export const modelRoleMessages = {
     genericDescription: 'A workflow service capability registered by the backend.',
   },
   'ja-JP': {
+    confirmedRefreshTitle: '管理操作は確認済みですが、状態の更新に失敗しました',
+    confirmedRefreshHint: '「{provider}」の{operation}はサーバーで確認済みです。下の情報では操作後の稼働状態を確認できません。先に状態を更新してください。確認できるまで管理操作は再送しません。',
+    switchOperation: '主経路の切り替え', recoverOperation: 'サーキットの復旧',
     demo: 'デモデータは実際の利用可否を示しません。デモ情報では切り替えと復旧操作は実行できません。',
     title: 'サービス機能', subtitle: 'プラットフォームで使える機能を確認してワークフローを選択',
     scope: 'プラットフォームのサービス一覧', scopeHint: 'バックエンドが報告した機能です。接続、モデル、入力はワークフロー実行前に再確認されます。',
