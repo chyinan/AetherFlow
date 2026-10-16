@@ -286,6 +286,8 @@ export const jaJP = {
     createProjectTitle: 'プロジェクト作成',
     createPanelHint: 'デモ用に実際のバックエンドプロジェクトレコードを作成します。',
     createProject: 'プロジェクト作成',
+    creatingHint: '作成リクエストを送信中です。この画面を閉じても送信済みのリクエストは取り消されません。',
+    createFailedHint: '作成に失敗したか、結果を確認できませんでした。重複を避けるため、再試行する前にプロジェクト一覧を確認してください。',
     nameLabel: '名前',
     defaultProjectName: 'メディア自動化プロジェクト',
     mockProjectDescription: 'フロントエンドから作成されたワークスペースプロジェクト。',

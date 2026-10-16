@@ -284,6 +284,8 @@ export const enUS = {
     createProjectTitle: 'Create project',
     createPanelHint: 'Creates real backend project records for the business loop demo.',
     createProject: 'Create project',
+    creatingHint: 'Submitting the creation request. Closing this window does not cancel a submitted request.',
+    createFailedHint: 'Creation failed or the result is unconfirmed. Check the project list before retrying to avoid duplicates.',
     nameLabel: 'Name',
     defaultProjectName: 'Media automation project',
     mockProjectDescription: 'Workspace project created from the frontend console.',

@@ -290,6 +290,8 @@ export const zhCN = {
     createProjectTitle: '新建项目',
     createPanelHint: '创建真实后端项目记录，用于演示业务闭环。',
     createProject: '创建项目',
+    creatingHint: '正在提交创建请求。关闭窗口不会取消已提交的请求。',
+    createFailedHint: '创建失败或结果尚未确认。请核对项目列表后再重试，避免重复创建。',
     nameLabel: '名称',
     defaultProjectName: '媒体自动化项目',
     mockProjectDescription: '从前端控制台创建的工作区项目。',
