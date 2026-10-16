@@ -107,9 +107,11 @@ const memberForm = ref({
 })
 const providerDialog = ref<HTMLElement | null>(null)
 const memberDialog = ref<HTMLElement | null>(null)
-const settingsModalOpen = computed(() => showProviderConfigDialog.value || showMemberDialog.value)
+const defaultModelDialog = ref<HTMLElement | null>(null)
+const settingsModalOpen = computed(() => showProviderConfigDialog.value || showMemberDialog.value || showDefaultModelSettings.value)
 useModalFocus(showProviderConfigDialog, providerDialog, closeProviderConfig)
 useModalFocus(showMemberDialog, memberDialog, closeMemberDialog)
+useModalFocus(showDefaultModelSettings, defaultModelDialog, closeDefaultModelSettings)
 const telegramSaving = ref(false)
 const telegramTesting = ref(false)
 const telegramMessage = ref('')
@@ -2013,16 +2015,17 @@ watch(
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       @click.self="closeDefaultModelSettings"
     >
-      <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel">
-        <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
+      <section ref="defaultModelDialog" role="dialog" aria-modal="true" aria-labelledby="default-model-summary-title" aria-describedby="default-model-summary-description" tabindex="-1" class="settings-dialog default-model-summary flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel">
+        <header class="flex shrink-0 items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <div>
-            <p class="text-base font-semibold text-text-primary">{{ t('settings.defaultModelDialogTitle') }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('settings.defaultModelDialogHint') }}</p>
+            <h2 id="default-model-summary-title" class="text-base font-semibold text-text-primary">{{ t('settings.defaultModelDialogTitle') }}</h2>
+            <p id="default-model-summary-description" class="mt-1 text-sm leading-6 text-text-secondary">{{ t('settings.defaultModelDialogHint') }}</p>
           </div>
           <button
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary"
             :title="t('settings.close')"
+            :aria-label="t('settings.close')"
             @click="closeDefaultModelSettings"
           >
             <X class="h-4 w-4" />
@@ -2060,7 +2063,7 @@ watch(
           </p>
         </div>
 
-        <footer class="flex flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
+        <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
           <button
             type="button"
             class="rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition hover:text-text-primary"
@@ -2298,5 +2301,10 @@ watch(
 .settings-dialog {
   max-height: calc(100vh - 2rem);
   max-height: calc(100dvh - 2rem);
+}
+.default-model-summary > div {
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
 }
 </style>
