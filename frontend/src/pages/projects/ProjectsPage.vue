@@ -143,11 +143,16 @@ async function submitWorkflowDraft() {
 }
 
 async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
+  if (projectStore.deletingWorkflowIds[workflow.id]) return
   const confirmed = window.confirm(t('projects.deleteWorkflowConfirm', { name: workflow.name }))
   if (!confirmed) {
     return
   }
-  await projectStore.deleteProjectWorkflow(project.id, workflow.id)
+  try {
+    await projectStore.deleteProjectWorkflow(project.id, workflow.id)
+  } catch {
+    // store 保留目标行及可重试提示；离页后的失败也不泄漏到组件事件边界。
+  }
 }
 
 async function submitCreate() {
@@ -378,6 +383,8 @@ async function retryLoadProjects() {
                 <div class="min-w-0">
                   <p class="truncate text-sm font-medium text-text-primary">{{ workflow.name }}</p>
                   <p class="mt-1 text-[11px] text-text-muted">{{ workflow.updatedAt }}</p>
+                  <p v-if="projectStore.deletingWorkflowIds[workflow.id]" role="status" class="mt-1 text-xs text-text-muted">{{ t('projects.deletingWorkflowHint', { name: workflow.name }) }}</p>
+                  <p v-if="projectStore.workflowDeleteErrors[workflow.id]" role="alert" class="mt-1 text-xs text-status-warning">{{ t('projects.deleteWorkflowFailedHint', { name: workflow.name }) }}</p>
                 </div>
                 <div class="flex shrink-0 items-center gap-2">
                   <StatusBadge :status="workflow.status === 'draft' ? 'idle' : workflow.status === 'ready' ? 'success' : 'running'" />
@@ -385,14 +392,17 @@ async function retryLoadProjects() {
                     type="button"
                     class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-primary/30 hover:text-primary"
                     :title="t('projects.renameWorkflow')"
+                    :disabled="projectStore.deletingWorkflowIds[workflow.id]"
                     @click.prevent.stop="openRenameWorkflow(project, workflow)"
                   >
                     <Edit3 class="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
-                    class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-status-error/30 hover:text-status-error"
+                    class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-status-error/30 hover:text-status-error disabled:cursor-wait disabled:opacity-60"
                     :title="t('projects.deleteWorkflow')"
+                    :disabled="projectStore.deletingWorkflowIds[workflow.id]"
+                    :aria-busy="Boolean(projectStore.deletingWorkflowIds[workflow.id])"
                     @click.prevent.stop="deleteWorkflow(project, workflow)"
                   >
                     <Trash2 class="h-3.5 w-3.5" />

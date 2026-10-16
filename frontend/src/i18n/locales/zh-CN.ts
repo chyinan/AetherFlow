@@ -336,6 +336,8 @@ export const zhCN = {
     workflowNameLabel: '工作流名称',
     workflowPanelHint: '工作流会归属到当前项目；保存后进入后端定义列表。',
     deleteWorkflowConfirm: '确定删除工作流“{name}”吗？此操作会软删除后端定义。',
+    deletingWorkflowHint: '正在删除“{name}”…',
+    deleteWorkflowFailedHint: '未能确认“{name}”的删除结果，已保留该行。请核对列表后再次点击删除并确认重试。',
     workflowLoadWarning: '工作流列表暂时不可用，项目数据仍可查看。',
   },
   workflow: {

@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   projectStore: {
     projects: [] as Array<Record<string, unknown>>,
     workflowSummaries: [] as Array<Record<string, unknown>>,
+    deletingWorkflowIds: {} as Record<string, boolean>,
+    workflowDeleteErrors: {} as Record<string, boolean>,
     currentProjectId: '',
     loading: false,
     loadError: null as string | null,

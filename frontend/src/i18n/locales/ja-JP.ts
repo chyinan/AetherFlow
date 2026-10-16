@@ -332,6 +332,8 @@ export const jaJP = {
     workflowNameLabel: 'ワークフロー名',
     workflowPanelHint: 'ワークフローはこのプロジェクトに紐づき、バックエンド定義として保存されます。',
     deleteWorkflowConfirm: 'ワークフロー「{name}」を削除しますか？ これはバックエンド定義のソフト削除です。',
+    deletingWorkflowHint: '「{name}」を削除中…',
+    deleteWorkflowFailedHint: '「{name}」の削除結果を確認できませんでした。この行は保持されています。一覧を確認してから、削除ボタンを押して再確認してください。',
     workflowLoadWarning: 'ワークフロー一覧を一時的に取得できません。プロジェクトデータは表示できます。',
   },
   workflow: {
