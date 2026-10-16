@@ -26,6 +26,7 @@ export interface RunNodeState {
 export interface RunLogEntry {
   id: string
   time: string
+  occurredAt?: string
   level: 'info' | 'warn' | 'error' | 'debug'
   message: string
   nodeId?: string

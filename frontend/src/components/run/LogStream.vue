@@ -3,8 +3,10 @@ import { Search, Terminal } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { normalizeLocale } from '@/i18n/locale'
 import type { RunLogEntry } from '@/types/run'
 import { imageExecutionFailureMessages, parseImageExecutionFailure } from '@/utils/imageExecutionFailure'
+import { formatTime } from '@/utils/localeFormat'
 import ImageExecutionFailureCard from './ImageExecutionFailureCard.vue'
 
 const props = defineProps<{
@@ -15,10 +17,17 @@ const props = defineProps<{
 
 const query = ref('')
 const level = ref<'all' | RunLogEntry['level']>('all')
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const { t: failureText } = useI18n({ useScope: 'local', messages: imageExecutionFailureMessages })
 const workflowHref = computed(() => props.workflowId ? `/workflows/${encodeURIComponent(props.workflowId)}` : undefined)
 const diagnosedLogs = computed(() => props.logs.map((log) => ({ ...log, imageFailure: log.imageFailure ?? parseImageExecutionFailure(log.message) })))
+
+function logTime(log: Pick<RunLogEntry, 'time' | 'occurredAt'>) {
+  if (!log.occurredAt) return log.time
+  const date = new Date(log.occurredAt)
+  // 原始时刻只在展示时格式化；旧日志和无效时间继续沿用已有显示。
+  return Number.isNaN(date.getTime()) ? log.time : formatTime(date, normalizeLocale(locale.value))
+}
 
 const filteredLogs = computed(() => {
   const text = query.value.trim().toLowerCase()
@@ -70,7 +79,7 @@ const filteredLogs = computed(() => {
         class="grid grid-cols-[68px_52px_minmax(72px,120px)_minmax(0,1fr)] gap-2 rounded-md border border-transparent bg-app-bg2 px-3 py-2 text-text-secondary transition hover:border-primary/20 hover:bg-primary-soft/30"
         :title="log.imageFailure ? undefined : log.message"
       >
-        <span class="text-text-muted">{{ log.time }}</span>
+        <span class="text-text-muted">{{ logTime(log) }}</span>
         <span class="font-semibold uppercase text-primary">{{ log.level }}</span>
         <span class="truncate text-text-muted">{{ log.nodeId }}</span>
         <ImageExecutionFailureCard v-if="log.imageFailure" :failure="log.imageFailure" :node-id="log.nodeId" :workflow-href="workflowHref" class="text-text-primary" />

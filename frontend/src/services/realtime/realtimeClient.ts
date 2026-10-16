@@ -117,9 +117,11 @@ function subscribeMockRun(runId: string, handlers: RunHandlers, reason?: string)
   handlers.onConnectionChange?.('online')
 
   if (reason) {
+    const occurredAt = new Date()
     handlers.onLog?.({
       id: `${streamIdPrefix}-fallback-${Date.now()}`,
-      time: formatTime(new Date()),
+      time: formatTime(occurredAt),
+      occurredAt: occurredAt.toISOString(),
       level: 'warn',
       message: reason,
     })
@@ -171,9 +173,11 @@ export const realtimeClient = {
         return subscribeMockRun(runId, handlers)
       }
       handlers.onConnectionChange?.('offline')
+      const occurredAt = new Date()
       handlers.onLog?.({
         id: `${runId}-runtime-id-missing`,
-        time: formatTime(new Date()),
+        time: formatTime(occurredAt),
+        occurredAt: occurredAt.toISOString(),
         level: 'error',
         message: 'Runtime stream is unavailable because the run has no runtime workflow id.',
       })
@@ -256,9 +260,11 @@ export const realtimeClient = {
             return
           }
           socketErrorLogged = true
+          const occurredAt = new Date()
           handlers.onLog?.({
             id: `${runId}-runtime-websocket-error-${Date.now()}`,
-            time: formatTime(new Date()),
+            time: formatTime(occurredAt),
+            occurredAt: occurredAt.toISOString(),
             level: 'warn',
             message: error instanceof Error
               ? `Runtime WebSocket unavailable: ${error.message}`
