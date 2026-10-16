@@ -94,7 +94,16 @@ function mergeNodeOutput(existing: RunNodeState, incoming: RunNodeState) {
   return incoming.output
 }
 
+function mergeNodeRetryCounts(run: WorkflowRun, patches: RunNodeState[]) {
+  for (const patch of patches) {
+    if (patch.retryCount === undefined) continue
+    const node = run.nodeStates.find(node => node.nodeId === patch.nodeId)
+    if (node) node.retryCount = Math.max(node.retryCount ?? 0, patch.retryCount)
+  }
+}
+
 function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveCurrent = false): WorkflowRun {
+  if (current.id === incoming.id) mergeNodeRetryCounts(current, incoming.nodeStates)
   // 局部节点可能推导出 success/failed；只有后端确认的终态才能锁定 HTTP 协调。
   const currentTerminal = isBackendTerminalRun(current)
   const currentInferredTerminal = isTerminalRunStatus(current.status) && !currentTerminal
@@ -123,6 +132,7 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
     merged.output = mergeNodeOutput(existing, node)
     if (node.label === node.nodeId) merged.label = existing.label
     if (existing.durationMs !== undefined) merged.durationMs = Math.max(existing.durationMs, node.durationMs ?? 0)
+    if (existing.retryCount !== undefined) merged.retryCount = Math.max(existing.retryCount, node.retryCount ?? 0)
     if (merged.status !== 'paused' && merged.approval?.approvalStatus === 'pending') merged.approval = undefined
     nodes.set(node.nodeId, merged)
   }
@@ -422,10 +432,21 @@ export const useRunStore = defineStore('run', {
         this.logsByRunId[this.currentRun.id] = this.logs
       }
     },
+    mergeCurrentNodeRetryCount(patch: RunNodeState) {
+      const runId = this.currentRun?.id
+      if (!runId || patch.retryCount === undefined) return
+      // 单调的重试证据可以补齐；不接受旧状态、输出，也不改变选择或订阅代际。
+      const targets = [this.currentRun, ...this.runs, ...this.historyRuns, ...this.workflowRuns]
+      for (const run of targets) {
+        if (run?.id !== runId) continue
+        mergeNodeRetryCounts(run, [patch])
+      }
+    },
     patchNodeState(patch: RunNodeState, options: { inferRunStatus?: boolean } = {}) {
       if (!this.currentRun || isCancelledRun(this.currentRun)) {
         return
       }
+      this.mergeCurrentNodeRetryCount(patch)
       const state = this.currentRun.nodeStates.find((node) => node.nodeId === patch.nodeId)
       if (state && isTerminalNodeStatus(state.status)
         && (!isTerminalNodeStatus(patch.status) || state.status !== patch.status)) {
@@ -443,6 +464,7 @@ export const useRunStore = defineStore('run', {
         merged.output = mergeNodeOutput(state, patch)
         if (normalizedPatch.label === patch.nodeId) merged.label = state.label
         if (state.durationMs !== undefined) merged.durationMs = Math.max(state.durationMs, patch.durationMs ?? 0)
+        if (state.retryCount !== undefined) merged.retryCount = Math.max(state.retryCount, patch.retryCount ?? 0)
         Object.assign(state, merged)
         if (patch.status !== 'paused' && !patch.approval) state.approval = undefined
       } else {
@@ -684,6 +706,7 @@ export const useRunStore = defineStore('run', {
       const updatedWhileRecovering = (this.runUpdateVersions[expectedRunId] ?? 0) !== updateVersion
       const currentNodeVersions = { ...this.nodeUpdateVersions[expectedRunId] }
       recovery.nodePatches.forEach((patch) => {
+        this.mergeCurrentNodeRetryCount(patch)
         if ((currentNodeVersions[patch.nodeId] ?? 0) === (nodeVersions[patch.nodeId] ?? 0)) {
           // 补齐未并发变更的历史节点，但不能用局部节点推断覆盖较新的运行摘要。
           this.patchNodeState(patch, { inferRunStatus: !updatedWhileRecovering })
