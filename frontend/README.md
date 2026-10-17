@@ -37,6 +37,10 @@ The production container is built from `frontend/nginx/Dockerfile`.
 
 运行记录将本页统计、筛选和匹配结果分组显示，以工作流名称识别记录，并将独立 ID 打开放入可展开入口。统计口径、分页和深链行为不变；布局与验证边界见 [运行历史的信息层级与渐进展开](../docs/RUN_HISTORY_INFORMATION_HIERARCHY.md)。
 
+## 服务商检查的信息范围
+
+服务管理页将整体计数与所选服务的延迟、配额、模型分开显示。普通选择只更换检查对象，不会切换主路由；加载、旧快照和失败状态继续明确提示。具体契约与验证边界见 [服务商检查流程的对象归属与状态呈现](../docs/MODEL_PROVIDER_INSPECTION_SCOPE.md)。
+
 
 ## 运行输入与成品定位
 
