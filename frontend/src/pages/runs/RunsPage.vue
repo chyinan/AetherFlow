@@ -40,6 +40,7 @@ const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore
 let historyRequest: Promise<void> | undefined
 let routeGeneration = 0
 let detailNavigationGeneration = 0
+const detailFocusCleanups = new Set<() => void>()
 let active = true
 
 function requestHistoryPage() {
@@ -197,6 +198,7 @@ watch(
 
 onBeforeUnmount(() => {
   active = false
+  detailFocusCleanups.forEach(cleanup => cleanup())
   routeGeneration += 1
   runStore.historyRequestId += 1
   runStore.selectionRequestId += 1
@@ -215,15 +217,29 @@ async function selectRun(runId: string) {
   const generation = ++detailNavigationGeneration
   const location = { name: 'run-detail', params: { id: runId }, query: route.query }
   const expectedPath = router.resolve(location).fullPath
-  const failure = await router.push(location)
-  if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return
-  await nextTick()
-  // 只有本次主动打开仍是当前意图时才交接焦点；后退和外部导航不会走这里。
-  if (!active || generation !== detailNavigationGeneration || selectedRouteId.value !== runId || route.fullPath !== expectedPath) return
-  const region = runDetailRegion.value
-  region?.focus({ preventScroll: true })
-  if (!window.matchMedia?.('(min-width: 1280px)').matches) {
-    region?.scrollIntoView?.({ block: 'start' })
+  let focusIntentChanged = false
+  const recordFocusIntent = () => { focusIntentChanged = true }
+  // 等待导航时重新聚焦、继续输入或再次点击都属于更新的用户意图。
+  const intentEvents = ['focusin', 'input', 'pointerdown'] as const
+  const cleanupIntentListeners = () => {
+    intentEvents.forEach(event => document.removeEventListener(event, recordFocusIntent))
+    detailFocusCleanups.delete(cleanupIntentListeners)
+  }
+  detailFocusCleanups.add(cleanupIntentListeners)
+  intentEvents.forEach(event => document.addEventListener(event, recordFocusIntent))
+  try {
+    const failure = await router.push(location)
+    if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return
+    await nextTick()
+    // 只有本次主动打开仍是当前意图时才交接焦点；后退和外部导航不会走这里。
+    if (!active || focusIntentChanged || generation !== detailNavigationGeneration || selectedRouteId.value !== runId || route.fullPath !== expectedPath) return
+    const region = runDetailRegion.value
+    region?.focus({ preventScroll: true })
+    if (!window.matchMedia?.('(min-width: 1280px)').matches) {
+      region?.scrollIntoView?.({ block: 'start' })
+    }
+  } finally {
+    cleanupIntentListeners()
   }
 }
 
