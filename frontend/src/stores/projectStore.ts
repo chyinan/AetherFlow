@@ -14,6 +14,22 @@ import { useRunStore } from './runStore'
 
 const PROJECT_WORKFLOW_LINKS_STORAGE_KEY = 'aetherflow.project.workflowLinks'
 
+function removeDeletedWorkflows(
+  projects: ProjectSummary[],
+  summaries: WorkflowSummary[],
+  deletions: Record<string, string>,
+) {
+  projects.forEach((project) => {
+    // 只有同一项目快照的嵌入成员能证明该计数包含目标，不能借另一条 GET 的旧 summary 重复扣数。
+    const removedIds = new Set(project.workflows.filter((workflow) => workflow.id in deletions).map((workflow) => workflow.id))
+    project.workflows = project.workflows.filter((workflow) => !(workflow.id in deletions))
+    if (removedIds.size > 0) {
+      project.workflowCount = Math.max(0, project.workflowCount - removedIds.size)
+    }
+  })
+  return summaries.filter((workflow) => !(workflow.id in deletions))
+}
+
 function projectWorkflowLinksStorageKey() {
   const user = tokenManager.readSession()?.user as ({ userId?: unknown; id?: unknown } | undefined)
   return `${PROJECT_WORKFLOW_LINKS_STORAGE_KEY}.${String(user?.userId ?? user?.id ?? 'anonymous')}`
@@ -95,6 +111,9 @@ export const useProjectStore = defineStore('project', {
   state: () => ({
     projects: [] as ProjectSummary[],
     workflowSummaries: [] as WorkflowSummary[],
+    deletingWorkflowIds: {} as Record<string, boolean>,
+    workflowDeleteErrors: {} as Record<string, boolean>,
+    workflowLoadDeletions: {} as Record<number, Record<string, string>>,
     currentProjectId: 'project-media-ops',
     loading: false,
     loadError: null as string | null,
@@ -155,11 +174,14 @@ export const useProjectStore = defineStore('project', {
       const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
+      this.workflowLoadDeletions[requestId] = {}
+      let projectsReadSucceeded = false
       try {
         const [projectsResult, workflowsResult] = await Promise.allSettled([
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
+        projectsReadSucceeded = projectsResult.status === 'fulfilled'
         if (!isCurrent()) {
           return
         }
@@ -176,8 +198,13 @@ export const useProjectStore = defineStore('project', {
         this.currentProjectId = this.currentProjectId || this.projects[0]?.id || 'project-media-ops'
       } finally {
         if (isCurrent()) {
+          // 只剔除本次联合读取等待期间确认删除的条目；后续读取仍以服务端为准。
+          if (projectsReadSucceeded) {
+            this.workflowSummaries = removeDeletedWorkflows(this.projects, this.workflowSummaries, this.workflowLoadDeletions[requestId] ?? {})
+          }
           this.loading = false
         }
+        delete this.workflowLoadDeletions[requestId]
       }
     },
     async refreshProjects() {
@@ -185,11 +212,14 @@ export const useProjectStore = defineStore('project', {
       const isCurrent = () => this.loadRequestId === requestId
       this.loading = true
       this.loadError = null
+      this.workflowLoadDeletions[requestId] = {}
+      let projectsReadSucceeded = false
       try {
         const [projectsResult, workflowsResult] = await Promise.allSettled([
           projectApi.listProjects(),
           workflowApi.listWorkflows(),
         ])
+        projectsReadSucceeded = projectsResult.status === 'fulfilled'
         if (!isCurrent()) {
           return
         }
@@ -206,8 +236,13 @@ export const useProjectStore = defineStore('project', {
         this.currentProjectId = this.projects[0]?.id || ''
       } finally {
         if (isCurrent()) {
+          // 只剔除本次联合读取等待期间确认删除的条目；后续读取仍以服务端为准。
+          if (projectsReadSucceeded) {
+            this.workflowSummaries = removeDeletedWorkflows(this.projects, this.workflowSummaries, this.workflowLoadDeletions[requestId] ?? {})
+          }
           this.loading = false
         }
+        delete this.workflowLoadDeletions[requestId]
       }
     },
     selectProject(projectId: string) {
@@ -300,12 +335,24 @@ export const useProjectStore = defineStore('project', {
       return saved
     },
     async deleteProjectWorkflow(projectId: string, workflowId: string) {
-      await workflowApi.deleteWorkflow(workflowId)
-      this.unlinkWorkflowFromProject(projectId, workflowId)
-      this.workflowSummaries = this.workflowSummaries.filter((workflow) => workflow.id !== workflowId)
-      this.projects.forEach((project) => {
-        project.workflows = project.workflows.filter((workflow) => workflow.id !== workflowId)
-      })
+      if (this.deletingWorkflowIds[workflowId]) return
+      this.deletingWorkflowIds[workflowId] = true
+      delete this.workflowDeleteErrors[workflowId]
+      try {
+        await workflowApi.deleteWorkflow(workflowId)
+        // 与重命名恢复共用代次：确认删除后，旧重命名回执不能重新补回该行。
+        this.workflowRenameRequestIds[workflowId] = (this.workflowRenameRequestIds[workflowId] ?? 0) + 1
+        Object.values(this.workflowLoadDeletions).forEach((deletions) => {
+          deletions[workflowId] = projectId
+        })
+        this.workflowSummaries = removeDeletedWorkflows(this.projects, this.workflowSummaries, { [workflowId]: projectId })
+        this.unlinkWorkflowFromProject(projectId, workflowId)
+      } catch (error) {
+        this.workflowDeleteErrors[workflowId] = true
+        throw error
+      } finally {
+        delete this.deletingWorkflowIds[workflowId]
+      }
     },
     async createProject(payload: { name: string; scenario: ProjectSummary['scenario'] }) {
       const project = await projectApi.createProject({

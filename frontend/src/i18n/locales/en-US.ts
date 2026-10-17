@@ -340,6 +340,8 @@ export const enUS = {
     workflowNameLabel: 'Workflow name',
     workflowPanelHint: 'The workflow is assigned to this project and saved as a backend definition.',
     deleteWorkflowConfirm: 'Delete workflow “{name}”? This soft-deletes the backend definition.',
+    deletingWorkflowHint: 'Deleting “{name}”…',
+    deleteWorkflowFailedHint: 'The deletion of “{name}” could not be confirmed. This row is preserved. Check the list, then click Delete and confirm to retry.',
     workflowLoadWarning: 'The workflow list is temporarily unavailable; project data remains available.',
   },
   workflow: {
