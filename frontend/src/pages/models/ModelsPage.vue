@@ -4,13 +4,9 @@ import {
   AlertTriangle,
   Brain,
   Cpu,
-  Gauge,
-  Layers3,
   PanelLeftOpen,
   RefreshCw,
   RotateCcw,
-  ServerCog,
-  ShieldCheck,
   Shuffle,
 } from 'lucide-vue-next'
 import { computed, watch } from 'vue'
@@ -33,34 +29,15 @@ const managementWriteDisabled = computed(() => managementBusy.value || Boolean(m
 const selectedProvider = computed(() => modelStore.selectedProvider)
 const canManageProviders = computed(() => authStore.isAdmin)
 
-const summaryCards = computed(() => [
+const hasSummarySnapshot = computed(() => modelStore.providers.length > 0 || modelStore.models.length > 0 || (!modelStore.loading && !modelStore.error))
+const overallMetrics = computed(() => [
   {
     label: t('models.providersOnline'),
     value: modelStore.onlineProviderCount,
-    hint: `${modelStore.providers.length} ${t('models.registered')}`,
-    icon: ServerCog,
   },
   {
     label: t('models.readyModels'),
     value: modelStore.readyModelCount,
-    hint: `${modelStore.models.length} ${t('models.catalogEntries')}`,
-    icon: Layers3,
-  },
-  {
-    label: t('models.primaryLatency'),
-    value: selectedProvider.value?.latencyMs ? `${selectedProvider.value.latencyMs}ms` : '--',
-    hint: t('models.backendRuntimeProbe'),
-    icon: Gauge,
-  },
-  {
-    label: t('models.quotaUsed'),
-    value: selectedProvider.value && hasProviderQuota(selectedProvider.value)
-      ? `${selectedProvider.value.quotaUsed}/${selectedProvider.value.quotaLimit}`
-      : '--',
-    hint: selectedProvider.value && !hasProviderQuota(selectedProvider.value)
-      ? quotaStatusText(selectedProvider.value)
-      : selectedProvider.value?.name ?? t('models.selectProvider'),
-    icon: ShieldCheck,
   },
 ])
 
@@ -148,19 +125,18 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
         <p v-if="!modelStore.loading && !modelStore.error && !modelStore.providers.length" data-testid="management-empty" class="rounded-lg border border-dashed border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminEmpty') }}</p>
         <p v-if="modelStore.error && modelStore.providers.length" role="status" class="text-sm text-status-warning">{{ roleText('backendFailure') }}</p>
         <p v-if="modelStore.snapshotSource === 'mock' && modelStore.providers.length" role="status" data-testid="model-demo-warning" class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{{ roleText('demo') }}</p>
-        <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <article
-            v-for="card in summaryCards"
-            :key="card.label"
-            class="rounded-lg border border-app-border bg-white p-4 shadow-sm"
-          >
-            <div class="flex items-center gap-2 text-text-muted">
-              <component :is="card.icon" class="h-4 w-4" />
-              <span class="text-xs font-medium">{{ card.label }}</span>
-            </div>
-            <p class="mt-3 text-2xl font-semibold text-text-primary">{{ card.value }}</p>
-            <p class="mt-1 text-xs text-text-muted">{{ card.hint }}</p>
-          </article>
+        <section data-testid="models-overview" aria-labelledby="models-overview-title" class="rounded-lg border border-app-border bg-white px-4 py-3">
+          <h2 id="models-overview-title" class="text-sm font-semibold text-text-primary">{{ roleText('overallSummary') }}</h2>
+          <template v-if="hasSummarySnapshot">
+            <dl class="mt-3 grid gap-3 sm:grid-cols-2">
+              <div v-for="metric in overallMetrics" :key="metric.label" class="flex items-baseline justify-between gap-3 rounded-md bg-app-bg2 px-3 py-2">
+                <dt class="text-xs text-text-muted">{{ metric.label }}</dt>
+                <dd class="text-lg font-semibold text-text-primary">{{ metric.value }}</dd>
+              </div>
+            </dl>
+            <p class="mt-2 text-xs text-text-muted">{{ modelStore.providers.length }} {{ t('models.registered') }} · {{ modelStore.models.length }} {{ t('models.catalogEntries') }}</p>
+          </template>
+          <p v-else class="mt-2 text-sm text-text-muted">{{ modelStore.loading ? roleText('overallLoading') : roleText('overallUnconfirmed') }}</p>
         </section>
 
         <section v-if="modelStore.operationRefreshWarning || modelStore.error || modelStore.operationError" role="alert" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -207,8 +183,11 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                 v-for="provider in modelStore.providers"
                 :key="provider.id"
                 type="button"
+                :data-provider-id="provider.id"
+                :aria-pressed="selectedProvider?.id === provider.id"
+                aria-controls="selected-provider-details"
                 class="w-full rounded-lg border p-3 text-left transition hover:border-primary/30 hover:shadow-sm"
-                :class="modelStore.selectedProviderId === provider.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20 shadow-sm' : 'border-app-border bg-white'"
+                :class="selectedProvider?.id === provider.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20 shadow-sm' : 'border-app-border bg-white'"
                 @click="selectProvider(provider.id)"
               >
                 <div class="flex items-start justify-between gap-3">
@@ -305,10 +284,10 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
           </aside>
 
           <section class="flex min-h-0 flex-col gap-4 overflow-visible xl:overflow-hidden">
-            <div class="shrink-0 overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
+            <section id="selected-provider-details" aria-labelledby="selected-provider-title" class="shrink-0 overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
-                <div>
-                  <p class="text-sm font-semibold text-text-primary">{{ selectedProvider?.name ?? t('models.providers') }}</p>
+                <div class="min-w-0">
+                  <h2 id="selected-provider-title" class="break-words text-sm font-semibold text-text-primary">{{ selectedProvider ? roleText('selectedProviderDetails', { provider: selectedProvider.name }) : t('models.selectProvider') }}</h2>
                   <p class="text-xs text-text-muted">{{ t('models.catalogAndCapabilities') }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
@@ -335,6 +314,25 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
               </div>
 
               <div class="p-4">
+                <dl v-if="selectedProvider" class="mb-4 grid gap-3 sm:grid-cols-2">
+                  <div data-testid="selected-provider-latency" class="rounded-md bg-app-bg2 p-3">
+                    <dt class="text-xs text-text-muted">{{ t('models.latencyLabel') }}</dt>
+                    <dd class="mt-1 text-sm font-semibold text-text-primary">
+                      {{ selectedProvider.latencyMs > 0 ? `${selectedProvider.latencyMs}ms` : '--' }}
+                      <span class="mt-1 block text-xs font-normal text-text-muted">{{ t('models.backendRuntimeProbe') }}</span>
+                    </dd>
+                  </div>
+                  <div data-testid="selected-provider-quota" class="rounded-md bg-app-bg2 p-3">
+                    <dt class="text-xs text-text-muted">{{ t('models.quota') }}</dt>
+                    <dd v-if="hasProviderQuota(selectedProvider)" class="mt-1 text-sm font-semibold text-text-primary">
+                      {{ selectedProvider.quotaUsed }} / {{ selectedProvider.quotaLimit }}
+                      <div class="mt-2 h-1.5 rounded-full bg-white">
+                        <div class="h-1.5 rounded-full bg-ai" :style="{ width: `${quotaPercent(selectedProvider.quotaUsed, selectedProvider.quotaLimit ?? 0)}%` }" />
+                      </div>
+                    </dd>
+                    <dd v-else class="mt-1 text-sm text-text-secondary">{{ quotaStatusText(selectedProvider) }}</dd>
+                  </div>
+                </dl>
                 <p v-if="modelStore.selectedProviderModels.length === 0" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
                   {{ t('models.noModels') }}
                 </p>
@@ -369,7 +367,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                   </article>
                 </div>
               </div>
-            </div>
+            </section>
 
             <div class="grid min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
               <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
@@ -394,8 +392,8 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                 </div>
               </section>
 
-              <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
-                <p class="shrink-0 text-sm font-semibold text-text-primary">{{ t('models.providerSnapshot') }}</p>
+              <section data-testid="selected-provider-snapshot" aria-labelledby="selected-provider-snapshot-title" class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
+                <h3 id="selected-provider-snapshot-title" class="shrink-0 break-words text-sm font-semibold text-text-primary">{{ selectedProvider ? roleText('selectedProviderSnapshot', { provider: selectedProvider.name }) : t('models.providerSnapshot') }}</h3>
                 <div v-if="selectedProvider" class="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
                   <div class="rounded-lg bg-app-bg2 p-3">
                     <p class="text-xs text-text-muted">{{ t('models.endpoint') }}</p>
@@ -423,21 +421,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                       </span>
                     </p>
                   </div>
-                  <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div v-if="hasProviderQuota(selectedProvider)" class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">{{ t('models.quota') }}</p>
-                      <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.quotaUsed }} / {{ selectedProvider.quotaLimit }}</p>
-                      <div class="mt-2 h-1.5 rounded-full bg-white">
-                        <div
-                          class="h-1.5 rounded-full bg-ai"
-                          :style="{ width: `${quotaPercent(selectedProvider.quotaUsed, selectedProvider.quotaLimit ?? 0)}%` }"
-                        />
-                      </div>
-                    </div>
-                    <div v-else class="rounded bg-app-bg2 p-2">
-                      <p class="text-text-muted">{{ t('models.quota') }}</p>
-                      <p class="mt-1 font-medium text-text-primary">{{ quotaStatusText(selectedProvider) }}</p>
-                    </div>
+                  <div class="text-xs">
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.checked') }}</p>
                       <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.lastCheckedAt }}</p>
