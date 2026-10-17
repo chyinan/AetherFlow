@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowUpRight, RefreshCw } from 'lucide-vue-next'
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -7,16 +8,23 @@ import { homeMessages } from './homeMessages'
 import { homeRunPageSize, type HomeRunGroup, type HomeRunSnapshot } from './homeStore'
 
 const props = defineProps<{ group: HomeRunGroup; loading: boolean; error: boolean; loaded: boolean; snapshot: HomeRunSnapshot | null }>()
-defineEmits<{ retry: [] }>()
+const emit = defineEmits<{ retry: [] }>()
+const sectionHeading = ref<HTMLElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
 const historyQuery = () => props.group === 'failed' ? { status: 'FAILED' } : props.group === 'completed' ? { status: 'SUCCESS' } : {}
+
+function retryInline() {
+  if (props.loading) return
+  sectionHeading.value?.focus({ preventScroll: true })
+  emit('retry')
+}
 </script>
 
 <template>
-  <section :data-section="group" :aria-busy="loading" class="flex min-w-0 flex-col rounded-xl border border-app-border bg-white p-5 shadow-sm">
+  <section :data-section="group" :aria-labelledby="`home-${group}-title`" :aria-busy="loading" class="flex min-w-0 flex-col rounded-xl border border-app-border bg-white p-5 shadow-sm">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <h2 class="text-base font-semibold text-text-primary">{{ t(`${group}Title`) }}</h2>
+        <h2 :id="`home-${group}-title`" ref="sectionHeading" tabindex="-1" class="rounded-sm text-base font-semibold text-text-primary focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-primary">{{ t(`${group}Title`) }}</h2>
         <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t(`${group}Hint`) }}</p>
       </div>
       <button type="button" :data-action="`refresh-${group}`" :aria-label="`${t('refresh')} · ${t(`${group}Title`)}`" :disabled="loading" class="rounded-md border border-app-border p-2 text-text-secondary hover:bg-app-muted disabled:opacity-50" @click="$emit('retry')">
@@ -24,14 +32,14 @@ const historyQuery = () => props.group === 'failed' ? { status: 'FAILED' } : pro
       </button>
     </div>
     <p v-if="loading" data-state="loading" role="status" class="py-8 text-sm text-text-muted">{{ t('loading') }}</p>
-    <div v-else-if="error" data-state="error" role="alert" class="my-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
+    <div v-else-if="error" data-state="error" role="alert" :aria-labelledby="`home-${group}-title`" class="my-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
       <p>{{ t('loadFailed') }}</p>
-      <button type="button" class="mt-2 font-medium text-primary underline" @click="$emit('retry')">{{ t('retry') }}</button>
+      <button type="button" :aria-label="`${t('retry')} · ${t(`${group}Title`)}`" class="mt-2 font-medium text-primary underline" @click="retryInline">{{ t('retry') }}</button>
     </div>
     <template v-else-if="loaded && snapshot">
-      <div v-if="snapshot.failedStatuses.length" data-state="partial-error" role="alert" class="mt-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
+      <div v-if="snapshot.failedStatuses.length" data-state="partial-error" role="alert" :aria-labelledby="`home-${group}-title`" class="mt-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
         <p>{{ t('partial') }}</p>
-        <button type="button" class="mt-2 font-medium text-primary underline" @click="$emit('retry')">{{ t('retry') }}</button>
+        <button type="button" :aria-label="`${t('retry')} · ${t(`${group}Title`)}`" class="mt-2 font-medium text-primary underline" @click="retryInline">{{ t('retry') }}</button>
       </div>
       <p v-else-if="snapshot.items.length === 0" data-state="empty" class="py-8 text-sm text-text-muted">{{ t(`${group}Empty`) }}</p>
       <ul v-if="snapshot.items.length" class="mt-4 divide-y divide-app-border">
