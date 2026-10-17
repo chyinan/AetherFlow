@@ -59,6 +59,9 @@ function applyFilters() {
 }
 
 function clearFilters() {
+  searchDraft.value = ''
+  workflowDraft.value = ''
+  statusDraft.value = ''
   updateFilters({ q: undefined, workflowId: undefined, status: undefined, page: 1 })
 }
 
