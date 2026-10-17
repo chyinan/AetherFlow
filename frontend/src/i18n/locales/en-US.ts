@@ -326,6 +326,8 @@ export const enUS = {
     createWorkflowTitle: 'Create workflow',
     createWorkflow: 'Create workflow',
     renameWorkflow: 'Rename workflow',
+    renamingHint: 'Submitting the rename request. Closing this window does not cancel a submitted request.',
+    renameFailedHint: 'The rename result could not be confirmed. Your draft is preserved. Check the workflow list before retrying.',
     deleteWorkflow: 'Delete workflow',
     workflowNameLabel: 'Workflow name',
     workflowPanelHint: 'The workflow is assigned to this project and saved as a backend definition.',
