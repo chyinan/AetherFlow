@@ -1,6 +1,7 @@
 // pattern: Imperative Shell
 import { isApiError, toApiError } from '@/api/client/apiError'
 import { runtimeEnv } from '@/config/runtimeEnv'
+import { ModelManagementRefreshError } from '@/utils/modelManagementRefreshError'
 import { mockModelCatalog, mockModelProviders, mockModelRuntimeLogs, mockRoutingPolicies } from '../mock/modelMock'
 import { mapAiProviderData, type AiModelSnapshot } from '@/api/mappers/aiMapper'
 import {
@@ -103,7 +104,8 @@ export const modelApi = {
     if (!isCurrent()) throw new Error('Management context changed')
     await recoverProviderCircuit(provider)
     if (!isCurrent()) throw new Error('Management context changed')
-    return loadRealSnapshot({ management: true })
+    try { return await loadRealSnapshot({ management: true }) }
+    catch (error) { throw new ModelManagementRefreshError(error) }
   },
   async switchPrimaryProvider(provider: AiProviderType, isCurrent: () => boolean = () => true) {
     if (!isCurrent()) throw new Error('Management context changed')
@@ -114,7 +116,8 @@ export const modelApi = {
       .filter((entry, index, entries) => entry && entries.indexOf(entry) === index) as AiProviderType[]
     await updateProviderRoutingPolicy({ ...policy, providers })
     if (!isCurrent()) throw new Error('Management context changed')
-    return loadRealSnapshot({ management: true })
+    try { return await loadRealSnapshot({ management: true }) }
+    catch (error) { throw new ModelManagementRefreshError(error) }
   },
 }
 export type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog }
