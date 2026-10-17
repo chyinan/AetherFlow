@@ -30,11 +30,7 @@ async function openNotifications() {
   if (showNotifications.value) {
     await nextTick()
     notificationPanel.value?.focus({ preventScroll: true })
-    try {
-      await uiStore.loadNotificationMessages()
-    } catch {
-      // Keep realtime/local cached notifications visible if history API is temporarily unavailable.
-    }
+    await uiStore.loadNotificationMessages()
   }
 }
 
@@ -72,7 +68,7 @@ onMounted(() => {
   document.addEventListener('pointerdown', dismissOutsideNotifications)
   document.addEventListener('focusin', dismissOutsideNotifications)
   uiStore.startNotificationStream(streamUserId.value)
-  void uiStore.loadNotificationMessages().catch(() => undefined)
+  void uiStore.loadNotificationMessages()
 })
 
 onBeforeUnmount(() => {
@@ -119,6 +115,7 @@ onBeforeUnmount(() => {
           role="region"
           tabindex="-1"
           :aria-label="t('notifications.title')"
+          :aria-busy="uiStore.notificationsLoading || Boolean(uiStore.notificationMutation)"
           class="notification-panel fixed right-4 top-16 z-[110] flex min-h-0 w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-app-border bg-white shadow-panel"
         >
           <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-app-border px-3 py-2">
@@ -127,15 +124,33 @@ onBeforeUnmount(() => {
               <p class="text-[11px] text-text-muted">{{ t('notifications.subtitle') }}</p>
             </div>
             <div v-if="notificationItems.length" class="flex shrink-0 items-center gap-2">
-              <button class="text-[11px] font-medium text-primary hover:underline" @click="uiStore.markAllNotificationsRead()">
+              <button type="button" :disabled="Boolean(uiStore.notificationMutation)" class="text-[11px] font-medium text-primary hover:underline disabled:cursor-wait disabled:opacity-50" @click="uiStore.markAllNotificationsRead()">
                 {{ t('notifications.markAllRead') }}
               </button>
-              <button class="text-[11px] font-medium text-text-muted hover:text-status-error" @click="uiStore.clearNotifications()">
+              <button type="button" :disabled="Boolean(uiStore.notificationMutation)" class="text-[11px] font-medium text-text-muted hover:text-status-error disabled:cursor-wait disabled:opacity-50" @click="uiStore.clearNotifications()">
                 {{ t('notifications.clear') }}
               </button>
             </div>
           </div>
-          <div class="min-h-0 overflow-y-auto overscroll-contain p-2">
+          <div class="min-h-0 space-y-2 overflow-y-auto overscroll-contain p-2">
+            <p v-if="uiStore.notificationMutation" role="status" class="rounded-md bg-app-bg2 p-3 text-sm text-text-secondary">
+              {{ t(uiStore.notificationMutation === 'clear' ? 'notifications.clearing' : 'notifications.markingRead') }}
+            </p>
+            <div v-if="uiStore.notificationMutationError" role="alert" class="rounded-md border border-status-error/30 p-3 text-sm text-status-error">
+              <p>{{ t(uiStore.notificationMutationError === 'clear' ? 'notifications.clearFailed' : 'notifications.markReadFailed') }}</p>
+              <button type="button" :disabled="Boolean(uiStore.notificationMutation)" class="mt-2 font-medium underline disabled:cursor-wait disabled:opacity-50" @click="uiStore.retryNotificationMutation()">
+                {{ t('notifications.retryAction') }}
+              </button>
+            </div>
+            <p v-if="uiStore.notificationsLoading" role="status" class="rounded-md bg-app-bg2 p-3 text-sm text-text-secondary">
+              {{ t('notifications.loading') }}
+            </p>
+            <div v-else-if="uiStore.notificationLoadError" role="alert" class="rounded-md border border-status-error/30 p-3 text-sm text-status-error">
+              <p>{{ t('notifications.loadFailed') }}</p>
+              <button type="button" :disabled="Boolean(uiStore.notificationMutation)" class="mt-2 font-medium underline disabled:cursor-wait disabled:opacity-50" @click="uiStore.loadNotificationMessages()">
+                {{ t('notifications.retryLoad') }}
+              </button>
+            </div>
             <div v-if="notificationItems.length" class="space-y-2">
               <article
                 v-for="item in notificationItems"
@@ -157,7 +172,7 @@ onBeforeUnmount(() => {
                 </div>
               </article>
             </div>
-            <p v-else class="rounded-md bg-app-bg2 p-3 text-sm text-text-secondary">
+            <p v-else-if="!uiStore.notificationsLoading && !uiStore.notificationLoadError && !uiStore.notificationMutation && !uiStore.notificationMutationError" class="rounded-md bg-app-bg2 p-3 text-sm text-text-secondary">
               {{ t('notifications.empty') }}
             </p>
           </div>
