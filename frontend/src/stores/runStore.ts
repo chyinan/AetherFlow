@@ -617,6 +617,7 @@ export const useRunStore = defineStore('run', {
         {
           id: `${run.id}-created`,
           time: formatTime(createdAt),
+          occurredAt: createdAt.toISOString(),
           level: 'info',
           message: i18n.global.t('runs.started', { workflow: run.workflowName }),
         },
@@ -688,9 +689,11 @@ export const useRunStore = defineStore('run', {
         }
         const message = errorMessage(error)
         this.error = message
+        const occurredAt = new Date()
         this.appendLog({
           id: `${expectedRunId}-runtime-recovery-error-${Date.now()}`,
-          time: formatTime(new Date()),
+          time: formatTime(occurredAt),
+          occurredAt: occurredAt.toISOString(),
           level: 'warn',
           message: `Runtime recovery unavailable; retained current snapshot. ${message}`,
         })

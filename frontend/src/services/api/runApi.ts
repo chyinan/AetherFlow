@@ -206,6 +206,7 @@ function mapBackendLog(frame: WorkflowRunLogFrameDTO, index = 0): RunLogEntry {
   return {
     id: frame.id || frame.eventId || `${frame.workflowId ?? 'runtime'}-${frame.eventType ?? 'event'}-${index}`,
     time: formatTime(frame.occurredAt),
+    occurredAt: frame.occurredAt,
     level: normalizeLogLevel(frame.level),
     message: frame.message || `${frame.eventType ?? 'Runtime event'} for ${frame.nodeId ?? frame.workflowId ?? 'workflow'}.`,
     nodeId: frame.nodeId,

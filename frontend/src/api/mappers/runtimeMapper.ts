@@ -206,6 +206,7 @@ export function mapRuntimeEventToLogEntry(event: RuntimeEvent): RunLogEntry {
   return {
     id: event.eventId || `${event.workflowId}-${event.eventType}-${event.occurredAt ?? Date.now()}`,
     time: formatTime(event.occurredAt),
+    occurredAt: event.occurredAt,
     level: eventLevel(event),
     message: eventMessage(event),
     nodeId: event.nodeId,
