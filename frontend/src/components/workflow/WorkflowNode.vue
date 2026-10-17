@@ -176,7 +176,7 @@ const nodeRows = computed(() => {
       </div>
     </div>
 
-    <div class="flex items-center justify-between border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100">
+    <div class="flex items-center justify-between border-t border-app-border px-2 py-1.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
       <button
         type="button"
         class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"

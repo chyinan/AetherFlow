@@ -5,6 +5,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { Node } from '@vue-flow/core'
+import { Search } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -22,6 +23,8 @@ const flow = useVueFlow()
 const { t } = useI18n()
 const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
 const suppressNextPaletteClick = ref(false)
+const nodeSearch = ref('')
+const nodeSearchInput = ref<HTMLInputElement | null>(null)
 let requestedFocusNodeId: string | null = null
 let initialFitTimer: number | undefined
 function cancelPendingFocus() {
@@ -89,6 +92,25 @@ const availableTemplates = computed(() =>
   workflowStore.templates.filter((template) =>
     implementedNodeKinds.has(template.kind)),
 )
+const categoryOrder: NodeTemplate['category'][] = ['Input', 'AI', 'Media', 'Image', 'Transform', 'Output', 'Logic', 'Tool', 'Plugin', 'Workflow', 'MCP']
+const filteredTemplates = computed(() => {
+  const query = nodeSearch.value.trim().toLowerCase()
+  if (!query) return availableTemplates.value
+  return availableTemplates.value.filter((template) => [
+    template.kind, template.label, template.description,
+    templateLabel(template), templateDescription(template),
+    template.category, t(`workflow.catalog.categories.${template.category}`),
+    template.provider ?? '', ...template.inputs, ...template.outputs,
+  ].join(' ').toLowerCase().includes(query))
+})
+const groupedTemplates = computed(() => [...new Set(filteredTemplates.value.map((template) => template.category))]
+  .sort((left, right) => categoryOrder.indexOf(left) - categoryOrder.indexOf(right))
+  .map((category) => ({ category, templates: filteredTemplates.value.filter((template) => template.category === category) })))
+
+function clearNodeSearch() {
+  nodeSearch.value = ''
+  void nextTick(() => nodeSearchInput.value?.focus())
+}
 
 function selectNode(nodeId: string) {
   cancelPendingFocus()
@@ -281,42 +303,56 @@ defineExpose({
 
 <template>
   <div class="workflow-grid-shell grid h-[620px] min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-app-bg lg:h-full lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1" @click="addMenu = null">
-    <aside class="flex min-h-0 flex-col border-b border-app-border bg-white lg:border-b-0 lg:border-r">
+    <aside class="flex max-h-[320px] min-h-0 flex-col border-b border-app-border bg-white lg:max-h-none lg:border-b-0 lg:border-r">
       <div class="border-b border-app-border px-4 py-3">
         <p class="text-sm font-semibold text-text-primary">{{ $t('workflow.currentNodes') }}</p>
         <p class="mt-1 text-xs text-text-muted">{{ $t('workflow.currentNodesHint') }}</p>
+        <div class="mt-3 flex items-center gap-2">
+          <label class="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-app-border bg-app-muted px-2.5 py-2 focus-within:border-primary">
+            <Search class="h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+            <input ref="nodeSearchInput" v-model="nodeSearch" type="search" class="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchNodes')" :aria-label="t('workflow.searchNodes')" />
+          </label>
+          <button v-if="nodeSearch" type="button" data-action="clear-node-search" class="shrink-0 rounded-md px-1.5 py-2 text-xs text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="clearNodeSearch">{{ t('common.reset') }}</button>
+        </div>
       </div>
-      <div class="flex min-h-0 flex-1 gap-2 overflow-x-auto p-3 lg:block lg:space-y-2 lg:overflow-y-auto">
-        <button
-          v-for="template in availableTemplates"
-          :key="template.kind"
-          type="button"
-          :disabled="isNodeTemplateBlocked(template)"
-          :draggable="!isNodeTemplateBlocked(template)"
-          :title="template.availability?.reason ?? undefined"
-          class="flex w-[220px] shrink-0 items-start gap-3 rounded-lg border p-3 text-left transition lg:w-full"
-          :class="isNodeTemplateBlocked(template)
-            ? 'cursor-not-allowed border-app-border bg-app-muted opacity-55'
-            : 'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
-          @click="addTemplateFromPalette(template)"
-          @dragstart="onTemplateDragStart($event, template)"
-          @dragend="onTemplateDragEnd"
-        >
-          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
-            +
-          </span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-semibold text-text-primary">{{ templateLabel(template) }}</span>
-            <span class="mt-1 block line-clamp-2 text-xs leading-5 text-text-secondary">{{ templateDescription(template) }}</span>
-            <span v-if="template.availability?.reason" class="mt-1 block text-xs font-medium leading-5 text-status-warning">
-              {{ t('workflow.capabilityUnavailable') }}：{{ template.availability.reason }}
-            </span>
-            <span class="mt-2 block text-[11px] text-text-muted">{{ template.inputs.join(', ') || $t('common.inputs') }} → {{ template.outputs.join(', ') || $t('common.outputs') }}</span>
-          </span>
-        </button>
+      <div class="flex min-h-0 flex-1 gap-4 overflow-x-auto overflow-y-auto p-3 lg:block lg:space-y-4 lg:overflow-x-hidden">
+        <section v-for="group in groupedTemplates" :key="group.category" :data-node-category="group.category" class="shrink-0" :aria-label="t(`workflow.catalog.categories.${group.category}`)">
+          <h3 class="mb-2 text-xs font-semibold text-text-muted">{{ t(`workflow.catalog.categories.${group.category}`) }}</h3>
+          <div class="flex gap-2 lg:block lg:space-y-2">
+            <button
+              v-for="template in group.templates"
+              :key="template.kind"
+              :data-node-template="template.kind"
+              type="button"
+              :disabled="isNodeTemplateBlocked(template)"
+              :draggable="!isNodeTemplateBlocked(template)"
+              :title="template.availability?.reason ?? undefined"
+              class="flex w-[220px] shrink-0 items-start gap-3 rounded-lg border p-3 text-left transition lg:w-full"
+              :class="isNodeTemplateBlocked(template)
+                ? 'cursor-not-allowed border-app-border bg-app-muted opacity-55'
+                : 'border-app-border bg-white hover:border-primary/30 hover:bg-app-bg2 hover:shadow-sm'"
+              @click="addTemplateFromPalette(template)"
+              @dragstart="onTemplateDragStart($event, template)"
+              @dragend="onTemplateDragEnd"
+            >
+              <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary-soft text-xs font-semibold text-primary">
+                +
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-sm font-semibold text-text-primary">{{ templateLabel(template) }}</span>
+                <span class="mt-1 block line-clamp-2 text-xs leading-5 text-text-secondary">{{ templateDescription(template) }}</span>
+                <span v-if="template.availability?.reason" class="mt-1 block text-xs font-medium leading-5 text-status-warning">
+                  {{ t('workflow.capabilityUnavailable') }}：{{ template.availability.reason }}
+                </span>
+                <span class="mt-2 block text-[11px] text-text-muted">{{ template.inputs.join(', ') || $t('common.inputs') }} → {{ template.outputs.join(', ') || $t('common.outputs') }}</span>
+              </span>
+            </button>
+          </div>
+        </section>
         <p v-if="availableTemplates.length === 0" class="w-[220px] shrink-0 rounded-lg border border-dashed border-app-border bg-app-bg2 p-3 text-sm text-text-secondary lg:w-auto">
           {{ $t('workflow.noCurrentNodes') }}
         </p>
+        <p v-else-if="filteredTemplates.length === 0" data-testid="node-palette-no-results" role="status" class="w-[220px] shrink-0 rounded-lg border border-dashed border-app-border bg-app-bg2 p-3 text-sm text-text-secondary lg:w-auto">{{ t('common.noResult') }}</p>
       </div>
     </aside>
 

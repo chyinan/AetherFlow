@@ -145,16 +145,6 @@ const sourceOptions = computed(() => [
   },
 ])
 
-const actionCards = computed(() => [
-  {
-    id: 'create',
-    icon: Plus,
-    title: t('knowledge.flow.createKnowledge'),
-    description: t('knowledge.flow.createKnowledgeHint'),
-    action: () => openCreateFlow(),
-  },
-])
-
 const indexCards = computed(() => [
   {
     id: 'quality' as const,
@@ -539,33 +529,11 @@ onBeforeUnmount(() => {
       </div>
 
       <template v-else>
-      <section v-if="viewMode === 'datasets'" class="grid h-full min-h-0 lg:grid-cols-[312px_minmax(0,1fr)]">
-        <aside class="min-h-0 overflow-y-auto border-r border-app-border bg-app-bg2 p-4">
-          <div class="space-y-3">
-            <button
-              v-for="card in actionCards"
-              :key="card.id"
-              type="button"
-              class="flex w-full items-start gap-3 rounded-lg border border-app-border bg-white p-4 text-left shadow-sm transition hover:border-primary/30 hover:shadow-node"
-              @click="card.action"
-            >
-              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                <component :is="card.icon" class="h-5 w-5" />
-              </span>
-              <span class="min-w-0">
-                <span class="block text-sm font-semibold text-text-primary">{{ card.title }}</span>
-                <span class="mt-1 block text-xs leading-5 text-text-muted">{{ card.description }}</span>
-              </span>
-            </button>
-          </div>
-
-          <div class="mt-5 rounded-lg border border-app-border bg-white p-4">
-            <p class="text-xs font-semibold text-text-primary">{{ t('knowledge.flow.didYouKnow') }}</p>
-            <p class="mt-2 text-xs leading-5 text-text-secondary">{{ t('knowledge.flow.knowledgeTip') }}</p>
-          </div>
-        </aside>
-
-        <section class="min-h-0 overflow-y-auto p-5">
+      <section v-if="viewMode === 'datasets'" class="h-full min-h-0 overflow-y-auto p-5">
+          <details class="mb-4 text-xs text-text-secondary">
+            <summary class="w-fit cursor-pointer rounded-md py-1 font-medium transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">{{ t('knowledge.flow.didYouKnow') }}</summary>
+            <p class="mt-2 max-w-3xl leading-5">{{ t('knowledge.flow.knowledgeTip') }}</p>
+          </details>
           <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <span class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary">
@@ -622,7 +590,6 @@ onBeforeUnmount(() => {
           <div v-if="filteredDatasets.length === 0" class="mt-8 rounded-lg border border-dashed border-app-border bg-app-bg2 p-8 text-center text-sm text-text-muted">
             {{ t('common.noResult') }}
           </div>
-        </section>
       </section>
 
       <section v-else-if="viewMode === 'create'" class="grid h-full min-h-0 grid-rows-[64px_minmax(0,1fr)]">
@@ -729,6 +696,7 @@ onBeforeUnmount(() => {
                 <div class="mt-4 grid gap-3">
                   <button
                     type="button"
+                    :aria-pressed="segmentMode === 'general'"
                     class="flex items-start gap-3 rounded-lg border p-4 text-left transition"
                     :class="segmentMode === 'general' ? 'border-primary bg-primary-soft/30 shadow-sm' : 'border-app-border bg-white hover:border-primary/30'"
                     @click="segmentMode = 'general'"
@@ -743,6 +711,7 @@ onBeforeUnmount(() => {
                   </button>
                   <button
                     type="button"
+                    :aria-pressed="segmentMode === 'parentChild'"
                     class="flex items-start gap-3 rounded-lg border p-4 text-left transition"
                     :class="segmentMode === 'parentChild' ? 'border-primary bg-primary-soft/30 shadow-sm' : 'border-app-border bg-white hover:border-primary/30'"
                     @click="segmentMode = 'parentChild'"
@@ -804,6 +773,7 @@ onBeforeUnmount(() => {
                       v-for="card in indexCards"
                       :key="card.id"
                       type="button"
+                      :aria-pressed="indexMode === card.id"
                       class="flex min-w-0 items-start gap-3 rounded-lg border p-4 text-left transition"
                       :class="indexMode === card.id ? 'border-primary bg-primary-soft/30 shadow-sm' : 'border-app-border bg-white hover:border-primary/30'"
                       @click="indexMode = card.id"
@@ -826,10 +796,10 @@ onBeforeUnmount(() => {
                   <p class="text-sm font-semibold text-text-primary">{{ t('knowledge.flow.retrievalSettings') }}</p>
                   <p class="mt-1 text-xs text-text-muted">{{ t('knowledge.flow.retrievalSettingsHint') }}</p>
                   <div class="mt-4">
-                    <label class="mb-2 block text-xs font-medium text-text-muted">Top K</label>
+                    <label id="knowledge-top-k-label" for="knowledge-top-k" class="mb-2 block text-xs font-medium text-text-muted">Top K</label>
                     <div class="flex items-center gap-4">
-                      <input v-model.number="topK" type="number" min="1" max="50" class="w-20 rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
-                      <input v-model.number="topK" type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" />
+                      <input id="knowledge-top-k" v-model.number="topK" type="number" min="1" max="50" class="w-20 rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+                      <input v-model.number="topK" type="range" min="1" max="50" aria-labelledby="knowledge-top-k-label" class="min-w-0 flex-1 accent-primary" />
                     </div>
                   </div>
                 </div>
@@ -1096,9 +1066,10 @@ onBeforeUnmount(() => {
 
           <section class="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
             <article class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
-              <p class="text-sm font-semibold text-text-primary">{{ t('knowledge.retrievalTest') }}</p>
+              <label for="knowledge-retrieval-query" class="block text-sm font-semibold text-text-primary">{{ t('knowledge.retrievalTest') }}</label>
               <form data-action="retrieval-test" class="mt-4 flex gap-2" @submit.prevent="runRetrievalTest">
                 <input
+                  id="knowledge-retrieval-query"
                   v-model="retrievalQuery"
                   class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-primary/50"
                   :placeholder="t('knowledge.queryPlaceholder')"
