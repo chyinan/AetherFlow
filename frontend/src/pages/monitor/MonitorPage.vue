@@ -326,7 +326,10 @@ async function loadTelemetry() {
   difyStore.conversations = logs.status === 'fulfilled' ? logs.value : []
   difyStore.metricsAvailable = metrics.status === 'fulfilled' && metrics.value.every((item) => item.value !== '--')
   difyStore.conversationsAvailable = logs.status === 'fulfilled'
-  selectedConversationId.value = difyStore.reviewQueue[0]?.id ?? difyStore.conversations[0]?.id ?? ''
+  // 回执采用此刻的用户选择，避免覆盖等待期间的新点击；事件移除时才使用既有默认顺序。
+  if (!difyStore.conversations.some((conversation) => conversation.id === selectedConversationId.value)) {
+    selectedConversationId.value = difyStore.reviewQueue[0]?.id ?? difyStore.conversations[0]?.id ?? ''
+  }
   telemetryLoading.value = false
 }
 
