@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowUpRight, FolderKanban, Plus, RefreshCw } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -11,6 +11,7 @@ import { useHomeStore, type HomeRunGroup } from './homeStore'
 
 const auth = useAuthStore()
 const home = useHomeStore()
+const workflowHeading = ref<HTMLElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
 const groups: HomeRunGroup[] = ['active', 'failed', 'completed']
 const loading = computed(() => home.workflows.loading || groups.some(group => home[group].loading))
@@ -22,6 +23,11 @@ function refresh() {
   if (!auth.isAuthenticated) return
   void home.loadWorkflows()
   groups.forEach(group => { void home.loadRuns(group) })
+}
+function retryWorkflows() {
+  if (home.workflows.loading) return
+  workflowHeading.value?.focus({ preventScroll: true })
+  void home.loadWorkflows()
 }
 watch(() => JSON.stringify([auth.isAuthenticated, auth.user?.userId ?? auth.user?.id, auth.isAdmin]), () => {
   home.clearPersonal()
@@ -50,14 +56,14 @@ onBeforeUnmount(() => home.clearPersonal())
       </div>
     </header>
     <main class="mx-auto max-w-7xl space-y-5 px-4 py-6 sm:px-6">
-      <section data-section="workflows" :aria-busy="home.workflows.loading" class="rounded-xl border border-app-border bg-white p-5 shadow-sm">
+      <section data-section="workflows" aria-labelledby="home-workflows-title" :aria-busy="home.workflows.loading" class="rounded-xl border border-app-border bg-white p-5 shadow-sm">
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 class="text-base font-semibold text-text-primary">{{ t('continueTitle') }}</h2><p class="mt-1 text-sm text-text-secondary">{{ t('continueHint') }}</p></div>
+          <div><h2 id="home-workflows-title" ref="workflowHeading" tabindex="-1" class="rounded-sm text-base font-semibold text-text-primary focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-primary">{{ t('continueTitle') }}</h2><p class="mt-1 text-sm text-text-secondary">{{ t('continueHint') }}</p></div>
           <RouterLink to="/projects" class="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">{{ t('allWorkflows') }}<ArrowUpRight class="h-4 w-4" aria-hidden="true" /></RouterLink>
         </div>
         <p v-if="home.workflows.loading" data-state="loading" role="status" class="py-8 text-sm text-text-muted">{{ t('loading') }}</p>
-        <div v-else-if="home.workflows.error" data-state="error" role="alert" class="mt-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
-          <p>{{ t('loadFailed') }}</p><button type="button" data-action="retry-workflows" class="mt-2 font-medium text-primary underline" @click="home.loadWorkflows()">{{ t('retry') }}</button>
+        <div v-else-if="home.workflows.error" data-state="error" role="alert" aria-labelledby="home-workflows-title" class="mt-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
+          <p>{{ t('loadFailed') }}</p><button type="button" data-action="retry-workflows" :aria-label="`${t('retry')} · ${t('continueTitle')}`" class="mt-2 font-medium text-primary underline" @click="retryWorkflows">{{ t('retry') }}</button>
         </div>
         <template v-else-if="home.workflows.loaded">
           <div v-if="!workflows.length" data-state="empty" class="mt-4 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-5">
