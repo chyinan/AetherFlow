@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { Activity, AlertTriangle, ArrowRight, Boxes, CircleStop, Clock3, ListChecks, RadioTower, RefreshCw } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { Activity, AlertTriangle, ArrowRight, Boxes, CircleStop, RefreshCw } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
 
 import { toApiError } from '@/api/client/apiError'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
@@ -29,6 +29,7 @@ const workflowDraft = ref(filters.value.workflowId)
 const statusDraft = ref(filters.value.status)
 const directIdDraft = ref('')
 const directIdError = ref(false)
+const runDetailRegion = ref<HTMLElement | null>(null)
 const historyKey = computed(() => JSON.stringify([filters.value.workflowId, filters.value.status, filters.value.page, filters.value.pageSize]))
 const visibleRuns = computed(() => runStore.historyRuns.filter(run => matchesRunHistorySearch(run, filters.value.q)))
 const pageCount = computed(() => Math.max(1, Math.ceil(runStore.historyTotal / filters.value.pageSize)))
@@ -38,6 +39,7 @@ const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore
   && !visibleRuns.value.some(run => run.id === runStore.currentRun?.id))
 let historyRequest: Promise<void> | undefined
 let routeGeneration = 0
+let detailNavigationGeneration = 0
 let active = true
 
 function requestHistoryPage() {
@@ -155,11 +157,11 @@ const historyStatusCounts = computed(() => runStore.historyRuns.reduce((counts, 
   counts[run.status] = (counts[run.status] ?? 0) + 1
   return counts
 }, {} as Record<string, number>))
-const summaryCards = computed(() => [
-  { label: t('runs.running'), value: historyStatusCounts.value.running ?? 0, hint: t('runs.runningHint'), icon: RadioTower },
-  { label: t('runs.queued'), value: historyStatusCounts.value.queued ?? 0, hint: t('runs.queuedHint'), icon: Clock3 },
-  { label: t('runs.succeeded'), value: historyStatusCounts.value.success ?? 0, hint: t('runs.succeededHint'), icon: ListChecks },
-  { label: t('runs.failed'), value: historyStatusCounts.value.failed ?? 0, hint: t('runs.failedHint'), icon: Activity },
+const pageStatusSummary = computed(() => [
+  { label: t('runs.running'), value: historyStatusCounts.value.running ?? 0 },
+  { label: t('runs.queued'), value: historyStatusCounts.value.queued ?? 0 },
+  { label: t('runs.succeeded'), value: historyStatusCounts.value.success ?? 0 },
+  { label: t('runs.failed'), value: historyStatusCounts.value.failed ?? 0 },
 ])
 
 async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>, refreshLogs = false) {
@@ -209,8 +211,20 @@ function openRunWorkflow() {
   }
 }
 
-function selectRun(runId: string) {
-  void router.push({ name: 'run-detail', params: { id: runId }, query: route.query })
+async function selectRun(runId: string) {
+  const generation = ++detailNavigationGeneration
+  const location = { name: 'run-detail', params: { id: runId }, query: route.query }
+  const expectedPath = router.resolve(location).fullPath
+  const failure = await router.push(location)
+  if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return
+  await nextTick()
+  // 只有本次主动打开仍是当前意图时才交接焦点；后退和外部导航不会走这里。
+  if (!active || generation !== detailNavigationGeneration || selectedRouteId.value !== runId || route.fullPath !== expectedPath) return
+  const region = runDetailRegion.value
+  region?.focus({ preventScroll: true })
+  if (!window.matchMedia?.('(min-width: 1280px)').matches) {
+    region?.scrollIntoView?.({ block: 'start' })
+  }
 }
 
 function retryHistoryPage() {
@@ -275,7 +289,7 @@ watch(
       <div class="flex items-center gap-2">
         <Activity class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">{{ t('runs.title') }}</p>
+          <h1 class="text-sm font-semibold text-text-primary">{{ t('runs.title') }}</h1>
           <p class="text-xs text-text-muted">{{ t('runs.subtitle') }}</p>
         </div>
       </div>
@@ -289,20 +303,9 @@ watch(
       </button>
     </header>
 
-    <main class="min-h-0 overflow-hidden bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
-      <div class="grid h-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
-        <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4" :aria-label="historyText('scope')">
-          <article v-for="card in summaryCards" :key="card.label" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
-            <div class="flex items-center gap-2 text-text-muted">
-              <component :is="card.icon" class="h-4 w-4" />
-              <span class="text-xs font-medium">{{ card.label }}</span>
-            </div>
-            <p class="mt-3 text-2xl font-semibold text-text-primary">{{ runStore.historyLoading || runStore.historyError ? '—' : card.value }}</p>
-            <p class="mt-1 text-xs text-text-muted">{{ historyText('scope') }}</p>
-          </article>
-        </section>
-
-        <section v-if="runStore.error || runStore.historyError" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6 xl:overflow-hidden">
+      <div class="flex min-w-0 flex-col gap-4 xl:h-full">
+        <section v-if="runStore.error || runStore.historyError" class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-start gap-2">
               <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
@@ -322,13 +325,17 @@ watch(
           </div>
         </section>
 
-        <section class="grid min-h-0 min-w-0 gap-4 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside class="min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm">
-            <div class="mb-3 flex items-center justify-between px-1">
-              <p class="text-sm font-semibold text-text-primary">{{ t('runs.runQueue') }}</p>
-              <span class="rounded-md bg-app-muted px-2 py-1 text-xs text-text-secondary">{{ runStore.historyLoading || runStore.historyError ? '—' : visibleRuns.length }}</span>
-            </div>
-            <form class="mb-3 space-y-2 border-b border-app-border pb-3" data-testid="history-filters" @submit.prevent="applyFilters">
+        <section data-testid="run-history-layout" class="grid min-h-0 min-w-0 gap-4 xl:flex-1 xl:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside aria-labelledby="run-history-heading" class="max-h-[36rem] min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm xl:max-h-none">
+            <h2 id="run-history-heading" class="mb-3 px-1 text-sm font-semibold text-text-primary">{{ historyText('historyTitle') }}</h2>
+            <p id="run-history-scope" class="mb-2 px-1 text-xs leading-5 text-text-muted">{{ historyText('scope') }}</p>
+            <dl data-testid="history-summary" aria-describedby="run-history-scope" class="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 border-b border-app-border px-1 pb-3 text-xs">
+              <div v-for="item in pageStatusSummary" :key="item.label" class="flex items-center justify-between gap-2">
+                <dt class="text-text-secondary">{{ item.label }}</dt>
+                <dd class="font-semibold tabular-nums text-text-primary">{{ runStore.historyLoading || runStore.historyError ? '—' : item.value }}</dd>
+              </div>
+            </dl>
+            <form class="mb-3 space-y-2 border-b border-app-border pb-3" :aria-label="historyText('filtersTitle')" data-testid="history-filters" @submit.prevent="applyFilters">
               <label class="block text-xs text-text-secondary">{{ historyText('search') }}
                 <input v-model="searchDraft" data-testid="history-search" type="search" class="mt-1 w-full rounded border border-app-border px-2 py-1.5 text-sm" />
               </label>
@@ -347,27 +354,36 @@ watch(
                 <button type="button" data-testid="history-clear" class="rounded border border-app-border px-2 py-1.5 text-xs" @click="clearFilters">{{ historyText('clear') }}</button>
               </div>
             </form>
-            <form class="mb-3 space-y-2 border-b border-app-border pb-3" data-testid="history-open-id" @submit.prevent="openRunById">
-              <label class="block text-xs text-text-secondary">{{ historyText('openId') }}
-                <input v-model="directIdDraft" data-testid="history-direct-id" type="text" :placeholder="historyText('idHint')" :aria-invalid="directIdError" class="mt-1 w-full rounded border border-app-border px-2 py-1.5 text-sm" @input="directIdError = false" />
-              </label>
-              <p v-if="directIdError" role="alert" class="text-xs text-status-error">{{ historyText('invalidId') }}</p>
-              <button type="submit" class="rounded border border-app-border px-2 py-1.5 text-xs">{{ historyText('open') }}</button>
-            </form>
+            <details data-testid="history-id-disclosure" class="mb-3 rounded-md border border-app-border px-3 py-2">
+              <summary class="cursor-pointer rounded text-xs font-medium text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ historyText('openId') }}</summary>
+              <form class="mt-3 space-y-2" data-testid="history-open-id" @submit.prevent="openRunById">
+                <label class="block text-xs text-text-secondary">{{ historyText('openId') }}
+                  <input v-model="directIdDraft" data-testid="history-direct-id" type="text" :placeholder="historyText('idHint')" :aria-invalid="directIdError" class="mt-1 w-full rounded border border-app-border px-2 py-1.5 text-sm" @input="directIdError = false" />
+                </label>
+                <p v-if="directIdError" role="alert" class="text-xs text-status-error">{{ historyText('invalidId') }}</p>
+                <button type="submit" class="rounded border border-app-border px-2 py-1.5 text-xs">{{ historyText('open') }}</button>
+              </form>
+            </details>
+            <div class="mb-2 flex items-center justify-between gap-2 px-1">
+              <h3 class="text-xs font-semibold text-text-secondary">{{ historyText('resultsTitle') }}</h3>
+              <span class="rounded bg-app-muted px-2 py-1 text-xs tabular-nums text-text-secondary">{{ runStore.historyLoading || runStore.historyError ? '—' : visibleRuns.length }}</span>
+            </div>
             <button
               v-for="run in (!runStore.historyLoading && !runStore.historyError ? visibleRuns : [])"
               :key="run.id"
               data-testid="history-run"
               type="button"
               class="mb-2 w-full rounded-lg border p-3 text-left transition hover:border-primary/30 hover:bg-primary-soft/40"
-              :class="runStore.currentRun?.id === run.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20' : 'border-app-border bg-white'"
+              :aria-current="selectedRouteId === run.id ? 'true' : undefined"
+              :class="selectedRouteId === run.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20' : 'border-app-border bg-white'"
               @click="selectRun(run.id)"
             >
               <div class="flex items-center justify-between gap-2">
-                <p class="truncate text-sm font-semibold text-text-primary">{{ run.id }}</p>
+                <span data-testid="history-run-name" :title="run.workflowName" class="min-w-0 break-words text-sm font-semibold text-text-primary [overflow-wrap:anywhere]">{{ run.workflowName }}</span>
                 <StatusBadge :status="run.status" />
               </div>
-              <p class="mt-2 truncate text-xs text-text-secondary">{{ run.workflowName }}</p>
+              <p data-testid="history-run-id" class="mt-1 break-all text-xs text-text-muted">{{ run.id }}</p>
+              <span v-if="selectedRouteId === run.id" class="mt-1 block text-xs font-medium text-primary">{{ historyText('selected') }}</span>
               <div class="mt-2 h-1.5 rounded-full bg-app-muted">
                 <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${run.progress}%` }" />
               </div>
@@ -378,7 +394,7 @@ watch(
               <p>{{ historyText('error') }}</p>
               <button type="button" class="mt-2 underline" @click="retryHistoryPage">{{ historyText('retry') }}</button>
             </div>
-            <div v-else-if="visibleRuns.length === 0" data-testid="history-empty" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
+            <div v-else-if="visibleRuns.length === 0" data-testid="history-empty" role="status" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
               <p>{{ filters.page > pageCount ? historyText('stale') : filters.q ? historyText('noMatch') : historyText('empty') }}</p>
               <button v-if="filters.page > 1" type="button" class="mt-2 text-primary underline" @click="updateFilters({ page: 1 })">{{ historyText('first') }}</button>
             </div>
@@ -397,14 +413,14 @@ watch(
             </nav>
           </aside>
 
-          <div class="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
+          <section ref="runDetailRegion" data-testid="run-detail-region" tabindex="-1" :aria-label="`${historyText('detailTitle')} ${selectedRouteId ?? ''}`" :aria-busy="!selectedDetailReady && runStore.loading" class="flex min-h-0 min-w-0 scroll-mt-4 flex-col gap-4 overflow-y-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
             <p v-if="!selectedDetailReady" role="status" class="p-4 text-sm text-text-muted">{{ runStore.error ? t('runs.loadErrorTitle') : historyText('detailLoading') }}</p>
-            <div v-if="runStore.currentRun && selectedDetailReady" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+            <div v-if="runStore.currentRun && selectedDetailReady" class="shrink-0 rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <p v-if="selectedOutsidePage" data-testid="history-outside" class="mb-3 rounded border border-primary/20 bg-primary-soft/40 p-2 text-xs text-primary">{{ historyText('outside') }}</p>
               <div class="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
-                    <p class="text-sm font-semibold text-text-primary">{{ runStore.currentRun.workflowName }}</p>
+                    <h2 class="break-words text-base font-semibold text-text-primary [overflow-wrap:anywhere]">{{ runStore.currentRun.workflowName }}</h2>
                     <StatusBadge :status="runStore.currentRun.status" />
                   </div>
                   <p class="mt-1 text-xs text-text-muted">{{ runStore.currentRun.id }} · {{ runStore.currentRun.durationMs }}ms · {{ runStore.currentRun.owner }}</p>
@@ -463,11 +479,11 @@ watch(
                 </span>
               </div>
             </div>
-            <div class="grid min-h-0 min-w-0 gap-4 overflow-hidden lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]">
-              <RunTimeline class="min-h-0 min-w-0" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :return-location="route.fullPath" :nodes="selectedDetailReady ? runStore.currentRun?.nodeStates ?? [] : []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
-              <LogStream class="min-h-0 min-w-0" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
+            <div class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
+              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :return-location="route.fullPath" :nodes="selectedDetailReady ? runStore.currentRun?.nodeStates ?? [] : []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
+              <LogStream class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
             </div>
-          </div>
+          </section>
         </section>
       </div>
     </main>

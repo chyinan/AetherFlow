@@ -86,7 +86,7 @@ function drafts() {
   }
 }
 function displayedIds() {
-  return wrapper!.findAll('[data-testid="history-run"]').map(node => node.find('p').text())
+  return wrapper!.findAll('[data-testid="history-run"]').map(node => node.get('[data-testid="history-run-id"]').text())
 }
 async function setDrafts(value: Partial<typeof emptyDrafts>) {
   if (value.q !== undefined) await wrapper!.get('[data-testid="history-search"]').setValue(value.q)

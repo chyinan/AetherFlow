@@ -33,6 +33,10 @@ Frontend build and deployment are driven by Nginx:
 
 The production container is built from `frontend/nginx/Dockerfile`.
 
+## 运行历史的信息层级
+
+运行记录将本页统计、筛选和匹配结果分组显示，以工作流名称识别记录，并将独立 ID 打开放入可展开入口。统计口径、分页和深链行为不变；布局与验证边界见 [运行历史的信息层级与渐进展开](../docs/RUN_HISTORY_INFORMATION_HIERARCHY.md)。
+
 
 ## 运行输入与成品定位
 
