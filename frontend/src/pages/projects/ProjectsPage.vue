@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { useModalFocus } from '@/composables/useModalFocus'
 import { useDifyStore } from '@/stores/difyStore'
 import { useFileStore } from '@/stores/fileStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -51,7 +52,16 @@ const showWorkflowPanel = ref(false)
 const workflowDraftName = ref('')
 const workflowDraftProjectId = ref('')
 const workflowDraftId = ref('')
+const renamingWorkflow = ref(false)
+const renameWorkflowFailed = ref(false)
+let workflowPanelGeneration = 0
 const projectsLoaded = ref(false)
+const createProjectDialog = ref<HTMLElement | null>(null)
+const workflowDialog = ref<HTMLElement | null>(null)
+const projectDialogOpen = computed(() => showCreatePanel.value || showWorkflowPanel.value)
+
+useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject)
+useModalFocus(showWorkflowPanel, workflowDialog, closeWorkflowPanel)
 
 const firstProject = computed(() => projectStore.projects[0])
 const workflowCount = computed(() => {
@@ -107,6 +117,7 @@ function closeCreateProject() {
 onBeforeUnmount(closeCreateProject)
 
 function openCreateWorkflow(project: ProjectSummary) {
+  closeWorkflowPanel()
   workflowDraftProjectId.value = project.id
   workflowDraftId.value = ''
   workflowDraftName.value = `${project.name}${t('projects.workflowSuffix')}`
@@ -115,6 +126,7 @@ function openCreateWorkflow(project: ProjectSummary) {
 }
 
 function openRenameWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
+  closeWorkflowPanel()
   workflowDraftProjectId.value = project.id
   workflowDraftId.value = workflow.id
   workflowDraftName.value = workflow.name
@@ -122,20 +134,39 @@ function openRenameWorkflow(project: ProjectSummary, workflow: WorkflowSummary) 
   showWorkflowPanel.value = true
 }
 
+function closeWorkflowPanel() {
+  workflowPanelGeneration += 1
+  showWorkflowPanel.value = false
+  renamingWorkflow.value = false
+  renameWorkflowFailed.value = false
+}
+onBeforeUnmount(closeWorkflowPanel)
+
 async function submitWorkflowDraft() {
   const name = workflowDraftName.value.trim()
   const projectId = workflowDraftProjectId.value
-  if (!name || !projectId) {
+  const workflowId = workflowDraftId.value
+  if (!showWorkflowPanel.value || !name || !projectId || renamingWorkflow.value) {
     return
   }
 
-  if (workflowDraftId.value) {
-    await projectStore.renameProjectWorkflow(projectId, workflowDraftId.value, name)
-    showWorkflowPanel.value = false
+  if (workflowId) {
+    const generation = workflowPanelGeneration
+    renamingWorkflow.value = true
+    renameWorkflowFailed.value = false
+    try {
+      await projectStore.renameProjectWorkflow(projectId, workflowId, name)
+      // 关闭或重开不取消已提交的保存；旧回执不能接管当前草稿。
+      if (generation === workflowPanelGeneration) closeWorkflowPanel()
+    } catch {
+      if (generation === workflowPanelGeneration) renameWorkflowFailed.value = true
+    } finally {
+      if (generation === workflowPanelGeneration) renamingWorkflow.value = false
+    }
     return
   }
 
-  showWorkflowPanel.value = false
+  closeWorkflowPanel()
   await router.push({
     path: '/workflows/new',
     query: { projectId, name },
@@ -207,7 +238,7 @@ async function retryLoadProjects() {
 
 <template>
   <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
-    <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
+    <header :inert="projectDialogOpen ? true : undefined" class="flex items-center justify-between border-b border-app-border bg-white px-5">
       <div class="flex items-center gap-2">
         <FolderKanban class="h-4 w-4 text-primary" />
         <div>
@@ -221,7 +252,7 @@ async function retryLoadProjects() {
       </button>
     </header>
 
-    <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
+    <main :inert="projectDialogOpen ? true : undefined" class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="w-full space-y-5">
         <div v-if="projectStore.loadError" role="status" class="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
           <span>{{ projectStore.loadError }}</span>
@@ -405,12 +436,12 @@ async function retryLoadProjects() {
       </div>
     </main>
 
-    <div v-if="showCreatePanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
-      <form class="w-full max-w-md rounded-lg border border-app-border bg-white p-5 shadow-panel" :aria-busy="creatingProject" @submit.prevent="submitCreate">
+    <div v-if="showCreatePanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 p-4">
+      <form ref="createProjectDialog" role="dialog" aria-modal="true" aria-labelledby="create-project-dialog-title" aria-describedby="create-project-dialog-hint" tabindex="-1" class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-app-border bg-white p-5 shadow-panel" :aria-busy="creatingProject" @submit.prevent="submitCreate">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p class="text-sm font-semibold text-text-primary">{{ t('projects.createProjectTitle') }}</p>
-            <p class="text-xs text-text-muted">{{ t('projects.createPanelHint') }}</p>
+            <p id="create-project-dialog-title" class="text-sm font-semibold text-text-primary">{{ t('projects.createProjectTitle') }}</p>
+            <p id="create-project-dialog-hint" class="text-xs text-text-muted">{{ t('projects.createPanelHint') }}</p>
           </div>
           <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="closeCreateProject">
             {{ t('common.close') }}
@@ -446,31 +477,34 @@ async function retryLoadProjects() {
       </form>
     </div>
 
-    <div v-if="showWorkflowPanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 px-4">
-      <form class="w-full max-w-md rounded-lg border border-app-border bg-white p-5 shadow-panel" @submit.prevent="submitWorkflowDraft">
+    <div v-if="showWorkflowPanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 p-4">
+      <form ref="workflowDialog" role="dialog" aria-modal="true" aria-labelledby="project-workflow-dialog-title" aria-describedby="project-workflow-dialog-hint" tabindex="-1" class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-app-border bg-white p-5 shadow-panel" @submit.prevent="submitWorkflowDraft">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p class="text-sm font-semibold text-text-primary">
+            <p id="project-workflow-dialog-title" class="text-sm font-semibold text-text-primary">
               {{ workflowDraftId ? t('projects.renameWorkflow') : t('projects.createWorkflowTitle') }}
             </p>
-            <p class="text-xs text-text-muted">{{ t('projects.workflowPanelHint') }}</p>
+            <p id="project-workflow-dialog-hint" class="text-xs text-text-muted">{{ t('projects.workflowPanelHint') }}</p>
           </div>
-          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="showWorkflowPanel = false">
+          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="closeWorkflowPanel">
             {{ t('common.close') }}
           </button>
         </div>
 
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.workflowNameLabel') }}</span>
-          <input v-model="workflowDraftName" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+          <input v-model="workflowDraftName" :disabled="renamingWorkflow" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
         </label>
 
+        <p v-if="renameWorkflowFailed" role="alert" class="mt-4 text-sm text-status-warning">{{ t('projects.renameFailedHint') }}</p>
+        <p v-if="renamingWorkflow" role="status" class="mt-4 text-sm text-text-muted">{{ t('projects.renamingHint') }}</p>
+
         <div class="mt-5 flex justify-end gap-2">
-          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="showWorkflowPanel = false">
+          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="closeWorkflowPanel">
             {{ t('common.close') }}
           </button>
-          <button type="submit" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node">
-            {{ workflowDraftId ? t('common.save') : t('projects.createWorkflow') }}
+          <button type="submit" :disabled="renamingWorkflow || !workflowDraftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
+            {{ renamingWorkflow ? t('common.loading') : workflowDraftId ? t('common.save') : t('projects.createWorkflow') }}
           </button>
         </div>
       </form>
