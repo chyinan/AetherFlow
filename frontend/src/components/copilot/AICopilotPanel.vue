@@ -72,6 +72,11 @@ let planValidationSequence = 0
 let conversationLoadSequence = 0
 let plannerSessionSequence = 0
 const { locale, t } = useI18n()
+const { t: presentationText } = useI18n({ useScope: 'local', messages: {
+  'zh-CN': { send: '发送消息' },
+  'en-US': { send: 'Send message' },
+  'ja-JP': { send: 'メッセージを送信' },
+} })
 const emit = defineEmits<{
   close: []
   'apply-canvas-action': [action: WorkflowCopilotCanvasAction]
@@ -1063,8 +1068,9 @@ onMounted(() => {
             v-model="prompt"
             class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
+            :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
           />
-          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending">
+          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending" :aria-label="presentationText('send')" :title="presentationText('send')">
             <Send class="h-4 w-4" />
           </button>
         </div>

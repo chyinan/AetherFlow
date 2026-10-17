@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Github, LogOut, MoonStar, Settings2, SunMedium, UserRound } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/authStore'
 import { useUiStore } from '@/stores/uiStore'
@@ -10,9 +10,11 @@ import { useUiStore } from '@/stores/uiStore'
 const authStore = useAuthStore()
 const uiStore = useUiStore()
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 
 const root = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLButtonElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const open = ref(false)
 
@@ -24,10 +26,12 @@ function closeMenu() {
   open.value = false
 }
 
-function toggleMenu() {
+async function toggleMenu() {
   open.value = !open.value
   if (open.value) {
     window.dispatchEvent(new Event('aetherflow:close-notifications'))
+    await nextTick()
+    if (open.value) menu.value?.querySelector<HTMLElement>('button, a[href]')?.focus({ preventScroll: true })
   }
 }
 
@@ -41,12 +45,21 @@ function openSettings(tab: 'provider' | 'members' | 'language') {
   void router.push({ path: '/settings', query: { tab, from: router.currentRoute.value.fullPath } })
 }
 
-function handleDocumentClick(event: MouseEvent) {
+function dismissOutsideMenu(event: Event) {
   const target = event.target as Node | null
   if (target && !root.value?.contains(target) && !menu.value?.contains(target)) {
     closeMenu()
   }
 }
+
+function handleDocumentKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !open.value) return
+  event.preventDefault()
+  closeMenu()
+  trigger.value?.focus({ preventScroll: true })
+}
+
+watch(() => route.fullPath, closeMenu)
 
 function closeFromExternalEvent() {
   closeMenu()
@@ -63,12 +76,16 @@ function toggleTheme() {
 }
 
 onMounted(() => {
-  document.addEventListener('click', handleDocumentClick)
+  document.addEventListener('click', dismissOutsideMenu)
+  document.addEventListener('focusin', dismissOutsideMenu)
+  document.addEventListener('keydown', handleDocumentKeydown)
   window.addEventListener('aetherflow:close-account-menu', closeFromExternalEvent)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', handleDocumentClick)
+  document.removeEventListener('click', dismissOutsideMenu)
+  document.removeEventListener('focusin', dismissOutsideMenu)
+  document.removeEventListener('keydown', handleDocumentKeydown)
   window.removeEventListener('aetherflow:close-account-menu', closeFromExternalEvent)
 })
 </script>
@@ -76,9 +93,12 @@ onBeforeUnmount(() => {
 <template>
   <div ref="root" class="relative" @click.stop>
     <button
+      ref="trigger"
       type="button"
       class="inline-flex items-center rounded-[20px] p-0.5 transition hover:bg-app-muted"
       :title="t('common.account')"
+      :aria-label="t('common.account')"
+      aria-controls="account-menu"
       :aria-expanded="open"
       @click="toggleMenu"
     >
@@ -98,8 +118,11 @@ onBeforeUnmount(() => {
       >
         <div
           v-if="open"
+          id="account-menu"
           ref="menu"
-          class="fixed right-5 top-[56px] z-[120] w-60 overflow-hidden rounded-xl border border-app-border bg-white shadow-panel"
+          role="region"
+          :aria-label="t('common.account')"
+          class="account-menu fixed right-5 top-[56px] z-[120] w-60 overflow-y-auto overscroll-contain rounded-xl border border-app-border bg-white shadow-panel"
           @click.stop
         >
           <div class="flex items-center gap-3 px-4 py-3">
@@ -181,3 +204,10 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.account-menu {
+  max-height: calc(100vh - 4rem);
+  max-height: calc(100dvh - 4rem);
+}
+</style>

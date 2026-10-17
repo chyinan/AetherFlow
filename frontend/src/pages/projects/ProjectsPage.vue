@@ -19,7 +19,13 @@ const difyStore = useDifyStore()
 const runStore = useRunStore()
 const fileStore = useFileStore()
 const router = useRouter()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const projectDetailsLabels: Record<string, string> = {
+  'zh-CN': '项目详情',
+  'en-US': 'Project details',
+  'ja-JP': 'プロジェクト詳細',
+}
+const projectDetailsLabel = computed(() => projectDetailsLabels[locale.value] ?? 'Project details')
 
 const totals = computed(() => {
   return projectStore.projects.reduce(
@@ -358,45 +364,23 @@ async function retryLoadProjects() {
                   {{ t('projects.openLatestWorkflow') }}
                 </button>
               </div>
-              <div class="mt-4 grid grid-cols-3 gap-2">
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.env') }}</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ t(`settings.environmentOptions.${project.environment}`) }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.runs') }}</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ metricsFor(project).activeRunCount }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.files') }}</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ metricsFor(project).fileCount }}</p>
-                </div>
-              </div>
-              <div class="mt-2 grid grid-cols-2 gap-2">
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.scenario') }}</p>
-                  <p class="mt-1 truncate text-xs font-semibold text-text-primary">{{ t(`projects.scenarios.${project.scenario}`) }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.owner') }}</p>
-                  <p class="mt-1 truncate text-xs font-semibold text-text-primary">{{ project.owner }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.sla') }}</p>
-                  <p class="mt-1 truncate text-xs font-semibold text-text-primary">{{ project.slaTarget }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.queueDepth') }}</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ metricsFor(project).queueDepth }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.knowledgeBases') }}</p>
-                  <p class="mt-1 text-xs font-semibold text-text-primary">{{ metricsFor(project).knowledgeCount }}</p>
-                </div>
-                <div class="rounded-md bg-app-bg2 p-2">
-                  <p class="text-[11px] text-text-muted">{{ t('projects.lastRun') }}</p>
-                  <StatusBadge :status="metricsFor(project).lastRunStatus" class="mt-1" />
-                </div>
+              <div data-section="project-summary" class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-app-bg2 px-2 py-1.5">
+                  <span class="text-text-muted">{{ t('projects.env') }}</span>
+                  <span class="font-semibold text-text-primary">{{ t(`settings.environmentOptions.${project.environment}`) }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-app-bg2 px-2 py-1.5">
+                  <span class="text-text-muted">{{ t('projects.activeRuns') }}</span>
+                  <span class="font-semibold text-text-primary">{{ metricsFor(project).activeRunCount }}</span>
+                </span>
+                <span v-if="metricsFor(project).queueDepth > 0" data-metric="active-queue" class="inline-flex items-center gap-1.5 rounded-md bg-app-bg2 px-2 py-1.5">
+                  <span class="text-text-muted">{{ t('projects.queueDepth') }}</span>
+                  <span class="font-semibold text-text-primary">{{ metricsFor(project).queueDepth }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-app-bg2 px-2 py-1.5">
+                  <span class="text-text-muted">{{ t('projects.lastRun') }}</span>
+                  <StatusBadge :status="metricsFor(project).lastRunStatus" />
+                </span>
               </div>
             </div>
 
@@ -441,6 +425,37 @@ async function retryLoadProjects() {
                 </div>
               </RouterLink>
             </div>
+            <details data-section="project-details" class="mx-3 mb-3 rounded-md border border-app-border bg-app-bg2">
+              <summary class="cursor-pointer rounded-md px-3 py-2 text-xs font-medium text-text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+                {{ projectDetailsLabel }}
+              </summary>
+              <div class="grid grid-cols-2 gap-3 border-t border-app-border p-3 text-xs">
+                <div>
+                  <p class="text-text-muted">{{ t('projects.owner') }}</p>
+                  <p class="mt-1 break-words font-semibold text-text-primary">{{ project.owner }}</p>
+                </div>
+                <div>
+                  <p class="text-text-muted">{{ t('projects.scenario') }}</p>
+                  <p class="mt-1 break-words font-semibold text-text-primary">{{ t(`projects.scenarios.${project.scenario}`) }}</p>
+                </div>
+                <div>
+                  <p class="text-text-muted">{{ t('projects.sla') }}</p>
+                  <p class="mt-1 break-words font-semibold text-text-primary">{{ project.slaTarget }}</p>
+                </div>
+                <div>
+                  <p class="text-text-muted">{{ t('projects.files') }}</p>
+                  <p class="mt-1 font-semibold text-text-primary">{{ metricsFor(project).fileCount }}</p>
+                </div>
+                <div>
+                  <p class="text-text-muted">{{ t('projects.knowledgeBases') }}</p>
+                  <p class="mt-1 font-semibold text-text-primary">{{ metricsFor(project).knowledgeCount }}</p>
+                </div>
+                <div>
+                  <p class="text-text-muted">{{ t('projects.queueDepth') }}</p>
+                  <p class="mt-1 font-semibold text-text-primary">{{ metricsFor(project).queueDepth }}</p>
+                </div>
+              </div>
+            </details>
           </article>
         </section>
       </div>
