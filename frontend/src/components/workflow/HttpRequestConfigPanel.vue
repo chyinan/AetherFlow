@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 const props = defineProps<{ config: Record<string, unknown> }>()
 const emit = defineEmits<{ update: [key: string, value: unknown] }>()
 const text = (key: string, fallback = '') => String(props.config[key] ?? fallback)
+const bodyErrorId = `http-body-error-${useId()}`
 function update(key: string, event: Event) {
   emit('update', key, (event.target as HTMLInputElement).value)
 }
@@ -17,6 +18,19 @@ const bodyError = computed(() => {
   }
   return ''
 })
+const invalidBodyFields = computed(() => {
+  if (!bodyError.value) return []
+  const body = text('bodyJson').trim()
+  const variable = text('bodyVariable').trim()
+  if (body && variable) return ['bodyJson', 'bodyVariable']
+  if (['GET', 'HEAD'].includes(text('method', 'GET'))) return ['method', body ? 'bodyJson' : 'bodyVariable']
+  return ['bodyJson']
+})
+function bodyFieldFeedback(key: string) {
+  return invalidBodyFields.value.includes(key)
+    ? { 'aria-invalid': 'true' as const, 'aria-describedby': bodyErrorId }
+    : {}
+}
 </script>
 
 <template>
@@ -24,7 +38,7 @@ const bodyError = computed(() => {
     <p class="text-sm leading-6 text-text-secondary">同步 JSON 请求，共用 URL 抓取的网络与大小限制；不跟随重定向或自动轮询，不提供凭据存储</p>
     <label class="block text-sm font-semibold">
       HTTP 方法
-      <select data-config-field="method" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('method', 'GET')" @change="update('method', $event)">
+      <select data-config-field="method" v-bind="bodyFieldFeedback('method')" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('method', 'GET')" @change="update('method', $event)">
         <option v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']" :key="method">{{ method }}</option>
       </select>
     </label>
@@ -37,13 +51,13 @@ const bodyError = computed(() => {
     </label>
     <label class="block text-sm font-semibold">
       JSON 请求体（对象、数组或标量）
-      <textarea data-config-field="bodyJson" class="mt-2 min-h-28 w-full rounded-lg border border-app-border p-3 font-mono" :value="text('bodyJson')" spellcheck="false" @input="update('bodyJson', $event)" />
+      <textarea data-config-field="bodyJson" v-bind="bodyFieldFeedback('bodyJson')" class="mt-2 min-h-28 w-full rounded-lg border border-app-border p-3 font-mono" :value="text('bodyJson')" spellcheck="false" @input="update('bodyJson', $event)" />
     </label>
     <label class="block text-sm font-semibold">
       请求体变量（与固定 JSON 互斥，字符串变量会序列化为 JSON 字符串）
-      <input data-config-field="bodyVariable" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('bodyVariable')" @input="update('bodyVariable', $event)" />
+      <input data-config-field="bodyVariable" v-bind="bodyFieldFeedback('bodyVariable')" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('bodyVariable')" @input="update('bodyVariable', $event)" />
     </label>
-    <p v-if="bodyError" role="alert" class="text-sm text-status-error">{{ bodyError }}</p>
+    <p v-if="bodyError" :id="bodyErrorId" role="alert" class="text-sm text-status-error">{{ bodyError }}</p>
     <label class="block text-sm font-semibold">
       错误策略
       <select data-config-field="errorStrategy" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('errorStrategy', 'FAIL')" @change="update('errorStrategy', $event)">
