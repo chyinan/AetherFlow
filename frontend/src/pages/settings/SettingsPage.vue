@@ -239,6 +239,9 @@ const filteredProviders = computed(() => {
 const installedProviders = computed(() =>
   filteredProviders.value.filter((provider) => provider.status === 'installed'),
 )
+const allInstalledProviders = computed(() =>
+  settingsStore.modelProviders.filter((provider) => provider.status === 'installed'),
+)
 
 const availableProviders = computed(() =>
   filteredProviders.value.filter((provider) => provider.status === 'available'),
@@ -580,7 +583,7 @@ watch(
 )
 
 function openDefaultModelSettings() {
-  if (!requireAdminAction()) return
+  if (!requireAdminAction() || settingsStore.providerCatalogState !== 'ready') return
   showDefaultModelSettings.value = true
 }
 
@@ -1145,7 +1148,7 @@ watch(
       <section class="min-h-0 overflow-y-auto p-5 max-sm:p-3">
         <p v-if="workspaceSaveError && activeTab === 'custom'" role="alert" class="mb-4 rounded-md border border-status-error/30 bg-red-50 p-3 text-sm text-status-error">{{ workspaceSaveError }}</p>
         <p v-if="accessNotice" data-testid="settings-access-notice" role="status" class="mb-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm leading-6 text-text-secondary">{{ roleText(accessNotice) }}</p>
-        <p v-if="settingsStore.loading" role="status" class="mb-4 text-sm text-text-muted">{{ roleText('loading') }}</p>
+        <p v-if="settingsStore.loading && activeTab !== 'provider'" role="status" class="mb-4 text-sm text-text-muted">{{ roleText('loading') }}</p>
         <p v-if="canManageAdminSettings && adminOnlyTabs.has(activeTab)" class="mb-4 rounded-lg border border-primary/20 bg-primary-soft p-3 text-sm leading-6 text-text-secondary">{{ roleText('adminHint') }}</p>
         <p v-if="resourcesLoading" role="status" class="mb-4 text-sm text-text-muted">{{ roleText('loading') }}</p>
         <div v-if="resourcesFailed" data-testid="settings-resource-error" role="status" class="mb-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
@@ -1181,6 +1184,12 @@ watch(
             </label>
           </div>
 
+          <p v-if="settingsStore.providerCatalogState === 'idle' || settingsStore.providerCatalogState === 'loading'" data-testid="provider-catalog-loading" role="status" class="rounded-lg border border-app-border bg-app-bg2 p-6 text-sm text-text-secondary">{{ roleText('providerCatalogLoading') }}</p>
+          <section v-else-if="settingsStore.providerCatalogState === 'error'" data-testid="provider-catalog-error" role="alert" class="rounded-lg border border-status-warning/30 bg-amber-50 p-5 text-sm text-text-secondary">
+            <p>{{ roleText('providerCatalogFailed') }}</p>
+            <button data-action="retry-provider-catalog" type="button" :disabled="settingsStore.loading" class="mt-3 rounded-md border border-status-warning/30 bg-white px-3 py-1.5 text-sm font-medium text-primary disabled:opacity-60" @click="retrySettingsLoad">{{ t('common.retry') }}</button>
+          </section>
+          <template v-else>
           <section class="rounded-lg border border-app-border bg-white shadow-sm">
             <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
               <div>
@@ -1251,8 +1260,8 @@ watch(
             </div>
 
             <div v-else class="m-4 rounded-lg border border-dashed border-app-border bg-app-bg2 p-8 text-center">
-              <p class="text-sm font-semibold text-text-primary">{{ t('settings.notInstalledProviderTitle') }}</p>
-              <p class="mx-auto mt-2 max-w-md text-sm leading-6 text-text-secondary">{{ t('settings.notInstalledProviderHint') }}</p>
+              <p class="text-sm font-semibold text-text-primary">{{ providerSearch.trim() ? t('settings.noProviderResults') : t('settings.notInstalledProviderTitle') }}</p>
+              <p v-if="!providerSearch.trim()" class="mx-auto mt-2 max-w-md text-sm leading-6 text-text-secondary">{{ t('settings.notInstalledProviderHint') }}</p>
             </div>
           </section>
 
@@ -1312,6 +1321,7 @@ watch(
 
             <p v-else class="p-6 text-sm text-text-secondary">{{ t('settings.noProviderResults') }}</p>
           </section>
+          </template>
         </div>
 
         <div v-else-if="activeTab === 'members' && canManageAdminSettings" class="space-y-4">
@@ -2027,6 +2037,7 @@ watch(
 
     <div
       v-if="showDefaultModelSettings && canManageAdminSettings"
+      data-testid="default-model-summary"
       class="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       @click.self="closeDefaultModelSettings"
     >
@@ -2048,8 +2059,11 @@ watch(
         </header>
 
         <div class="max-h-[60vh] space-y-3 overflow-y-auto p-5">
+          <p v-if="settingsStore.providerCatalogState === 'idle' || settingsStore.providerCatalogState === 'loading'" role="status" class="text-sm text-text-secondary">{{ roleText('providerCatalogLoading') }}</p>
+          <p v-else-if="settingsStore.providerCatalogState === 'error'" role="alert" class="rounded-lg bg-amber-50 p-4 text-sm text-text-secondary">{{ roleText('providerCatalogFailed') }}</p>
+          <template v-else>
           <article
-            v-for="provider in installedProviders"
+            v-for="provider in allInstalledProviders"
             :key="provider.id"
             class="rounded-lg border border-app-border bg-app-bg2 p-4"
           >
@@ -2073,9 +2087,10 @@ watch(
             </div>
           </article>
 
-          <p v-if="!installedProviders.length" class="rounded-lg border border-dashed border-app-border bg-app-bg2 p-6 text-center text-sm text-text-secondary">
+          <p v-if="!allInstalledProviders.length" class="rounded-lg border border-dashed border-app-border bg-app-bg2 p-6 text-center text-sm text-text-secondary">
             {{ t('settings.noInstalledModels') }}
           </p>
+          </template>
         </div>
 
         <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-app-border px-5 py-4">
