@@ -459,7 +459,10 @@ onBeforeUnmount(() => { requestEpoch += 1 })
                 v-for="log in monitorEventRows"
                 :key="log.id"
                 type="button"
-                class="group w-full rounded-xl border p-3 text-left transition duration-200 hover:border-primary/30"
+                :data-event-id="log.id"
+                :aria-pressed="selectedConversation?.id === log.id"
+                aria-controls="monitor-selected-trace"
+                class="group w-full rounded-xl border p-3 text-left transition duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                 :class="[selectedConversation?.id === log.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20' : 'border-app-border bg-white', eventSeverityClass(log.status)]"
                 @click="selectConversation(log.id)"
               >
@@ -499,10 +502,11 @@ onBeforeUnmount(() => { requestEpoch += 1 })
           </div>
 
           <aside class="min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1">
-            <section v-if="selectedConversation" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+            <section v-if="selectedConversation" id="monitor-selected-trace" aria-labelledby="monitor-selected-trace-title" aria-describedby="monitor-selected-trace-description" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+              <p id="monitor-selected-trace-description" class="sr-only">{{ selectedConversation.app }} · Trace {{ selectedConversation.id }}</p>
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold text-text-primary">{{ t('monitor.selectedTrace') }}</p>
+                  <h2 id="monitor-selected-trace-title" class="text-sm font-semibold text-text-primary">{{ t('monitor.selectedTrace') }}</h2>
                   <p class="mt-1 truncate text-xs text-text-muted">{{ selectedTraceSummary(selectedConversation) }}</p>
                 </div>
                 <StatusBadge :status="eventStatusBadge(selectedConversation.status)" />
@@ -531,32 +535,43 @@ onBeforeUnmount(() => { requestEpoch += 1 })
               </div>
             </section>
 
-            <section class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
+            <section data-testid="monitor-review-queue" aria-labelledby="monitor-review-title" aria-describedby="monitor-review-hint" :aria-busy="telemetryLoading" class="rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <div class="flex items-center justify-between gap-3">
-                <p class="text-sm font-semibold text-text-primary">{{ t('monitor.reviewTitle') }}</p>
-                <span class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
-                  {{ difyStore.reviewQueue.length }} {{ t('monitor.reviewQueue') }}
+                <h2 id="monitor-review-title" class="text-sm font-semibold text-text-primary">{{ t('monitor.reviewTitle') }}</h2>
+                <span data-testid="review-count" class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
+                  <template v-if="difyStore.conversationsAvailable">{{ difyStore.reviewQueue.length }} {{ t('monitor.reviewQueue') }}</template>
+                  <template v-else>{{ copy.reviewCountUnknown }}</template>
                 </span>
               </div>
-              <p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('monitor.reviewHint') }}</p>
+              <p id="monitor-review-hint" class="mt-2 text-sm leading-6 text-text-secondary">{{ copy.reviewSelectionHint }}</p>
+              <p v-if="telemetryLoading" role="status" class="mt-3 text-xs leading-5 text-text-muted">{{ difyStore.conversationsAvailable ? copy.reviewRefreshing : copy.reviewLoading }}</p>
+              <p v-else-if="!difyStore.conversationsAvailable" role="status" class="mt-3 text-xs leading-5 text-status-warning">{{ copy.reviewUnavailable }}</p>
               <div class="mt-4 space-y-2">
-                <article
+                <button
                   v-for="log in difyStore.reviewQueue"
                   :key="log.id"
-                  class="cursor-pointer rounded-md border border-app-border bg-app-bg2 p-3 transition hover:border-primary/30 hover:bg-primary-soft/30"
+                  type="button"
+                  :data-review-id="log.id"
+                  :aria-pressed="selectedConversation?.id === log.id"
+                  aria-controls="monitor-selected-trace"
+                  class="w-full rounded-md border p-3 text-left transition hover:border-primary/30 hover:bg-primary-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                  :class="selectedConversation?.id === log.id ? 'border-primary/50 bg-primary-soft/40 ring-1 ring-primary/20' : 'border-app-border bg-app-bg2'"
                   @click="selectConversation(log.id)"
                 >
                   <div class="flex items-center justify-between gap-2">
                     <p class="truncate text-sm font-medium text-text-primary">{{ log.app }}</p>
-                    <StatusBadge :status="log.status === 'success' ? 'success' : log.status === 'running' ? 'running' : 'failed'" />
+                    <div class="flex shrink-0 items-center gap-2">
+                      <span v-if="selectedConversation?.id === log.id" class="text-xs font-medium text-primary">{{ copy.reviewSelected }}</span>
+                      <StatusBadge :status="log.status === 'success' ? 'success' : log.status === 'running' ? 'running' : 'failed'" />
+                    </div>
                   </div>
                   <p class="mt-2 text-xs leading-5 text-text-secondary">
                     {{ t('monitor.reason') }}: {{ log.reviewReason ?? t('common.none') }}
                   </p>
                   <p class="mt-1 text-xs text-text-muted">{{ actorText(log.user) }} · {{ log.channel }} · {{ log.latencyMs }}ms</p>
-                </article>
-                <p v-if="difyStore.reviewQueue.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 p-3 text-xs text-text-muted">
-                  {{ t('common.noResult') }}
+                </button>
+                <p v-if="!telemetryLoading && difyStore.conversationsAvailable && difyStore.reviewQueue.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 p-3 text-xs text-text-muted">
+                  {{ copy.reviewEmpty }}
                 </p>
               </div>
             </section>
