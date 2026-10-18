@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// pattern: Imperative Shell（工作台界面渲染与交互协调）
 import { ArrowUpRight, FolderKanban, Plus, RefreshCw } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -81,7 +82,7 @@ onBeforeUnmount(() => home.clearPersonal())
         </template>
         <p class="mt-4 text-xs leading-5 text-text-muted">{{ t('savedOnly') }}</p>
       </section>
-      <div class="grid items-start gap-5 xl:grid-cols-3">
+      <div class="grid items-stretch gap-5 xl:grid-cols-3">
         <HomeRunSection v-for="group in groups" :key="group" :group="group" :loading="home[group].loading" :error="home[group].error" :loaded="home[group].loaded" :snapshot="home[group].data" @retry="home.loadRuns(group)" />
       </div>
     </main>

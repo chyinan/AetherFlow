@@ -5,7 +5,7 @@ WORKDIR /workspace
 COPY pom.xml .
 COPY lombok.config .
 COPY backend ./backend
-RUN mvn -pl backend/${SERVICE} -am -DskipTests package
+RUN mvn -pl backend/${SERVICE} -am -Dmaven.test.skip=true package
 
 FROM eclipse-temurin:17-jre
 

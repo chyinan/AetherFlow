@@ -111,7 +111,7 @@ services:
       - aetherflow
 
   minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: aetherflow-minio
     command: server /data --console-address ":9001"
     environment:
@@ -124,7 +124,7 @@ services:
     volumes:
       - minio-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      test: ["CMD", "silo", "healthcheck", "live"]
       interval: 20s
       timeout: 5s
       retries: 6
