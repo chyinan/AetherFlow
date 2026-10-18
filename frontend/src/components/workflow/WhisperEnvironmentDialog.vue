@@ -195,7 +195,7 @@ onBeforeUnmount(() => {
     <Settings2 class="h-4 w-4" aria-hidden="true" />{{ t('open') }}
   </button>
   <Teleport to="body">
-    <div v-if="opened" class="fixed inset-0 z-[80] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation" @click.self="close()">
+    <div v-if="opened" class="fixed inset-0 z-[150] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm" role="presentation" @click.self="close()">
       <section ref="dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId" :aria-busy="loading" tabindex="-1" class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-app-border bg-white shadow-panel outline-none" @keydown="onKeydown">
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <h2 :id="titleId" class="text-base font-semibold text-text-primary">{{ t('title') }}</h2>
