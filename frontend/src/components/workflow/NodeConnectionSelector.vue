@@ -363,7 +363,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
       </div>
     </div>
     <Teleport to="body">
-      <div v-if="open" class="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" @click.self="close()">
+      <div v-if="open" class="fixed inset-0 z-[150] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" @click.self="close()">
         <section role="dialog" aria-modal="true" :aria-labelledby="`connection-title-${nodeId}`" class="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl border border-app-border bg-white p-5 shadow-panel" data-testid="connection-dialog" @keydown="trapFocus">
           <div class="flex items-center justify-between gap-3"><h2 :id="`connection-title-${nodeId}`" class="text-base font-semibold">{{ editingId ? t('editTitle') : t('addTitle') }}</h2><button type="button" :aria-label="t('close')" class="rounded p-2 text-text-muted" @click="close()">×</button></div>
           <p class="text-sm leading-6 text-text-secondary">{{ t('addressHint') }}</p>
