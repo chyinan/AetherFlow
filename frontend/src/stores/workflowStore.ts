@@ -1,5 +1,6 @@
 // pattern: Mixed (needs refactoring)
 import { defineStore } from 'pinia'
+import { CUSTOM_NODE_STORAGE_KEY, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
 import type { Connection } from '@vue-flow/core'
 import { toRaw } from 'vue'
 
@@ -245,6 +246,8 @@ export const useWorkflowStore = defineStore('workflow', {
     createIntent: null as { workflow: WorkflowDefinition; editRevision: number } | null,
     projectId: null as number | null,
     templates: nodeTemplates,
+    customDefinitions: [] as CustomDefinition[],
+    customLibraryError: null as string | null,
     nodeTemplatesRequestSequence: 0,
     nodeCatalogLoaded: false,
     capabilitiesLoaded: false,
@@ -271,6 +274,28 @@ export const useWorkflowStore = defineStore('workflow', {
     canRedo: (state) => state.historyFuture.length > 0,
   },
   actions: {
+    refreshCustomTemplates() {
+      const builtin = this.templates.filter(template => !template.config.customDefinition)
+      this.templates = [...builtin, ...this.customDefinitions.map(definition => customNodeTemplate(definition, builtin.find(template => template.kind === (definition.kind === 'API' ? 'http-request' : 'code'))))]
+    },
+    reloadCustomDefinitions() {
+      try {
+        const raw = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+        this.customDefinitions = raw ? importCustomDefinitions(raw) : []
+        this.customLibraryError = null
+        this.refreshCustomTemplates()
+      } catch (error) { this.customLibraryError = `本机模板库读取失败，原数据保留：${error instanceof Error ? error.message : String(error)}` }
+    },
+    saveCustomDefinitions(definitions: CustomDefinition[], replaceCorrupted = false) {
+      if (this.customLibraryError && !replaceCorrupted) throw new Error('本机库读取失败；请先导出原数据，再使用已校验的模板包恢复')
+      const serialized = exportCustomDefinitions(definitions)
+      const validated = importCustomDefinitions(serialized)
+      // 存储失败时不更新内存列表，编辑器草稿继续保留。
+      localStorage.setItem(CUSTOM_NODE_STORAGE_KEY, serialized)
+      this.customDefinitions = validated
+      this.customLibraryError = null
+      this.refreshCustomTemplates()
+    },
     recordHistory() {
       this.historyPast = [...this.historyPast, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
       this.historyFuture = []
@@ -312,6 +337,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.nodeCatalogLoaded = catalogLoaded
       this.capabilitiesLoaded = capabilitiesLoaded
       this.templates = applyWorkflowCapabilities(templates, capabilities)
+      this.reloadCustomDefinitions()
       return capabilitiesLoaded
     },
     invalidateWorkflowTemplatesLoad() {

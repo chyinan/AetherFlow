@@ -42,6 +42,7 @@ public class CodeExecutionNodeExecutor extends BaseNodeExecutor {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "code execution is unavailable; configure and confirm an isolated code runtime before enabling this node");
         }
+        if (config.containsKey("customDefinition")) return executeCustom(context, config);
         String code = NodeValueSupport.stringValue(config.get("code"), "").trim();
         if (code.isBlank()) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "code execution requires code");
@@ -63,5 +64,22 @@ public class CodeExecutionNodeExecutor extends BaseNodeExecutor {
         output.put("truncated", execution.truncated());
         output.put("executed", true);
         return buildResult(output, Map.of(outputVariable, execution.result()));
+    }
+
+    private NodeResult executeCustom(WorkflowContext context, Map<String, Object> config) {
+        try {
+            var prepared = com.aetherflow.workflow.node.custom.CustomNodeDefinition.prepare("CODE", config, context.variables());
+            var definition = prepared.definition();
+            if (Thread.currentThread().isInterrupted()) throw new IllegalArgumentException("自定义代码请求已取消");
+            var execution = runtime.execute("python3", definition.code(), Map.of("inputs", prepared.inputs(), "config", prepared.values()),
+                    Math.max(50, Math.min(properties.getCodeTimeoutMs(), NodeValueSupport.intValue(config.get("timeoutMs"), properties.getCodeTimeoutMs()))),
+                    Math.max(1024, Math.min(properties.getCodeMaxOutputBytes(), NodeValueSupport.intValue(config.get("maxOutputBytes"), properties.getCodeMaxOutputBytes()))));
+            if (Thread.currentThread().isInterrupted()) throw new IllegalArgumentException("自定义代码请求已取消");
+            Map<String, Object> outputs = definition.mapOutputs(execution.result());
+            return buildResult(Map.of("templateId", definition.id, "templateVersion", definition.version, "result", outputs,
+                    "stdout", execution.stdout(), "durationMs", execution.durationMs(), "truncated", execution.truncated()), outputs);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, exception.getMessage());
+        }
     }
 }

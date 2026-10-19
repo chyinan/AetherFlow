@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
@@ -41,7 +42,7 @@ public class HttpJsonRequestService {
                 .connectTimeout(timeout(properties)).followRedirects(HttpClient.Redirect.NEVER).build());
     }
 
-    HttpJsonRequestService(UrlIngestionProperties properties, UrlRequestPolicy urlPolicy,
+    protected HttpJsonRequestService(UrlIngestionProperties properties, UrlRequestPolicy urlPolicy,
                            ObjectMapper json, HttpClient client) {
         this.properties = properties;
         this.urlPolicy = urlPolicy;
@@ -50,6 +51,10 @@ public class HttpJsonRequestService {
     }
 
     public Response request(String url, String method, Object body, boolean hasBody) {
+        return request(url, method, body, hasBody, Map.of());
+    }
+
+    public Response request(String url, String method, Object body, boolean hasBody, Map<String, String> headers) {
         String normalizedMethod = method == null ? "GET" : method.trim().toUpperCase(Locale.ROOT);
         if (!METHODS.contains(normalizedMethod)) {
             throw invalid("HTTP 请求方法不受支持");
@@ -67,6 +72,10 @@ public class HttpJsonRequestService {
                 .header("User-Agent", properties.getUserAgent() == null || properties.getUserAgent().isBlank()
                         ? "AetherFlow-UrlIngestion/1.0" : properties.getUserAgent());
         if (hasBody) builder.header("Content-Type", "application/json; charset=utf-8");
+        headers.forEach((name, value) -> {
+            if (value == null || value.contains("\r") || value.contains("\n") || value.length() > 8192) throw invalid("HTTP 请求头值无效");
+            builder.setHeader(name, value);
+        });
         HttpRequest request = builder.method(normalizedMethod, hasBody
                 ? HttpRequest.BodyPublishers.ofByteArray(payload) : HttpRequest.BodyPublishers.noBody()).build();
         var pending = client.sendAsync(request, ignored -> new LimitedBodySubscriber(maxBytes()));

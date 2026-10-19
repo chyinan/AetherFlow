@@ -41,6 +41,7 @@ import UpstreamVariableSelector from './UpstreamVariableSelector.vue'
 import LoopBodyEditor from './LoopBodyEditor.vue'
 import LoopRunResults from './LoopRunResults.vue'
 import HttpRequestConfigPanel from './HttpRequestConfigPanel.vue'
+import CustomNodeConfigPanel from './CustomNodeConfigPanel.vue'
 import ImageInputPicker from './ImageInputPicker.vue'
 import StructuredMappingEditor from './StructuredMappingEditor.vue'
 import { defaultMapping } from '@/utils/structuredMapping'
@@ -780,7 +781,8 @@ onMounted(() => {
             @apply="applyImageInput"
           />
         </div>
-        <section v-if="selectedKind === 'start'" class="space-y-5 p-5">
+        <CustomNodeConfigPanel v-if="selectedNode.data.config.customDefinition" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" />
+        <section v-else-if="selectedKind === 'start'" class="space-y-5 p-5">
           <div v-if="!workflowNeedsFileInput" class="rounded-xl border border-status-success/25 bg-green-50 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.noFileInputTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.noFileInputHint') }}</p>

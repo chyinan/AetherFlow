@@ -33,6 +33,14 @@ public final class WorkflowNodeConfigValidator {
         if (node == null || catalog == null) {
             return List.of();
         }
+        if (node.getConfig() != null && node.getConfig().containsKey("customDefinition")) {
+            try {
+                com.aetherflow.workflow.node.custom.CustomNodeDefinition.validateConfig(node.getNodeType(), node.getConfig());
+                return List.of();
+            } catch (IllegalArgumentException exception) {
+                return List.of(prefix(node, node.getNodeType()) + exception.getMessage());
+            }
+        }
         WorkflowNodeCatalogItem item = catalog.stream()
                 .filter(candidate -> normalize(candidate.type()).equals(normalize(node.getNodeType())))
                 .findFirst()
