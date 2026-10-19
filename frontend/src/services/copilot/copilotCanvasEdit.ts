@@ -1,6 +1,7 @@
 // pattern: Functional Core
 import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
-import type { WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
+import type { NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
+import { parseCustomDefinition } from '@/utils/customNodes'
 import { createWorkflowNodeDataFromTemplate } from '@/utils/workflowNodeClone'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
 import { buildWorkflowCopilotContext, redactCopilotValue, type WorkflowCopilotSnapshot } from './workflowCopilotActions'
@@ -17,6 +18,13 @@ export function compileCanvasEdit(snapshot: Readonly<WorkflowCopilotSnapshot>, e
   let nodes: Array<WorkflowGraphNode> = JSON.parse(JSON.stringify(snapshot.nodes))
   let edges = snapshot.edges.map((edge) => ({ ...edge }))
   for (const [index, operation] of edit.operations.entries()) {
+    if (!operation || typeof operation !== 'object') return { ok: false, error: 'AI 返回了无效的画布操作。' }
+    if (operation.type === 'create_custom_node') return { ok: false, error: '自定义节点草稿需要预览并确认后才能保存。' }
+    if (operation.definition !== undefined || operation.draftId !== undefined) return { ok: false, error: '草稿定义只能通过创建自定义节点操作提交。' }
+    if (operation.type !== 'add_node' && (operation.customNodeId !== undefined || operation.customNodeVersion !== undefined)) {
+      return { ok: false, error: '自定义模板标识只能用于新增节点。' }
+    }
+    if (operation.config && Object.hasOwn(operation.config, 'customDefinition')) return { ok: false, error: 'AI 不能直接修改自定义模板定义，请先生成并确认新版本草稿。' }
     if (operation.config && !safeConfig(operation.config)) return { ok: false, error: 'AI 修改包含不允许的配置字段。' }
     if (operation.position && (!Number.isFinite(operation.position.x) || !Number.isFinite(operation.position.y)
       || Math.abs(operation.position.x) > 100000 || Math.abs(operation.position.y) > 100000)) {
@@ -26,8 +34,32 @@ export function compileCanvasEdit(snapshot: Readonly<WorkflowCopilotSnapshot>, e
     switch (operation.type) {
       case 'add_node': {
         if (!operation.nodeId || !/^[\w-]{1,100}$/.test(operation.nodeId) || node) return { ok: false, error: 'AI 新建节点的 ID 无效或重复。' }
-        const template = snapshot.templates.find((item) => item.kind === operation.kind)
-        if (!template || template.availability?.available === false) return { ok: false, error: `节点能力不可用：${operation.kind}` }
+        const customSelection = operation.customNodeId !== undefined || operation.customNodeVersion !== undefined
+        let template: NodeTemplate | undefined
+        if (customSelection) {
+          if (typeof operation.customNodeId !== 'string' || !/^[a-z][a-z0-9-]{2,63}$/.test(operation.customNodeId)
+            || typeof operation.customNodeVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(operation.customNodeVersion)) {
+            return { ok: false, error: '自定义节点必须同时指定有效的模板 ID 和版本。' }
+          }
+          const matching = snapshot.templates.filter((item) => {
+            const definition = item.config.customDefinition as { id?: unknown; version?: unknown } | undefined
+            return definition?.id === operation.customNodeId && definition?.version === operation.customNodeVersion
+          })
+          if (matching.length !== 1) return { ok: false, error: `找不到唯一的自定义模板：${operation.customNodeId}@${operation.customNodeVersion}` }
+          template = matching[0]
+          try {
+            const definition = parseCustomDefinition(template!.config.customDefinition)
+            if (template!.kind !== operation.kind || operation.kind !== (definition.kind === 'API' ? 'http-request' : 'code')) {
+              return { ok: false, error: '自定义模板类型与新增节点不一致。' }
+            }
+          } catch { return { ok: false, error: '自定义模板定义无效，请检查本机模板库。' } }
+        } else {
+          template = snapshot.templates.find((item) => item.kind === operation.kind && !item.config.customDefinition)
+        }
+        // 未启用 Python 运行时仍可保存 CODE 草稿，能力快照保持原值供运行预检使用。
+        if (!template || template.availability?.available === false && !(customSelection && template.kind === 'code')) {
+          return { ok: false, error: `节点能力不可用：${operation.kind}` }
+        }
         const data = createWorkflowNodeDataFromTemplate(template, 'AI 已编辑，尚未运行')
         data.config = mergeWorkflowNodeConfig(data.kind, data.config, operation.config)
         if (operation.label) data.label = operation.label
@@ -104,11 +136,22 @@ export function buildCanvasEditContext(snapshot: Readonly<WorkflowCopilotSnapsho
     selectedNodeId: snapshot.selectedNodeId ?? null,
     nodes: context.nodes.map((node, index) => ({ ...node, runtime: undefined, position: snapshot.nodes[index].position })),
     edges: context.edges,
-    nodeCatalog: snapshot.templates.filter((template) => template.availability?.available !== false).map((template) => ({
+    nodeCatalog: snapshot.templates.filter((template) => !template.config.customDefinition && template.availability?.available !== false).map((template) => ({
       kind: template.kind, label: template.label, description: template.description,
       defaultConfig: redactCopilotValue(template.config), configSchema: template.configSchema,
       inputs: template.inputs, outputs: template.outputs,
     })),
+    customNodeCatalog: snapshot.templates.flatMap((template) => {
+      if (!template.config.customDefinition) return []
+      try {
+        const definition = parseCustomDefinition(template.config.customDefinition)
+        return [{ customNodeId: definition.id, customNodeVersion: definition.version,
+          kind: template.kind, label: template.label, description: template.description,
+          inputs: template.inputs, outputs: template.outputs,
+          availability: template.availability ?? null }]
+      } catch { return [] }
+    }),
+    capabilities: { customNodeDrafts: true },
     userLocale,
   }
 }

@@ -43,6 +43,8 @@ import LoopRunResults from './LoopRunResults.vue'
 import HttpRequestConfigPanel from './HttpRequestConfigPanel.vue'
 import CustomNodeConfigPanel from './CustomNodeConfigPanel.vue'
 import ImageInputPicker from './ImageInputPicker.vue'
+import ComfyWorkflowPanel from './ComfyWorkflowPanel.vue'
+import { hasComfySourceBinding, isComfyPromptSummary } from '@/utils/comfyWorkflow'
 import StructuredMappingEditor from './StructuredMappingEditor.vue'
 import { defaultMapping } from '@/utils/structuredMapping'
 import SubworkflowConfigPanel from './SubworkflowConfigPanel.vue'
@@ -771,7 +773,7 @@ onMounted(() => {
             @saved="workflowStore.loadNodeTemplates()"
           />
           <ImageInputPicker
-            v-if="selectedKind === 'upscale' || textConfig('mode', 'txt2img') === 'img2img' || textConfig('sourceImage', '') || textConfig('sourceImageVariable', '')"
+            v-if="selectedKind === 'upscale' || textConfig('mode', 'txt2img') === 'img2img' || textConfig('sourceImage', '') || textConfig('sourceImageVariable', '') || hasComfySourceBinding(selectedNode.data.config)"
             :key="`image-${selectedNode.id}`"
             class="mt-4"
             :node-id="selectedNode.id"
@@ -779,6 +781,10 @@ onMounted(() => {
             :nodes="workflowStore.nodes"
             :edges="workflowStore.edges"
             @apply="applyImageInput"
+          />
+          <ComfyWorkflowPanel
+            v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
+            :key="`comfy-${selectedNode.id}`" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig"
           />
         </div>
         <CustomNodeConfigPanel v-if="selectedNode.data.config.customDefinition" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" />
@@ -1465,7 +1471,7 @@ onMounted(() => {
 
           <label v-for="field in visibleDynamicConfigFields" :key="field.name" class="block">
             <span class="mb-2 flex items-center justify-between gap-2 text-sm font-semibold text-text-primary">
-              <span class="min-w-0 truncate">{{ dynamicFieldLabel(field) }} <span v-if="field.required" class="text-status-error">*</span></span>
+              <span class="min-w-0 truncate">{{ dynamicFieldLabel(field) }} <span v-if="field.required && !(selectedKind === 'prompt' && field.name === 'prompt' && isComfyPromptSummary(selectedNode.data.config))" class="text-status-error">*</span></span>
               <span class="shrink-0 rounded-md border border-app-border px-2 py-1 text-[11px] font-medium uppercase text-text-muted">{{ field.type }}</span>
             </span>
 

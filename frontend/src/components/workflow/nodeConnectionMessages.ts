@@ -15,8 +15,8 @@ export const nodeConnectionMessages = {
     locateField: '定位 {field}', chooseConnectionFirst: '先选择已保存或部署连接', applyDiscovered: '采用已探测选项：{value}',
     cancelTest: '取消测试', testCancelled: '本次测试已取消，可重新测试；节点配置未修改',
     checklistReason: {
-      ignoredWorkflowAlias: '当前执行器不读取 workflow 字段，这份导入内容不会执行。ComfyUI 图像生成仅采用 workflowJson 对象；原配置已保留。',
-      ignoredWorkflowJson: 'workflowJson 不是 JSON 对象，当前执行器不会解析或导入这个值，仍会使用内置工作流。原配置已保留，请核对实际配置。',
+      ignoredWorkflowAlias: '原图配置不是 JSON 对象，无法执行。请重新载入 API 格式执行图；原配置已保留。',
+      ignoredWorkflowJson: 'workflowJson 不是 JSON 对象，不能运行。请重新载入 API 格式执行图；原配置已保留。',
       ignoredUpscaleWorkflow: 'ComfyUI 图像放大使用内置 ImageScaleBy 工作流，不执行 {field} 的导入内容。原配置已保留。',
       providerMismatch: '节点 Provider 与连接不一致。点击“同步此连接 Provider”修正；原模型参数会保留。',
       unconfigured: '连接未配置或未提供此节点所需的能力。请检查上方检测结果，调整连接后重新测试。',
@@ -68,8 +68,8 @@ export const nodeConnectionMessages = {
     locateField: 'Locate {field}', chooseConnectionFirst: 'Select a saved or deployment connection first', applyDiscovered: 'Use discovered option: {value}',
     cancelTest: 'Cancel test', testCancelled: 'Test canceled. You can retry; node configuration is unchanged.',
     checklistReason: {
-      ignoredWorkflowAlias: 'The executor does not read the workflow field, so this import will not run. ComfyUI generation only uses a workflowJson object. Your configuration is retained.',
-      ignoredWorkflowJson: 'workflowJson is not a JSON object. The executor does not parse or import this value and will use the built-in workflow. Your configuration is retained; review what will actually run.',
+      ignoredWorkflowAlias: 'The source is not a JSON object and cannot run. Load an API execution graph. Your configuration is retained.',
+      ignoredWorkflowJson: 'workflowJson is not a JSON object and cannot run. Load an API execution graph. Your configuration is retained.',
       ignoredUpscaleWorkflow: 'ComfyUI upscaling uses the built-in ImageScaleBy workflow and does not execute the import in {field}. Your configuration is retained.',
       providerMismatch: 'The node provider differs from the saved connection. Use the sync button to correct it; model settings will be retained.',
       unconfigured: 'The connection is unconfigured or does not provide this node’s capabilities. Review the result above, adjust the connection and test again.',
@@ -121,8 +121,8 @@ export const nodeConnectionMessages = {
     locateField: '{field} を表示', chooseConnectionFirst: '先に保存済み接続またはデプロイ接続を選択', applyDiscovered: '検出済みの選択肢を採用：{value}',
     cancelTest: 'テストをキャンセル', testCancelled: 'テストをキャンセルしました。再試行できます。ノード設定は変更していません。',
     checklistReason: {
-      ignoredWorkflowAlias: '現在の実行エンジンは workflow フィールドを読み取りません。このインポートは実行されません。ComfyUI の画像生成は workflowJson オブジェクトのみを使用します。既存設定は保持されます。',
-      ignoredWorkflowJson: 'workflowJson は JSON オブジェクトではありません。この値は解析・インポートされず、内蔵ワークフローが使用されます。既存設定は保持されます。実際の設定を確認してください。',
+      ignoredWorkflowAlias: '原図は JSON オブジェクトではないため実行できません。API 実行グラフを読み込んでください。既存設定は保持されます。',
+      ignoredWorkflowJson: 'workflowJson は JSON オブジェクトではないため実行できません。API 実行グラフを読み込んでください。既存設定は保持されます。',
       ignoredUpscaleWorkflow: 'ComfyUI の画像拡大は内蔵の ImageScaleBy ワークフローを使用し、{field} のインポート内容は実行しません。既存設定は保持されます。',
       providerMismatch: 'ノードと接続の Provider が一致しません。同期ボタンで修正してください。モデル設定は保持されます。',
       unconfigured: '接続が未設定か、必要な機能を提供していません。上の結果を確認し、接続を調整して再テストしてください。',

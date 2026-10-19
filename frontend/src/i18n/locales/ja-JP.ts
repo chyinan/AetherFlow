@@ -72,6 +72,8 @@ export const jaJP = {
     runtimeDetail: 'モックプロバイダのみ',
   },
   nav: {
+    personalHome: 'マイワークベンチ',
+    adminOverview: '管理の概要',
     projects: 'プロジェクト',
     workspaces: 'ワークスペース',
     workflows: 'ワークフロー',

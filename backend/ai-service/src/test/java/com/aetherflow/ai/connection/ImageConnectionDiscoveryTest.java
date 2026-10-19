@@ -14,6 +14,32 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class ImageConnectionDiscoveryTest {
+    @org.junit.jupiter.api.Test
+    void apiGraphUsesPluginTypesWithoutRequiringStandardCheckpointGraph() {
+        org.springframework.web.client.RestClient.Builder builder = org.springframework.web.client.RestClient.builder();
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        var discovery = new ImageConnectionDiscovery((url, timeout) -> builder.clone().baseUrl(url).build(), java.time.Duration.ofSeconds(1));
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://fake-comfy/object_info"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess("{\"ExamplePlugin\":{\"input\":{}}}", org.springframework.http.MediaType.APPLICATION_JSON));
+        var profile = new NodeConnectionProfile("saved", "test", "COMFYUI", "http://fake-comfy", false);
+        var probe = discovery.probeWorkflow(profile, java.util.List.of("ExamplePlugin"));
+        org.assertj.core.api.Assertions.assertThat(probe.status()).isEqualTo("usable");
+        org.assertj.core.api.Assertions.assertThat(probe.warnings()).anyMatch(message -> message.contains("不代表"));
+        server.verify();
+    }
+
+    @org.junit.jupiter.api.Test
+    void missingPluginTypeIsReportedWithoutRemovingGraphNodes() {
+        var builder = org.springframework.web.client.RestClient.builder();
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        var discovery = new ImageConnectionDiscovery((url, timeout) -> builder.clone().baseUrl(url).build(), java.time.Duration.ofSeconds(1));
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://fake-comfy/object_info"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess("{\"OtherPlugin\":{}}", org.springframework.http.MediaType.APPLICATION_JSON));
+        var result = discovery.probeWorkflow(new NodeConnectionProfile("saved", "test", "COMFYUI", "http://fake-comfy", false), java.util.List.of("ExamplePlugin"));
+        org.assertj.core.api.Assertions.assertThat(result.status()).isEqualTo("unconfigured");
+        org.assertj.core.api.Assertions.assertThat(result.message()).contains("ExamplePlugin", "原图已保留");
+        server.verify();
+    }
     @Test
     void discoversComfyCatalogsAndOnlySupportedScaleMethods() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://fake-comfy");

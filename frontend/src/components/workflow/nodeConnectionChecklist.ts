@@ -1,5 +1,6 @@
 // pattern: Functional Core
 import type { ImageCatalog, ImageConnectionNodeType, ImageConnectionProvider, NodeConnectionProbe } from '@/api/modules/nodeConnections'
+import { decodeComfyGraph, describeComfyGraph } from '@/utils/comfyWorkflow'
 
 export type ConnectionChecklistField = 'connectionId' | 'checkpoint' | 'vae' | 'sampler' | 'scheduler' | 'upscaler' | 'lora' | 'mode' | 'workflow' | 'workflowJson'
 export type ConnectionChecklistReason = 'unconfigured' | 'unreachable' | 'capability' | 'required' | 'unknown' | 'empty' | 'unsupported' | 'defaultUnsupported' | 'invalidLora' | 'unsupportedMode' | 'providerMismatch' | 'ignoredWorkflowAlias' | 'ignoredWorkflowJson' | 'ignoredUpscaleWorkflow'
@@ -30,9 +31,9 @@ export function connectionCatalogOptions(probe: NodeConnectionProbe | null, cata
 }
 
 function hasImportedWorkflow(config: Record<string, unknown>): boolean {
-  // AI executor 的 map() 仅接收 workflowJson 对象，不解析字符串，也不读取 workflow 别名。
-  const value = config.workflowJson
-  return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length > 0
+  // AI 执行器使用对象；workflowJson 优先，缺省时兼容旧 workflow 对象。
+  const value = decodeComfyGraph(config.workflowJson ?? config.workflow)
+  return value !== null && Object.keys(value).length > 0
 }
 
 function hasConfiguredWorkflow(value: unknown): boolean {
@@ -72,11 +73,14 @@ export function buildNodeConnectionChecklist({ provider, nodeType, config, probe
     for (const field of ['workflow', 'workflowJson'] as const) {
       if (!hasConfiguredWorkflow(config[field])) continue
       if (nodeType === 'UPSCALE') add(field, 'ignoredUpscaleWorkflow')
-      else if (field === 'workflow') add(field, 'ignoredWorkflowAlias')
+      else if (field === 'workflow' && config.workflowJson != null) continue
+      else if (field === 'workflow' && !hasImportedWorkflow(config)) add(field, 'ignoredWorkflowAlias')
       else if (!hasImportedWorkflow(config)) add(field, 'ignoredWorkflowJson')
     }
   }
   const defaultsApply = comfy && !hasImportedWorkflow(config)
+  // API 图的模型、采样与插件由执行图决定；绑定值仍由服务端按明确目标应用。
+  if (comfy && nodeType === 'IMAGE_GENERATION' && describeComfyGraph(config.workflowJson ?? config.workflow).format === 'API') return issues
   const explicitConnection = Boolean(String(config.connectionId ?? '').trim())
 
   function inspect(field: ConnectionChecklistField, catalog: ImageCatalog, value: string, settings: {

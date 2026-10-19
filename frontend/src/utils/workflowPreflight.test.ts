@@ -54,7 +54,7 @@ describe('静态预检分类与保存契约', () => {
     { name: 'scheduler', type: 'STRING', options: ['normal', 'karras'] },
   ] }
   it.each(['dpmpp_2m', 'euler_ancestral'])('默认 ComfyUI 保留运行时 sampler %s 并交给服务端验证', (sampler) => {
-    const input = [node('image', 'image-generation', { provider: 'COMFYUI', mode: 'workflow', sampler })]
+    const input = [node('image', 'image-generation', { provider: 'COMFYUI', mode: 'txt2img', sampler })]
     const before = structuredClone(input)
     const issues = check(input, [imageTemplate])
     expect(issues.filter((issue) => issue.level === 'blocking')).toEqual([])

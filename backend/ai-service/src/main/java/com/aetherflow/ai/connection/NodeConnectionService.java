@@ -52,7 +52,8 @@ public class NodeConnectionService {
         }
         NodeConnectionProfile profile = new NodeConnectionProfile(id == null ? UUID.randomUUID().toString() : id,
                 name, provider(request.provider()), endpoint(request.baseUrl()), false);
-        NodeConnectionProbe probe = discovery.probe(profile, null, null);
+        NodeConnectionProbe probe = ImageProviderType.COMFYUI.name().equals(profile.provider()) && !request.workflowNodeTypes().isEmpty()
+                ? discovery.probeWorkflow(profile, request.workflowNodeTypes()) : discovery.probe(profile, null, null);
         if (!"usable".equals(probe.status())) {
             throw invalid("连接测试未通过，未保存修改：" + probe.message());
         }
@@ -74,11 +75,24 @@ public class NodeConnectionService {
     }
 
     public NodeConnectionProbe probe(String provider, String baseUrl, String checkpoint, String nodeType) {
+        return probe(provider, baseUrl, checkpoint, nodeType, List.of());
+    }
+
+    public NodeConnectionProbe probe(String provider, String baseUrl, String checkpoint, String nodeType, List<String> workflowNodeTypes) {
         if (baseUrl == null || baseUrl.isBlank()) {
             return NodeConnectionProbe.unavailable("unconfigured", "请先填写服务地址");
         }
-        return discovery.probe(new NodeConnectionProfile("probe", "", provider(provider), endpoint(baseUrl), false),
-                checkpoint, nodeType(nodeType));
+        NodeConnectionProfile profile = new NodeConnectionProfile("probe", "", provider(provider), endpoint(baseUrl), false);
+        return ImageProviderType.COMFYUI.name().equals(profile.provider()) && workflowNodeTypes != null && !workflowNodeTypes.isEmpty()
+                ? discovery.probeWorkflow(profile, workflowNodeTypes) : discovery.probe(profile, checkpoint, nodeType(nodeType));
+    }
+
+    public NodeConnectionProbe probeWorkflow(Long userId, String id, List<String> workflowNodeTypes) {
+        requireUser(userId);
+        NodeConnectionProfile profile = checkedProfile(userId, id);
+        if (!ImageProviderType.COMFYUI.name().equals(profile.provider()) || workflowNodeTypes == null || workflowNodeTypes.isEmpty())
+            throw invalid("请为 ComfyUI API 执行图提供实际节点类型");
+        return discovery.probeWorkflow(profile, workflowNodeTypes);
     }
 
     public NodeConnectionValidationResponse validate(NodeConnectionValidationRequest request) {
@@ -94,6 +108,7 @@ public class NodeConnectionService {
             }
             try {
                 String id = selection.connectionId();
+                String probeKey = id + "|" + selection.workflowNodeTypes();
                 if (failures.containsKey(id)) {
                     throw failures.get(id);
                 }
@@ -104,14 +119,17 @@ public class NodeConnectionService {
                             throw invalid("连接校验时间预算已耗尽，请稍后重试");
                         }
                         // 同一请求中共享完整目录，逐节点独立校验所选模型，不跨请求缓存状态。
-                        probes.put(id, discovery.probe(profile, null, null));
                         profiles.put(id, profile);
                     } catch (BusinessException exception) {
                         failures.put(id, exception);
                         throw exception;
                     }
                 }
-                validateSelection(profiles.get(id), selection, probes.get(id));
+                if (!probes.containsKey(probeKey)) {
+                    if (System.nanoTime() >= deadline) throw invalid("连接校验时间预算已耗尽，请稍后重试");
+                    probes.put(probeKey, probeSelection(profiles.get(id), selection));
+                }
+                validateSelection(profiles.get(id), selection, probes.get(probeKey));
             } catch (BusinessException exception) {
                 violations.add("节点 " + selection.nodeId() + "：" + exception.getMessage());
             }
@@ -125,8 +143,13 @@ public class NodeConnectionService {
 
     private NodeConnectionProfile validatedProfile(Long userId, NodeSelection selection) {
         NodeConnectionProfile profile = checkedProfile(userId, selection.connectionId());
-        validateSelection(profile, selection, discovery.probe(profile, null, null));
+        validateSelection(profile, selection, probeSelection(profile, selection));
         return profile;
+    }
+
+    private NodeConnectionProbe probeSelection(NodeConnectionProfile profile, NodeSelection selection) {
+        return ImageProviderType.COMFYUI.name().equals(profile.provider()) && !selection.workflowNodeTypes().isEmpty()
+                ? discovery.probeWorkflow(profile, selection.workflowNodeTypes()) : discovery.probe(profile, null, null);
     }
 
     private NodeConnectionProfile checkedProfile(Long userId, String id) {
@@ -152,6 +175,8 @@ public class NodeConnectionService {
         if (!probe.capabilities().contains(nodeType)) {
             throw invalid("连接不支持所选节点类型");
         }
+        if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && "IMAGE_GENERATION".equals(nodeType)
+                && !selection.workflowNodeTypes().isEmpty()) return;
         if ("IMAGE_GENERATION".equals(nodeType)) {
             if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && blank(selection.checkpoint())) {
                 throw invalid("请为 ComfyUI 选择 Checkpoint");

@@ -10,6 +10,7 @@ import com.aetherflow.workflow.node.validation.NestedWorkflowDefinition;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest;
 import com.aetherflow.common.dto.NodeConnectionValidationResponse;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.util.ComfyUiWorkflow;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
 import com.aetherflow.workflow.node.WorkflowNodeProperties;
 import com.aetherflow.workflow.ocr.provider.OCRProviderRegistry;
@@ -49,6 +50,21 @@ public class WorkflowAiCapabilityPreflightService {
     }
 
     public void validate(WorkflowDefinitionDTO definition, Long userId) {
+        // 保留 UI 图允许保存，但在任何远端能力探测或启动之前给出转换引导。
+        for (var node : NestedWorkflowDefinition.flatten(definition == null ? List.of() : definition.getNodes())) {
+            if (node == null || !"IMAGE_GENERATION".equalsIgnoreCase(node.getNodeType()) || node.getConfig() == null) continue;
+            Map<String, Object> config = node.getConfig();
+            if (!"COMFYUI".equalsIgnoreCase(text(config.get("provider")))) continue;
+            Object raw = (config.get("workflowJson") != null ? config.get("workflowJson") : config.get("workflow"));
+            if ((raw == null || raw instanceof Map<?, ?> map && map.isEmpty()) && !"workflow".equalsIgnoreCase(text(config.get("mode")))) continue;
+            try {
+                Map<String, Object> graph = ComfyUiWorkflow.decodeGraph(raw);
+                ComfyUiWorkflow.requireApi(graph);
+                ComfyUiWorkflow.bindings(config.get("workflowBindings"), graph);
+            } catch (IllegalArgumentException exception) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "节点 " + node.getNodeId() + "：" + exception.getMessage());
+            }
+        }
         List<String> localViolations = validateLocalCapabilities(definition);
         if (!WorkflowAiCapabilityPolicy.requiresRemoteCapabilities(definition)) {
             if (!localViolations.isEmpty()) {
@@ -85,7 +101,10 @@ public class WorkflowAiCapabilityPreflightService {
                     return new NodeConnectionValidationRequest.NodeSelection(node.getNodeId(), node.getNodeType(),
                             text(config.get("connectionId")), text(config.get("provider")),
                             text(config.get("checkpoint")), text(config.get("upscaler")),
-                            text(config.get("vae")), text(config.get("sampler")), text(config.get("scheduler")), loras);
+                            text(config.get("vae")), text(config.get("sampler")), text(config.get("scheduler")), loras,
+                            "IMAGE_GENERATION".equalsIgnoreCase(node.getNodeType()) && "COMFYUI".equalsIgnoreCase(text(config.get("provider")))
+                                    && !ComfyUiWorkflow.executionGraph(config).isEmpty()
+                                    ? ComfyUiWorkflow.apiNodeTypes(ComfyUiWorkflow.executionGraph(config)) : List.of());
                 }).toList();
         if (nodes.isEmpty()) return Set.of();
         try {

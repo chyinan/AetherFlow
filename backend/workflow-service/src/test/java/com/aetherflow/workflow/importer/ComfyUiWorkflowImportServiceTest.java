@@ -30,28 +30,10 @@ class ComfyUiWorkflowImportServiceTest {
                 .containsEntry("next", "image-generation");
 
         WorkflowNodeDTO image = node(definition, "IMAGE_GENERATION");
-        assertThat(image.getConfig())
-                .containsEntry("provider", "COMFYUI")
-                .containsEntry("mode", "workflow")
-                .containsEntry("promptVariable", "prompt")
-                .containsEntry("negativePromptVariable", "negativePrompt")
-                .containsEntry("seed", 1234L)
-                .containsEntry("steps", 30)
-                .containsEntry("cfgScale", 7.5D)
-                .containsEntry("sampler", "dpmpp_2m")
-                .containsEntry("scheduler", "karras")
-                .containsEntry("width", 1024)
-                .containsEntry("height", 1024)
-                .containsEntry("batchSize", 2)
-                .containsEntry("denoiseStrength", 0.65D)
-                .containsEntry("checkpoint", "sdxl.safetensors")
-                .containsEntry("vae", "sdxl-vae.safetensors");
-        assertThat(image.getConfig().get("workflow")).isInstanceOf(Map.class);
-        assertThat((List<?>) image.getConfig().get("lora"))
-                .singleElement()
-                .satisfies(item -> assertThat((Map<String, Object>) item)
-                        .containsEntry("name", "product-style.safetensors")
-                        .containsEntry("weight", 0.8D));
+        assertThat(image.getConfig()).containsEntry("provider", "COMFYUI").containsEntry("mode", "workflow")
+                .containsEntry("workflow", workflow()).containsEntry("workflowJson", workflow()).containsEntry("workflowBindings", List.of())
+                .doesNotContainKeys("seed", "steps", "sampler", "checkpoint");
+
     }
 
     private static WorkflowNodeDTO node(WorkflowDefinitionDTO definition, String type) {

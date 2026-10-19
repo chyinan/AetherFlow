@@ -1,6 +1,6 @@
 // pattern: Mixed (needs refactoring)
 import { defineStore } from 'pinia'
-import { CUSTOM_NODE_STORAGE_KEY, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
+import { CUSTOM_NODE_STORAGE_KEY, customDefinitionKey, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, parseCustomDefinition, type CustomDefinition } from '@/utils/customNodes'
 import { readCustomNodeLibrary, withCustomNodeWriteLock } from '@/utils/customNodeStorage'
 import type { Connection } from '@vue-flow/core'
 import { toRaw } from 'vue'
@@ -416,13 +416,32 @@ export const useWorkflowStore = defineStore('workflow', {
       this.savingError = null
       this.runError = null
     },
-    applyCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
+    applyCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest, options: { allowUnavailableCustomDrafts?: boolean } = {}) {
       const baseMatches = this.workflowId === request.baseWorkflowId
         && this.editRevision === request.baseEditRevision
         && this.backendDefinitionId === request.baseDefinitionId
         && this.backendVersion === request.baseVersion
       const nodesAreAvailable = request.nodes.every((node) => {
-        const template = this.templates.find((item) => item.kind === node.data.kind)
+        if (options.allowUnavailableCustomDrafts && node.data.config.customDefinition) {
+          try {
+            const definition = parseCustomDefinition(node.data.config.customDefinition)
+            const previous = this.nodes.find((item) => item.id === node.id)
+            if (previous?.data.kind === node.data.kind && previous.data.config.customDefinition) {
+              const previousDefinition = parseCustomDefinition(previous.data.config.customDefinition)
+              if (customDefinitionKey(previousDefinition) === customDefinitionKey(definition)) {
+                // 现有节点持有独立快照；运行状态或本机库移除不阻止继续编辑。
+                mergeCustomDefinitions([previousDefinition], [definition])
+                return true
+              }
+            }
+            const stored = this.customDefinitions.find((item) => customDefinitionKey(item) === customDefinitionKey(definition))
+            if (!stored || node.data.kind !== (definition.kind === 'API' ? 'http-request' : 'code')) return false
+            mergeCustomDefinitions([stored], [definition])
+            // 仅接纳本机库中准确版本的未运行草稿；执行仍受运行时预检约束。
+            return node.data.status === 'idle'
+          } catch { return false }
+        }
+        const template = this.templates.find((item) => item.kind === node.data.kind && !item.config.customDefinition)
         return Boolean(template) && template?.availability?.available !== false
       })
       const hasOneStart = request.nodes.filter((node) => node.data.kind === 'start').length === 1

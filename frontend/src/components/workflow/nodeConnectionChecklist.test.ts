@@ -66,8 +66,8 @@ describe('节点连接运行前清单', () => {
     ])
   })
   it.each([
-    [{ workflow: { '1': { class_type: 'CustomSampler' } } }, 'workflow', 'ignoredWorkflowAlias'],
-    [{ workflowJson: '{"1":{"class_type":"CustomSampler"}}' }, 'workflowJson', 'ignoredWorkflowJson'],
+    [{ workflow: 'invalid legacy JSON' }, 'workflow', 'ignoredWorkflowAlias'],
+    [{ workflowJson: '{invalid' }, 'workflowJson', 'ignoredWorkflowJson'],
     [{ workflowJson: [{ class_type: 'CustomSampler' }] }, 'workflowJson', 'ignoredWorkflowJson'],
   ] as const)('未生效的导入不跳过真实内置默认检查 %j', (workflow, field, reason) => {
     const issues = checklist({}, { config: { mode: 'workflow', ...workflow }, probe: probe({ models: { ...probe().models, samplers: ['custom'], schedulers: ['custom'] } }) })
@@ -78,9 +78,10 @@ describe('节点连接运行前清单', () => {
     const config = { mode: 'workflow', workflowJson: { '1': { class_type: 'CustomSampler' } } }
     expect(checklist({}, { config, probe: probe({ models: { ...probe().models, samplers: ['custom'], schedulers: ['custom'] } }) })).toEqual([])
   })
-  it('有效 workflowJson 对象与旧别名同时存在时只提示别名不会执行', () => {
+  it('API 执行图与原图同时存在时不误报丢失，旧对象别名可回退', () => {
     const config = { mode: 'workflow', workflowJson: { '1': { class_type: 'ActualSampler' } }, workflow: { '1': { class_type: 'IgnoredSampler' } } }
-    expect(checklist({}, { config })).toEqual([{ id: 'workflow-field-ignoredWorkflowAlias', field: 'workflow', reason: 'ignoredWorkflowAlias' }])
+    expect(checklist({}, { config })).toEqual([])
+    expect(checklist({}, { config: { mode: 'workflow', workflow: config.workflow } })).toEqual([])
   })
   it('空导入对象使用内置默认；JSON 字符串不会因为可解析而获得免检', () => {
     expect(checklist({}, { config: { workflowJson: {} } })[0]?.reason).toBe('defaultUnsupported')

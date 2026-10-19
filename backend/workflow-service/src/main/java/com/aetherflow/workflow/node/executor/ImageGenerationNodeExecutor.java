@@ -5,6 +5,7 @@ import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.dto.ImageWorkflowDtos;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.util.ComfyUiWorkflow;
 import com.aetherflow.workflow.client.AiWorkflowNodeClient;
 import com.aetherflow.workflow.node.WorkflowNodeTypes;
 import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
@@ -37,7 +38,7 @@ public class ImageGenerationNodeExecutor extends AbstractAiWorkflowNodeExecutor 
                 context,
                 "IMAGE_GENERATION",
                 sourceResolver.resolve(ImageWorkflowNodeSupport.imageGenerationPayload(config, context), context,
-                        "img2img".equalsIgnoreCase(NodeValueSupport.stringValue(config.get("mode"))))
+                        requiresSourceImage(config))
         );
         Map<String, Object> aiOutput = response.getOutput() == null ? Map.of() : response.getOutput();
         List<ImageWorkflowDtos.GeneratedImage> images = ImageWorkflowNodeSupport.imagesFromOutput(aiOutput);
@@ -59,5 +60,19 @@ public class ImageGenerationNodeExecutor extends AbstractAiWorkflowNodeExecutor 
         Map<String, Object> output = new LinkedHashMap<>(variables);
         output.put("imageFiles", variables.get("imageFiles"));
         return buildResult(output, variables);
+    }
+
+    private boolean requiresSourceImage(Map<String, Object> config) {
+        boolean img2img = "img2img".equalsIgnoreCase(NodeValueSupport.stringValue(config.get("mode")));
+        if (!"COMFYUI".equalsIgnoreCase(NodeValueSupport.stringValue(config.get("provider")))) return img2img;
+        try {
+            Map<String, Object> graph = ComfyUiWorkflow.executionGraph(config);
+            if (graph.isEmpty() && !"workflow".equalsIgnoreCase(NodeValueSupport.stringValue(config.get("mode")))) return img2img;
+            ComfyUiWorkflow.requireApi(graph);
+            return ComfyUiWorkflow.bindings(config.get("workflowBindings"), graph).stream()
+                    .anyMatch(binding -> "sourceImage".equals(binding.parameter()));
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "[IMAGE_EXECUTION:COMFYUI:INPUT:workflow:VALIDATION] " + exception.getMessage());
+        }
     }
 }

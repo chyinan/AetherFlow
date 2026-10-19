@@ -384,6 +384,7 @@ function normalizePromptConfig(config: Record<string, unknown>, nextNodes: strin
 
 function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const workflowJson = normalizeWorkflowJson(config.workflowJson)
+  const sourceWorkflow = normalizeWorkflowJson(config.workflow)
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'SD_WEBUI'),
@@ -406,8 +407,10 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
     ...(optionalString(config.checkpoint) ? { checkpoint: optionalString(config.checkpoint) } : {}),
     ...(optionalString(config.vae) ? { vae: optionalString(config.vae) } : {}),
     ...(Array.isArray(config.lora) ? { lora: config.lora } : {}),
-    ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
+    ...(sourceWorkflow === undefined ? {} : { workflow: sourceWorkflow }),
     ...(workflowJson === undefined ? {} : { workflowJson }),
+    ...(config.workflowBindings === undefined ? {} : { workflowBindings: cloneConfigValue(config.workflowBindings) }),
+    ...(isRecord(config.comfyImport) ? { comfyImport: cloneConfigValue(config.comfyImport) } : {}),
     ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
     ...(isRecord(config.options) ? { options: config.options } : {}),
   }, nextNodes)

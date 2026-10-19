@@ -20,6 +20,15 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class NodeConnectionServiceTest {
+    @Test
+    void importedGraphUsesItsOwnTypesInsteadOfStandardModelCatalog() {
+        when(repository.find(7L, "saved")).thenReturn(saved);
+        when(discovery.probeWorkflow(saved, List.of("ExamplePlugin"))).thenReturn(new NodeConnectionProbe("usable", "types found", "backend", NodeConnectionProbe.Models.empty(), List.of("IMAGE_GENERATION"), List.of(), List.of()));
+        var selected = new NodeSelection("image", "IMAGE_GENERATION", "saved", "COMFYUI", null, null, null, null, null, List.of(), List.of("ExamplePlugin"));
+        assertThat(service.validate(new NodeConnectionValidationRequest(7L, List.of(selected))).violations()).isEmpty();
+        verify(discovery).probeWorkflow(saved, List.of("ExamplePlugin"));
+        verify(discovery, never()).probe(any(), any(), any());
+    }
     private final NodeConnectionRepository repository = mock(NodeConnectionRepository.class);
     private final ImageConnectionDiscovery discovery = mock(ImageConnectionDiscovery.class);
     private final NodeConnectionProviderFactory factory = mock(NodeConnectionProviderFactory.class);

@@ -211,7 +211,7 @@ public class CopilotServiceImpl implements CopilotService {
                 parseProvider(request.getProvider()), normalizeOptionalText(request.getModel()),
                 CopilotCanvasEdits.prompt(request.getContext(), history, request.getPrompt().strip()),
                 Map.of("temperature", 0.1, "maxTokens", 6000), COPILOT_TIMEOUT, userId));
-        CopilotCanvasEdits.Edit edit = CopilotCanvasEdits.parse(response == null ? null : response.text());
+        CopilotCanvasEdits.Edit edit = CopilotCanvasEdits.parse(response == null ? null : response.text(), request.getContext());
         CopilotMessageEntity assistant = transactionTemplate.execute(status -> persistAssistantReply(prepared, edit.explanation()));
         return new CopilotCanvasEditResponse(new CopilotChatResponse(messageId(assistant.getId()),
                 conversationId(prepared.conversation().getId()), ROLE_ASSISTANT, assistant.getContent(),

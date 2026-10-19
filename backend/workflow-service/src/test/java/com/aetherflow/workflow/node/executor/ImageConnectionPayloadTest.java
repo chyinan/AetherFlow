@@ -10,9 +10,9 @@ class ImageConnectionPayloadTest {
     void bothImagePathsPreserveConnectionReferenceWithoutEndpoint() {
         DefaultWorkflowContext context = new DefaultWorkflowContext("workflow", "trace", "task", Map.of());
         Map<String, Object> config = Map.of("connectionId", "saved-one", "provider", "COMFYUI",
-                "prompt", "sample", "baseUrl", "http://must-not-be-forwarded.invalid");
+                "prompt", "sample", "baseUrl", "http://must-not-be-forwarded.invalid", "workflowBindings", java.util.List.of(Map.of("nodeId", "one", "inputName", "steps", "parameter", "steps")));
         assertThat(ImageWorkflowNodeSupport.imageGenerationPayload(config, context))
-                .containsEntry("connectionId", "saved-one").doesNotContainKey("baseUrl");
+                .containsEntry("connectionId", "saved-one").containsEntry("workflowBindings", config.get("workflowBindings")).doesNotContainKey("baseUrl");
         assertThat(ImageWorkflowNodeSupport.upscalePayload(config, context))
                 .containsEntry("connectionId", "saved-one").doesNotContainKey("baseUrl");
         assertThat(ImageWorkflowNodeSupport.imageGenerationPayload(Map.of("provider", "COMFYUI"), context))

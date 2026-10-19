@@ -20,6 +20,9 @@ import {
 import { copilotApi } from '@/services/api/copilotApi'
 import { renderCopilotMarkdown } from '@/services/copilot/copilotMarkdown'
 import { buildCanvasEditContext, compileCanvasEdit } from '@/services/copilot/copilotCanvasEdit'
+import { hasCustomNodeDraftOperations, prepareCustomNodeDraft } from '@/services/copilot/copilotCustomNodeDraft'
+import { customDefinitionKey, customNodeTemplate, type CustomDefinition } from '@/utils/customNodes'
+import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
 import { UNCONFIRMED_CONVERSATION, conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import { modelApi } from '@/services/api/modelApi'
 import { workflowApi } from '@/services/api/workflowApi'
@@ -32,7 +35,20 @@ const props = defineProps<{
   context?: WorkflowCopilotSnapshot
   applyWorkflowDraft?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
   applyCanvasEdit?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
+  saveCustomNodeDrafts?: (definitions: CustomDefinition[], signal?: AbortSignal) => Promise<void>
 }>()
+type CustomNodePreview = {
+  definitions: CustomDefinition[]
+  canvasEdit: CopilotCanvasEdit | null
+  snapshot: WorkflowCopilotSnapshot
+  base: NonNullable<ReturnType<typeof currentPlannerBase>>
+  status: 'pending' | 'applying' | 'applied' | 'cancelled'
+  saved: boolean
+  error: string
+}
+const customNodePreviews = ref(new Map<string, CustomNodePreview>())
+let customNodeController: AbortController | null = null
+const savingCustomNodeDraft = ref(false)
 const directEditMode = ref(Boolean(props.applyCanvasEdit))
 const canvasEditResults = ref(new Map<string, { success: boolean; text: string }>())
 const canvasEditPendingId = ref<string | null>(null)
@@ -40,7 +56,7 @@ const prompt = ref('')
 const loading = ref(false)
 const conversationSelectionPending = ref(false)
 const conversationIdentityUnconfirmed = ref(false)
-const interactionPending = computed(() => loading.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
+const interactionPending = computed(() => loading.value || savingCustomNodeDraft.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
 const modelsLoading = ref(false)
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
@@ -238,6 +254,10 @@ function rememberConversation(id: string | undefined) {
 }
 
 function resetConversationState() {
+  customNodeController?.abort()
+  customNodeController = null
+  savingCustomNodeDraft.value = false
+  customNodePreviews.value.clear()
   conversationLoadSequence += 1
   plannerSessionSequence += 1
   planValidationSequence += 1
@@ -532,6 +552,7 @@ async function sendCanvasEdit(value = prompt.value) {
       provider: providerTypeOf(model?.providerId), model: model?.name,
       context: {
         ...buildCanvasEditContext(snapshot, locale.value),
+        capabilities: { customNodeDrafts: Boolean(props.saveCustomNodeDrafts) },
         selectedModel: { provider: providerTypeOf(model?.providerId), model: model?.name },
         availableModels: availableModels.value.map((item) => ({ provider: providerTypeOf(item.providerId), model: item.name })),
       }, signal: controller.signal,
@@ -544,6 +565,16 @@ async function sendCanvasEdit(value = prompt.value) {
     responseMessageId = response.message.id
     canvasEditPendingId.value = responseMessageId
     if (response.edit.status !== 'READY') return
+    if (hasCustomNodeDraftOperations(response.edit)) {
+      if (!props.saveCustomNodeDrafts) throw new Error('当前编辑器不支持保存自定义节点草稿。')
+      const prepared = prepareCustomNodeDraft(response.edit, snapshot)
+      if (!prepared.ok) throw new Error(prepared.error)
+      customNodePreviews.value.set(responseMessageId, {
+        definitions: prepared.definitions, canvasEdit: prepared.canvasEdit, snapshot, base,
+        status: 'pending', saved: false, error: '',
+      })
+      return
+    }
     const candidate = compileCanvasEdit(snapshot, response.edit)
     if (!candidate.ok) throw new Error(candidate.error)
     const graph: WorkflowDefinition = {
@@ -589,6 +620,91 @@ function cancelCanvasEdit() {
   if (message) {
     message.content = t('copilot.editor.cancelled')
     canvasEditResults.value.set(message.id, { success: false, text: t('copilot.editor.cancelled') })
+  }
+}
+
+function customNodeBaseIsCurrent(preview: CustomNodePreview) {
+  const current = currentPlannerBase()
+  return Boolean(current && current.workflowId === preview.base.workflowId
+    && current.editRevision === preview.base.editRevision
+    && current.backendDefinitionId === preview.base.backendDefinitionId
+    && current.backendVersion === preview.base.backendVersion
+    && current.graphFingerprint === preview.base.graphFingerprint)
+}
+
+function cancelCustomNodeDraft(messageId: string) {
+  const preview = customNodePreviews.value.get(messageId)
+  if (!preview || preview.status === 'applied' || preview.status === 'cancelled') return
+  if (preview.status === 'applying') customNodeController?.abort()
+  preview.status = 'cancelled'
+  preview.error = ''
+}
+
+async function confirmCustomNodeDraft(messageId: string) {
+  const preview = customNodePreviews.value.get(messageId)
+  if (!preview || preview.status !== 'pending' || interactionPending.value || !props.saveCustomNodeDrafts) return
+  if (!customNodeBaseIsCurrent(preview)) { preview.error = t('copilot.editor.stale'); return }
+  const session = plannerSessionSequence
+  const controller = new AbortController()
+  customNodeController = controller
+  savingCustomNodeDraft.value = true
+  preview.status = 'applying'
+  preview.error = ''
+  const stillCurrent = () => !controller.signal.aborted && session === plannerSessionSequence
+    && customNodePreviews.value.get(messageId) === preview
+  const ensureCurrent = () => {
+    if (!stillCurrent()) throw new DOMException('草稿确认已取消', 'AbortError')
+    if (!customNodeBaseIsCurrent(preview)) throw new Error(t('copilot.editor.stale'))
+  }
+  try {
+    // 校验的是待保存模板的准确快照；仅请求结构验证，不启动工作流。
+    const snapshot = JSON.parse(JSON.stringify(preview.snapshot)) as WorkflowCopilotSnapshot
+    snapshot.templates = [...snapshot.templates.filter((template) => !preview.definitions.some((definition) => {
+      const existing = template.config.customDefinition as CustomDefinition | undefined
+      return existing && customDefinitionKey(existing) === customDefinitionKey(definition)
+    })), ...preview.definitions.map((definition) => customNodeTemplate(definition,
+      snapshot.templates.find((template) => !template.config.customDefinition && template.kind === (definition.kind === 'API' ? 'http-request' : 'code'))))]
+    const candidate = preview.canvasEdit ? compileCanvasEdit(snapshot, preview.canvasEdit) : null
+    if (candidate && !candidate.ok) throw new Error(candidate.error)
+    const validation = candidate?.ok ? await workflowApi.validateCanvasEdit({
+      id: snapshot.workflowId, name: snapshot.workflowName,
+      backendDefinitionId: snapshot.backendDefinitionId ?? undefined, backendVersion: snapshot.backendVersion ?? undefined,
+      projectId: snapshot.projectId ?? undefined, nodes: candidate.nodes, edges: candidate.edges,
+    }, controller.signal) : null
+    ensureCurrent()
+    if (validation && !validation.structurallyValid) throw new Error(validation.issues.join('；') || t('copilot.editor.invalid'))
+    if (!preview.saved) {
+      await props.saveCustomNodeDrafts(JSON.parse(JSON.stringify(preview.definitions)) as CustomDefinition[], controller.signal)
+      // 写入已完成即记录结果；随后取消也不会误报模板未保存。
+      preview.saved = true
+    }
+    ensureCurrent()
+    if (candidate?.ok) {
+      const applied = props.applyCanvasEdit?.({
+        baseWorkflowId: preview.base.workflowId, baseEditRevision: preview.base.editRevision,
+        baseDefinitionId: preview.base.backendDefinitionId, baseVersion: preview.base.backendVersion,
+        nodes: candidate.nodes, edges: candidate.edges,
+      })
+      if (!applied) throw new Error('模板已保存，画布尚未应用。请重试；画布若已改变，请重新生成草稿。')
+    }
+    preview.status = 'applied'
+    canvasEditResults.value.set(messageId, {
+      success: true,
+      text: candidate ? '模板已保存到本机库，已按 ID 和版本添加到画布，尚未运行。' : '模板已保存到本机库，可从自定义节点列表添加。',
+    })
+    if (validation && !validation.runtimeReady) {
+      canvasEditResults.value.get(messageId)!.text += `\n${t('copilot.editor.runtimeWarning')} ${validation.issues.join('；')}`
+    }
+  } catch (error) {
+    if (stillCurrent()) {
+      preview.status = 'pending'
+      preview.error = `${preview.saved ? '模板已保存，画布尚未应用。' : ''}${toApiError(error, 'ai').message}`
+    }
+  } finally {
+    if (customNodeController === controller) {
+      customNodeController = null
+      savingCustomNodeDraft.value = false
+    }
   }
 }
 
@@ -851,6 +967,7 @@ watch(() => [
 })
 
 onBeforeUnmount(() => {
+  customNodeController?.abort()
   conversationLoadSequence += 1
   plannerSessionSequence += 1
   planValidationSequence += 1
@@ -933,6 +1050,31 @@ onMounted(() => {
           <p v-if="canvasEditResults.has(message.id)" class="mt-2 whitespace-pre-line rounded-md border px-2.5 py-2 text-xs leading-5" :class="canvasEditResults.get(message.id)?.success ? 'border-status-success/25 bg-green-50 text-status-success' : 'border-status-warning/30 bg-amber-50 text-status-warning'" role="status">
             {{ canvasEditResults.get(message.id)?.text }}
           </p>
+          <section v-if="customNodePreviews.has(message.id)" data-testid="custom-node-preview" class="mt-3 space-y-3 rounded-md border border-app-border bg-app-bg2 p-3 text-xs leading-5" aria-label="自定义节点草稿预览">
+            <p class="font-semibold text-text-primary">自定义节点草稿 · 请预览后确认</p>
+            <p class="text-text-secondary">确认后保存到当前浏览器的本机模板库，并应用下方画布修改。此操作不会发送 API 请求、执行代码或启用 Python 运行时。</p>
+            <div v-for="definition in customNodePreviews.get(message.id)!.definitions" :key="customDefinitionKey(definition)" class="space-y-2">
+              <p class="font-medium">{{ definition.name }} · {{ customDefinitionKey(definition) }} · {{ definition.kind === 'CODE' ? 'Python' : 'API' }}</p>
+              <p v-if="definition.description">{{ definition.description }}</p>
+              <p class="font-medium">{{ definition.kind === 'CODE' ? 'Python 源码' : 'API 请求配置' }}</p>
+              <pre class="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded border border-app-border bg-app-muted p-2 font-mono text-text-primary">{{ definition.kind === 'CODE' ? definition.code : JSON.stringify(definition.request, null, 2) }}</pre>
+              <details open>
+                <summary class="cursor-pointer font-medium">完整模板定义（含输入、表单和输出）</summary>
+                <pre class="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-all font-mono">{{ JSON.stringify(definition, null, 2) }}</pre>
+              </details>
+            </div>
+            <details v-if="customNodePreviews.get(message.id)!.canvasEdit" open>
+              <summary class="cursor-pointer font-medium">确认后应用的画布修改</summary>
+              <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono">{{ JSON.stringify(customNodePreviews.get(message.id)!.canvasEdit!.operations, null, 2) }}</pre>
+            </details>
+            <p v-if="customNodePreviews.get(message.id)!.status === 'cancelled'" role="status">{{ customNodePreviews.get(message.id)!.saved ? '已取消画布应用；已保存的模板仍保留在本机库。' : '已取消；未添加到画布。' }}</p>
+            <p v-if="customNodePreviews.get(message.id)!.error" role="alert" class="text-status-error">{{ customNodePreviews.get(message.id)!.error }}</p>
+            <p v-if="customNodePreviews.get(message.id)!.status === 'pending' && !customNodeBaseIsCurrent(customNodePreviews.get(message.id)!)" class="text-status-warning">{{ t('copilot.editor.stale') }}</p>
+            <div v-if="['pending', 'applying'].includes(customNodePreviews.get(message.id)!.status)" class="flex flex-wrap gap-2">
+              <button type="button" data-testid="custom-node-confirm" class="rounded-md bg-ai px-3 py-1.5 font-medium text-white disabled:opacity-50" :disabled="interactionPending || !customNodeBaseIsCurrent(customNodePreviews.get(message.id)!)" @click="confirmCustomNodeDraft(message.id)">{{ customNodePreviews.get(message.id)!.status === 'applying' ? '正在确认…' : customNodePreviews.get(message.id)!.saved ? '重试应用到画布' : customNodePreviews.get(message.id)!.canvasEdit ? '确认保存并应用到画布' : '确认保存模板' }}</button>
+              <button type="button" data-testid="custom-node-cancel" class="rounded-md border border-app-border px-3 py-1.5" @click="cancelCustomNodeDraft(message.id)">取消草稿</button>
+            </div>
+          </section>
           <section
             v-if="message.role === 'assistant' && message.plan"
             class="mt-3 space-y-2 rounded-md border border-app-border bg-app-bg2 p-3 text-xs leading-5"
@@ -1042,6 +1184,7 @@ onMounted(() => {
 
       <form class="border-t border-app-border bg-white p-3" @submit.prevent="sendPrompt()">
         <p v-if="directEditMode && props.applyCanvasEdit" class="mb-2 text-xs leading-5 text-text-muted">{{ t('copilot.editor.hint') }}</p>
+        <p v-if="directEditMode && props.saveCustomNodeDrafts" class="mb-2 text-xs leading-5 text-text-muted">可以要求生成 API 或 Python 自定义节点；模板会先展示草稿，确认后才保存。</p>
         <div v-if="plannerMode" class="mb-2 flex items-center justify-between gap-2 rounded-md border border-ai/20 bg-ai-soft px-2.5 py-1.5 text-xs text-ai">
           <span class="font-medium">{{ t('copilot.planner.mode') }}</span>
           <button type="button" class="shrink-0 text-text-secondary underline-offset-2 hover:underline" @click="leavePlannerMode">

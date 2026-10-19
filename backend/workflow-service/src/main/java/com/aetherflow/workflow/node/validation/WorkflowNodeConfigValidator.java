@@ -54,6 +54,8 @@ public final class WorkflowNodeConfigValidator {
             Object value = configuredValue(item.type(), field.name(), config);
             String prefix = prefix(node, item.type());
             if (field.required() && isBlank(value)) {
+                if ("PROMPT".equals(normalize(item.type())) && "prompt".equals(field.name())
+                        && com.aetherflow.common.util.ComfyUiWorkflow.isPromptSummary(config)) continue;
                 violations.add(prefix + "config field '" + field.name() + "' is required");
                 continue;
             }
@@ -74,6 +76,10 @@ public final class WorkflowNodeConfigValidator {
     }
 
     private static boolean isFieldType(String nodeType, WorkflowNodeConfigSchema field, Object value) {
+        if ("IMAGE_GENERATION".equals(normalize(nodeType)) && "workflow".equals(field.name()) && value instanceof String) {
+            try { com.aetherflow.common.util.ComfyUiWorkflow.decodeGraph(value); return true; }
+            catch (IllegalArgumentException exception) { return false; }
+        }
         // 图像工作流导入与 AI 执行使用对象；保留旧目录文本编辑格式的兼容性。
         // 仅放行这两个节点的 workflowJson 对象，不改变其他 STRING 字段的校验。
         if (("IMAGE_GENERATION".equals(normalize(nodeType)) || "UPSCALE".equals(normalize(nodeType)))

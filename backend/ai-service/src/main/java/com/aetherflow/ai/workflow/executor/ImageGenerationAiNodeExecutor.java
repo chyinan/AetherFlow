@@ -6,6 +6,8 @@ import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageProviderRegistry;
 import com.aetherflow.ai.image.ImageProviderType;
+import com.aetherflow.ai.image.ComfyUiProvider;
+import com.aetherflow.common.util.ComfyUiWorkflow;
 import com.aetherflow.ai.connection.NodeConnectionService;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest.NodeSelection;
 import com.aetherflow.ai.provider.ProviderFailureClassifier;
@@ -59,6 +61,7 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
 
     protected ImageGenerationResponse executeConfigured(AiNodeExecutionContext context,
                                                          ImageGenerationRequest request, boolean upscale) {
+        if (!upscale && request.provider() == ImageProviderType.COMFYUI) ComfyUiProvider.validateImportedWorkflow(request);
         String connectionId = string(context.payload(), "connectionId", "");
         if (connectionId.isBlank()) {
             return executeWithFailover(request, upscale, contextUserId(context));
@@ -71,7 +74,9 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         NodeSelection selection = new NodeSelection(
                 context.taskMessage() == null ? null : context.taskMessage().getNodeId(),
                 nodeType(), connectionId, string(context.payload(), "provider", ""), request.checkpoint(),
-                string(request.options(), "upscaler", ""), request.vae(), request.sampler(), request.scheduler(), loras);
+                string(request.options(), "upscaler", ""), request.vae(), request.sampler(), request.scheduler(), loras,
+                !upscale && request.provider() == ImageProviderType.COMFYUI && !request.workflowJson().isEmpty()
+                        ? ComfyUiWorkflow.apiNodeTypes(request.workflowJson()) : List.of());
         var provider = connectionService.resolveForExecution(contextUserId(context), selection);
         ImageGenerationRequest routed = withProvider(request, provider.type());
         // 显式连接失败直接报告，不回退到部署默认或另一个 Provider。
@@ -94,6 +99,8 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
                 ? providerRegistry.orderedAvailableProviders(request.provider().name())
                 : providerRegistry.orderedAvailableProviders(
                 policyService.orderedImageCandidates(userId, request.provider()));
+        if (!request.workflowJson().isEmpty()) availableProviders = availableProviders.stream()
+                .filter(provider -> provider.type() == ImageProviderType.COMFYUI).toList();
         for (int index = 0; index < availableProviders.size(); index++) {
             var provider = availableProviders.get(index);
             try {
@@ -194,6 +201,11 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
 
     protected ImageGenerationRequest request(Map<String, Object> payload, String mode) {
         Map<String, Object> options = map(payload.get("options"));
+        if (payload.containsKey("workflowBindings")) options.put("workflowBindings", payload.get("workflowBindings"));
+        Map<String, Object> graph;
+        try { graph = provider(payload) == ImageProviderType.COMFYUI ? ComfyUiWorkflow.executionGraph(payload)
+                : map(payload.getOrDefault("workflowJson", payload.get("workflow"))); }
+        catch (IllegalArgumentException exception) { throw new BusinessException(ResultCode.BAD_REQUEST, exception.getMessage()); }
         if (payload.containsKey("scale")) {
             options.put("scale", payload.get("scale"));
         }
@@ -219,7 +231,7 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
                 listOfMaps(payload.get("lora")),
                 string(payload, "sourceImageBase64", string(payload, "sourceImage", "")),
                 string(payload, "sourceImageContentType", ""),
-                map(payload.get("workflowJson")),
+                map(graph),
                 options,
                 timeout(payload.get("timeoutSeconds"))
         );
