@@ -24,6 +24,10 @@
 
 单个定义包含 `formatVersion:1`、`id`、`version`、`name`、`description`、`kind`（`API` / `CODE`）、`inputs`、`fields`、`outputs`。单个定义上限 64 KiB；每组最多 32 个字段。字段类型是 `STRING`、`NUMBER`、`BOOLEAN`、`OBJECT`、`ARRAY`，支持 `required`、`defaultValue` 和字符串 `options`。输出另有 `path`。
 
+输入、表单和输出字段从 STRING 改为非字符串类型时，编辑器移除不适用的 `options`（包括空数组），保留字段名称、必填性、路径和默认值。默认值与新类型不兼容时显示提示，用户可修改或显式清空；不会自动转换或丢弃默认值。切回 STRING 不恢复旧枚举选项。导入的非字符串字段若仍含 `options`，两端校验继续明确拒绝。
+
+输出路径遵循 JSON Pointer：数组仅接受规范的非负整数下标，例如 `/0`、`/1`；前导零、负数、`-`、非数字、越界值及 `/length` 不读取数组元素。对象仍按成员名读取，因此对象的 `length`、`01`、`-` 和空键合法。`~1` 表示 `/`，`~0` 表示 `~`，转义只解码一次；空路径读取整个响应。缺失或 null 的必填输出报错，可选输出省略。前端预览和 Java 映射共用 `custom-node-pointer-cases.json` 的 40 个对照用例，覆盖数组、对象、根值与转义边界。
+
 可选枚举选择「请选择」保存为显式 `null`，覆盖默认值并在执行参数中省略该字段；必填枚举清空仍被拒绝。预览会先解析和校验请求头占位符及其值，再遮蔽显示，缺失值不能被遮蔽逻辑绕过。
 
 API 例子见 [custom-nodes-example.json](custom-nodes-example.json)。模板和默认值随导出及工作流保存，**不要放入密钥**。本次不新增凭据存储，也不自动读取环境变量或现有连接密钥。
@@ -72,7 +76,7 @@ def main(payload):
 
 ```powershell
 cd frontend
-node node_modules/vitest/vitest.mjs run src/customNodeReviewRegression.test.ts src/utils/customNodes.test.ts src/components/workflow/CustomNodeLibrary.test.ts src/utils/workflowPreflight.test.ts src/utils/workflowVariables.test.ts src/utils/workflowNodeClone.test.ts src/components/workflow/NodePalette.test.ts
+node node_modules/vitest/vitest.mjs run src/components/workflow/CustomFieldSchemaEditor.test.ts src/utils/customNodePointers.test.ts src/utils/customNodes.test.ts src/customNodeReviewRegression.test.ts src/components/workflow/CustomNodeLibrary.test.ts
 node node_modules/vue-tsc/bin/vue-tsc.js -b
 node node_modules/vite/bin/vite.js build
 ```
