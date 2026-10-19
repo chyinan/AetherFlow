@@ -8,12 +8,13 @@ const visible = ref(false), panel = ref<HTMLElement | null>(null), selected = re
 const draft = ref(defaultCustomDefinition()), headers = ref('{}'), body = ref('{"text":"{{inputs.text}}"}'), transfer = ref(''), message = ref(''), error = ref('')
 let returnFocus: HTMLElement | null = null
 let bodyOverflow = ''
+let fileReadSequence = 0
 const definitions = computed(() => store.customDefinitions)
 onMounted(() => store.reloadCustomDefinitions())
-onBeforeUnmount(() => { if (visible.value) { document.body.style.overflow = bodyOverflow; returnFocus?.focus() } })
+onBeforeUnmount(() => { fileReadSequence++; if (visible.value) { document.body.style.overflow = bodyOverflow; returnFocus?.focus() } })
 function open() { returnFocus = document.activeElement as HTMLElement; bodyOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; visible.value = true; reset('API'); nextTick(() => panel.value?.focus()) }
-function close() { visible.value = false; document.body.style.overflow = bodyOverflow; error.value = ''; transfer.value = ''; nextTick(() => returnFocus?.focus()) }
-function reset(kind: CustomDefinition['kind']) { draft.value = defaultCustomDefinition(kind); selected.value = ''; headers.value = '{}'; body.value = kind === 'API' ? '{"text":"{{inputs.text}}"}' : ''; error.value = ''; message.value = '' }
+function close() { fileReadSequence++; visible.value = false; document.body.style.overflow = bodyOverflow; error.value = ''; transfer.value = ''; nextTick(() => returnFocus?.focus()) }
+function reset(kind: CustomDefinition['kind']) { fileReadSequence++; draft.value = defaultCustomDefinition(kind); selected.value = ''; headers.value = '{}'; body.value = kind === 'API' ? '{"text":"{{inputs.text}}"}' : ''; error.value = ''; message.value = '' }
 function load() {
   const definition = definitions.value.find(item => customDefinitionKey(item) === selected.value)
   if (!definition) return
@@ -40,8 +41,15 @@ function download() {
   const link = document.createElement('a'); link.href = url; link.download = 'aetherflow-custom-nodes.json'; link.click(); URL.revokeObjectURL(url); transfer.value = data
 }
 async function importFile(event: Event) {
-  try { const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return; if (file.size > 1024 * 1024) throw new Error('导入文件不能超过 1 MiB'); transfer.value = await file.text(); importNodes() }
-  catch (e) { error.value = e instanceof Error ? e.message : String(e) }
+  const sequence = ++fileReadSequence
+  try {
+    const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return
+    if (file.size > 1024 * 1024) throw new Error('导入文件不能超过 1 MiB')
+    const text = await file.text()
+    if (!visible.value || sequence !== fileReadSequence) return
+    transfer.value = text; importNodes()
+  }
+  catch (e) { if (visible.value && sequence === fileReadSequence) error.value = e instanceof Error ? e.message : String(e) }
   finally { (event.target as HTMLInputElement).value = '' }
 }
 function keydown(event: KeyboardEvent) {

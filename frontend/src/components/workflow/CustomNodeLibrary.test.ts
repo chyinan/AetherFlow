@@ -87,6 +87,19 @@ describe('自定义节点模板库交互', () => {
     store.saveCustomDefinitions([definition])
     expect(JSON.parse(exportCustomDefinitions(store.customDefinitions)).nodes).toEqual([definition])
   })
+  it('文件读取期间关闭窗口后，迟到的导入不会保存或污染重开的草稿', async () => {
+    wrappers.push(mount(CustomNodeLibrary, { attachTo: document.body }))
+    await click('自定义节点 · API / 代码')
+    let resolveRead!: (text: string) => void
+    const pendingRead = new Promise<string>(resolve => { resolveRead = resolve })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    Object.defineProperty(input, 'files', { configurable: true, value: [{ size: 10, text: () => pendingRead }] })
+    input.dispatchEvent(new Event('change', { bubbles: true })); await flushPromises()
+    await click('取消 / 关闭'); await click('自定义节点 · API / 代码')
+    resolveRead(exportCustomDefinitions([defaultCustomDefinition('CODE')])); await flushPromises()
+    expect(useWorkflowStore().customDefinitions).toEqual([])
+    expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBeNull()
+  })
 })
 
 describe('自定义节点表单与本地调试', () => {
