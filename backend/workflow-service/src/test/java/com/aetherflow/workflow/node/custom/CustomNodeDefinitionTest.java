@@ -1,7 +1,13 @@
 package com.aetherflow.workflow.node.custom;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
+import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.*;
 
 class CustomNodeDefinitionTest {
@@ -41,5 +47,65 @@ class CustomNodeDefinitionTest {
         assertThatThrownBy(() -> CustomNodeDefinition.from(header)).hasMessageContaining("传输控制");
         var enumeration = definition("CODE"); enumeration.put("fields", List.of(Map.of("name", "mode", "type", "STRING", "required", true, "options", List.of("A"))));
         assertThatThrownBy(() -> CustomNodeDefinition.validateConfig("CODE", Map.of("customDefinition", enumeration, "customValues", Map.of("mode", "B"), "inputBindings", Map.of("text", "query")))).hasMessageContaining("允许选项");
+    }
+
+    static Stream<Arguments> pointerCases() throws Exception {
+        try (var input = Objects.requireNonNull(CustomNodeDefinitionTest.class.getResourceAsStream("/custom-node-pointer-cases.json"))) {
+            List<Map<String, Object>> examples = new ObjectMapper().readValue(input, new TypeReference<>() {});
+            return examples.stream().map(example -> Arguments.of(example.get("name"), example));
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("pointerCases")
+    void pointerContractMatchesFrontend(String name, Map<String, Object> example) {
+        for (boolean required : new boolean[]{true, false}) {
+            var source = definition("CODE");
+            source.put("outputs", List.of(Map.of("name", "mapped", "type", example.get("type"), "path", example.get("path"), "required", required)));
+            if (Boolean.TRUE.equals(example.get("invalidPointer"))) {
+                assertThatThrownBy(() -> CustomNodeDefinition.from(source)).hasMessageContaining("JSON Pointer");
+                continue;
+            }
+            var parsed = CustomNodeDefinition.from(source);
+            if (Boolean.TRUE.equals(example.get("missing")) && required) {
+                assertThatThrownBy(() -> parsed.mapOutputs(example.get("sample"))).hasMessageContaining("字段必填");
+            } else {
+                var expected = Boolean.TRUE.equals(example.get("missing")) ? Map.of() : Map.of("mapped", example.get("expected"));
+                assertThat(parsed.mapOutputs(example.get("sample"))).as(name).isEqualTo(expected);
+            }
+        }
+    }
+
+    static Stream<Arguments> convertedFields() {
+        return Stream.of("inputs", "fields", "outputs").flatMap(group -> Stream.of("NUMBER", "BOOLEAN", "OBJECT", "ARRAY").map(type -> Arguments.of(group, type)));
+    }
+
+    @ParameterizedTest(name = "{0}: STRING -> {1}")
+    @MethodSource("convertedFields")
+    void nonStringFieldsWithoutOptionsSurviveJsonSaveContract(String group, String type) throws Exception {
+        var source = definition("CODE");
+        var field = new LinkedHashMap<String, Object>(Map.of("name", "converted", "type", type, "required", false));
+        if (group.equals("outputs")) field.put("path", "/value");
+        source.put(group, List.of(field));
+        var json = new ObjectMapper();
+        var roundtrip = json.readValue(json.writeValueAsBytes(source), new TypeReference<Map<String, Object>>() {});
+        assertThatCode(() -> CustomNodeDefinition.from(roundtrip)).doesNotThrowAnyException();
+        Object value = switch (type) {
+            case "NUMBER" -> 7;
+            case "BOOLEAN" -> false;
+            case "OBJECT" -> Map.of("nested", true);
+            default -> List.of(1, 2);
+        };
+        if (group.equals("outputs")) {
+            assertThat(CustomNodeDefinition.from(roundtrip).mapOutputs(Map.of("value", value))).isEqualTo(Map.of("converted", value));
+        } else {
+            Map<String, Object> config = Map.of("customDefinition", roundtrip, "customInputs", group.equals("inputs") ? Map.of("converted", value) : Map.of("text", "demo"),
+                    "customValues", group.equals("fields") ? Map.of("converted", value) : Map.of());
+            var prepared = CustomNodeDefinition.prepare("CODE", config, Map.of());
+            assertThat(group.equals("inputs") ? prepared.inputs() : prepared.values()).containsEntry("converted", value);
+        }
+        // 导入旧的非字符串 options（即使为空）仍明确拒绝，不放宽服务端契约。
+        field.put("options", List.of());
+        assertThatThrownBy(() -> CustomNodeDefinition.from(source)).hasMessageContaining("选项只支持字符串字段");
     }
 }

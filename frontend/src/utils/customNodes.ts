@@ -133,7 +133,15 @@ export function mapCustomOutputs(definition: CustomDefinition, sample: unknown) 
   return Object.fromEntries(definition.outputs.flatMap((field) => {
     const path = field.path ?? `/${field.name}`
     let value = sample
-    if (path !== '') for (const segment of path.slice(1).split('/').map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))) value = (object(value) || Array.isArray(value)) && Object.hasOwn(value, segment) ? (value as Record<string, unknown>)[segment] : undefined
+    if (path !== '') for (const segment of path.slice(1).split('/').map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))) {
+      if (Array.isArray(value)) {
+        // 与服务端 Jackson JSON Pointer 一致：数组只接受规范的非负 int 下标。
+        const index = /^(0|[1-9][0-9]*)$/.test(segment) ? Number(segment) : -1
+        value = Number.isInteger(index) && index >= 0 && index <= 2147483647 && index < value.length && Object.hasOwn(value, index) ? value[index] : undefined
+      } else {
+        value = object(value) && Object.hasOwn(value, segment) ? value[segment] : undefined
+      }
+    }
     checkCustomField(field, value)
     return value === undefined || value === null ? [] : [[field.name, value]]
   }))

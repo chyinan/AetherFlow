@@ -1,0 +1,388 @@
+[
+  {
+    "name": "数组下标零",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/0",
+    "type": "STRING",
+    "expected": "a"
+  },
+  {
+    "name": "数组下标一",
+    "sample": [
+      0,
+      false
+    ],
+    "path": "/1",
+    "type": "BOOLEAN",
+    "expected": false
+  },
+  {
+    "name": "数组零值",
+    "sample": [
+      0,
+      1
+    ],
+    "path": "/0",
+    "type": "NUMBER",
+    "expected": 0
+  },
+  {
+    "name": "数组空数组元素",
+    "sample": [
+      {},
+      null,
+      []
+    ],
+    "path": "/2",
+    "type": "ARRAY",
+    "expected": []
+  },
+  {
+    "name": "数组length不是元素",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/length",
+    "type": "NUMBER",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_01",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/01",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_00",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/00",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_-",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/-",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_+0",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/+0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_-1",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/-1",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_-0",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/-0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_1.0",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/1.0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_1e0",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/1e0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_ 0",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/ 0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_empty",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_2",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/2",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_2147483647",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/2147483647",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_2147483648",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/2147483648",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "无效或越界数组索引_9007199254740992",
+    "sample": [
+      "a",
+      "b"
+    ],
+    "path": "/9007199254740992",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "数组不能用转义斜线充当索引",
+    "sample": [
+      7
+    ],
+    "path": "/~10",
+    "type": "NUMBER",
+    "missing": true
+  },
+  {
+    "name": "空数组无零元素",
+    "sample": [],
+    "path": "/0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "数组null按缺失处理",
+    "sample": [
+      null
+    ],
+    "path": "/0",
+    "type": "STRING",
+    "missing": true
+  },
+  {
+    "name": "标量不能读length",
+    "sample": "abc",
+    "path": "/length",
+    "type": "NUMBER",
+    "missing": true
+  },
+  {
+    "name": "对象合法length属性",
+    "sample": {
+      "length": 2
+    },
+    "path": "/length",
+    "type": "NUMBER",
+    "expected": 2
+  },
+  {
+    "name": "对象合法length零值",
+    "sample": {
+      "length": 0
+    },
+    "path": "/length",
+    "type": "NUMBER",
+    "expected": 0
+  },
+  {
+    "name": "对象length属性可继续索引",
+    "sample": {
+      "length": [
+        7,
+        8
+      ]
+    },
+    "path": "/length/1",
+    "type": "NUMBER",
+    "expected": 8
+  },
+  {
+    "name": "对象数字样式属性保留前导零",
+    "sample": {
+      "01": "leading"
+    },
+    "path": "/01",
+    "type": "STRING",
+    "expected": "leading"
+  },
+  {
+    "name": "对象破折号属性",
+    "sample": {
+      "-": "dash"
+    },
+    "path": "/-",
+    "type": "STRING",
+    "expected": "dash"
+  },
+  {
+    "name": "对象空属性",
+    "sample": {
+      "": true
+    },
+    "path": "/",
+    "type": "BOOLEAN",
+    "expected": true
+  },
+  {
+    "name": "转义斜线",
+    "sample": {
+      "a/b": "slash"
+    },
+    "path": "/a~1b",
+    "type": "STRING",
+    "expected": "slash"
+  },
+  {
+    "name": "转义波浪号",
+    "sample": {
+      "a~b": "tilde"
+    },
+    "path": "/a~0b",
+    "type": "STRING",
+    "expected": "tilde"
+  },
+  {
+    "name": "转义只解码一次",
+    "sample": {
+      "~1": "once",
+      "/": "slash"
+    },
+    "path": "/~01",
+    "type": "STRING",
+    "expected": "once"
+  },
+  {
+    "name": "连续波浪转义边界",
+    "sample": {
+      "~01": "once-again"
+    },
+    "path": "/~001",
+    "type": "STRING",
+    "expected": "once-again"
+  },
+  {
+    "name": "嵌套转义后数组",
+    "sample": {
+      "a/b": {
+        "~key": [
+          42
+        ]
+      }
+    },
+    "path": "/a~1b/~0key/0",
+    "type": "NUMBER",
+    "expected": 42
+  },
+  {
+    "name": "数组里的对象length合法",
+    "sample": [
+      {
+        "length": 7
+      }
+    ],
+    "path": "/0/length",
+    "type": "NUMBER",
+    "expected": 7
+  },
+  {
+    "name": "根对象",
+    "sample": {
+      "length": 2
+    },
+    "path": "",
+    "type": "OBJECT",
+    "expected": {
+      "length": 2
+    }
+  },
+  {
+    "name": "根数组",
+    "sample": [],
+    "path": "",
+    "type": "ARRAY",
+    "expected": []
+  },
+  {
+    "name": "非法转义_/bad~2",
+    "sample": {
+      "bad~2": "bad"
+    },
+    "path": "/bad~2",
+    "type": "STRING",
+    "invalidPointer": true
+  },
+  {
+    "name": "非法转义_/tail~",
+    "sample": {
+      "bad~2": "bad"
+    },
+    "path": "/tail~",
+    "type": "STRING",
+    "invalidPointer": true
+  },
+  {
+    "name": "非法转义_/~",
+    "sample": {
+      "bad~2": "bad"
+    },
+    "path": "/~",
+    "type": "STRING",
+    "invalidPointer": true
+  }
+]
