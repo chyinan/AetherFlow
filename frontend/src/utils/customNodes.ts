@@ -158,7 +158,14 @@ export function previewCustomNode(definition: CustomDefinition, config: Record<s
     })
   }
   const request = definition.request
+  const maskedHeaders = definition.kind === 'API' ? Object.fromEntries(Object.entries(request!.headers).map(([key, value]) => {
+    const resolved = resolve(value)
+    if (object(resolved) || Array.isArray(resolved)) fail('请求头占位符必须是标量')
+    const rendered = String(resolved)
+    if (rendered.includes('\r') || rendered.includes('\n') || rendered.length > 8192) fail('HTTP 请求头值无效')
+    return [key, '••••']
+  })) : {}
   return { template: customDefinitionKey(definition), mode: '本地预览：未发送请求或运行代码',
-    ...(definition.kind === 'API' ? { request: { url: resolve(request!.url, true), method: request!.method, headers: Object.fromEntries(Object.keys(request!.headers).map((key) => [key, '••••'])), ...(Object.hasOwn(request!, 'body') ? { body: resolve(request!.body) } : {}) } } : { runtime: '独立 Python 运行时（需已启用并确认隔离）', payload }),
+    ...(definition.kind === 'API' ? { request: { url: resolve(request!.url, true), method: request!.method, headers: maskedHeaders, ...(Object.hasOwn(request!, 'body') ? { body: resolve(request!.body) } : {}) } } : { runtime: '独立 Python 运行时（需已启用并确认隔离）', payload }),
     outputs: mapCustomOutputs(definition, sample) }
 }

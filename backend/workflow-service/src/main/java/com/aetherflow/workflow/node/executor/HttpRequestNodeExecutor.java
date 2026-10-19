@@ -91,7 +91,11 @@ public class HttpRequestNodeExecutor extends BaseNodeExecutor {
             var definition = prepared.definition();
             var request = definition.request();
             Map<String, String> headers = new LinkedHashMap<>();
-            asMap(request.get("headers")).forEach((key, value) -> headers.put(key, String.valueOf(definition.resolve(value, prepared, false))));
+            asMap(request.get("headers")).forEach((key, value) -> {
+                Object resolved = definition.resolve(value, prepared, false);
+                if (resolved instanceof Map<?, ?> || resolved instanceof java.util.List<?>) throw invalid("请求头占位符必须是标量");
+                headers.put(key, String.valueOf(resolved));
+            });
             if (Thread.currentThread().isInterrupted()) throw invalid("自定义 API 请求已取消");
             var response = requests.request(String.valueOf(definition.resolve(request.get("url"), prepared, true)),
                     String.valueOf(request.get("method")), definition.resolve(request.get("body"), prepared, false), request.containsKey("body"), headers);

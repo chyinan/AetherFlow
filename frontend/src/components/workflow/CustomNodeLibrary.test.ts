@@ -6,12 +6,14 @@ import CustomNodeLibrary from './CustomNodeLibrary.vue'
 import CustomNodeConfigPanel from './CustomNodeConfigPanel.vue'
 import { CUSTOM_NODE_STORAGE_KEY, customNodeTemplate, defaultCustomDefinition, exportCustomDefinitions } from '@/utils/customNodes'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import { installCustomNodeLockHarness } from '@/test/customNodeLockHarness'
 
 const wrappers: Array<ReturnType<typeof mount>> = []
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(element => element.textContent?.trim() === text)!
 async function click(text: string) { button(text).click(); await flushPromises() }
-beforeEach(() => { setActivePinia(createPinia()); localStorage.clear() })
-afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0; document.body.innerHTML = ''; vi.restoreAllMocks() })
+let lockHarness: ReturnType<typeof installCustomNodeLockHarness>
+beforeEach(() => { setActivePinia(createPinia()); localStorage.clear(); lockHarness = installCustomNodeLockHarness() })
+afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0; document.body.innerHTML = ''; lockHarness.restore(); vi.restoreAllMocks() })
 
 describe('自定义节点模板库交互', () => {
   it('创建两类模板、可添加 API 节点，模板更新不修改画布快照', async () => {
@@ -57,16 +59,16 @@ describe('自定义节点模板库交互', () => {
     expect(useWorkflowStore().customLibraryError).toContain('原数据保留')
     expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBe('broken')
     const store = useWorkflowStore()
-    expect(() => store.saveCustomDefinitions([defaultCustomDefinition()])).toThrow('请先导出原数据')
-    expect(() => store.saveCustomDefinitions([{ ...defaultCustomDefinition(), formatVersion: 2 } as never], true)).toThrow('格式版本')
+    await expect(store.saveCustomDefinitions([defaultCustomDefinition()])).rejects.toThrow('请先导出原数据')
+    await expect(store.saveCustomDefinitions([{ ...defaultCustomDefinition(), formatVersion: 2 } as never], true)).rejects.toThrow('格式版本')
     expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBe('broken')
-    store.saveCustomDefinitions([defaultCustomDefinition()], true)
+    await store.saveCustomDefinitions([defaultCustomDefinition()], true)
     expect(store.customLibraryError).toBeNull()
   })
-  it('恢复的代码模板继承内置节点不可用状态', () => {
+  it('恢复的代码模板继承内置节点不可用状态', async () => {
     const store = useWorkflowStore()
     store.templates = [{ ...customNodeTemplate(defaultCustomDefinition('CODE')), config: {}, availability: { available: false, reason: '未启用隔离运行时' } }]
-    store.saveCustomDefinitions([defaultCustomDefinition('CODE')])
+    await store.saveCustomDefinitions([defaultCustomDefinition('CODE')])
     expect(store.templates.find(template => template.config.customDefinition)?.availability?.available).toBe(false)
     expect(store.addNodeFromTemplate(store.templates[1]!, { x: 0, y: 0 })).toBeNull()
   })
@@ -82,9 +84,9 @@ describe('自定义节点模板库交互', () => {
     expect(document.activeElement).toBe(last)
     await click('取消 / 关闭'); expect(document.body.style.overflow).toBe('auto')
   })
-  it('支持导出后原样导入', () => {
+  it('支持导出后原样导入', async () => {
     const store = useWorkflowStore(), definition = defaultCustomDefinition()
-    store.saveCustomDefinitions([definition])
+    await store.saveCustomDefinitions([definition])
     expect(JSON.parse(exportCustomDefinitions(store.customDefinitions)).nodes).toEqual([definition])
   })
   it('文件读取期间关闭窗口后，迟到的导入不会保存或污染重开的草稿', async () => {
@@ -99,6 +101,31 @@ describe('自定义节点模板库交互', () => {
     resolveRead(exportCustomDefinitions([defaultCustomDefinition('CODE')])); await flushPromises()
     expect(useWorkflowStore().customDefinitions).toEqual([])
     expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBeNull()
+  })
+  it('等待写入锁时取消并重开，不会在锁释放后保存旧草稿', async () => {
+    let release!: () => void
+    lockHarness.hold(new Promise<void>(resolve => { release = resolve }))
+    wrappers.push(mount(CustomNodeLibrary, { attachTo: document.body }))
+    await click('自定义节点 · API / 代码'); await click('保存模板')
+    expect(document.querySelector('fieldset')?.disabled).toBe(true)
+    await click('取消 / 关闭'); await click('自定义节点 · API / 代码')
+    release(); await flushPromises()
+    expect(useWorkflowStore().customDefinitions).toEqual([])
+    expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBeNull()
+    await click('保存模板')
+    expect(useWorkflowStore().customDefinitions).toHaveLength(1)
+  })
+  it('冲突同步保留编辑草稿，重试会保留另一窗口新增的模板', async () => {
+    const store = useWorkflowStore()
+    wrappers.push(mount(CustomNodeLibrary, { attachTo: document.body }))
+    await click('自定义节点 · API / 代码')
+    const other = useWorkflowStore(createPinia()); other.reloadCustomDefinitions()
+    await other.saveCustomDefinitions([{ ...defaultCustomDefinition(), id: 'other-window' }])
+    await click('保存模板')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('当前草稿未保存')
+    expect([...document.querySelectorAll<HTMLInputElement>('input')].some(input => input.value === 'my-api')).toBe(true)
+    await click('保存模板')
+    expect(store.customDefinitions.map(definition => definition.id)).toEqual(['other-window', 'my-api'])
   })
 })
 

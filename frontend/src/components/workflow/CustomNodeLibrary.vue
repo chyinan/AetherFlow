@@ -1,40 +1,60 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { customDefinitionKey, defaultCustomDefinition, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, parseCustomDefinition, type CustomDefinition } from '@/utils/customNodes'
+import { CUSTOM_NODE_STORAGE_KEY, customDefinitionKey, defaultCustomDefinition, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, parseCustomDefinition, type CustomDefinition } from '@/utils/customNodes'
 import CustomFieldSchemaEditor from './CustomFieldSchemaEditor.vue'
 const store = useWorkflowStore()
 const visible = ref(false), panel = ref<HTMLElement | null>(null), selected = ref('')
+const busy = ref(false)
 const draft = ref(defaultCustomDefinition()), headers = ref('{}'), body = ref('{"text":"{{inputs.text}}"}'), transfer = ref(''), message = ref(''), error = ref('')
 let returnFocus: HTMLElement | null = null
 let bodyOverflow = ''
 let fileReadSequence = 0
+let writeController: AbortController | null = null
 const definitions = computed(() => store.customDefinitions)
-onMounted(() => store.reloadCustomDefinitions())
-onBeforeUnmount(() => { fileReadSequence++; if (visible.value) { document.body.style.overflow = bodyOverflow; returnFocus?.focus() } })
+function syncLibrary(event: StorageEvent) {
+  if (event.key !== null && event.key !== CUSTOM_NODE_STORAGE_KEY) return
+  if (event.storageArea && event.storageArea !== localStorage) return
+  store.reloadCustomDefinitions()
+  if (visible.value && !store.customLibraryError) message.value = '已同步其他窗口的最新模板列表；当前编辑草稿保留。'
+}
+function cancelWrite() { writeController?.abort(); writeController = null; busy.value = false }
+onMounted(() => { store.reloadCustomDefinitions(); window.addEventListener('storage', syncLibrary) })
+onBeforeUnmount(() => { fileReadSequence++; cancelWrite(); window.removeEventListener('storage', syncLibrary); if (visible.value) { document.body.style.overflow = bodyOverflow; returnFocus?.focus() } })
 function open() { returnFocus = document.activeElement as HTMLElement; bodyOverflow = document.body.style.overflow; document.body.style.overflow = 'hidden'; visible.value = true; reset('API'); nextTick(() => panel.value?.focus()) }
-function close() { fileReadSequence++; visible.value = false; document.body.style.overflow = bodyOverflow; error.value = ''; transfer.value = ''; nextTick(() => returnFocus?.focus()) }
-function reset(kind: CustomDefinition['kind']) { fileReadSequence++; draft.value = defaultCustomDefinition(kind); selected.value = ''; headers.value = '{}'; body.value = kind === 'API' ? '{"text":"{{inputs.text}}"}' : ''; error.value = ''; message.value = '' }
+function close() { fileReadSequence++; cancelWrite(); visible.value = false; document.body.style.overflow = bodyOverflow; error.value = ''; transfer.value = ''; nextTick(() => returnFocus?.focus()) }
+function reset(kind: CustomDefinition['kind']) { fileReadSequence++; cancelWrite(); draft.value = defaultCustomDefinition(kind); selected.value = ''; headers.value = '{}'; body.value = kind === 'API' ? '{"text":"{{inputs.text}}"}' : ''; error.value = ''; message.value = '' }
 function load() {
+  fileReadSequence++; cancelWrite()
   const definition = definitions.value.find(item => customDefinitionKey(item) === selected.value)
   if (!definition) return
   draft.value = JSON.parse(JSON.stringify(definition)); headers.value = JSON.stringify(definition.request?.headers ?? {}, null, 2)
   body.value = definition.request && Object.hasOwn(definition.request, 'body') ? JSON.stringify(definition.request.body, null, 2) : ''; error.value = ''; message.value = ''
 }
-function save() {
+async function persist(definitions: CustomDefinition[], replaceCorrupted = false) {
+  cancelWrite()
+  const controller = new AbortController(); writeController = controller; busy.value = true
+  try {
+    await store.saveCustomDefinitions(definitions, replaceCorrupted, controller.signal)
+    return !controller.signal.aborted && visible.value && writeController === controller
+  } finally { if (writeController === controller) { writeController = null; busy.value = false } }
+}
+async function save() {
+  const session = fileReadSequence
   try {
     const source = JSON.parse(JSON.stringify(draft.value)) as CustomDefinition
     if (source.kind === 'API') { source.request!.headers = JSON.parse(headers.value); if (body.value.trim()) source.request!.body = JSON.parse(body.value); else delete source.request!.body }
     const definition = parseCustomDefinition(source)
-    store.saveCustomDefinitions(mergeCustomDefinitions(definitions.value, [definition]))
+    if (!await persist(mergeCustomDefinitions(definitions.value, [definition]))) return
     selected.value = customDefinitionKey(definition); message.value = '已保存到本机模板库，可从节点列表添加。修改同一模板请提升版本。'; error.value = ''
-  } catch (e) { error.value = e instanceof Error ? e.message : String(e); message.value = '' }
+  } catch (e) { if (visible.value && session === fileReadSequence && !(e instanceof Error && e.name === 'AbortError')) { error.value = e instanceof Error ? e.message : String(e); message.value = '' } }
 }
-function importNodes(replaceCorrupted = false) {
-  try { store.saveCustomDefinitions(mergeCustomDefinitions(definitions.value, importCustomDefinitions(transfer.value)), replaceCorrupted); error.value = ''; message.value = '导入成功，已有工作流保持原快照。' }
-  catch (e) { error.value = e instanceof Error ? e.message : String(e); message.value = '' }
+async function importNodes(replaceCorrupted = false) {
+  const session = fileReadSequence
+  try { if (!await persist(mergeCustomDefinitions(definitions.value, importCustomDefinitions(transfer.value)), replaceCorrupted)) return; error.value = ''; message.value = '导入成功，已有工作流保持原快照。' }
+  catch (e) { if (visible.value && session === fileReadSequence && !(e instanceof Error && e.name === 'AbortError')) { error.value = e instanceof Error ? e.message : String(e); message.value = '' } }
 }
-function remove() { try { store.saveCustomDefinitions(definitions.value.filter(item => customDefinitionKey(item) !== selected.value)); reset('API'); message.value = '已从本机库移除；已有工作流不受影响。' } catch (e) { error.value = e instanceof Error ? e.message : String(e) } }
+async function remove() { const session = fileReadSequence; try { if (!await persist(definitions.value.filter(item => customDefinitionKey(item) !== selected.value))) return; reset('API'); message.value = '已从本机库移除；已有工作流不受影响。' } catch (e) { if (visible.value && session === fileReadSequence && !(e instanceof Error && e.name === 'AbortError')) error.value = e instanceof Error ? e.message : String(e) } }
 function readOriginal() { try { transfer.value = localStorage.getItem('aetherflow.custom-nodes.v1') ?? '' } catch (e) { error.value = e instanceof Error ? e.message : String(e) } }
 function download() {
   const data = exportCustomDefinitions(definitions.value), url = URL.createObjectURL(new Blob([data], { type: 'application/json' }))
@@ -47,7 +67,7 @@ async function importFile(event: Event) {
     if (file.size > 1024 * 1024) throw new Error('导入文件不能超过 1 MiB')
     const text = await file.text()
     if (!visible.value || sequence !== fileReadSequence) return
-    transfer.value = text; importNodes()
+    transfer.value = text; await importNodes()
   }
   catch (e) { if (visible.value && sequence === fileReadSequence) error.value = e instanceof Error ? e.message : String(e) }
   finally { (event.target as HTMLInputElement).value = '' }
@@ -71,8 +91,10 @@ function keydown(event: KeyboardEvent) {
     <div v-if="visible" class="fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-3" @click.self="close" @keydown="keydown" @click.stop>
       <section ref="panel" role="dialog" aria-modal="true" aria-label="自定义节点模板库" tabindex="-1" class="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-panel outline-none">
         <header class="flex items-center justify-between border-b p-4"><div><h2 class="text-lg font-semibold">自定义节点模板库</h2><p class="text-xs text-text-muted">本机浏览器保存 · JSON 导入导出 · 工作流使用固定版本快照</p></div><button type="button" class="rounded border px-3 py-2" @click="close">取消 / 关闭</button></header>
-        <div class="space-y-4 overflow-y-auto p-4">
+        <fieldset :disabled="busy" :aria-busy="busy" class="min-w-0 space-y-4 overflow-y-auto p-4">
           <p v-if="store.customLibraryError" role="alert" class="text-sm text-status-error">{{ store.customLibraryError }}</p>
+          <p v-if="store.customLibraryConflict" role="status" class="text-sm text-status-warning">{{ store.customLibraryConflict }}</p>
+          <p v-if="busy" role="status" class="text-sm">正在等待跨窗口写入锁，取消 / 关闭可停止本次保存。</p>
           <div v-if="store.customLibraryError" class="flex flex-wrap gap-2 text-xs"><button type="button" class="rounded border p-2" @click="readOriginal">读取原数据到导出区</button><button type="button" class="rounded border p-2" @click="importNodes(true)">恢复：用已校验的导入包替换损坏库</button></div>
           <div class="flex flex-wrap gap-2"><button type="button" class="rounded border px-3 py-2" @click="reset('API')">新建 API 模板</button><button type="button" class="rounded border px-3 py-2" @click="reset('CODE')">新建代码模板</button></div>
           <label class="block text-sm">编辑已有版本（变更内容需提升版本号）<select v-model="selected" class="mt-1 w-full rounded border p-2" @change="load"><option value="">新模板</option><option v-for="definition in definitions" :key="customDefinitionKey(definition)" :value="customDefinitionKey(definition)">{{ definition.name }} · {{ customDefinitionKey(definition) }}</option></select></label>
@@ -92,7 +114,7 @@ function keydown(event: KeyboardEvent) {
           <div class="flex flex-wrap gap-3"><button type="button" class="rounded bg-primary px-4 py-2 text-white" @click="save">保存模板</button><button v-if="selected" type="button" class="rounded border px-3 py-2 text-status-error" @click="remove">从本机库移除</button></div>
           <p v-if="error" role="alert" class="text-sm text-status-error">{{ error }}</p><p v-if="message" role="status" class="text-sm text-status-success">{{ message }}</p>
           <details class="space-y-3 rounded border p-3"><summary class="cursor-pointer font-semibold">导入 / 导出模板</summary><div class="mt-3 flex flex-wrap items-center gap-3"><button type="button" class="rounded border px-3 py-2" @click="transfer = exportCustomDefinitions(definitions)">生成导出 JSON</button><button type="button" class="rounded border px-3 py-2" @click="download">下载模板包</button><label class="text-sm">导入 JSON 文件<input type="file" accept="application/json,.json" @change="importFile" /></label></div><label class="block text-sm">模板包 JSON<textarea v-model="transfer" class="mt-1 min-h-32 w-full rounded border p-2 font-mono text-xs" /></label><button type="button" class="rounded border px-3 py-2" @click="importNodes()">校验并导入 JSON</button></details>
-        </div>
+        </fieldset>
       </section>
     </div>
   </Teleport>

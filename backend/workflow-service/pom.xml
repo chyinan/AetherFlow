@@ -158,6 +158,8 @@
                                 <testInclude>**/CustomNodeDefinitionTest.java</testInclude>
                                 <testInclude>**/CustomNodeExecutorTest.java</testInclude>
                                 <testInclude>**/WorkflowNodeConfigValidatorTest.java</testInclude>
+                                <testInclude>**/WorkflowRuntimeCancellationTest.java</testInclude>
+                                <testInclude>**/WorkflowRuntimeEngineTest.java</testInclude>
                             </testIncludes>
                         </configuration>
                     </plugin>

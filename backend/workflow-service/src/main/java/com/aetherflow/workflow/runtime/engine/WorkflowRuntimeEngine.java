@@ -45,6 +45,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -88,6 +89,7 @@ public class WorkflowRuntimeEngine {
     private final ThreadLocal<AtomicBoolean> activeLockLost = new ThreadLocal<>();
     private final ThreadLocal<String> activeFencingToken = new ThreadLocal<>();
     private final ThreadLocal<LockExecutionState> activeWorkerLock = new ThreadLocal<>();
+    private final ThreadLocal<AtomicBoolean> activeDispatchClosed = new ThreadLocal<>();
     private final ConcurrentHashMap<String, LockExecutionState> activeLockStates = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<java.util.concurrent.CompletableFuture<Void>>> nestedCheckpoints = new ConcurrentHashMap<>();
 
@@ -750,6 +752,8 @@ public class WorkflowRuntimeEngine {
                             ExecutionTracker tracker) {
         ExecutorService executorService = SHARED_NODE_EXECUTOR;
         CompletionService<NodeExecution> completionService = new ExecutorCompletionService<>(executorService);
+        Set<Future<NodeExecution>> dispatches = new LinkedHashSet<>();
+        AtomicBoolean dispatchClosed = new AtomicBoolean();
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Map<String, Integer> nodeDepths = dag.topologicalDepths();
         Map<String, VariableWriter> variableWriters = new HashMap<>();
@@ -777,11 +781,12 @@ public class WorkflowRuntimeEngine {
         var checkpoints = new java.util.concurrent.ConcurrentLinkedQueue<java.util.concurrent.CompletableFuture<Void>>();
         nestedCheckpoints.put(request.workflowId(), checkpoints);
         try {
-        inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
+        inFlight = submitReadyNodes(request, dag, context, completionService, dispatches, dispatchClosed, readyQueue, scheduled, tracker, inFlight, userId, username);
             saveSnapshot(request, context, tracker);
             while (inFlight > 0) {
                 ensureNotCancelled(request);
-                NodeExecution execution = awaitCompletedNode(request, completionService, context, tracker);
+                NodeExecution execution = awaitCompletedNode(request, completionService, dispatches, context, tracker);
+                ensureNotCancelled(request);
                 inFlight--;
                 recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
 
@@ -796,12 +801,17 @@ public class WorkflowRuntimeEngine {
                         }
                     }
                 }
-                inFlight = submitReadyNodes(request, dag, context, completionService, readyQueue, scheduled, tracker, inFlight, userId, username);
+                inFlight = submitReadyNodes(request, dag, context, completionService, dispatches, dispatchClosed, readyQueue, scheduled, tracker, inFlight, userId, username);
                 saveSnapshot(request, context, tracker);
             }
+            ensureNotCancelled(request);
             assertExpectedNodesCompleted(expectedNodeIds, tracker);
         return tracker.hasWaitingNodes();
         } finally {
+            // 先关闭本轮派发，再中断所有尚未回收的 Future；任务开始/重试也检查同一标记。
+            dispatchClosed.set(true);
+            dispatches.forEach(future -> future.cancel(true));
+            dispatches.clear();
             nestedCheckpoints.remove(request.workflowId(), checkpoints);
             java.util.concurrent.CompletableFuture<Void> pending;
             while ((pending = checkpoints.poll()) != null)
@@ -813,6 +823,14 @@ public class WorkflowRuntimeEngine {
         if (cancellationProbe.isCancelled(request.workflowId())) {
             throw new WorkflowCancellationException(request.workflowId());
         }
+    }
+
+    private void ensureWorkerActive(WorkflowRuntimeRequest request) {
+        AtomicBoolean closed = activeDispatchClosed.get();
+        if (Thread.currentThread().isInterrupted() || closed != null && closed.get()) {
+            throw new WorkflowCancellationException(request.workflowId());
+        }
+        ensureNotCancelled(request);
     }
 
     private void assertExpectedNodesCompleted(Set<String> expectedNodeIds, ExecutionTracker tracker) {
@@ -831,28 +849,35 @@ public class WorkflowRuntimeEngine {
                                  WorkflowDag dag,
                                  DefaultWorkflowContext context,
                                  CompletionService<NodeExecution> completionService,
+                                 Set<Future<NodeExecution>> dispatches,
+                                 AtomicBoolean dispatchClosed,
                                  Queue<String> readyQueue,
                                  Set<String> scheduled,
                                  ExecutionTracker tracker,
                                  int inFlight,
                                  Long userId,
                                  String username) {
+        ensureNotCancelled(request);
         int submittedCount = inFlight;
         String fencingToken = activeFencingToken.get();
         LockExecutionState workerLockState = activeLockStates.get(request.workflowId());
         while (!readyQueue.isEmpty()) {
+            ensureNotCancelled(request);
             String nodeId = readyQueue.remove();
             if (!scheduled.add(nodeId)) {
                 continue;
             }
             tracker.markInFlight(nodeId);
-            completionService.submit(() -> {
+            Future<NodeExecution> dispatched = completionService.submit(() -> {
                 activeWorkerLock.set(workerLockState);
+                activeDispatchClosed.set(dispatchClosed);
                 try {
+                    ensureWorkerActive(request);
                     return AuthenticatedUserContext.runAs(userId, username, () -> {
                         try {
                             return executeNode(request, dag, context, nodeId, fencingToken);
                         } catch (RuntimeException exception) {
+                            ensureWorkerActive(request);
                             tracker.markFailed(nodeId);
                             // Snapshot persistence is owned by the coordinator thread.
                             // Writing from worker threads races with a newer completion
@@ -862,8 +887,10 @@ public class WorkflowRuntimeEngine {
                     });
                 } finally {
                     activeWorkerLock.remove();
+                    activeDispatchClosed.remove();
                 }
             });
+            dispatches.add(dispatched);
             submittedCount++;
         }
         return submittedCount;
@@ -874,6 +901,7 @@ public class WorkflowRuntimeEngine {
                                       DefaultWorkflowContext context,
                                       String nodeId,
                                       String fencingToken) {
+        ensureWorkerActive(request);
         ensureLockHealthy(request.workflowId(), fencingToken);
         WorkflowNodeDTO node = dag.node(nodeId);
         context.updateCurrentNodeId(nodeId);
@@ -1016,6 +1044,7 @@ public class WorkflowRuntimeEngine {
 
     private NodeExecution awaitCompletedNode(WorkflowRuntimeRequest request,
                                              CompletionService<NodeExecution> completionService,
+                                             Set<Future<NodeExecution>> dispatches,
                                               DefaultWorkflowContext context, ExecutionTracker tracker) {
         try {
             while (true) {
@@ -1024,6 +1053,7 @@ public class WorkflowRuntimeEngine {
                 java.util.concurrent.Future<NodeExecution> completed =
                         completionService.poll(250, TimeUnit.MILLISECONDS);
                 if (completed != null) {
+                    dispatches.remove(completed);
                     return completed.get();
                 }
             }
@@ -1240,12 +1270,15 @@ public class WorkflowRuntimeEngine {
                                             String nodeType) {
         int attempt = 1;
         while (true) {
+            ensureWorkerActive(request);
             try {
                 NodeResult result = executor.execute(context);
+                ensureWorkerActive(request);
                 return result == null ? NodeResult.success(Map.of()) : result;
             } catch (NodeWaitingException waitingException) {
                 return NodeResult.waiting(waitingException.output());
             } catch (Exception exception) {
+                ensureWorkerActive(request);
                 RuntimeException runtimeException = toRuntimeException(exception);
                 if (!executor.supportsAutomaticRetry()
                         || !request.retryPolicy().shouldRetry(attempt, runtimeException)) {
@@ -1259,6 +1292,7 @@ public class WorkflowRuntimeEngine {
                 publish(context, RuntimeEventType.NODE_RETRYING, nodeId,
                         Map.of("nodeType", nodeType, "attempt", currentAttempt, "error", errorMessage(runtimeException)));
                 sleepBeforeRetry(request, currentAttempt);
+                ensureWorkerActive(request);
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.RUNNING));
                 attempt++;
             }

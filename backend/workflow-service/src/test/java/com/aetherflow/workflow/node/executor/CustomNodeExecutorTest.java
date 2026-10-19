@@ -85,4 +85,17 @@ class CustomNodeExecutorTest {
         assertThat(code.execute(withConfig(Map.of("code", "def main(payload): return payload", "input", Map.of("old", true)))).variables()).containsKey("codeResult");
         assertThat(runtime.input).isEqualTo(Map.of("old", true));
     }
+
+    @Test void optionalEnumNullSurvivesSaveValidationAndIsOmittedFromRuntimePayload() throws Exception {
+        var definition = definition("CODE");
+        definition.put("fields", List.of(Map.of("name", "mode", "type", "STRING", "required", false, "defaultValue", "A", "options", List.of("A", "B"))));
+        var values = new LinkedHashMap<String, Object>(); values.put("mode", null);
+        var config = Map.<String, Object>of("customDefinition", definition, "inputBindings", Map.of("count", "quantity"), "customValues", values);
+        var node = new com.aetherflow.common.dto.WorkflowNodeDTO(); node.setNodeType("CODE"); node.setConfig(config);
+        assertThat(com.aetherflow.workflow.node.validation.WorkflowNodeConfigValidator.validate(node, List.of())).isEmpty();
+        var properties = new WorkflowNodeProperties(); properties.setCodeExecutionEnabled(true); properties.setCodeRuntimeIsolationConfirmed(true);
+        var runtime = new FakeRuntime(); var executor = new CodeExecutionNodeExecutor(new WorkflowNodeMetrics(), properties, runtime);
+        assertThat(executor.execute(withConfig(config)).variables()).isEqualTo(Map.of("myTotal", 8));
+        assertThat(runtime.input).isEqualTo(Map.of("inputs", Map.of("count", 4), "config", Map.of()));
+    }
 }
