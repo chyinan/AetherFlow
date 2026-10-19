@@ -70,6 +70,8 @@ export const enUS = {
     runtimeDetail: 'mock provider only',
   },
   nav: {
+    personalHome: 'My workbench',
+    adminOverview: 'Admin overview',
     projects: 'Projects',
     workspaces: 'Workspaces',
     workflows: 'Workflows',

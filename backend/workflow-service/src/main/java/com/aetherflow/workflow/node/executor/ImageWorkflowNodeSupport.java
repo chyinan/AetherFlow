@@ -36,6 +36,7 @@ final class ImageWorkflowNodeSupport {
         NodeValueSupport.putIfPresent(payload, "upscaler", config.get("upscaler"));
         NodeValueSupport.putIfPresent(payload, "workflow", config.get("workflow"));
         NodeValueSupport.putIfPresent(payload, "workflowJson", config.get("workflowJson"));
+        NodeValueSupport.putIfPresent(payload, "workflowBindings", config.get("workflowBindings"));
         putPositiveNumber(payload, "scale", config.get("scale"), 2);
         putPositiveNumber(payload, "timeoutSeconds", config.get("timeoutSeconds"), 0);
         NodeValueSupport.putIfPresent(payload, "options", config.get("options"));
@@ -134,6 +135,7 @@ final class ImageWorkflowNodeSupport {
         NodeValueSupport.putIfPresent(payload, "lora", config.get("lora"));
         NodeValueSupport.putIfPresent(payload, "workflow", config.get("workflow"));
         NodeValueSupport.putIfPresent(payload, "workflowJson", config.get("workflowJson"));
+        NodeValueSupport.putIfPresent(payload, "workflowBindings", config.get("workflowBindings"));
         NodeValueSupport.putIfPresent(payload, "sourceImageName", config.get("sourceImageName"));
         putPositiveNumber(payload, "timeoutSeconds", config.get("timeoutSeconds"), 0);
         NodeValueSupport.putIfPresent(payload, "options", config.get("options"));

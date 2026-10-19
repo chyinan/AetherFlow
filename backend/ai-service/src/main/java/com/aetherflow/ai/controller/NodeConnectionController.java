@@ -53,7 +53,7 @@ public class NodeConnectionController {
     @Operation(summary = "只读探测草稿连接，不持久化、不加载模型")
     public Result<NodeConnectionProbe> probe(@RequestHeader("X-User-Id") Long userId,
                                               @Valid @RequestBody ProbeRequest request) {
-        return Result.success(service.probe(request.provider(), request.baseUrl(), request.checkpoint(), request.nodeType()));
+        return Result.success(service.probe(request.provider(), request.baseUrl(), request.checkpoint(), request.nodeType(), request.workflowNodeTypes()));
     }
 
     @GetMapping("/{id}/probe")
@@ -68,7 +68,18 @@ public class NodeConnectionController {
     public record ConnectionList(List<NodeConnectionProfile> connections) {
     }
 
+    @PostMapping("/{id}/probe")
+    @Operation(summary = "按 API 图实际节点类型只读探测已有连接")
+    public Result<NodeConnectionProbe> probeSavedWorkflow(@RequestHeader("X-User-Id") Long userId,
+            @PathVariable String id, @Valid @RequestBody WorkflowProbeRequest request) {
+        return Result.success(service.probeWorkflow(userId, id, request.workflowNodeTypes()));
+    }
+    public record WorkflowProbeRequest(List<String> workflowNodeTypes) {}
+
     public record ProbeRequest(@Size(max = 80) String provider, @Size(max = 2048) String baseUrl,
-                               @Size(max = 1024) String checkpoint, @Size(max = 80) String nodeType) {
+                               @Size(max = 1024) String checkpoint, @Size(max = 80) String nodeType, List<String> workflowNodeTypes) {
+        public ProbeRequest(String provider, String baseUrl, String checkpoint, String nodeType) {
+            this(provider, baseUrl, checkpoint, nodeType, List.of());
+        }
     }
 }

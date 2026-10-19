@@ -5,6 +5,7 @@ import { validateMapping } from '@/utils/structuredMapping'
 import { workflowNeedsRuntimeFileInput } from '@/utils/workflowInputRequirements'
 import { upstreamVariables } from '@/utils/workflowVariables'
 import { bindCustomInputs, parseCustomDefinition } from '@/utils/customNodes'
+import { comfyBindingError, comfyUiGuidance, describeComfyGraph, comfyGraphValue, isComfyPromptSummary, isRecord } from '@/utils/comfyWorkflow'
 
 export interface PreflightIssue { id: string; level: 'blocking' | 'warning' | 'unknown'; code: string; nodeId?: string; nodeLabel?: string; field?: string; detail?: string }
 const blank = (value: unknown) => value === undefined || value === null || typeof value === 'string' && !value.trim()
@@ -48,6 +49,14 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
     catch (error) { add('blocking', 'mapping', { ...location, detail: error instanceof Error ? error.message : String(error) }); continue }
     if (!normalized) continue
     const config = normalized.config ?? {}
+    const importedGraph = comfyGraphValue(config)
+    if (normalized.nodeType === 'IMAGE_GENERATION' && String(config.provider).toUpperCase() === 'COMFYUI'
+      && (config.mode === 'workflow' || importedGraph != null && !(isRecord(importedGraph) && Object.keys(importedGraph).length === 0))) {
+      const format = describeComfyGraph(importedGraph).format
+      if (format !== 'API') add('blocking', 'mapping', { ...location, field: 'workflowJson', detail: format === 'UI' ? comfyUiGuidance : 'ComfyUI 执行图格式无效，请重新导出 API 格式 JSON。' })
+      const error = comfyBindingError(config.workflowBindings, importedGraph)
+      if (error) add('blocking', 'mapping', { ...location, field: 'workflowBindings', detail: error })
+    }
     const template = templates.find((item) => item.kind === node.data.kind)
     if (Object.hasOwn(config, 'customDefinition')) {
       try {
@@ -62,7 +71,10 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
     for (const field of template?.configSchema ?? []) {
       let value = config[field.name]
       if (normalized.nodeType === 'IMAGE_GENERATION' && field.name === 'prompt' && blank(value)) value = config.promptVariable
-      if (field.required && blank(value)) { add('blocking', 'required', { ...location, field: field.name }); continue }
+      if (field.required && blank(value)) {
+        if (normalized.nodeType === 'PROMPT' && field.name === 'prompt' && isComfyPromptSummary(config)) continue
+        add('blocking', 'required', { ...location, field: field.name }); continue
+      }
       if (blank(value) && !field.required) continue
       const imageWorkflowObject = ['IMAGE_GENERATION', 'UPSCALE'].includes(normalized.nodeType) && field.name === 'workflowJson' && isObject(value)
       if (!imageWorkflowObject && !typeMatches(field.type, value)) add('blocking', 'type', { ...location, field: field.name, detail: field.type })

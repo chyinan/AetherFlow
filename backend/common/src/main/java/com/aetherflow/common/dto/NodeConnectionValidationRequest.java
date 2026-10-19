@@ -11,9 +11,16 @@ public record NodeConnectionValidationRequest(Long userId, List<NodeSelection> n
 
     public record NodeSelection(String nodeId, String nodeType, String connectionId,
                                 String provider, String checkpoint, String upscaler,
-                                String vae, String sampler, String scheduler, List<String> loras) {
+                                String vae, String sampler, String scheduler, List<String> loras,
+                                List<String> workflowNodeTypes) {
         public NodeSelection {
             loras = loras == null ? List.of() : List.copyOf(loras);
+            workflowNodeTypes = workflowNodeTypes == null ? List.of() : List.copyOf(workflowNodeTypes);
+        }
+
+        public NodeSelection(String nodeId, String nodeType, String connectionId, String provider,
+                             String checkpoint, String upscaler, String vae, String sampler, String scheduler, List<String> loras) {
+            this(nodeId, nodeType, connectionId, provider, checkpoint, upscaler, vae, sampler, scheduler, loras, List.of());
         }
 
         public NodeSelection(String nodeId, String nodeType, String connectionId,

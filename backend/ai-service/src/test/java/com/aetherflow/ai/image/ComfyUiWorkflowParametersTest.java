@@ -50,7 +50,7 @@ class ComfyUiWorkflowParametersTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"txt2img", "img2img", "workflow"})
+    @ValueSource(strings = {"txt2img", "img2img"})
     void resolvesRandomSentinelForDefaultWorkflows(String mode) {
         expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "6" : "5")
                 .path("seed").longValue()).isNotNegative());
@@ -59,8 +59,8 @@ class ComfyUiWorkflowParametersTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"txt2img,0", "img2img,0", "workflow,0", "txt2img,7", "img2img,7", "workflow,7",
-            "txt2img,9223372036854775807", "img2img,9223372036854775807", "workflow,9223372036854775807"})
+    @CsvSource({"txt2img,0", "img2img,0", "txt2img,7", "img2img,7",
+            "txt2img,9223372036854775807", "img2img,9223372036854775807"})
     void preservesExplicitNonNegativeSeeds(String mode, long seed) {
         expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "6" : "5")
                 .path("seed").longValue()).isEqualTo(seed));
@@ -121,13 +121,13 @@ class ComfyUiWorkflowParametersTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"txt2img", "img2img", "workflow"})
-    void drawsOneFreshSeedPerGenerationAndSharesItAcrossImportedNodes(String mode) {
+    void explicitSeedBindingsShareOneRandomDrawAcrossSelectedInputs(String mode) {
         AtomicLong nextSeed = new AtomicLong(40L);
         provider = new ComfyUiProvider(restClient, properties, nextSeed::incrementAndGet);
         Map<String, Object> workflow = importedWorkflow();
         ImageGenerationRequest request = request(mode, -1L, null, workflow, List.of());
-        expectGeneration(mode, graph -> assertImportedSeed(graph, 41L));
-        expectGeneration(mode, graph -> assertImportedSeed(graph, 42L));
+        expectGeneration("workflow", graph -> assertImportedSeed(graph, 41L));
+        expectGeneration("workflow", graph -> assertImportedSeed(graph, 42L));
 
         provider.generate(request);
         generate(request);
@@ -154,7 +154,7 @@ class ComfyUiWorkflowParametersTest {
 
     @ParameterizedTest
     @ValueSource(longs = {0L, 7L, Long.MAX_VALUE})
-    void explicitImportedSeedKeepsExistingOverrideContractWithoutDrawingRandomness(long seed) {
+    void explicitImportedSeedBindingsDoNotDrawRandomness(long seed) {
         provider = new ComfyUiProvider(restClient, properties, () -> {
             throw new AssertionError("固定种子不应读取随机数");
         });
@@ -214,7 +214,10 @@ class ComfyUiWorkflowParametersTest {
                                            List<Map<String, Object>> loras) {
         return new ImageGenerationRequest(ImageProviderType.COMFYUI, mode, "cat", "", seed,
                 30, 7.5, "euler", "normal", 512, 512, 1, 0.65, "base.safetensors", vae, loras,
-                "img2img".equals(mode) ? "aW1hZ2U=" : null, "image/png", workflow, Map.of(), Duration.ofSeconds(1));
+                "img2img".equals(mode) ? "aW1hZ2U=" : null, "image/png", workflow, workflow.isEmpty() || seed == null ? Map.of() : Map.of("workflowBindings", List.of(
+                        Map.of("nodeId", "samplerA", "inputName", "seed", "parameter", "seed"),
+                        Map.of("nodeId", "samplerB", "inputName", "seed", "parameter", "seed"),
+                        Map.of("nodeId", "noise", "inputName", "noise_seed", "parameter", "seed"))), Duration.ofSeconds(1));
     }
 
     private JsonNode inputs(JsonNode graph, String nodeId) {

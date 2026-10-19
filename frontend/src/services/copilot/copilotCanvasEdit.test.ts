@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
+import { customNodeTemplate, defaultCustomDefinition } from '@/utils/customNodes'
+import type { WorkflowCopilotSnapshot } from './workflowCopilotActions'
 import { buildCanvasEditContext, compileCanvasEdit } from './copilotCanvasEdit'
 
-function snapshot() {
+function snapshot(): WorkflowCopilotSnapshot {
   return {
     workflowId: 'new', workflowName: '测试流程', nodes: [], edges: [],
     templates: nodeTemplates.map((template) => ({ ...template, availability: { available: true, reason: null } })),
@@ -90,5 +92,105 @@ describe('AI canvas edit', () => {
     expect(context).not.toContain('private-key')
     const result = compileCanvasEdit({ ...base, templates: [] }, creation)
     expect(result.ok).toBe(false)
+  })
+
+  it('普通新增按类型只选择内置模板，绝不回退到同类型自定义模板', () => {
+    const base = snapshot(), definition = defaultCustomDefinition()
+    const custom = customNodeTemplate(definition)
+    base.templates.unshift({ ...custom, availability: { available: true, reason: null } })
+    const edit: CopilotCanvasEdit = { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'request', kind: 'http-request' },
+    ] }
+    const result = compileCanvasEdit(base, edit)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.nodes[1]!.data.config.customDefinition).toBeUndefined()
+    base.templates = base.templates.filter((item) => item.kind !== 'http-request' || Boolean(item.config.customDefinition))
+    expect(compileCanvasEdit(base, edit).ok).toBe(false)
+  })
+
+  it('精确选择自定义模板 ID 和版本，CODE 只成为未运行草稿并保留不可用能力', () => {
+    const base = snapshot(), definition = defaultCustomDefinition('CODE')
+    const newer = { ...definition, version: '2.0.0', code: 'def main(payload):\n    return {"result": "new"}' }
+    const unavailable = { ...base.templates.find((template) => template.kind === 'code')!, availability: { available: false, reason: 'Python 未启用' } }
+    base.templates.push({ ...customNodeTemplate(newer, unavailable), availability: unavailable.availability },
+      { ...customNodeTemplate(definition, unavailable), availability: unavailable.availability })
+    const result = compileCanvasEdit(base, { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'custom', kind: 'code', customNodeId: definition.id, customNodeVersion: '1.0.0' },
+    ] })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.error)
+    const node = result.nodes[1]!
+    expect(node.data.config.customDefinition).toEqual(definition)
+    expect(node.data.config.customDefinition).not.toBe(definition)
+    expect(node.data).toHaveProperty('availability', unavailable.availability)
+    expect(node.data.status).toBe('idle')
+    expect(node.data.runtime?.lastResult).toContain('尚未运行')
+  })
+
+  it.each([
+    { customNodeId: 'my-code' },
+    { customNodeVersion: '1.0.0' },
+    { customNodeId: 'my-code', customNodeVersion: '2.0.0' },
+    { customNodeId: 'my-code', customNodeVersion: '1.0.0', kind: 'http-request' },
+  ])('拒绝不完整、缺失或类型不符的模板引用：%j', (reference) => {
+    const base = snapshot(), definition = defaultCustomDefinition('CODE')
+    base.templates.push({ ...customNodeTemplate(definition), availability: { available: false, reason: 'Python 未启用' } })
+    expect(compileCanvasEdit(base, { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'custom', kind: 'code', ...reference },
+    ] }).ok).toBe(false)
+  })
+
+  it('创建和修改定义都不能绕过草稿确认', () => {
+    const definition = defaultCustomDefinition()
+    expect(compileCanvasEdit(snapshot(), { ...creation, operations: [
+      { type: 'create_custom_node', draftId: 'draft', definition },
+    ] }).ok).toBe(false)
+    expect(compileCanvasEdit(snapshot(), { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'custom', kind: 'http-request', config: { customDefinition: definition } },
+    ] }).ok).toBe(false)
+    const existing = compileCanvasEdit(snapshot(), creation)
+    if (!existing.ok) throw new Error(existing.error)
+    expect(compileCanvasEdit({ ...snapshot(), ...existing }, { ...creation, operations: [
+      { type: 'update_node', nodeId: 'model', config: { customDefinition: definition } },
+    ] }).ok).toBe(false)
+  })
+
+  it('精确模板身份有多个候选时拒绝，不任意选取第一项', () => {
+    const base = snapshot(), definition = defaultCustomDefinition('CODE'), template = customNodeTemplate(definition)
+    base.templates.push(template, { ...template })
+    expect(compileCanvasEdit(base, { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'custom', kind: 'code', customNodeId: definition.id, customNodeVersion: definition.version },
+    ] }).ok).toBe(false)
+  })
+
+  it('不可用 API 模板不会因为精确引用而绕过能力校验', () => {
+    const base = snapshot(), definition = defaultCustomDefinition()
+    base.templates.push({ ...customNodeTemplate(definition), availability: { available: false, reason: 'API 能力不可用' } })
+    expect(compileCanvasEdit(base, { ...creation, operations: [
+      { type: 'add_node', nodeId: 'begin', kind: 'start' },
+      { type: 'add_node', nodeId: 'custom', kind: 'http-request', customNodeId: definition.id, customNodeVersion: definition.version },
+    ] }).ok).toBe(false)
+  })
+
+  it('向模型只提供自定义目录的精确标识和能力，不发送模板代码或请求头', () => {
+    const base = snapshot(), code = defaultCustomDefinition('CODE'), api = defaultCustomDefinition()
+    code.code = 'def main(payload):\n    return {"result": "never-upload-this-code"}'
+    api.request!.headers = { Authorization: 'never-upload-this-header' }
+    base.templates.push({ ...customNodeTemplate(code), availability: { available: false, reason: 'Python 未启用' } },
+      { ...customNodeTemplate(api), availability: { available: true, reason: null } })
+    const context = buildCanvasEditContext(base, 'zh-CN')
+    expect(context.capabilities).toEqual({ customNodeDrafts: true })
+    expect(context.customNodeCatalog).toEqual(expect.arrayContaining([
+      expect.objectContaining({ customNodeId: code.id, customNodeVersion: '1.0.0', availability: { available: false, reason: 'Python 未启用' } }),
+      expect.objectContaining({ customNodeId: api.id, customNodeVersion: '1.0.0' }),
+    ]))
+    expect(JSON.stringify(context)).not.toContain('never-upload-this')
+    expect(JSON.stringify(context.nodeCatalog)).not.toContain('customDefinition')
   })
 })

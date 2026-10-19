@@ -8,6 +8,7 @@ export interface NodeConnectionPayload {
   name: string
   provider: ImageConnectionProvider
   baseUrl: string
+  workflowNodeTypes?: string[]
 }
 export interface NodeConnection extends NodeConnectionPayload {
   id: string
@@ -27,6 +28,7 @@ export interface ProbeNodeConnectionPayload {
   baseUrl: string
   checkpoint?: string
   nodeType?: ImageConnectionNodeType
+  workflowNodeTypes?: string[]
 }
 export interface WhisperEnvironment {
   status: 'unconfigured' | 'unreachable' | 'unloaded' | 'missing_model' | 'usable'
@@ -55,7 +57,8 @@ export function updateNodeConnection(id: string, payload: NodeConnectionPayload)
 export function probeNodeConnection(payload: ProbeNodeConnectionPayload) {
   return apiClient.post<NodeConnectionProbe>(`${root}/probe`, payload, { source: 'ai' })
 }
-export function probeSavedNodeConnection(id: string, nodeType: ImageConnectionNodeType, checkpoint?: string) {
+export function probeSavedNodeConnection(id: string, nodeType?: ImageConnectionNodeType, checkpoint?: string, workflowNodeTypes?: string[]) {
+  if (workflowNodeTypes?.length) return apiClient.post<NodeConnectionProbe>(`${root}/${encodeURIComponent(id)}/probe`, { workflowNodeTypes }, { source: 'ai' })
   return apiClient.get<NodeConnectionProbe>(`${root}/${encodeURIComponent(id)}/probe`, {
     params: { nodeType, ...(checkpoint ? { checkpoint } : {}) }, source: 'ai',
   })

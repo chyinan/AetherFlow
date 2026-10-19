@@ -22,8 +22,10 @@ afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
 
 it.each(['IMAGE_GENERATION', 'UPSCALE'])('%s 保存重开后的真实检查器将对象显示为 JSON，可编辑再保存', async type => {
   const graph = { '1': { class_type: 'CLIPTextEncode', inputs: { text: '中文', link: ['2', 0] } } }
+  const source = { nodes: [{ id: 1, type: 'ExamplePlugin', widgets_values: ['synthetic'] }], links: [] }
+  const imported = type === 'IMAGE_GENERATION' ? { workflow: source, workflowBindings: [{ nodeId: '1', inputName: 'text', parameter: 'prompt' }], comfyImport: { positiveStatus: 'unresolved' } } : {}
   let entity = { id: 42, name: 'ComfyUI', version: 1, definitionJson: JSON.stringify({ nodes: [
-    { nodeId: 'image', nodeType: type, config: { provider: 'COMFYUI', workflowJson: graph } },
+    { nodeId: 'image', nodeType: type, config: { provider: 'COMFYUI', workflowJson: graph, ...imported } },
   ] }) }
   http.get.mockImplementation(async () => JSON.parse(JSON.stringify(entity)))
   http.put.mockImplementation(async (_url, payload) => {
@@ -51,4 +53,5 @@ it.each(['IMAGE_GENERATION', 'UPSCALE'])('%s 保存重开后的真实检查器�
   expect(http.put.mock.calls.at(-1)![1].nodes[0].config.workflowJson).toEqual(edited)
   expect(await store.loadWorkflow('42')).toBe(true)
   expect(store.nodes[0]!.data.config.workflowJson).toEqual(edited)
+  expect(store.nodes[0]!.data.config).toMatchObject(imported)
 })

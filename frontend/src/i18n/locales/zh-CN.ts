@@ -70,6 +70,8 @@ export const zhCN = {
     runtimeDetail: '仅使用 mock provider',
   },
   nav: {
+    personalHome: '我的工作台',
+    adminOverview: '管理概览',
     projects: '项目',
     workspaces: '工作区',
     workflows: '工作流',

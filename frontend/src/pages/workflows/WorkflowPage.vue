@@ -31,6 +31,7 @@ import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowNodeKind } from '@/types/workflow'
+import { mergeCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
 import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 const workflowStore = useWorkflowStore()
@@ -794,13 +795,21 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
   }
 }
 
-function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
-  const applied = workflowStore.applyCopilotWorkflowDraft(request)
+function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest, allowUnavailableCustomDrafts = false) {
+  const applied = workflowStore.applyCopilotWorkflowDraft(request, { allowUnavailableCustomDrafts })
   if (applied) {
     if (!workflowStore.nodes.some((node) => node.id === uiStore.selectedNodeId)) uiStore.setSelectedNode(null)
     void canvasRef.value?.fitCanvas()
   }
   return applied
+}
+
+async function saveCopilotCustomNodeDrafts(definitions: CustomDefinition[], signal?: AbortSignal) {
+  await workflowStore.saveCustomDefinitions(mergeCustomDefinitions(workflowStore.customDefinitions, definitions), false, signal)
+}
+
+function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
+  return handleCopilotWorkflowDraft(request, true)
 }
 </script>
 
@@ -997,7 +1006,8 @@ function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest) {
           <AICopilotPanel
             :context="copilotContext"
             :apply-workflow-draft="handleCopilotWorkflowDraft"
-            :apply-canvas-edit="handleCopilotWorkflowDraft"
+            :apply-canvas-edit="handleCopilotCanvasEdit"
+            :save-custom-node-drafts="saveCopilotCustomNodeDrafts"
             @apply-canvas-action="handleCopilotCanvasAction"
             @close="showCopilot = false"
           />

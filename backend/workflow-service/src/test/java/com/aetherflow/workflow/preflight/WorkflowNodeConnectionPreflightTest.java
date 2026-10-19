@@ -90,6 +90,19 @@ class WorkflowNodeConnectionPreflightTest {
                 Map.of("IMAGE_GENERATION", "deployment images disabled"));
     }
 
+    @Test
+    void uiGraphStopsBeforeRemoteCapabilityCallsAndApiGraphTransmitsItsTypes() {
+        var ui = Map.of("nodes", List.of(Map.of("id", 1, "type", "ExamplePlugin")), "links", List.of());
+        assertThatThrownBy(() -> service.validate(definition(node("ui", Map.of("provider", "COMFYUI", "mode", "workflow", "workflowJson", ui))), 7L))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("导出 API 格式");
+        verifyNoInteractions(client);
+        when(client.capabilities()).thenReturn(Result.success(snapshot()));
+        when(client.validateConnections(any())).thenReturn(Result.success(new NodeConnectionValidationResponse(List.of())));
+        var api = Map.of("plugin", Map.of("class_type", "ExamplePlugin", "inputs", Map.of("text", "synthetic")));
+        service.validate(definition(node("api", Map.of("provider", "COMFYUI", "mode", "workflow", "connectionId", "saved-one", "workflowJson", api))), 7L);
+        verify(client).validateConnections(argThat(request -> request.nodes().get(0).workflowNodeTypes().equals(List.of("ExamplePlugin"))));
+    }
+
     private static WorkflowNodeDTO node(String id, Map<String, Object> config) {
         WorkflowNodeDTO node = new WorkflowNodeDTO();
         node.setNodeId(id);

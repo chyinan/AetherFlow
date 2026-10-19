@@ -109,6 +109,20 @@ public class ImageConnectionDiscovery {
                 models.get("schedulers"), models.get("upscalers")), List.copyOf(capabilities), List.copyOf(warnings), List.copyOf(unavailable));
     }
 
+    /** API 图按自己的类型校验，不能要求插件图具备内置 Checkpoint/KSampler 路径。 */
+    public NodeConnectionProbe probeWorkflow(NodeConnectionProfile profile, List<String> nodeTypes) {
+        try {
+            Object response = get(profile.baseUrl(), "/object_info", System.nanoTime() + TOTAL_TIMEOUT.toNanos());
+            if (!(response instanceof Map<?, ?> info) || info.isEmpty()) return NodeConnectionProbe.unavailable("unreachable", "服务未返回有效的 ComfyUI 节点目录");
+            List<String> missing = nodeTypes.stream().distinct().filter(type -> !info.containsKey(type)).toList();
+            if (!missing.isEmpty()) return NodeConnectionProbe.unavailable("unconfigured", "执行图含服务未提供的节点类型：" + String.join("、", missing) + "；原图已保留，请在原有 ComfyUI 检查插件版本");
+            return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend", NodeConnectionProbe.Models.empty(),
+                    List.of("IMAGE_GENERATION"), List.of("类型存在不代表插件前端、模型文件或实际执行已验证"), List.of());
+        } catch (RestClientException | IllegalStateException exception) {
+            return NodeConnectionProbe.unavailable("unreachable", "无法验证执行图的插件节点目录，请检查已有 ComfyUI 连接");
+        }
+    }
+
     private Object get(String baseUrl, String path, long deadline) {
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {

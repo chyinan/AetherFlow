@@ -39,6 +39,29 @@ describe('节点连接向导', () => {
     mocks.createNodeConnection.mockResolvedValue({ ...saved, id: 'new-profile' }); mocks.updateNodeConnection.mockResolvedValue(saved)
   })
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()) })
+  it('插件专用图的测试与保存携带相同类型，失败后可恢复且不改原图', async () => {
+    const graph=JSON.stringify({ n:{class_type:'PluginCustom',inputs:{text:'synthetic'}} })
+    const config={provider:'COMFYUI',mode:'workflow',workflow:graph}
+    const pluginProbe=probe({ models:{checkpoints:[],vaes:[],loras:[],samplers:[],schedulers:[],upscalers:[]},capabilities:['IMAGE_GENERATION'],warnings:['插件和模型未验证'] })
+    mocks.probeNodeConnection.mockResolvedValueOnce(probe({status:'unconfigured',capabilities:[]})).mockResolvedValueOnce(pluginProbe)
+    mocks.createNodeConnection.mockRejectedValueOnce(new Error('synthetic save failure')).mockResolvedValueOnce({...saved,id:'plugin-profile'})
+    const wrapper=render(config);await flushPromises();await openForm(wrapper)
+    await testForm(wrapper)
+    expect(wrapper.get('[data-testid="save-connection"]').attributes('disabled')).toBeDefined()
+    expect(mocks.createNodeConnection).not.toHaveBeenCalled()
+    await testForm(wrapper)
+    expect(mocks.probeNodeConnection).toHaveBeenLastCalledWith({provider:'COMFYUI',baseUrl:'http://new-service:8188',workflowNodeTypes:['PluginCustom']})
+    await wrapper.get('[data-testid="save-connection"]').trigger('click');await flushPromises()
+    expect(wrapper.get('[data-testid="form-error"]').text()).toContain('synthetic save failure')
+    expect(wrapper.emitted('apply')).toBeUndefined()
+    await wrapper.get('[data-testid="save-connection"]').trigger('click');await flushPromises()
+    const request={name:'New connection',provider:'COMFYUI',baseUrl:'http://new-service:8188',workflowNodeTypes:['PluginCustom']}
+    expect(mocks.createNodeConnection).toHaveBeenNthCalledWith(1,request)
+    expect(mocks.createNodeConnection).toHaveBeenNthCalledWith(2,request)
+    expect(wrapper.emitted('apply')).toHaveLength(1)
+    expect(config.workflow).toBe(graph);expect(wrapper.emitted('updateConfig')).toBeUndefined()
+    expect(mocks.probeSavedNodeConnection).toHaveBeenCalledWith('deployment-comfyui',undefined,undefined,['PluginCustom'])
+  })
   it('打开、测试、取消不保存或修改节点；重开清空状态', async () => {
     const wrapper = render({}); await flushPromises()
     expect(mocks.probeSavedNodeConnection).toHaveBeenCalledWith('deployment-sd', 'IMAGE_GENERATION', undefined)
@@ -352,8 +375,8 @@ describe('节点连接向导', () => {
   })
 
   it.each([
-    ['workflow', { '1': { class_type: 'CustomSampler' } }, 'ignoredWorkflowAlias'],
-    ['workflowJson', '{"1":{"class_type":"CustomSampler"}}', 'ignoredWorkflowJson'],
+    ['workflow', 'invalid legacy JSON', 'ignoredWorkflowAlias'],
+    ['workflowJson', '{invalid', 'ignoredWorkflowJson'],
   ] as const)('未生效的 %s 导入继续检查默认值并准确请求外部字段定位', async (field, value, reason) => {
     mocks.probeSavedNodeConnection.mockResolvedValue(probe({ models: { ...probe().models, samplers: ['custom'], schedulers: ['custom'] } }))
     const config = { provider: 'COMFYUI', mode: 'workflow', [field]: value }

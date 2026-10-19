@@ -95,6 +95,36 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void canvasDraftUsesClientCapabilityAndPersistsOnlyExplanation() {
+        stubAiReply("""
+                {"status":"READY","explanation":"请预览并确认此 Python 模板草稿","operations":[
+                  {"type":"create_custom_node","draftId":"draft-1","definition":{
+                    "formatVersion":1,"id":"copy-text","version":"1.0.0","name":"复制文本","description":"只生成文本",
+                    "kind":"CODE","inputs":[{"name":"text","type":"STRING","required":true}],"fields":[],
+                    "outputs":[{"name":"result","type":"STRING"}],"code":"def main(payload): return {'result': payload['inputs']['text']}"
+                  }}]}
+                """);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation(11L));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 22L : 21L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setPrompt("生成一个复制文本的 Python 模板");
+        request.setContext(java.util.Map.of("capabilities", java.util.Map.of("customNodeDrafts", true)));
+
+        var response = service.editCanvas(7L, request);
+
+        assertThat(response.edit().operations().get(0).definition()).containsEntry("id", "copy-text");
+        ArgumentCaptor<CopilotMessageEntity> persisted = ArgumentCaptor.forClass(CopilotMessageEntity.class);
+        verify(messageMapper, org.mockito.Mockito.times(2)).insert(persisted.capture());
+        assertThat(persisted.getAllValues()).extracting(CopilotMessageEntity::getContent)
+                .containsExactly("生成一个复制文本的 Python 模板", "请预览并确认此 Python 模板草稿");
+    }
+
+    @Test
     void chatCreatesConversationAndPersistsUserAndAssistantMessages() {
         stubAiReply("Add a Summary node after Whisper.");
         CopilotChatRequest request = new CopilotChatRequest();

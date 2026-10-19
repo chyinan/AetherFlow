@@ -4,364 +4,96 @@ import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
 import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.util.ComfyUiWorkflow;
 import org.springframework.stereotype.Service;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import static com.aetherflow.common.util.ComfyUiWorkflow.map;
 
 @Service
 public class ComfyUiWorkflowImportService {
-
-    public WorkflowDefinitionDTO importWorkflow(String name,
-                                                String description,
-                                                Long projectId,
-                                                Object workflowJson) {
-        Map<String, Object> workflow = objectMap(workflowJson);
-        if (workflow.isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "comfyui workflow json is required");
-        }
-        List<ComfyNode> nodes = parseNodes(workflow);
-        if (nodes.isEmpty()) {
-            throw new BusinessException(ResultCode.BAD_REQUEST, "comfyui workflow contains no nodes");
-        }
-        ImportedImageConfig imported = importedImageConfig(nodes);
-
-        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
-        definition.setName(text(name, "Imported ComfyUI Workflow"));
-        definition.setDescription(text(description, "Imported from ComfyUI workflow.json"));
-        definition.setProjectId(projectId);
-        definition.setNodes(List.of(
-                node("start", "START", "Start", mapOf("next", "prompt")),
-                node("prompt", "PROMPT", "Prompt", mapOf(
-                        "prompt", imported.prompt(),
-                        "negativePrompt", imported.negativePrompt(),
-                        "stylePreset", "comfyui-import",
-                        "next", "image-generation"
-                )),
-                node("image-generation", "IMAGE_GENERATION", "ComfyUI Image Generation", imageConfig(workflow, imported)),
-                node("end", "END", "End", Map.of())
-        ));
-        return definition;
+    public WorkflowDefinitionDTO importWorkflow(String name, String description, Long projectId, Object workflowJson) {
+        Map<String, Object> graph;
+        try { graph = ComfyUiWorkflow.decodeGraph(workflowJson); }
+        catch (IllegalArgumentException exception) { throw new BusinessException(ResultCode.BAD_REQUEST, exception.getMessage()); }
+        ComfyUiWorkflow.Format format = ComfyUiWorkflow.format(graph);
+        if (format == ComfyUiWorkflow.Format.INVALID)
+            throw new BusinessException(ResultCode.BAD_REQUEST, "无法识别 ComfyUI 图：请选择普通界面 JSON 或 API 格式 JSON，不能混合两种结构");
+        Map<String, Map<String, Object>> nodes = summaryNodes(graph, format);
+        String positive = prompt(nodes, "positive"), negative = prompt(nodes, "negative");
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("format", format.name()); metadata.put("nodeCount", nodes.size());
+        metadata.put("positiveStatus", positive == null ? "unresolved" : "resolved");
+        metadata.put("negativeStatus", negative == null ? "unresolved" : "resolved");
+        metadata.put("pluginStatus", "unverified");
+        Map<String, Object> image = new LinkedHashMap<>();
+        image.put("provider", "COMFYUI"); image.put("mode", "workflow");
+        image.put("promptVariable", "prompt"); image.put("negativePromptVariable", "negativePrompt");
+        // 原始图独立保留；执行图可由用户明确替换为原生前端导出的 API 图。
+        image.put("workflow", graph); image.put("workflowJson", graph);
+        image.put("workflowBindings", List.of()); image.put("comfyImport", metadata); image.put("next", "end");
+        WorkflowDefinitionDTO result = new WorkflowDefinitionDTO();
+        result.setName(name == null || name.isBlank() ? "Imported ComfyUI Workflow" : name);
+        result.setDescription(description == null || description.isBlank() ? "4 个 AF 节点封装原始 ComfyUI 图；插件与模型尚未验证" : description);
+        result.setProjectId(projectId);
+        result.setNodes(List.of(node("start", "START", "Start", Map.of("next", "prompt")),
+                node("prompt", "PROMPT", "Prompt", Map.of("prompt", positive == null ? "" : positive,
+                        "negativePrompt", negative == null ? "" : negative, "stylePreset", "comfyui-import", "next", "image-generation")),
+                node("image-generation", "IMAGE_GENERATION", "ComfyUI · " + nodes.size() + " nodes · " + format.name(), image),
+                node("end", "END", "End", Map.of())));
+        return result;
     }
-
-    private Map<String, Object> imageConfig(Map<String, Object> workflow, ImportedImageConfig imported) {
-        Map<String, Object> config = new LinkedHashMap<>();
-        config.put("provider", "COMFYUI");
-        config.put("mode", "workflow");
-        config.put("promptVariable", "prompt");
-        config.put("negativePromptVariable", "negativePrompt");
-        putIfPresent(config, "seed", imported.seed());
-        putIfPresent(config, "steps", imported.steps());
-        putIfPresent(config, "cfgScale", imported.cfgScale());
-        putIfPresent(config, "sampler", imported.sampler());
-        putIfPresent(config, "scheduler", imported.scheduler());
-        putIfPresent(config, "width", imported.width());
-        putIfPresent(config, "height", imported.height());
-        putIfPresent(config, "batchSize", imported.batchSize());
-        putIfPresent(config, "denoiseStrength", imported.denoiseStrength());
-        putIfPresent(config, "checkpoint", imported.checkpoint());
-        putIfPresent(config, "vae", imported.vae());
-        if (!imported.lora().isEmpty()) {
-            config.put("lora", imported.lora());
-        }
-        // The AI service consumes workflowJson; workflow remains for older saved definitions.
-        config.put("workflow", workflow);
-        config.put("workflowJson", workflow);
-        config.put("next", "end");
-        return config;
-    }
-
-    private ImportedImageConfig importedImageConfig(List<ComfyNode> nodes) {
-        ComfyNode sampler = firstNode(nodes, "KSampler", "KSamplerAdvanced");
-        ComfyNode latent = firstNode(nodes, "EmptyLatentImage", "EmptySD3LatentImage");
-        ComfyNode checkpoint = firstNode(nodes, "CheckpointLoaderSimple", "UNETLoader");
-        ComfyNode vae = firstNode(nodes, "VAELoader");
-        List<ComfyNode> loraNodes = nodes.stream()
-                .filter(node -> hasClass(node, "LoraLoader", "LoraLoaderModelOnly"))
-                .toList();
-
-        String positivePrompt = promptFromSampler(nodes, sampler, "positive");
-        String negativePrompt = promptFromSampler(nodes, sampler, "negative");
-        if (positivePrompt.isBlank()) {
-            List<String> prompts = nodes.stream()
-                    .filter(node -> hasClass(node, "CLIPTextEncode"))
-                    .map(node -> string(node.inputs().get("text")))
-                    .filter(prompt -> !prompt.isBlank())
-                    .toList();
-            positivePrompt = prompts.isEmpty() ? "" : prompts.get(0);
-            negativePrompt = prompts.size() > 1 ? prompts.get(1) : "";
-        }
-
-        return new ImportedImageConfig(
-                positivePrompt,
-                negativePrompt,
-                longValue(input(sampler, "seed")),
-                intValue(input(sampler, "steps")),
-                doubleValue(firstPresent(input(sampler, "cfg"), input(sampler, "cfg_scale"))),
-                string(firstPresent(input(sampler, "sampler_name"), input(sampler, "sampler"))),
-                string(input(sampler, "scheduler")),
-                intValue(input(latent, "width")),
-                intValue(input(latent, "height")),
-                intValue(firstPresent(input(latent, "batch_size"), input(latent, "batchSize"))),
-                doubleValue(input(sampler, "denoise")),
-                string(firstPresent(input(checkpoint, "ckpt_name"), input(checkpoint, "unet_name"))),
-                string(input(vae, "vae_name")),
-                loraNodes.stream().map(this::loraConfig).filter(map -> !map.isEmpty()).toList()
-        );
-    }
-
-    private Map<String, Object> loraConfig(ComfyNode node) {
-        String name = string(firstPresent(node.inputs().get("lora_name"), node.inputs().get("name")));
-        if (name.isBlank()) {
-            return Map.of();
-        }
-        Map<String, Object> config = new LinkedHashMap<>();
-        config.put("name", name);
-        Double weight = doubleValue(firstPresent(node.inputs().get("strength_model"), node.inputs().get("weight")));
-        if (weight != null) {
-            config.put("weight", weight);
-        }
-        return config;
-    }
-
-    private String promptFromSampler(List<ComfyNode> nodes, ComfyNode sampler, String inputName) {
-        Object reference = input(sampler, inputName);
-        if (!(reference instanceof List<?> list) || list.isEmpty()) {
-            return "";
-        }
-        String nodeId = string(list.get(0));
-        return nodes.stream()
-                .filter(node -> nodeId.equals(node.id()))
-                .findFirst()
-                .map(node -> string(node.inputs().get("text")))
-                .orElse("");
-    }
-
-    private List<ComfyNode> parseNodes(Map<String, Object> workflow) {
-        Object uiNodes = workflow.get("nodes");
-        if (uiNodes instanceof Collection<?> collection) {
-            return parseUiNodes(collection);
-        }
-        List<ComfyNode> nodes = new ArrayList<>();
-        for (Map.Entry<String, Object> entry : workflow.entrySet()) {
-            Map<String, Object> value = objectMap(entry.getValue());
-            String classType = string(value.get("class_type"));
-            if (!classType.isBlank()) {
-                nodes.add(new ComfyNode(entry.getKey(), classType, objectMap(value.get("inputs"))));
+    /** 仅为摘要构建输入引用；不把 UI widget 编译成可执行 API 图。 */
+    private Map<String, Map<String, Object>> summaryNodes(Map<String, Object> graph, ComfyUiWorkflow.Format format) {
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+        if (format == ComfyUiWorkflow.Format.API) { graph.forEach((id, value) -> result.put(id, map(value))); return result; }
+        Map<Object, List<?>> links = new HashMap<>();
+        if (graph.get("links") instanceof List<?> values) for (Object value : values)
+            if (value instanceof List<?> link && link.size() >= 5) links.put(link.get(0), link);
+        for (Object value : (List<?>)graph.get("nodes")) {
+            Map<String, Object> source = map(value), inputs = new LinkedHashMap<>();
+            if (source.get("inputs") instanceof List<?> values) for (Object input : values) {
+                Map<String, Object> field = map(input);
+                List<?> link = links.get(field.get("link"));
+                if (link != null) inputs.put(String.valueOf(field.get("name")), List.of(String.valueOf(link.get(1)), link.get(2)));
+                else if (field.get("link") != null) inputs.put(String.valueOf(field.get("name")), Map.of("unresolvedLink", field.get("link")));
             }
+            Object type = source.get("type");
+            if (source.get("widgets_values") instanceof List<?> widgets && !widgets.isEmpty()) {
+                if ("CLIPTextEncode".equals(type)) inputs.putIfAbsent("text", widgets.get(0));
+                if ("PrimitiveString".equals(type)) inputs.putIfAbsent("value", widgets.get(0));
+            }
+            result.put(String.valueOf(source.get("id")), Map.of("class_type", type, "inputs", inputs));
         }
-        return nodes.stream().sorted(Comparator.comparing(ComfyNode::id)).toList();
+        return result;
     }
-
-    private List<ComfyNode> parseUiNodes(Collection<?> collection) {
-        List<ComfyNode> nodes = new ArrayList<>();
-        for (Object item : collection) {
-            Map<String, Object> node = objectMap(item);
-            String id = string(node.get("id"));
-            String classType = string(firstPresent(node.get("type"), node.get("class_type")));
-            if (classType.isBlank()) {
-                continue;
-            }
-            Map<String, Object> inputs = objectMap(node.get("inputs"));
-            List<Object> widgets = list(node.get("widgets_values"));
-            inputs.putAll(widgetInputs(classType, widgets));
-            nodes.add(new ComfyNode(id, classType, inputs));
+    private String prompt(Map<String, Map<String, Object>> nodes, String direction) {
+        Set<String> texts = new HashSet<>();
+        for (Map<String, Object> node : nodes.values()) {
+            if (!Set.of("KSampler", "KSamplerAdvanced").contains(node.get("class_type"))) continue;
+            Object input = map(node.get("inputs")).get(direction);
+            if (!(input instanceof List<?> link) || link.size() != 2 || !Integer.valueOf(0).equals(link.get(1))) return null;
+            Map<String, Object> encoder = nodes.get(String.valueOf(link.get(0)));
+            if (encoder == null || !"CLIPTextEncode".equals(encoder.get("class_type"))) return null;
+            String text = staticText(map(encoder.get("inputs")).get("text"), nodes, new HashSet<>());
+            if (text == null) return null;
+            texts.add(text);
         }
-        return nodes;
+        return texts.size() == 1 ? texts.iterator().next() : null;
     }
-
-    private Map<String, Object> widgetInputs(String classType, List<Object> widgets) {
-        Map<String, Object> inputs = new LinkedHashMap<>();
-        if (widgets.isEmpty()) {
-            return inputs;
-        }
-        switch (classType) {
-            case "CLIPTextEncode" -> inputs.put("text", widgets.get(0));
-            case "CheckpointLoaderSimple" -> inputs.put("ckpt_name", widgets.get(0));
-            case "VAELoader" -> inputs.put("vae_name", widgets.get(0));
-            case "LoraLoader", "LoraLoaderModelOnly" -> {
-                inputs.put("lora_name", widgets.get(0));
-                if (widgets.size() > 1) {
-                    inputs.put("strength_model", widgets.get(1));
-                }
-            }
-            case "EmptyLatentImage", "EmptySD3LatentImage" -> {
-                if (widgets.size() > 0) {
-                    inputs.put("width", widgets.get(0));
-                }
-                if (widgets.size() > 1) {
-                    inputs.put("height", widgets.get(1));
-                }
-                if (widgets.size() > 2) {
-                    inputs.put("batch_size", widgets.get(2));
-                }
-            }
-            case "KSampler", "KSamplerAdvanced" -> {
-                putWidget(inputs, widgets, 0, "seed");
-                int offset = hasControlAfterGenerate(widgets) ? 2 : 1;
-                putWidget(inputs, widgets, offset, "steps");
-                putWidget(inputs, widgets, offset + 1, "cfg");
-                putWidget(inputs, widgets, offset + 2, "sampler_name");
-                putWidget(inputs, widgets, offset + 3, "scheduler");
-                putWidget(inputs, widgets, offset + 4, "denoise");
-            }
-            default -> {
-            }
-        }
-        return inputs;
-    }
-
-    private boolean hasControlAfterGenerate(List<Object> widgets) {
-        if (widgets.size() < 7 || !(widgets.get(1) instanceof String value)) {
-            return false;
-        }
-        return "randomize".equalsIgnoreCase(value)
-                || "fixed".equalsIgnoreCase(value)
-                || "increment".equalsIgnoreCase(value)
-                || "decrement".equalsIgnoreCase(value);
-    }
-
-    private static WorkflowNodeDTO node(String nodeId,
-                                        String nodeType,
-                                        String displayName,
-                                        Map<String, Object> config) {
-        WorkflowNodeDTO node = new WorkflowNodeDTO();
-        node.setNodeId(nodeId);
-        node.setNodeType(nodeType);
-        node.setDisplayName(displayName);
-        node.setConfig(config);
-        return node;
-    }
-
-    private static ComfyNode firstNode(List<ComfyNode> nodes, String... classTypes) {
-        return nodes.stream()
-                .filter(node -> hasClass(node, classTypes))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static boolean hasClass(ComfyNode node, String... classTypes) {
-        for (String classType : classTypes) {
-            if (node.classType().equals(classType)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static Object input(ComfyNode node, String name) {
-        return node == null ? null : node.inputs().get(name);
-    }
-
-    private static Object firstPresent(Object... values) {
-        for (Object value : values) {
-            if (value != null && !String.valueOf(value).isBlank()) {
-                return value;
-            }
+    private String staticText(Object value, Map<String, Map<String, Object>> nodes, Set<String> seen) {
+        if (value instanceof String text) return text;
+        if (value instanceof List<?> link && link.size() == 2 && Integer.valueOf(0).equals(link.get(1))) {
+            String id = String.valueOf(link.get(0));
+            if (!seen.add(id)) return null;
+            Map<String, Object> source = nodes.get(id);
+            // 插件文本由原生 ComfyUI 求值，不猜测 widget 顺序或拼接语义。
+            if (source != null && "PrimitiveString".equals(source.get("class_type")))
+                return staticText(map(source.get("inputs")).get("value"), nodes, seen);
         }
         return null;
     }
-
-    private static void putWidget(Map<String, Object> target, List<Object> widgets, int index, String key) {
-        if (widgets.size() > index) {
-            target.put(key, widgets.get(index));
-        }
-    }
-
-    private static void putIfPresent(Map<String, Object> target, String key, Object value) {
-        if (value != null && !String.valueOf(value).isBlank()) {
-            target.put(key, value);
-        }
-    }
-
-    private static Map<String, Object> objectMap(Object value) {
-        if (!(value instanceof Map<?, ?> source)) {
-            return new LinkedHashMap<>();
-        }
-        Map<String, Object> target = new LinkedHashMap<>();
-        source.forEach((key, item) -> target.put(String.valueOf(key), item));
-        return target;
-    }
-
-    private static List<Object> list(Object value) {
-        if (!(value instanceof Collection<?> collection)) {
-            return List.of();
-        }
-        return new ArrayList<>(collection);
-    }
-
-    private static String string(Object value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private static String text(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private static Integer intValue(Object value) {
-        if (value == null || String.valueOf(value).isBlank()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(String.valueOf(value)).intValue();
-        } catch (RuntimeException exception) {
-            return null;
-        }
-    }
-
-    private static Long longValue(Object value) {
-        if (value == null || String.valueOf(value).isBlank()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(String.valueOf(value)).longValue();
-        } catch (RuntimeException exception) {
-            return null;
-        }
-    }
-
-    private static Double doubleValue(Object value) {
-        if (value == null || String.valueOf(value).isBlank()) {
-            return null;
-        }
-        try {
-            return new BigDecimal(String.valueOf(value)).doubleValue();
-        } catch (RuntimeException exception) {
-            return null;
-        }
-    }
-
-    private static Map<String, Object> mapOf(Object... pairs) {
-        Map<String, Object> map = new LinkedHashMap<>();
-        for (int i = 0; i < pairs.length; i += 2) {
-            map.put(String.valueOf(pairs[i]), pairs[i + 1]);
-        }
-        return map;
-    }
-
-    private record ComfyNode(String id, String classType, Map<String, Object> inputs) {
-    }
-
-    private record ImportedImageConfig(
-            String prompt,
-            String negativePrompt,
-            Long seed,
-            Integer steps,
-            Double cfgScale,
-            String sampler,
-            String scheduler,
-            Integer width,
-            Integer height,
-            Integer batchSize,
-            Double denoiseStrength,
-            String checkpoint,
-            String vae,
-            List<Map<String, Object>> lora
-    ) {
+    private WorkflowNodeDTO node(String id, String type, String title, Map<String, Object> config) {
+        WorkflowNodeDTO node = new WorkflowNodeDTO();
+        node.setNodeId(id); node.setNodeType(type); node.setDisplayName(title); node.setConfig(config); return node;
     }
 }

@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ComfyUiWorkflowImportServiceUiExportTest {
 
     @Test
-    void mapsKSamplerUiWidgetsWithRandomizeFieldBeforeSamplingParameters() {
+    void retainsUiWidgetsWithoutPretendingTheyAreApiInputs() {
         ComfyUiWorkflowImportService service = new ComfyUiWorkflowImportService();
 
         WorkflowDefinitionDTO definition = service.importWorkflow(
@@ -31,12 +31,7 @@ class ComfyUiWorkflowImportServiceUiExportTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(image.getConfig())
-                .containsEntry("seed", 1234L)
-                .containsEntry("steps", 30)
-                .containsEntry("cfgScale", 7.5D)
-                .containsEntry("sampler", "dpmpp_2m")
-                .containsEntry("scheduler", "karras")
-                .containsEntry("denoiseStrength", 0.65D);
+        assertThat(image.getConfig()).containsKeys("workflow", "workflowJson", "comfyImport")
+                .doesNotContainKeys("seed", "steps", "sampler", "denoiseStrength");
     }
 }

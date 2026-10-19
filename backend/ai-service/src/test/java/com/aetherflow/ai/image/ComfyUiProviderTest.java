@@ -220,7 +220,9 @@ class ComfyUiProviderTest {
 
     @Test
     void rejectsImg2imgWithoutSourceImage() {
-        ComfyUiProvider provider = provider(RestClient.builder());
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
 
         assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
                 ImageProviderType.COMFYUI,
@@ -252,7 +254,9 @@ class ComfyUiProviderTest {
 
     @Test
     void rejectsImg2imgNullSourceImage() {
-        ComfyUiProvider provider = provider(RestClient.builder());
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
 
         assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
                 ImageProviderType.COMFYUI,
@@ -284,7 +288,9 @@ class ComfyUiProviderTest {
 
     @Test
     void rejectsUnsupportedMode() {
-        ComfyUiProvider provider = provider(RestClient.builder());
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
 
         assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
                 ImageProviderType.COMFYUI,
@@ -315,67 +321,14 @@ class ComfyUiProviderTest {
     }
 
     @Test
-    void appliesFluxWorkflowParametersAndMultipleLoras() {
+    void preservesFluxWorkflowAndMultipleLorasWithoutBindings() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         ComfyUiProvider provider = provider(builder);
 
         server.expect(once(), requestTo("http://comfy/prompt"))
                 .andExpect(method(POST))
-                .andExpect(content().json("""
-                        {
-                          "prompt": {
-                            "1": {
-                              "class_type": "UNETLoader",
-                              "inputs": {"unet_name": "flux-dev.safetensors"}
-                            },
-                            "2": {
-                              "class_type": "EmptySD3LatentImage",
-                              "inputs": {
-                                "width": 1216,
-                                "height": 832,
-                                "batch_size": 4
-                              }
-                            },
-                            "3": {
-                              "class_type": "RandomNoise",
-                              "inputs": {"noise_seed": 42}
-                            },
-                            "4": {
-                              "class_type": "BasicScheduler",
-                              "inputs": {
-                                "steps": 28,
-                                "scheduler": "sgm_uniform",
-                                "denoise": 0.8
-                              }
-                            },
-                            "5": {
-                              "class_type": "CFGGuider",
-                              "inputs": {"cfg": 3.5}
-                            },
-                            "6": {
-                              "class_type": "KSamplerSelect",
-                              "inputs": {"sampler_name": "euler"}
-                            },
-                            "7": {
-                              "class_type": "LoraLoader",
-                              "inputs": {
-                                "lora_name": "style.safetensors",
-                                "strength_model": 0.7,
-                                "strength_clip": 0.7
-                              }
-                            },
-                            "8": {
-                              "class_type": "LoraLoader",
-                              "inputs": {
-                                "lora_name": "detail.safetensors",
-                                "strength_model": 0.4,
-                                "strength_clip": 0.4
-                              }
-                            }
-                          }
-                        }
-                        """))
+                .andExpect(content().json(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of("prompt", fluxWorkflowJson())).toString()))
                 .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
         expectQueue(server);
         expectHistory(server, "abc", "out.png", "", "output");
@@ -413,62 +366,14 @@ class ComfyUiProviderTest {
     }
 
     @Test
-    void appliesParametersToImportedWorkflowJson() {
+    void preservesImportedWorkflowWithoutBindings() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         ComfyUiProvider provider = provider(builder);
 
         server.expect(once(), requestTo("http://comfy/prompt"))
                 .andExpect(method(POST))
-                .andExpect(content().json("""
-                        {
-                          "prompt": {
-                            "1": {
-                              "class_type": "CLIPTextEncode",
-                              "inputs": {"text": "cat"}
-                            },
-                            "2": {
-                              "class_type": "CLIPTextEncode",
-                              "inputs": {"text": "blur"}
-                            },
-                            "3": {
-                              "class_type": "KSampler",
-                              "inputs": {
-                                "seed": 11,
-                                "steps": 30,
-                                "cfg": 7.5,
-                                "sampler_name": "dpmpp_2m",
-                                "scheduler": "karras",
-                                "denoise": 0.35
-                              }
-                            },
-                            "4": {
-                              "class_type": "EmptyLatentImage",
-                              "inputs": {
-                                "width": 1024,
-                                "height": 768,
-                                "batch_size": 3
-                              }
-                            },
-                            "5": {
-                              "class_type": "CheckpointLoaderSimple",
-                              "inputs": {"ckpt_name": "flux-dev.safetensors"}
-                            },
-                            "6": {
-                              "class_type": "VAELoader",
-                              "inputs": {"vae_name": "ae.safetensors"}
-                            },
-                            "7": {
-                              "class_type": "LoraLoader",
-                              "inputs": {
-                                "lora_name": "product.safetensors",
-                                "strength_model": 0.8,
-                                "strength_clip": 0.8
-                              }
-                            }
-                          }
-                        }
-                        """))
+                .andExpect(content().json(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Map.of("prompt", workflowJson())).toString()))
                 .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
         expectQueue(server);
         expectHistory(server, "abc", "out.png", "", "output");

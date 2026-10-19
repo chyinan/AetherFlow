@@ -3,6 +3,8 @@ package com.aetherflow.ai.image;
 // pattern: Imperative Shell
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.util.ComfyUiWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
@@ -93,8 +95,12 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
         String mode = normalizeMode(request.mode());
+        validateImportedWorkflow(request);
         RestClient client = restClient(request);
-        ComfyUploadResponse upload = "img2img".equals(mode) ? uploadSourceImage(client, request) : null;
+        boolean sourceBinding = !request.workflowJson().isEmpty() && ComfyUiWorkflow.bindings(
+                request.options().get("workflowBindings"), request.workflowJson()).stream().anyMatch(binding -> "sourceImage".equals(binding.parameter()));
+        ComfyUploadResponse upload = sourceBinding || (request.workflowJson().isEmpty() && "img2img".equals(mode))
+                ? uploadSourceImage(client, request) : null;
         Map<String, Object> queuePayload = queuePayload(request, mode, upload);
         return executeQueuedWorkflow(client, request, mode, queuePayload);
     }
@@ -150,22 +156,49 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
         Map<String, Object> payload = new LinkedHashMap<>(request.options());
+        payload.remove("workflowBindings");
         payload.put("prompt", workflow(request, mode, upload));
         payload.putIfAbsent("client_id", "aetherflow");
         return payload;
     }
 
     private Map<String, Object> workflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
-        if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) {
-            throw input(COMFYUI, Field.sourceImage);
-        }
-        Long seed = resolveSeed(request.seed());
+        validateImportedWorkflow(request);
         if (request.workflowJson().isEmpty()) {
-            return defaultWorkflow(request, mode, upload, seed);
+            if ("img2img".equals(mode) && (request.sourceImageBase64() == null || request.sourceImageBase64().isBlank())) throw input(COMFYUI, Field.sourceImage);
+            return defaultWorkflow(request, mode, upload, resolveSeed(request.seed()));
         }
         Map<String, Object> workflow = mutableWorkflow(request.workflowJson());
-        applyParameters(workflow, request, mode, upload, seed);
+        applyBindings(workflow, request, upload);
         return workflow;
+    }
+
+    public static void validateImportedWorkflow(ImageGenerationRequest request) {
+        if (request.workflowJson().isEmpty() && !"workflow".equalsIgnoreCase(request.mode())) return;
+        try {
+            ComfyUiWorkflow.requireApi(request.workflowJson());
+            ComfyUiWorkflow.bindings(request.options().get("workflowBindings"), request.workflowJson());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "[IMAGE_EXECUTION:COMFYUI:INPUT:workflow:VALIDATION] " + exception.getMessage());
+        }
+    }
+
+    private void applyBindings(Map<String, Object> graph, ImageGenerationRequest request, ComfyUploadResponse upload) {
+        List<ComfyUiWorkflow.Binding> bindings = ComfyUiWorkflow.bindings(request.options().get("workflowBindings"), graph);
+        Long seed = bindings.stream().anyMatch(binding -> "seed".equals(binding.parameter())) ? resolveSeed(request.seed()) : null;
+        for (ComfyUiWorkflow.Binding binding : bindings) {
+            Object value = switch (binding.parameter()) {
+                case "prompt" -> request.prompt(); case "negativePrompt" -> request.negativePrompt();
+                case "seed" -> seed; case "steps" -> request.steps(); case "cfgScale" -> request.cfgScale();
+                case "sampler" -> request.sampler(); case "scheduler" -> request.scheduler();
+                case "width" -> request.width(); case "height" -> request.height(); case "batchSize" -> request.batchSize();
+                case "denoiseStrength" -> request.denoiseStrength(); case "checkpoint" -> request.checkpoint();
+                case "vae" -> request.vae(); case "sourceImage" -> sourceImageName(request, upload);
+                default -> throw new IllegalArgumentException("未知绑定参数");
+            };
+            if (value == null) throw new BusinessException(ResultCode.BAD_REQUEST, "ComfyUI 绑定参数未提供：" + binding.parameter());
+            inputs((Map<?, ?>)graph.get(binding.nodeId())).put(binding.inputName(), value);
+        }
     }
 
     private Long resolveSeed(Long seed) {
@@ -370,66 +403,6 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return value;
     }
 
-    private void applyParameters(Map<String, Object> workflow, ImageGenerationRequest request, String mode,
-                                 ComfyUploadResponse upload, Long seed) {
-        int clipTextIndex = 0;
-        int loraIndex = 0;
-        for (Object nodeValue : workflow.values()) {
-            if (!(nodeValue instanceof Map<?, ?> node)) {
-                continue;
-            }
-            String classType = string(node.get("class_type")).toLowerCase(Locale.ROOT);
-            Map<String, Object> inputs = inputs(node);
-            if (inputs == null) {
-                continue;
-            }
-
-            if ("cliptextencode".equals(classType)) {
-                clipTextIndex++;
-                if (clipTextIndex == 1 && request.prompt() != null) {
-                    inputs.put("text", request.prompt());
-                } else if (clipTextIndex == 2 && request.negativePrompt() != null) {
-                    inputs.put("text", request.negativePrompt());
-                }
-            } else if ("ksampler".equals(classType)) {
-                put(inputs, "seed", seed);
-                put(inputs, "steps", request.steps());
-                put(inputs, "cfg", request.cfgScale());
-                put(inputs, "sampler_name", request.sampler());
-                put(inputs, "scheduler", request.scheduler());
-                put(inputs, "denoise", request.denoiseStrength());
-            } else if ("emptylatentimage".equals(classType)) {
-                put(inputs, "width", request.width());
-                put(inputs, "height", request.height());
-                put(inputs, "batch_size", request.batchSize());
-            } else if ("checkpointloadersimple".equals(classType)) {
-                put(inputs, "ckpt_name", request.checkpoint());
-            } else if ("unetloader".equals(classType)) {
-                put(inputs, "unet_name", request.checkpoint());
-            } else if ("vaeloader".equals(classType)) {
-                put(inputs, "vae_name", request.vae());
-            } else if ("loraloader".equals(classType) || "loraloadermodelonly".equals(classType)) {
-                loraIndex = applyLora(inputs, request.lora(), loraIndex);
-            } else if ("emptysd3latentimage".equals(classType)) {
-                put(inputs, "width", request.width());
-                put(inputs, "height", request.height());
-                put(inputs, "batch_size", request.batchSize());
-            } else if ("randomnoise".equals(classType)) {
-                put(inputs, "noise_seed", seed);
-            } else if ("basicscheduler".equals(classType)) {
-                put(inputs, "steps", request.steps());
-                put(inputs, "scheduler", request.scheduler());
-                put(inputs, "denoise", request.denoiseStrength());
-            } else if ("cfgguider".equals(classType)) {
-                put(inputs, "cfg", request.cfgScale());
-            } else if ("ksamplerselect".equals(classType)) {
-                put(inputs, "sampler_name", request.sampler());
-            } else if ("loadimage".equals(classType) && "img2img".equals(mode)) {
-                inputs.put("image", sourceImageName(request, upload));
-            }
-        }
-    }
-
     @SuppressWarnings("unchecked")
     private Map<String, Object> inputs(Map<?, ?> node) {
         Object inputs = node.get("inputs");
@@ -437,24 +410,6 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             return (Map<String, Object>) inputMap;
         }
         return null;
-    }
-
-    private int applyLora(Map<String, Object> inputs, List<Map<String, Object>> loras, int startIndex) {
-        for (int index = startIndex; index < loras.size(); index++) {
-            Map<String, Object> lora = loras.get(index);
-            Object rawName = lora.get("name");
-            String name = rawName == null ? "" : String.valueOf(rawName).trim();
-            if (name.isBlank()) {
-                continue;
-            }
-            Object weight = lora.get("weight");
-            Object effectiveWeight = weight == null || String.valueOf(weight).isBlank() ? 1.0D : weight;
-            inputs.put("lora_name", name);
-            inputs.put("strength_model", effectiveWeight);
-            inputs.put("strength_clip", effectiveWeight);
-            return index + 1;
-        }
-        return loras.size();
     }
 
     private ComfyUploadResponse uploadSourceImage(RestClient client, ImageGenerationRequest request) {

@@ -10,6 +10,7 @@ import {
 import { toApiError } from '@/api/client/apiError'
 import { useNodeConnectionStore } from '@/stores/nodeConnectionStore'
 import { nodeConnectionMessages } from './nodeConnectionMessages'
+import { describeComfyGraph } from '@/utils/comfyWorkflow'
 import { buildNodeConnectionChecklist, connectionCatalogOptions, isKnownConnectionCatalog, type ConnectionChecklistIssue } from './nodeConnectionChecklist'
 
 const props = defineProps<{ nodeId: string; nodeType: ImageConnectionNodeType; config: Record<string, unknown> }>()
@@ -47,16 +48,18 @@ function normalizeProvider(value: unknown): ImageConnectionProvider {
   return normalized === 'COMFYUI' ? 'COMFYUI' : 'STABLE_DIFFUSION_WEBUI'
 }
 const provider = computed(() => normalizeProvider(props.config.provider))
+const importedApi = computed(() => props.nodeType === 'IMAGE_GENERATION' && provider.value === 'COMFYUI' && describeComfyGraph(props.config.workflowJson ?? props.config.workflow).format === 'API')
+const workflowNodeTypes = computed(() => importedApi.value ? [...new Set(describeComfyGraph(props.config.workflowJson ?? props.config.workflow).nodes.map(node => node.type))].sort() : [])
 const connectionId = computed(() => String(props.config.connectionId ?? '').trim())
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
 const selectedConnection = computed(() => connections.value.find((connection) => connection.id === effectiveId.value))
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
-const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode]))
+const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode, workflowNodeTypes.value]))
 const modelFields = computed<Array<{ key: string; catalog: ImageCatalog }>>(() => props.nodeType === 'UPSCALE'
   ? [{ key: 'upscaler', catalog: 'upscalers' }]
   : [{ key: 'checkpoint', catalog: 'checkpoints' }, { key: 'vae', catalog: 'vaes' }, { key: 'sampler', catalog: 'samplers' }, { key: 'scheduler', catalog: 'schedulers' }])
 const checkpointRequired = computed(() => props.nodeType === 'IMAGE_GENERATION' && Boolean(connectionId.value)
-  && provider.value === 'COMFYUI' && !String(props.config.checkpoint ?? '').trim())
+  && provider.value === 'COMFYUI' && !importedApi.value && !String(props.config.checkpoint ?? '').trim())
 const loras = computed(() => Array.isArray(props.config.lora) ? props.config.lora : [])
 const invalidLora = computed(() => props.config.lora != null && !Array.isArray(props.config.lora))
 const externalChecklistFields = new Set(['mode', 'workflow', 'workflowJson'])
@@ -187,7 +190,8 @@ async function testForm() {
   const nodeId = props.nodeId
   testing.value = true
   try {
-    const result = await probeNodeConnection({ provider: form.provider, baseUrl: form.baseUrl.trim(), nodeType: props.nodeType })
+    const graphTypes = form.provider === 'COMFYUI' ? workflowNodeTypes.value : []
+    const result = await probeNodeConnection({ provider: form.provider, baseUrl: form.baseUrl.trim(), ...(graphTypes.length ? { workflowNodeTypes: graphTypes } : { nodeType: props.nodeType }) })
     if (alive && open.value && sequence === formSequence && nodeId === props.nodeId) formProbe.value = result
   } catch (cause) {
     if (alive && open.value && sequence === formSequence && nodeId === props.nodeId) formError.value = errorMessage(cause)
@@ -201,7 +205,7 @@ async function save() {
   if (error) { formError.value = error; return }
   const sequence = formSequence
   const nodeId = props.nodeId
-  const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim() }
+  const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim(), ...(form.provider === 'COMFYUI' && workflowNodeTypes.value.length ? { workflowNodeTypes: workflowNodeTypes.value } : {}) }
   const id = editingId.value
   formError.value = ''
   try {
@@ -225,8 +229,10 @@ async function refreshSelected() {
   if (!ready.value || missingConnection.value) return
   probing.value = true
   try {
-    const checkpoint = props.nodeType === 'IMAGE_GENERATION' ? String(props.config.checkpoint ?? '').trim() : ''
-    const result = await probeSavedNodeConnection(effectiveId.value, props.nodeType, checkpoint || undefined)
+    const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value ? String(props.config.checkpoint ?? '').trim() : ''
+    const result = workflowNodeTypes.value.length
+      ? await probeSavedNodeConnection(effectiveId.value, undefined, undefined, workflowNodeTypes.value)
+      : await probeSavedNodeConnection(effectiveId.value, props.nodeType, checkpoint || undefined)
     if (alive && sequence === selectedSequence && key === selectedKey.value) selectedProbe.value = result
   } catch (cause) {
     if (alive && sequence === selectedSequence && key === selectedKey.value) selectedError.value = errorMessage(cause)

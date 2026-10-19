@@ -5,6 +5,11 @@ import { createNodeConnection, getNodeConnections, getWhisperEnvironment, probeN
 
 describe('节点连接 API', () => {
   beforeEach(() => vi.clearAllMocks())
+  it('按执行图探测已有连接时使用独立 POST 类型上下文，普通 GET 保持兼容', async () => {
+    await probeSavedNodeConnection('user/connection', undefined, undefined, ['PluginCustom'])
+    expect(mocks.post).toHaveBeenCalledWith('/ai/node-connections/user%2Fconnection/probe', { workflowNodeTypes:['PluginCustom'] }, { source:'ai' })
+    expect(mocks.get).not.toHaveBeenCalled()
+  })
   it('读取认证后的连接目录和 Whisper 只读快照', async () => {
     await getNodeConnections(); await getWhisperEnvironment()
     expect(mocks.get).toHaveBeenCalledWith('/ai/node-connections', { source: 'ai' })

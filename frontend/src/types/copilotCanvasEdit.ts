@@ -1,9 +1,14 @@
 // pattern: Functional Core
 import type { CanvasPosition } from '@/types/workflow'
 import type { CopilotMessage } from '@/types/copilot'
+import type { CustomDefinition } from '@/utils/customNodes'
 
 export type CopilotCanvasOperation = {
-  type: 'add_node' | 'update_node' | 'delete_node' | 'connect' | 'disconnect'
+  type: 'add_node' | 'update_node' | 'delete_node' | 'connect' | 'disconnect' | 'create_custom_node'
+  draftId?: string
+  definition?: CustomDefinition
+  customNodeId?: string
+  customNodeVersion?: string
   nodeId?: string
   kind?: string
   label?: string
