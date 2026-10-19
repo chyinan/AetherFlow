@@ -20,7 +20,7 @@ const showNotifications = ref(false)
 const notificationTrigger = ref<HTMLButtonElement | null>(null)
 const notificationPanel = ref<HTMLElement | null>(null)
 
-const notificationItems = computed(() => uiStore.notifications.slice(0, 10))
+const notificationItems = computed(() => uiStore.notifications.slice(0, 20))
 const unreadNotificationCount = computed(() => uiStore.unreadNotificationCount)
 const streamUserId = computed(() => authStore.user?.userId ?? 1)
 
