@@ -281,7 +281,7 @@ async function retryLoadProjects() {
             {{ t('projects.createProject') }}
           </button>
         </section>
-        <section v-else-if="showNoWorkflows" data-state="no-workflows" role="status" class="flex flex-col items-start justify-between gap-4 rounded-xl border border-dashed border-status-warning/35 bg-amber-50/70 p-6 sm:flex-row sm:items-center">
+        <section v-else-if="showNoWorkflows" data-state="no-workflows" role="status" class="flex flex-col items-start justify-between gap-4 rounded-xl border border-dashed border-status-warning/35 bg-amber-50 p-6 sm:flex-row sm:items-center">
           <div>
             <p class="text-base font-semibold text-text-primary">{{ t('projects.emptyWorkflowsTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('projects.emptyWorkflowsHint') }}</p>
