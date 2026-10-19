@@ -2,8 +2,12 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
 
 import type { WhisperEnvironment } from '@/api/modules/nodeConnections'
+import topStatusBarSource from '../layout/TopStatusBar.vue?raw'
+import dialogSource from './WhisperEnvironmentDialog.vue?raw'
 
 const api = vi.hoisted(() => ({
   getWhisperEnvironment: vi.fn(),
@@ -239,6 +243,43 @@ describe('Whisper 环境只读弹窗', () => {
     await flushPromises()
     expect(modal()?.textContent).not.toContain('已复制')
     expect(modal()?.textContent).not.toContain('请手动选择上方片段复制')
+  })
+  it('实际生成的遮罩样式覆盖全局顶栏，同时保留弹窗内滚动', async () => {
+    const { css } = await postcss([tailwindcss({
+      content: [{ raw: topStatusBarSource }, { raw: dialogSource }],
+      corePlugins: { preflight: false },
+    })]).process('@tailwind utilities;', { from: undefined })
+    const style = document.createElement('style')
+    style.textContent = css
+    document.body.append(style)
+    const header = document.createElement('header')
+    const headerClass = topStatusBarSource.match(/<header\b[^>]*\bclass="([^"]+)"/)?.[1]
+    expect(headerClass).toBeTruthy()
+    header.className = headerClass!
+    document.body.append(header)
+    render()
+    await open()
+    const overlay = modal()!.parentElement!
+    expect(overlay.parentElement).toBe(document.body)
+    expect(getComputedStyle(overlay).position).toBe('fixed')
+    expect(getComputedStyle(overlay).inset).toBe('0px')
+    expect(Number(getComputedStyle(header).zIndex)).toBeGreaterThan(0)
+    expect(Number(getComputedStyle(overlay).zIndex)).toBeGreaterThan(Number(getComputedStyle(header).zIndex))
+    expect(getComputedStyle(modal()!).overflowY).toBe('auto')
+    expect(getComputedStyle(modal()!).maxHeight).toBe('90vh')
+  })
+  it.each(['close', 'cancel', 'backdrop'])('%s 关闭后恢复入口焦点，点击弹窗内部不会关闭', async (action) => {
+    render()
+    button('open').focus()
+    await open()
+    modal()!.click()
+    await flushPromises()
+    expect(modal()).not.toBeNull()
+    if (action === 'backdrop') modal()!.parentElement!.click()
+    else button(action).click()
+    await flushPromises()
+    expect(modal()).toBeNull()
+    expect(document.activeElement).toBe(button('open'))
   })
   it('支持 Escape 关闭、恢复入口焦点并约束弹窗内 Tab 焦点', async () => {
     render()
