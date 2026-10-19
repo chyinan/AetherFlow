@@ -20,7 +20,7 @@ const showNotifications = ref(false)
 const notificationTrigger = ref<HTMLButtonElement | null>(null)
 const notificationPanel = ref<HTMLElement | null>(null)
 
-const notificationItems = computed(() => uiStore.notifications.slice(0, 20))
+const notificationItems = computed(() => uiStore.notifications.slice(0, 10))
 const unreadNotificationCount = computed(() => uiStore.unreadNotificationCount)
 const streamUserId = computed(() => authStore.user?.userId ?? 1)
 
@@ -156,7 +156,7 @@ onBeforeUnmount(() => {
                 v-for="item in notificationItems"
                 :key="item.id"
                 class="relative rounded-lg border p-3 transition"
-                :class="item.read ? 'border-app-border bg-app-bg2/70' : 'border-primary/25 bg-primary/5'"
+                :class="item.read ? 'border-app-border bg-app-bg2' : 'border-primary/25 bg-primary/5'"
               >
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-2">
