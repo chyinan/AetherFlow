@@ -1,6 +1,8 @@
 // pattern: Functional Core
 export const modelRoleMessages = {
   'zh-CN': {
+    overallSummary: '整体服务概况', overallLoading: '整体数据正在加载…', overallUnconfirmed: '整体数据尚未确认，请重试。',
+    selectedProviderDetails: '所选服务详情：{provider}', selectedProviderSnapshot: '{provider} · 运行快照',
     confirmedRefreshTitle: '管理操作已确认，状态刷新失败',
     confirmedRefreshHint: '对“{provider}”的{operation}已获服务端确认。下方快照尚未确认操作后的运行状态，请先刷新状态；刷新前不会再次提交管理操作。',
     switchOperation: '主路由切换', recoverOperation: '熔断恢复',
@@ -22,6 +24,8 @@ export const modelRoleMessages = {
     genericDescription: '后端已注册的工作流服务能力。',
   },
   'en-US': {
+    overallSummary: 'Overall service summary', overallLoading: 'Loading overall service data…', overallUnconfirmed: 'Overall service data is not confirmed. Retry to check.',
+    selectedProviderDetails: 'Selected service details: {provider}', selectedProviderSnapshot: '{provider} · Runtime snapshot',
     confirmedRefreshTitle: 'Management action confirmed; status refresh failed',
     confirmedRefreshHint: 'The server confirmed {operation} for “{provider}”. The snapshot below does not confirm the resulting runtime state. Refresh status first; management writes stay disabled until then.',
     switchOperation: 'primary routing switch', recoverOperation: 'circuit recovery',
@@ -43,6 +47,8 @@ export const modelRoleMessages = {
     genericDescription: 'A workflow service capability registered by the backend.',
   },
   'ja-JP': {
+    overallSummary: 'サービス全体の概要', overallLoading: '全体のサービス情報を取得中…', overallUnconfirmed: '全体のサービス情報は未確認です。再試行してください。',
+    selectedProviderDetails: '選択中のサービス詳細：{provider}', selectedProviderSnapshot: '{provider} · ランタイム情報',
     confirmedRefreshTitle: '管理操作は確認済みですが、状態の更新に失敗しました',
     confirmedRefreshHint: '「{provider}」の{operation}はサーバーで確認済みです。下の情報では操作後の稼働状態を確認できません。先に状態を更新してください。確認できるまで管理操作は再送しません。',
     switchOperation: '主経路の切り替え', recoverOperation: 'サーキットの復旧',
