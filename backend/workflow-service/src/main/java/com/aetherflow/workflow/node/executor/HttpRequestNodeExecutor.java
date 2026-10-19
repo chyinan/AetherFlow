@@ -34,6 +34,7 @@ public class HttpRequestNodeExecutor extends BaseNodeExecutor {
 
     @Override
     protected NodeResult doExecute(WorkflowContext context, Map<String, Object> config) throws Exception {
+        if (config.containsKey("customDefinition")) return executeCustom(context, config);
         String strategy = text(config.get("errorStrategy"), "FAIL").toUpperCase(Locale.ROOT);
         if (!strategy.equals("FAIL") && !strategy.equals("BRANCH")) throw invalid("HTTP 错误策略无效");
         if (strategy.equals("BRANCH")) {
@@ -82,6 +83,29 @@ public class HttpRequestNodeExecutor extends BaseNodeExecutor {
 
     private static String text(Object value, String fallback) {
         return value == null || String.valueOf(value).isBlank() ? fallback : String.valueOf(value).trim();
+    }
+
+    private NodeResult executeCustom(WorkflowContext context, Map<String, Object> config) {
+        try {
+            var prepared = com.aetherflow.workflow.node.custom.CustomNodeDefinition.prepare("HTTP_REQUEST", config, context.variables());
+            var definition = prepared.definition();
+            var request = definition.request();
+            Map<String, String> headers = new LinkedHashMap<>();
+            asMap(request.get("headers")).forEach((key, value) -> {
+                Object resolved = definition.resolve(value, prepared, false);
+                if (resolved instanceof Map<?, ?> || resolved instanceof java.util.List<?>) throw invalid("请求头占位符必须是标量");
+                headers.put(key, String.valueOf(resolved));
+            });
+            if (Thread.currentThread().isInterrupted()) throw invalid("自定义 API 请求已取消");
+            var response = requests.request(String.valueOf(definition.resolve(request.get("url"), prepared, true)),
+                    String.valueOf(request.get("method")), definition.resolve(request.get("body"), prepared, false), request.containsKey("body"), headers);
+            if (Thread.currentThread().isInterrupted()) throw invalid("自定义 API 请求已取消");
+            if (!response.ok()) throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "自定义 API " + definition.id + "@" + definition.version + " 请求失败：" + response.error() + "，状态码 " + response.statusCode());
+            Map<String, Object> outputs = definition.mapOutputs(response.body());
+            return buildResult(Map.of("templateId", definition.id, "templateVersion", definition.version,
+                    "statusCode", response.statusCode(), "result", outputs), outputs);
+        } catch (IllegalArgumentException exception) { throw invalid(exception.getMessage()); }
     }
 
     private static BusinessException invalid(String message) {

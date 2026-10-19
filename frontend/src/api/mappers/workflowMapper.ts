@@ -687,6 +687,15 @@ function normalizeNodeConfig(
 ) {
   const config = toRecord(node.data.config)
 
+  if (Object.hasOwn(config, 'customDefinition')) {
+    if (nodeType !== 'HTTP_REQUEST' && nodeType !== 'CODE') throw new Error('自定义模板只能用于 API 或代码节点')
+    return withNextNodes({ customDefinition: cloneConfigValue(config.customDefinition),
+      customInputs: cloneConfigValue(config.customInputs ?? {}), customValues: cloneConfigValue(config.customValues ?? {}),
+      inputBindings: cloneConfigValue(config.inputBindings ?? {}),
+      ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+      ...(config.maxOutputBytes !== undefined ? { maxOutputBytes: config.maxOutputBytes } : {}) }, nextNodes)
+  }
+
   switch (nodeType) {
     case 'START':
       return normalizeStartConfig(config, nextNodes)

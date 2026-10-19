@@ -1,0 +1,30 @@
+{
+  "format": "aetherflow-custom-nodes",
+  "formatVersion": 1,
+  "nodes": [
+    {
+      "formatVersion": 1,
+      "id": "example-json-api",
+      "version": "1.0.0",
+      "name": "JSON API 示例",
+      "description": "替换 URL 后再运行；按响应体中的 result 字段提取输出。",
+      "kind": "API",
+      "inputs": [{ "name": "text", "type": "STRING", "required": true, "defaultValue": "hello" }],
+      "fields": [{ "name": "mode", "type": "STRING", "required": true, "defaultValue": "brief", "options": ["brief", "full"] }],
+      "outputs": [{ "name": "apiResult", "type": "STRING", "required": true, "path": "/result" }],
+      "request": { "url": "https://example.com/api", "method": "POST", "headers": {}, "body": { "text": "{{inputs.text}}", "mode": "{{config.mode}}" } }
+    },
+    {
+      "formatVersion": 1,
+      "id": "example-python-upper",
+      "version": "1.0.0",
+      "name": "Python 大写示例",
+      "description": "通过已启用并确认隔离的代码运行时执行。",
+      "kind": "CODE",
+      "inputs": [{ "name": "text", "type": "STRING", "required": true, "defaultValue": "hello" }],
+      "fields": [{ "name": "prefix", "type": "STRING", "defaultValue": "" }],
+      "outputs": [{ "name": "upperText", "type": "STRING", "required": true, "path": "/result" }],
+      "code": "def main(payload):\n    return {\"result\": payload[\"config\"].get(\"prefix\", \"\") + payload[\"inputs\"][\"text\"].upper()}\n"
+    }
+  ]
+}

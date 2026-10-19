@@ -1,5 +1,6 @@
 // pattern: Functional Core
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
+import { parseCustomDefinition } from '@/utils/customNodes'
 import type { NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind } from '@/types/workflow'
 
 export interface VariableOutput { name: string; type: string }
@@ -43,6 +44,10 @@ export function nodeVariableOutputs(node: WorkflowGraphNode, templates: Readonly
     return []
   }
   if (kind === 'start') return Object.entries(object(config.variables)).map(([name, value]) => ({ name, type: valueType(value) }))
+  if (config.customDefinition) {
+    try { return parseCustomDefinition(config.customDefinition).outputs.map(field => ({ name: field.name, type: field.type })) }
+    catch { return [] }
+  }
   if (kind === 'output') return []
   if (kind === 'variable-assigner') return text(config.variable) ? [{ name: text(config.variable), type: Object.hasOwn(config, 'value') ? valueType(config.value) : 'UNKNOWN' }] : []
   if (kind === 'template-transform') return [{ name: text(config.outputVariable, config.transformMode === 'structured' ? 'mappedValue' : 'renderedText'), type: config.transformMode === 'structured' ? 'UNKNOWN' : 'STRING' }]

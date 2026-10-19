@@ -145,6 +145,29 @@
         </dependency>
     </dependencies>
 
+    <profiles>
+        <profile>
+            <id>custom-node-contract-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <testIncludes>
+                                <testInclude>**/CustomNodeDefinitionTest.java</testInclude>
+                                <testInclude>**/CustomNodeExecutorTest.java</testInclude>
+                                <testInclude>**/WorkflowNodeConfigValidatorTest.java</testInclude>
+                                <testInclude>**/WorkflowRuntimeCancellationTest.java</testInclude>
+                                <testInclude>**/WorkflowRuntimeEngineTest.java</testInclude>
+                            </testIncludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
     <build>
         <plugins>
             <plugin>

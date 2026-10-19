@@ -4,6 +4,7 @@ import type { NodeTemplate, WorkflowDefinition } from '@/types/workflow'
 import { validateMapping } from '@/utils/structuredMapping'
 import { workflowNeedsRuntimeFileInput } from '@/utils/workflowInputRequirements'
 import { upstreamVariables } from '@/utils/workflowVariables'
+import { bindCustomInputs, parseCustomDefinition } from '@/utils/customNodes'
 
 export interface PreflightIssue { id: string; level: 'blocking' | 'warning' | 'unknown'; code: string; nodeId?: string; nodeLabel?: string; field?: string; detail?: string }
 const blank = (value: unknown) => value === undefined || value === null || typeof value === 'string' && !value.trim()
@@ -48,6 +49,15 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
     if (!normalized) continue
     const config = normalized.config ?? {}
     const template = templates.find((item) => item.kind === node.data.kind)
+    if (Object.hasOwn(config, 'customDefinition')) {
+      try {
+        const definition = parseCustomDefinition(config.customDefinition)
+        if ((definition.kind === 'API' ? 'HTTP_REQUEST' : 'CODE') !== normalized.nodeType) throw new Error('模板类型与工作流节点类型不一致')
+        bindCustomInputs(definition, config, {}, false)
+      } catch (error) { add('blocking', 'mapping', { ...location, field: 'customDefinition', detail: error instanceof Error ? error.message : String(error) }) }
+      if (template?.availability?.available === false) add('blocking', 'capabilityUnavailable', { ...location, field: 'customDefinition', detail: template.availability.reason ?? undefined })
+      continue
+    }
     if (options.catalogLoaded && !template?.configSchema) add('unknown', 'nodeSchemaUnknown', location)
     for (const field of template?.configSchema ?? []) {
       let value = config[field.name]

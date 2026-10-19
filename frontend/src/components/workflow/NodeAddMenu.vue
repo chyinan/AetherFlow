@@ -29,6 +29,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate, WorkflowNodeKind } from '@/types/workflow'
+import CustomNodeLibrary from './CustomNodeLibrary.vue'
 
 const props = defineProps<{
   x: number
@@ -95,10 +96,12 @@ const panelStyle = computed(() => {
 })
 
 function templateLabel(template: NodeTemplate) {
+  if (template.config.customDefinition) return template.label
   return t(`workflow.catalog.items.${template.kind}.label`)
 }
 
 function templateDescription(template: NodeTemplate) {
+  if (template.config.customDefinition) return template.description
   return t(`workflow.catalog.items.${template.kind}.description`)
 }
 
@@ -181,11 +184,12 @@ function selectTemplate(template: NodeTemplate) {
       </div>
 
       <div class="max-h-[500px] overflow-y-auto p-2">
+        <CustomNodeLibrary />
         <section v-for="group in groupedTemplates" :key="group.id" class="mb-3 last:mb-0">
           <p class="px-2 py-1 text-xs font-semibold text-text-muted">{{ group.label }}</p>
           <button
             v-for="template in group.templates"
-            :key="template.kind"
+            :key="template.config.customDefinition ? JSON.stringify(template.config.customDefinition) : template.kind"
             type="button"
             class="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-app-bg2"
             @mouseenter="hoveredTemplate = template"

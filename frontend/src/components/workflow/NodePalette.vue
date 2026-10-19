@@ -8,6 +8,7 @@ import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate } from '@/types/workflow'
+import CustomNodeLibrary from './CustomNodeLibrary.vue'
 
 const workflowStore = useWorkflowStore()
 const uiStore = useUiStore()
@@ -64,6 +65,7 @@ function addTemplate(template: NodeTemplate) {
     <div class="border-b border-app-border p-4">
       <p class="text-sm font-semibold text-text-primary">{{ t('workflow.nodePalette') }}</p>
       <p class="mt-1 text-xs text-text-muted">{{ t('workflow.dragHint') }}</p>
+      <CustomNodeLibrary />
       <label class="mt-3 flex items-center gap-2 rounded-md border border-app-border bg-app-muted px-3 py-2 text-sm">
         <Search class="h-4 w-4 text-text-muted" />
         <input v-model="search" class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted" :placeholder="t('workflow.searchNodes')" :aria-label="t('workflow.searchNodes')" />
@@ -73,7 +75,7 @@ function addTemplate(template: NodeTemplate) {
     <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
       <button
         v-for="template in filteredTemplates"
-        :key="template.kind"
+        :key="template.config.customDefinition ? JSON.stringify(template.config.customDefinition) : template.kind"
         type="button"
         :disabled="isNodeTemplateBlocked(template)"
         :draggable="!isNodeTemplateBlocked(template)"

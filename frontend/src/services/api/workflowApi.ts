@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/authStore'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowSummary } from '@/types/workflow'
 import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
+import { parseCustomDefinition } from '@/utils/customNodes'
 
 const DEFINITION_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendDefinitionLinks'
 const RUN_LINKS_STORAGE_KEY = 'aetherflow.workflow.backendRunLinks'
@@ -391,17 +392,18 @@ export function mapBackendDefinitionGraph(nodes: BackendWorkflowNode[]) {
       inputs: [],
       outputs: [],
     }
+    const custom = node.config?.customDefinition ? parseCustomDefinition(node.config.customDefinition) : null
     return {
       id: stringOr(node.nodeId, `node-${index + 1}`),
       type: 'workflow',
       position: persistedNodePosition(node.position, index),
       data: {
         label: stringOr(node.displayName, copy.label),
-        description: copy.description,
+        description: custom?.description ?? copy.description,
         kind,
         config: toFrontendNodeConfig(node.config, kind),
-        inputs: copy.inputs,
-        outputs: copy.outputs,
+        inputs: custom?.inputs.map(field => field.name) ?? copy.inputs,
+        outputs: custom?.outputs.map(field => field.name) ?? copy.outputs,
         status: 'idle',
       },
     }

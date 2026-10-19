@@ -1,5 +1,7 @@
 // pattern: Mixed (needs refactoring)
 import { defineStore } from 'pinia'
+import { CUSTOM_NODE_STORAGE_KEY, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
+import { readCustomNodeLibrary, withCustomNodeWriteLock } from '@/utils/customNodeStorage'
 import type { Connection } from '@vue-flow/core'
 import { toRaw } from 'vue'
 
@@ -245,6 +247,10 @@ export const useWorkflowStore = defineStore('workflow', {
     createIntent: null as { workflow: WorkflowDefinition; editRevision: number } | null,
     projectId: null as number | null,
     templates: nodeTemplates,
+    customDefinitions: [] as CustomDefinition[],
+    customLibraryError: null as string | null,
+    customLibrarySnapshot: null as string | null,
+    customLibraryConflict: null as string | null,
     nodeTemplatesRequestSequence: 0,
     nodeCatalogLoaded: false,
     capabilitiesLoaded: false,
@@ -271,6 +277,52 @@ export const useWorkflowStore = defineStore('workflow', {
     canRedo: (state) => state.historyFuture.length > 0,
   },
   actions: {
+    refreshCustomTemplates() {
+      const builtin = this.templates.filter(template => !template.config.customDefinition)
+      this.templates = [...builtin, ...this.customDefinitions.map(definition => customNodeTemplate(definition, builtin.find(template => template.kind === (definition.kind === 'API' ? 'http-request' : 'code'))))]
+    },
+    reloadCustomDefinitions() {
+      try {
+        const raw = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+        this.customLibrarySnapshot = raw
+        this.customDefinitions = readCustomNodeLibrary(raw).definitions
+        this.customLibraryError = null
+        this.customLibraryConflict = null
+        this.refreshCustomTemplates()
+      } catch (error) { this.customLibraryError = `本机模板库读取失败，原数据保留：${error instanceof Error ? error.message : String(error)}` }
+    },
+    async saveCustomDefinitions(definitions: CustomDefinition[], replaceCorrupted = false, signal?: AbortSignal) {
+      if (this.customLibraryError && !replaceCorrupted) throw new Error('本机库读取失败；请先导出原数据，再使用已校验的模板包恢复')
+      const serialized = exportCustomDefinitions(definitions)
+      const validated = importCustomDefinitions(serialized)
+      const expected = this.customLibrarySnapshot
+      await withCustomNodeWriteLock(() => {
+        const current = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+        if (current !== expected) {
+          this.reloadCustomDefinitions()
+          this.customLibraryConflict = '模板库已被其他窗口更新，已同步最新列表；当前草稿未保存，请核对后重试。'
+          throw new Error(this.customLibraryConflict)
+        }
+        let revision = 0
+        let stored: ReturnType<typeof readCustomNodeLibrary> | undefined
+        try { stored = readCustomNodeLibrary(current) }
+        catch (error) { if (!replaceCorrupted || !this.customLibraryError) throw error }
+        if (stored) {
+          revision = stored.revision
+          // 锁内再次校验同版本内容不可变；删除其他版本仍是显式的列表变更。
+          mergeCustomDefinitions(stored.definitions, validated)
+        }
+        const next = JSON.stringify({ ...JSON.parse(serialized) as Record<string, unknown>, libraryRevision: revision + 1 })
+        readCustomNodeLibrary(next)
+        // 比较和写入之间不等待；存储失败时保留内存列表和调用方草稿。
+        localStorage.setItem(CUSTOM_NODE_STORAGE_KEY, next)
+        this.customDefinitions = validated
+        this.customLibrarySnapshot = next
+        this.customLibraryError = null
+        this.customLibraryConflict = null
+        this.refreshCustomTemplates()
+      }, signal)
+    },
     recordHistory() {
       this.historyPast = [...this.historyPast, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
       this.historyFuture = []
@@ -312,6 +364,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.nodeCatalogLoaded = catalogLoaded
       this.capabilitiesLoaded = capabilitiesLoaded
       this.templates = applyWorkflowCapabilities(templates, capabilities)
+      this.reloadCustomDefinitions()
       return capabilitiesLoaded
     },
     invalidateWorkflowTemplatesLoad() {
