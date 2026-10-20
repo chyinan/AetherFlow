@@ -22,10 +22,64 @@ import { useWorkflowStore } from './workflowStore'
 let stopRealtime: (() => void) | null = null
 const refreshedArtifactRuns = new Set<string>()
 
-function mergeLogs(currentLogs: RunLogEntry[], recoveredLogs: RunLogEntry[]) {
-  const merged = new Map(currentLogs.map((log) => [log.id, log]))
-  recoveredLogs.forEach((log) => merged.set(log.id, log))
-  return [...merged.values()].slice(-100)
+const MAX_VISIBLE_LOGS = 100
+
+function logOccurredAtMs(log: RunLogEntry) {
+  const raw = log.occurredAt
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    return undefined
+  }
+  const parsed = Date.parse(raw)
+  return Number.isNaN(parsed) ? undefined : parsed
+}
+
+// 日志合并分为两件独立的事：同一事件 ID 采用哪份内容，和最终按什么顺序展示。
+// 展示顺序不能依赖请求到达顺序，否则较旧的历史记录会把最新窗口整体挤掉。
+function mergeLogs(baseLogs: RunLogEntry[], overlayLogs: RunLogEntry[]) {
+  // 内容选择：同一事件 ID 采用覆盖方的记录。调用方按“实时优先”或“权威快照优先”指定覆盖方。
+  const merged = new Map<string, RunLogEntry>()
+  baseLogs.forEach((log) => merged.set(log.id, log))
+  overlayLogs.forEach((log) => merged.set(log.id, log))
+
+  // 到达序：同一事件首次出现的顺序，用于同时间戳与缺少时间戳的旧记录保持稳定位置。
+  const arrival = new Map<string, number>()
+  let arrivalSequence = 0
+  const rememberArrival = (id: string) => {
+    if (!arrival.has(id)) {
+      arrival.set(id, arrivalSequence)
+      arrivalSequence += 1
+    }
+  }
+  baseLogs.forEach((log) => rememberArrival(log.id))
+  overlayLogs.forEach((log) => rememberArrival(log.id))
+
+  // 展示顺序：按 occurredAt 升序。缺少时间戳的旧记录沿用其前一条已知时间，
+  // 让旧记录仍停留在原来的相邻位置，同时不会挤掉可证明更晚的事件。
+  let lastKnownMs = Number.NEGATIVE_INFINITY
+  const ordered = [...merged.entries()].map(([id, log]) => {
+    const occurredAtMs = logOccurredAtMs(log)
+    if (occurredAtMs !== undefined) {
+      lastKnownMs = occurredAtMs
+    }
+    return {
+      log,
+      sortMs: occurredAtMs ?? lastKnownMs,
+      arrival: arrival.get(id) ?? 0,
+    }
+  })
+  ordered.sort((left, right) => {
+    if (left.sortMs === right.sortMs) {
+      return left.arrival - right.arrival
+    }
+    if (left.sortMs === Number.NEGATIVE_INFINITY) {
+      return -1
+    }
+    if (right.sortMs === Number.NEGATIVE_INFINITY) {
+      return 1
+    }
+    return left.sortMs - right.sortMs
+  })
+  return ordered.slice(-MAX_VISIBLE_LOGS).map((item) => item.log)
 }
 
 function errorMessage(error: unknown) {
@@ -313,6 +367,7 @@ export const useRunStore = defineStore('run', {
             return
           }
           // 请求期间的实时日志优先，同 ID 日志去重后保留完整的历史与当前详情。
+          // 展示顺序由 mergeLogs 按事件时间决定，请求到达顺序不参与排序。
           this.logs = mergeLogs(selectedLogs, this.logs)
           if (selectedRun) {
             this.logsByRunId[selectedRun.id] = this.logs
@@ -376,6 +431,7 @@ export const useRunStore = defineStore('run', {
           return
         }
         // 同一运行的刷新保留请求期间收到的实时日志。
+        // 展示顺序由 mergeLogs 按事件时间决定，请求到达顺序不参与排序。
         this.logs = mergeLogs(selectedLogs, this.logs)
         this.logsByRunId[runId] = this.logs
         await this.recoverCurrentRunRuntime({ expectedRunId: runId, selectionRequestId })
@@ -722,6 +778,8 @@ export const useRunStore = defineStore('run', {
       }
 
       if (recovery.logs.length > 0) {
+        // 恢复出的完整历史是权威快照，覆盖同 ID 的旧内容；
+        // 展示顺序仍由事件时间决定，较旧的历史不会把最新窗口挤掉。
         this.logs = mergeLogs(this.logs, recovery.logs)
         if (this.currentRun) {
           this.logsByRunId[this.currentRun.id] = this.logs
