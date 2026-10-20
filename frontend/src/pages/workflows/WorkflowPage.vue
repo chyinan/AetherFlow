@@ -966,6 +966,14 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         <p v-if="workflowStore.savingError || workflowStore.runError || comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ workflowStore.savingError || workflowStore.runError || comfyUiImportError }}
         </p>
+        <p
+          v-if="workflowStore.saveRecovery && ['reconciling', 'committed', 'committedWithNewerEdits'].includes(workflowStore.saveRecovery.status)"
+          class="mt-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary"
+          role="status"
+          data-testid="save-recovery-hint"
+        >
+          {{ workflowStore.saveRecovery.message }}
+        </p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button

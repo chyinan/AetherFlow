@@ -548,6 +548,10 @@ export const workflowApi = {
     const definitions = await listDefinitions()
     return definitions.map(mapDefinitionSummary)
   },
+  /** 只读获取远端定义的原始记录，用于保存结果不确定时的核对，不改写本地画布。 */
+  async readWorkflowDefinition(definitionId: number | string) {
+    return getDefinition(definitionId)
+  },
   async getWorkflow(workflowId: string) {
     if (workflowId === 'new') {
       return emptyWorkflow('new')
