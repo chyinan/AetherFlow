@@ -344,6 +344,11 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 return RuntimeState.RUNNING.name();
             }
             if (event.eventType() == RuntimeEventType.NODE_COMPLETED) {
+                // 循环子节点失败时事件仍是 NODE_COMPLETED，真实结果由 itemStatus 携带；
+                // 冷加载历史必须读出失败，不能一律当成成功。
+                if ("FAILED".equals(String.valueOf(event.attributes().get("itemStatus")))) {
+                    return RuntimeState.FAILED.name();
+                }
                 return RuntimeState.SUCCESS.name();
             }
             if (event.eventType() == RuntimeEventType.NODE_RETRYING) {
