@@ -91,6 +91,7 @@ let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
 let pageSaveSequence = 0
 let pageCopySequence = 0
+let workflowLoadSequence = 0
 let copyNavigation: { fromPath: string; fullPath: string; ownsRequest: () => boolean } | null = null
 let saveNavigation: {
   fromPath: string
@@ -182,6 +183,20 @@ function numericProjectId(value: unknown) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
+// 保存与导入使用的项目归属：显式地址参数优先，其次是工作流自身的归属，
+// 只有新工作流才回退到全局项目选择，避免全局选择被别的页面污染后写错归类。
+function resolveWorkflowProjectId() {
+  const routeProjectId = numericProjectId(routeQueryString(route.query.projectId))
+  if (routeProjectId !== undefined) {
+    return routeProjectId
+  }
+  const workflowProjectId = numericProjectId(workflowStore.projectId)
+  if (workflowProjectId !== undefined) {
+    return workflowProjectId
+  }
+  return numericProjectId(projectStore.currentProject?.id)
+}
+
 function openComfyUiFilePicker() {
   comfyUiImportError.value = null
   comfyUiFileInput.value?.click()
@@ -209,7 +224,7 @@ async function handleComfyUiFileChange(event: Event) {
   const requestId = ++comfyUiImportSequence
   const navigationRevision = pageNavigationRevision
   const editRevision = workflowStore.editRevision
-  const projectId = numericProjectId(route.query.projectId) ?? numericProjectId(projectStore.currentProject?.id)
+  const projectId = resolveWorkflowProjectId()
   const ownsRequest = () => pageActive && requestId === comfyUiImportSequence
     && navigationRevision === pageNavigationRevision
   const canApply = () => ownsRequest() && workflowStore.editRevision === editRevision
@@ -248,7 +263,16 @@ async function handleComfyUiFileChange(event: Event) {
   }
 }
 
+// 页面级加载代次：只有最后一次路由加载可以继续写入项目与错误信息。
+// 页面卸载或目标工作流变化后，旧请求的收尾不能污染新页面。
+function ownsWorkflowLoad(loadSequence: number, workflowId: string) {
+  return pageActive
+    && loadSequence === workflowLoadSequence
+    && String(route.params.id || 'new') === workflowId
+}
+
 async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unknown> = Promise.resolve()) {
+  const loadSequence = ++workflowLoadSequence
   const projectId = routeQueryString(route.query.projectId)
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
@@ -259,12 +283,19 @@ async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unkno
     // A rejected project request must not escape the mounted hook and become
     // an unhandled Vue promise rejection. Keep the workflow load settled too.
     await workflowLoad.catch(() => false)
+    // 旧页面的失败信息不能覆盖新页面的加载状态。
+    if (!ownsWorkflowLoad(loadSequence, workflowId)) {
+      return false
+    }
     const details = error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown')
     workflowStore.loadingError = `${t('workflow.loadFailed')}: ${details}`
     return false
   }
+  if (!ownsWorkflowLoad(loadSequence, workflowId)) {
+    return false
+  }
   const loaded = await workflowLoad
-  if (!loaded) {
+  if (!loaded || !ownsWorkflowLoad(loadSequence, workflowId)) {
     return false
   }
   if (projectId) {
@@ -273,6 +304,9 @@ async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unkno
     projectStore.selectProjectByWorkflow(workflowId)
   }
   await runStore.selectRunForWorkflow(workflowStore.workflowId, workflowStore.backendDefinitionId)
+  if (!ownsWorkflowLoad(loadSequence, workflowId)) {
+    return false
+  }
   if (runStore.currentRun && workflowRunBelongsToWorkflow(
     runStore.currentRun,
     workflowStore.workflowId,
@@ -391,14 +425,14 @@ async function saveBeforeLeaving() {
   leaveSaveError.value = ''
   const ownsRequest = () => pageActive && pendingNavigation.value === pending && saveSequence === leaveSaveSequence
   try {
-    const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
-    const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
+    const projectId = resolveWorkflowProjectId()
+    const saved = await workflowStore.saveCurrentWorkflow({ projectId })
     if (!ownsRequest()) return
     if (!saved || workflowStore.dirty) {
       leaveSaveError.value = ct(saved ? 'leaveChanged' : 'leaveFailed')
       return
     }
-    if (projectId) projectStore.linkWorkflowToProject(projectId, saved.workflowId)
+    if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
     projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
     // 继续原来的 push/back/replace，保留历史语义，不额外跳转规范化地址。
     settleNavigation(true)
@@ -499,6 +533,8 @@ watch(
     // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
     if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
     if (!hasWorkflowContext.value) {
+      // 清空画布同样代表旧加载失去归属，待完成的旧请求不能再写入项目或错误信息。
+      workflowLoadSequence += 1
       workflowStore.resetToEmptyWorkflow()
       showCopilot.value = false
       showRunConsole.value = false
@@ -513,13 +549,13 @@ watch(
 async function saveWorkflow() {
   const saveSequence = ++pageSaveSequence
   try {
-    const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
+    const projectId = resolveWorkflowProjectId()
     const navigationRevision = pageNavigationRevision
-    const saved = await workflowStore.saveCurrentWorkflow({ projectId: numericProjectId(projectId) })
+    const saved = await workflowStore.saveCurrentWorkflow({ projectId })
     if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision || pendingNavigation.value) return
     const savedWorkflowId = saved.workflowId
     if (projectId) {
-      projectStore.linkWorkflowToProject(projectId, savedWorkflowId)
+      projectStore.linkWorkflowToProject(String(projectId), savedWorkflowId)
     }
     if (String(route.params.id || 'new') !== savedWorkflowId) {
       const canonicalRoute = {
@@ -573,7 +609,7 @@ async function copyWorkflow() {
   try {
     if (workflowStore.dirty) {
       const saved = await workflowStore.saveCurrentWorkflow({
-        projectId: numericProjectId(routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id),
+        projectId: resolveWorkflowProjectId(),
       })
       // 自动保存只服务于点击时的图，不能复制保存等待期间换入或修改的图。
       if (!saved || !ownsRequest() || workflowStore.dirty
@@ -674,7 +710,7 @@ async function startRun() {
     && operation.generation === startNavigationGeneration
   const ownsWorkflow = () => ownsOperation() && operation.workflowId === workflowStore.workflowId
     && (dispatched || workflowStore.editRevision === editRevision)
-  const projectId = routeQueryString(route.query.projectId) ?? projectStore.currentProject?.id
+  const projectId = resolveWorkflowProjectId()
   workflowStore.setRunError(null)
   try {
     await runStore.loadRuns({ selectDefault: false, workflowId: operation.workflowId })
@@ -703,13 +739,13 @@ async function startRun() {
     }
     await workflowStore.saveCurrentWorkflow({
       allowMockFallback: false,
-      projectId: numericProjectId(projectId),
+      projectId,
     })
     // 保存可能因导航或更新的画布而失效，不能继续读取别的工作流并启动。
     if (!ownsOperation() || workflowStore.editRevision !== editRevision) return
     operation.workflowId = workflowStore.workflowId
     if (projectId) {
-      projectStore.linkWorkflowToProject(projectId, operation.workflowId)
+      projectStore.linkWorkflowToProject(String(projectId), operation.workflowId)
     }
     if (String(route.params.id || 'new') !== operation.workflowId) {
       const canonicalRoute = {
