@@ -14,6 +14,7 @@ import { isWorkflowCapabilitySnapshot } from '@/utils/capabilitySupport'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
+import { reconcileNodeRuntimeState } from '@/utils/workflowNodeRuntime'
 import { applyWorkflowCapabilities, canConfigureNodeRuntime, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
@@ -455,7 +456,9 @@ export const useWorkflowStore = defineStore('workflow', {
         edges: request.edges,
       })) as WorkflowGraphHistoryEntry
       this.recordHistory()
-      this.nodes = graph.nodes
+      // 草稿基于生成时的整图快照，确认期间可能已有新的运行事件写入画布。
+      // 在最终提交点协调运行态：结构修改用草稿的，运行状态与运行摘要用当前画布最新的。
+      this.nodes = reconcileNodeRuntimeState(graph.nodes, this.nodes)
       this.edges = graph.edges
       this.markDirty()
       return true

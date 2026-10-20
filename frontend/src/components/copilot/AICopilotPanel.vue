@@ -664,6 +664,8 @@ async function confirmCustomNodeDraft(messageId: string) {
       return existing && customDefinitionKey(existing) === customDefinitionKey(definition)
     })), ...preview.definitions.map((definition) => customNodeTemplate(definition,
       snapshot.templates.find((template) => !template.config.customDefinition && template.kind === (definition.kind === 'API' ? 'http-request' : 'code'))))]
+    // 候选结构来自生成时的整图快照；快照里的运行状态是旧值，
+    // 最终提交画布时由 store 按当前画布的最新运行信息协调，不在这里刷新快照。
     const candidate = preview.canvasEdit ? compileCanvasEdit(snapshot, preview.canvasEdit) : null
     if (candidate && !candidate.ok) throw new Error(candidate.error)
     const validation = candidate?.ok ? await workflowApi.validateCanvasEdit({
