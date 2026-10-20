@@ -7,6 +7,9 @@ import { toRaw } from 'vue'
 
 import { getWorkflowCapabilities } from '@/api/modules/ai'
 import { getNodeCatalog, type WorkflowNodeCatalogItem } from '@/api/modules/node'
+import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
+import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
+import { toApiError } from '@/api/client/apiError'
 import { i18n } from '@/i18n'
 import { getBackendDefinitionId, workflowApi } from '@/services/api/workflowApi'
 import { nodeTemplates } from '@/services/mock/workflowMock'
@@ -15,6 +18,7 @@ import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdg
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
 import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
 import { reconcileNodeRuntimeState } from '@/utils/workflowNodeRuntime'
+import { classifyRemoteSaveState, type SaveSubmissionSnapshot } from '@/utils/workflowSaveRecovery'
 import { applyWorkflowCapabilities, canConfigureNodeRuntime, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
 import { findDuplicateNodePosition } from '@/utils/workflowNodePlacement'
 import type { CopilotWorkflowDraftApplyRequest } from '@/types/copilotWorkflowPlan'
@@ -38,6 +42,22 @@ function serializeNodesWithoutSelection(nodes: WorkflowGraphNode[]) {
 
 function serializeEdgesWithoutSelection(edges: ReadonlyArray<WorkflowGraphEdge>) {
   return JSON.stringify(edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, label: edge.label ?? '' })))
+}
+
+/**
+ * 只有“请求可能已经落库、但响应没有回来”的失败才需要核对远端。
+ * 服务端明确拒绝（校验失败、版本冲突等 4xx）时结果是确定的，不要发起核对请求。
+ */
+function isUncertainSaveOutcome(error: unknown) {
+  const apiError = toApiError(error, 'workflow')
+  const status = apiError.status
+  if (status === undefined) {
+    return apiError.source === 'network'
+  }
+  if (status === 0 || status === 408 || status === 429) {
+    return true
+  }
+  return status >= 500
 }
 
 type WorkflowGraphHistoryEntry = {
@@ -267,6 +287,12 @@ export const useWorkflowStore = defineStore('workflow', {
     loadingError: null as string | null,
     saving: false,
     savingError: null as string | null,
+    saveRecovery: null as null | {
+      status: 'uncertain' | 'reconciling' | 'committed' | 'committedWithNewerEdits'
+        | 'notSubmitted' | 'conflict' | 'retryable'
+      workflowId: string
+      message: string
+    },
     workflowSaveRequestSequence: 0,
     runError: null as string | null,
     historyPast: [] as WorkflowGraphHistoryEntry[],
@@ -687,6 +713,8 @@ export const useWorkflowStore = defineStore('workflow', {
       // 导航开始即解除旧工作流的保存反馈，加载失败也不能留下旧的忙碌状态。
       this.saving = false
       this.savingError = null
+      // 换了工作流就没有待核对的保存，旧的核对结果不得写进新页面。
+      this.saveRecovery = null
       try {
         const workflow = await workflowApi.getWorkflow(workflowId)
         if (requestId !== workflowLoadRequestCounter) {
@@ -745,7 +773,10 @@ export const useWorkflowStore = defineStore('workflow', {
         && saveRequestId === this.workflowSaveRequestSequence
       this.saving = true
       this.savingError = null
+      this.saveRecovery = null
       const recoveringCreation = !this.backendDefinitionId && Boolean(this.createIntent)
+      // 提交快照在发出前固定，核对时用它判断远端是否真的落库了这次内容。
+      let submission: SaveSubmissionSnapshot | null = null
       try {
         const currentWorkflow: WorkflowDefinition = {
           id: this.workflowId,
@@ -757,6 +788,8 @@ export const useWorkflowStore = defineStore('workflow', {
           edges: this.edges,
           backendVersion: this.backendVersion ?? undefined,
         }
+        // 提交快照在发出前固定，核对时用它判断远端是否真的落库了这次内容。
+        submission = this.captureSaveSubmission(currentWorkflow)
         if (!this.backendDefinitionId && !this.createIntent) {
           // 记录创建键首次提交的意图；相同键的响应不能确认之后修改过的内容。
           const workflow = structuredClone(unwrapWorkflowCloneValue(currentWorkflow)) as WorkflowDefinition
@@ -794,18 +827,100 @@ export const useWorkflowStore = defineStore('workflow', {
         // 调用方只能为仍有效的成功保存执行页面收尾。
         return { workflowId: savedWorkflow.id }
       } catch (error) {
-        if (ownsSaveState()) {
-          const details = error instanceof Error && error.message
-            ? error.message
-            : i18n.global.t('workflow.saveFailedUnknown')
-          this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`
+        if (!ownsSaveState()) {
+          throw error
         }
-        throw error
-      } finally {
+        if (!isUncertainSaveOutcome(error)) {
+          const details = toApiError(error, 'workflow').message || i18n.global.t('workflow.saveFailedUnknown')
+          this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`
+          throw error
+        }
+        // 响应丢失：结果不确定。只读核对远端，绝不用重载覆盖当前画布或草稿。
+        this.saveRecovery = {
+          status: 'uncertain',
+          workflowId: submission?.workflowId ?? this.workflowId,
+          message: i18n.global.t('workflow.saveRecoveryUncertain'),
+        }
+        const recovered = await this.reconcileUncertainSave(submission, editRevisionAtStart, ownsSaveState, error)
+        if (!ownsSaveState()) {
+          throw error
+        }
+        if (recovered.status === 'committed' || recovered.status === 'committedWithNewerEdits') {
+          return { workflowId: this.workflowId }
+        }
+        this.savingError = recovered.message
+        throw new Error(recovered.message)      } finally {
         if (ownsSaveState()) {
           this.saving = false
         }
       }
+    },
+    captureSaveSubmission(currentWorkflow: WorkflowDefinition): SaveSubmissionSnapshot | null {
+      if (!this.backendDefinitionId || typeof this.backendVersion !== 'number') {
+        // 首次创建没有可核对的远端版本，沿用既有幂等键恢复路径。
+        return null
+      }
+      return {
+        workflowId: currentWorkflow.id,
+        definitionId: this.backendDefinitionId,
+        expectedVersion: this.backendVersion,
+        payload: JSON.parse(JSON.stringify(mapWorkflowToDefinitionDTO(currentWorkflow))) as WorkflowDefinitionDTO,
+      }
+    },
+    async reconcileUncertainSave(
+      submission: SaveSubmissionSnapshot | null,
+      editRevisionAtStart: number,
+      ownsSaveState: () => boolean,
+      cause: unknown,
+    ): Promise<{ status: 'committed' | 'committedWithNewerEdits' | 'notSubmitted' | 'conflict' | 'retryable'; message: string }> {
+      const details = toApiError(cause, 'workflow').message
+      if (!submission) {
+        // 首次创建没有可核对的远端版本，沿用既有幂等键恢复路径：重试会拿回原记录。
+        const message = `${i18n.global.t('workflow.saveRecoveryUnknown')}: ${details}`
+        this.saveRecovery = { status: 'retryable', workflowId: this.workflowId, message }
+        return { status: 'retryable', message }
+      }
+      this.saveRecovery = {
+        status: 'reconciling',
+        workflowId: submission.workflowId,
+        message: i18n.global.t('workflow.saveRecoveryReconciling'),
+      }
+      let remote: { version?: number; definitionJson?: string }
+      try {
+        remote = await workflowApi.readWorkflowDefinition(submission.definitionId!)
+      } catch (error) {
+        const message = `${i18n.global.t('workflow.saveRecoveryRetryable')}: ${toApiError(error, 'workflow').message}`
+        if (ownsSaveState() && this.workflowId === submission.workflowId) {
+          this.saveRecovery = { status: 'retryable', workflowId: submission.workflowId, message }
+        }
+        return { status: 'retryable', message }
+      }
+      // 迟到结果不得写回：期间可能已切页、重载或出现新的保存。
+      if (!ownsSaveState() || this.workflowId !== submission.workflowId) {
+        return { status: 'conflict', message: i18n.global.t('workflow.saveRecoveryStale') }
+      }
+      const state = classifyRemoteSaveState(submission, remote)
+      if (state === 'committed') {
+        this.backendVersion = remote.version ?? this.backendVersion
+        if (this.editRevision === editRevisionAtStart) {
+          this.markSaved()
+          const message = i18n.global.t('workflow.saveRecoveryCommitted')
+          this.saveRecovery = { status: 'committed', workflowId: submission.workflowId, message }
+          return { status: 'committed', message }
+        }
+        // 存在较新的本地编辑：保留草稿、选中状态与撤销重做历史，只更新保存基线。
+        const message = i18n.global.t('workflow.saveRecoveryCommittedWithNewerEdits')
+        this.saveRecovery = { status: 'committedWithNewerEdits', workflowId: submission.workflowId, message }
+        return { status: 'committedWithNewerEdits', message }
+      }
+      if (state === 'notSubmitted') {
+        const message = `${i18n.global.t('workflow.saveRecoveryNotSubmitted')}: ${details}`
+        this.saveRecovery = { status: 'notSubmitted', workflowId: submission.workflowId, message }
+        return { status: 'notSubmitted', message }
+      }
+      const message = `${i18n.global.t('workflow.saveRecoveryConflict')}: ${details}`
+      this.saveRecovery = { status: 'conflict', workflowId: submission.workflowId, message }
+      return { status: 'conflict', message }
     },
   },
 })
