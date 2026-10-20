@@ -587,7 +587,8 @@ def _transcribe_blocking(request: TranscriptionRequest, audio_source: Path) -> T
     # faster-whisper 返回惰性迭代器，先物化一次，字幕与结构化输出共享同一批片段。
     segment_list = list(segments)
     srt_content = _segments_to_srt(segment_list)
-    text = "\n".join(line for line in srt_content.splitlines() if "-->" not in line and not line.isdigit()).strip()
+    # 正文直接取自已物化的片段，不能从字幕行反推：纯数字正文会被当成字幕序号删掉。
+    text = "\n\n".join(segment.text.strip() for segment in segment_list).strip()
     return TranscriptionResponse(
         text=text,
         srtContent=srt_content,
