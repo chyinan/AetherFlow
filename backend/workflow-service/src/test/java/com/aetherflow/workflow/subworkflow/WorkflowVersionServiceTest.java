@@ -37,7 +37,7 @@ class WorkflowVersionServiceTest {
         WorkflowDefinitionDTO child = definition(node("old", "START", Map.of()));
         when(mapper.findOwned(7L, 2, 1L)).thenReturn(version(7L, 2, child));
         assertThat(versions.dependencies(definition(call("call", 7, 2)))).singleElement()
-                .extracting(value -> value.getNodes().getFirst().getNodeId()).isEqualTo("old");
+                .extracting(value -> value.getNodes().get(0).getNodeId()).isEqualTo("old");
         verify(mapper).findOwned(7L, 2, 1L);
         WorkflowDefinitionDTO cyclic = definition(node("a", "START", Map.of("next", "b")),
                 node("b", "START", Map.of("next", "a")));

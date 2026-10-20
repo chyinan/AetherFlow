@@ -3,6 +3,7 @@ package com.aetherflow.workflow.node.mapping;
 // pattern: Functional Core
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,9 @@ class StructuredDataMapperTest {
             return cases.stream().map(fixture -> DynamicTest.dynamicTest((String) fixture.get("name"), () -> {
                 @SuppressWarnings("unchecked") Map<String, Object> variables = (Map<String, Object>) fixture.get("input");
                 Object result = StructuredDataMapper.transform(variables, fixture.get("config"));
-                assertThat(JSON.valueToTree(result)).isEqualTo(JSON.valueToTree(fixture.get("expected")));
+                JsonNode actual = JSON.valueToTree(result);
+                JsonNode expected = JSON.valueToTree(fixture.get("expected"));
+                assertThat(actual).isEqualTo(expected);
             }));
         }
     }

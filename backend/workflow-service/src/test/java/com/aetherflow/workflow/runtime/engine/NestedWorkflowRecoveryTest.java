@@ -50,7 +50,8 @@ class NestedWorkflowRecoveryTest {
         WorkflowExecutionSnapshot last = engine.completeWaitingNode(request, next, ids.get(1), NodeResult.success(Map.of()));
         assertThat(last.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
         List<?> results = (List<?>) last.nodeOutputs().get("batch").output().get("results");
-        assertThat((Map<?, ?>) results.get(0)).containsValue("FAILED").containsValue("模型暂不可用");
+        @SuppressWarnings("unchecked") Map<String, Object> iteration = (Map<String, Object>) results.get(0);
+        assertThat(iteration).containsValue("FAILED").containsValue("模型暂不可用");
     }
 
     @Test void 失败策略停止使根节点失败并保留已完成检查点() {
