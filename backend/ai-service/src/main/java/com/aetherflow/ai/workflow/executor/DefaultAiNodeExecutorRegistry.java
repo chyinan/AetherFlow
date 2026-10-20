@@ -14,6 +14,12 @@ import java.util.stream.Collectors;
 // pattern: Functional Core
 public class DefaultAiNodeExecutorRegistry {
 
+    /**
+     * 节点类型别名：工作流目录与异步任务使用 WHISPER，ASR 执行器只登记 ASR。
+     * 同步入口与异步 worker 共用本注册表，别名在这里解析可同时覆盖两条链路。
+     */
+    private static final Map<String, String> NODE_TYPE_ALIASES = Map.of("WHISPER", "ASR");
+
     private final Map<String, AiNodeExecutor> executors;
 
     public DefaultAiNodeExecutorRegistry(List<AiNodeExecutor> executors) {
@@ -22,7 +28,11 @@ public class DefaultAiNodeExecutorRegistry {
     }
 
     public AiNodeExecutor getRequired(String nodeType) {
-        AiNodeExecutor executor = executors.get(normalize(nodeType));
+        String normalized = normalize(nodeType);
+        AiNodeExecutor executor = executors.get(normalized);
+        if (executor == null) {
+            executor = executors.get(NODE_TYPE_ALIASES.getOrDefault(normalized, normalized));
+        }
         if (executor == null) {
             throw new BusinessException(ResultCode.BAD_REQUEST, "unsupported ai node type: " + nodeType);
         }
