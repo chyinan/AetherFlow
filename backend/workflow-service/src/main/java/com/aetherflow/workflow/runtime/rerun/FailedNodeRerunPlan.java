@@ -37,7 +37,12 @@ public record FailedNodeRerunPlan(String nodeId, List<String> invalidatedNodeIds
         if (source.runtimeState() != RuntimeState.FAILED) blockers.add("仅失败终态运行可局部重跑");
         if (!source.failedNodeIds().contains(nodeId)) blockers.add("所选节点没有失败记录");
         Set<String> completed = new LinkedHashSet<>(source.completedNodeIds());
-        List<String> preserved = dag.nodeIds().stream().filter(completed::contains)
+        // 复用节点必须沿用源运行的真实完成顺序：跳过状态恢复是顺序敏感的，
+        // 按定义里的节点创建顺序排列会让较晚完成的条件节点抢先回放，
+        // 导致共享汇合点既没有被跳过也没有被执行。
+        List<String> preserved = source.completedNodeIds().stream()
+                .filter(dag.nodeIds()::contains)
+                .filter(completed::contains)
                 .filter(id -> !invalidated.contains(id)).toList();
         Set<String> skipped = skippedNodes(dag, source);
         for (String id : dag.nodeIds()) {

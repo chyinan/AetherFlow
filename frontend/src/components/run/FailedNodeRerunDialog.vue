@@ -80,7 +80,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @keydown.esc.stop="close">
+    <div class="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4" @keydown.esc.stop="close">
       <section ref="panel" role="dialog" @keydown="trapFocus" aria-modal="true" aria-labelledby="node-rerun-title" tabindex="-1" class="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
         <h2 id="node-rerun-title" class="font-semibold">{{ t('runs.rerunTitle', { node: nodeLabel }) }}</h2>
         <p class="mt-2 text-sm text-text-secondary">{{ t('runs.rerunExplanation') }}</p>

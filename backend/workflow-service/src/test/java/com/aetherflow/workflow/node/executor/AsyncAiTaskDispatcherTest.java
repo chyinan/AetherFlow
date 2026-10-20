@@ -44,4 +44,30 @@ class AsyncAiTaskDispatcherTest {
         assertThat(message.getValue().getNodeId()).isEqualTo("node-ai");
         assertThat(message.getValue().getEnqueue()).isTrue();
     }
+
+    @Test
+    void whisperNodeTypeIsDispatchedUnchangedSoTheWorkerCanResolveIt() {
+        TaskClient taskClient = mock(TaskClient.class);
+        TaskClientProperties credentials = new TaskClientProperties();
+        credentials.setInternalToken("0123456789abcdef0123456789abcdef");
+        WorkflowNodeProperties nodeProperties = new WorkflowNodeProperties();
+        nodeProperties.setAsyncAiEnabled(true);
+        AsyncAiTaskDispatcher dispatcher = new AsyncAiTaskDispatcher(taskClient, credentials, nodeProperties);
+        when(taskClient.dispatch(any(String.class), any(TaskMessageDTO.class))).thenReturn(Result.success(92L));
+        DefaultWorkflowContext context = new DefaultWorkflowContext(
+                "101", "trace-101", "101", Map.of("userId", 7L));
+        context.updateCurrentNodeId("node-whisper");
+
+        long taskId = dispatcher.dispatch(context, "WHISPER", Map.of("fileUrl", "http://minio/aetherflow/audio.mp3"));
+
+        assertThat(taskId).isEqualTo(92L);
+        ArgumentCaptor<TaskMessageDTO> message = ArgumentCaptor.forClass(TaskMessageDTO.class);
+        verify(taskClient).dispatch(any(String.class), message.capture());
+        // 持久化任务的原始类型保持 WHISPER，任务标识与幂等键语义不变。
+        assertThat(message.getValue().getNodeType()).isEqualTo("WHISPER");
+        assertThat(message.getValue().getTaskId()).isNull();
+        assertThat(message.getValue().getIdempotencyKey())
+                .isEqualTo("workflow-ai:101:trace-101:node-whisper:WHISPER:root");
+        assertThat(message.getValue().getPayload()).containsEntry("fileUrl", "http://minio/aetherflow/audio.mp3");
+    }
 }
