@@ -228,6 +228,34 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertIn("00:00:00,000 --> 00:00:01,000", body["srtContent"])
         self.assertNotIn("srtObjectKey", body)
 
+    def test_transcription_keeps_numeric_only_body_in_the_api_text(self):
+        class FakeWhisperModel:
+            def transcribe(self, *_args, **_kwargs):
+                return (
+                    [SimpleNamespace(start=0.0, end=1.0, text="2026")],
+                    SimpleNamespace(duration=1.0),
+                )
+
+        source = Path("audio.wav")
+        with (
+            patch.dict("os.environ", {"ENABLE_WHISPER": "true"}, clear=False),
+            patch("app.main._whisper_model", FakeWhisperModel()),
+            patch("app.main._materialize_source", return_value=source),
+            patch("app.main._ensure_audio_source", return_value=source),
+            patch("app.main._cleanup_materialized"),
+        ):
+            response = self.client.post(
+                "/v1/transcriptions",
+                json={"fileUrl": "http://minio/aetherflow/audio.wav", "language": "auto"},
+            )
+
+        self.assertEqual(200, response.status_code)
+        body = response.json()
+        # 纯数字正文不是字幕序号，必须出现在返回的 text 中。
+        self.assertEqual("2026", body["text"])
+        self.assertIn("2026", body["srtContent"])
+        self.assertEqual([{"start": 0.0, "end": 1.0, "text": "2026"}], body["segments"])
+
     def test_ffmpeg_endpoint_rejects_unsupported_operation_before_process_spawn(self):
         with patch("app.main.subprocess.run") as run:
             response = self.client.post(
