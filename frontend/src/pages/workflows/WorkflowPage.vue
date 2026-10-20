@@ -121,9 +121,13 @@ watch(() => route.fullPath, (to, from) => {
   }
   pageCopySequence += 1
   copyingWorkflow.value = false
-  comfyUiImportSequence += 1
-  importingComfyUi.value = false
-  comfyUiImportError.value = null
+  // 保存回执只规范化当前画布的地址，仍在读取或转换中的较新导入必须继续生效；
+  // 真正离开当前工作流时，旧导入才作废，不能落到别的页面。
+  if (!preservesSavedCanvas) {
+    comfyUiImportSequence += 1
+    importingComfyUi.value = false
+    comfyUiImportError.value = null
+  }
   showingWorkflowTemplates.value = false
   workflowStore.invalidateWorkflowTemplatesLoad()
 }, { flush: 'sync' })
@@ -222,11 +226,11 @@ async function handleComfyUiFileChange(event: Event) {
   }
 
   const requestId = ++comfyUiImportSequence
-  const navigationRevision = pageNavigationRevision
   const editRevision = workflowStore.editRevision
   const projectId = resolveWorkflowProjectId()
+  // 导入归属只看导入代次：更新一代导入或真正离开当前工作流才会作废，
+  // 保存回执引起的地址规范化属于同一张画布，不能让较新的导入失效。
   const ownsRequest = () => pageActive && requestId === comfyUiImportSequence
-    && navigationRevision === pageNavigationRevision
   const canApply = () => ownsRequest() && workflowStore.editRevision === editRevision
   importingComfyUi.value = true
   comfyUiImportError.value = null
