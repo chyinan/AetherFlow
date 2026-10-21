@@ -47,6 +47,19 @@ class WorkflowNodeConfigValidatorTest {
     }
 
     @Test
+    void acceptsLegacyBlankComfyExecutionGraphField() {
+        // 旧数据允许空执行图字段，节点目录校验不额外收紧；
+        // 明确清空由映射层区分，并在预检与执行图解析处显式报错。
+        WorkflowNodeDTO node = node("image", "IMAGE_GENERATION", Map.of(
+                "provider", "COMFYUI", "mode", "workflow",
+                "workflow", Map.of("1", Map.of("class_type", "KSampler")),
+                "workflowJson", ""));
+
+        assertThat(WorkflowNodeConfigValidator.validate(node, catalogService.catalog()))
+                .noneMatch(message -> message.contains("workflowJson"));
+    }
+
+    @Test
     void stillRejectsNonBlankUnsupportedEnumValues() {
         WorkflowNodeDTO node = node("sd", "IMAGE_GENERATION", Map.of(
                 "provider", "SD_WEBUI", "mode", "txt2img", "prompt", "cat",

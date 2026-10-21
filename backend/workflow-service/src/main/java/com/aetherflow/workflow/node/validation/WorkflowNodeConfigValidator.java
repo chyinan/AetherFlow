@@ -112,8 +112,7 @@ public final class WorkflowNodeConfigValidator {
             if (concurrency instanceof Number value && (value.doubleValue() < 1 || value.doubleValue() > 8 || value.doubleValue() != value.intValue()))
                 violations.add(prefix + "concurrency 必须是 1 至 8 的整数");
         }
-        if ("KNOWLEDGE_RETRIEVAL".equals(type)) {
-            Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
+        if ("KNOWLEDGE_RETRIEVAL".equals(type)) {            Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
             if (!isBlank(datasetId) && !isPositiveLong(datasetId)) {
                 violations.add(prefix + "datasetId must be a positive number");
             }

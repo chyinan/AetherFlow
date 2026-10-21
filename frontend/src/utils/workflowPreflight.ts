@@ -57,6 +57,11 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
       const error = comfyBindingError(config.workflowBindings, importedGraph)
       if (error) add('blocking', 'mapping', { ...location, field: 'workflowBindings', detail: error })
     }
+    // 明确清空的执行图必须阻塞：静默回落原图会让实际执行与界面显示不一致。
+    if (normalized.nodeType === 'IMAGE_GENERATION' && String(config.provider).toUpperCase() === 'COMFYUI'
+      && Object.hasOwn(config, 'workflowJson') && blank(config.workflowJson)) {
+      add('blocking', 'mapping', { ...location, field: 'workflowJson', detail: 'ComfyUI 执行图已清空，请恢复 API 格式 JSON 或移除该配置。' })
+    }
     const template = templates.find((item) => item.kind === node.data.kind)
     if (Object.hasOwn(config, 'customDefinition')) {
       try {
