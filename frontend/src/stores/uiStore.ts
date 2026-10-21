@@ -277,8 +277,17 @@ export const useUiStore = defineStore('ui', {
     },
     addNotifyMessage(message: NotifyMessageDTO) {
       const messageKey = notificationMessageKey(message)
+      // 服务端推送的 eventId 就是通知记录 ID：与历史列表使用同一身份，
+      // 实时与历史都到达时只展示一条，也不按文案去重。
+      const persistentId = message.eventId?.trim()
+      const id = persistentId
+        ? `record-${persistentId}`
+        : `local-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      if (this.notifications.some((item) => item.id === id)) {
+        return
+      }
       this.notifications.unshift({
-        id: `notify-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id,
         time: notificationTime(message.occurredAt),
         title: notificationTitle(message),
         messageKey,
@@ -299,6 +308,8 @@ export const useUiStore = defineStore('ui', {
         return
       }
       const request = ++this.notificationLoadRequest
+      // 请求开始时已存在的通知：后端快照不再包含时按后端为准丢弃。
+      const idsAtRequestStart = new Set(this.notifications.map((item) => item.id))
       this.notificationsLoading = true
       this.notificationLoadError = false
       try {
@@ -306,7 +317,11 @@ export const useUiStore = defineStore('ui', {
         if (request !== this.notificationLoadRequest) {
           return
         }
-        this.notifications = mergeNotificationHistory(this.notifications, records.map(normalizeRecord))
+        // 请求期间新到的通知不在这份快照里，合并时必须保留。
+        const keepLocalIds = this.notifications
+          .filter((item) => !idsAtRequestStart.has(item.id))
+          .map((item) => item.id)
+        this.notifications = mergeNotificationHistory(this.notifications, records.map(normalizeRecord), { keepLocalIds })
         writeStoredNotifications(this.notifications)
       } catch {
         if (request === this.notificationLoadRequest) {

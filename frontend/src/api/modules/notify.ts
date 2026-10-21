@@ -7,6 +7,8 @@ export interface NotifyMessageDTO {
   eventType?: string
   payload: Record<string, unknown>
   occurredAt?: string
+  /** 服务端持久化身份：落库后的通知记录 ID，与历史列表中的同一条通知一致。 */
+  eventId?: string
 }
 
 export interface NotifyStreamTokenResponse {
@@ -124,6 +126,9 @@ export function safeParseNotifyMessage(value: unknown): NotifyMessageDTO | null 
 
   const payload = isRecord(parsed.payload) ? parsed.payload : {}
   const occurredAt = typeof parsed.occurredAt === 'string' ? parsed.occurredAt : undefined
+  const eventId = typeof parsed.eventId === 'string' || typeof parsed.eventId === 'number'
+    ? String(parsed.eventId)
+    : undefined
 
   return {
     userId:
@@ -134,6 +139,7 @@ export function safeParseNotifyMessage(value: unknown): NotifyMessageDTO | null 
     eventType: typeof parsed.eventType === 'string' ? parsed.eventType : undefined,
     payload,
     occurredAt,
+    eventId: eventId?.trim() || undefined,
   }
 }
 
