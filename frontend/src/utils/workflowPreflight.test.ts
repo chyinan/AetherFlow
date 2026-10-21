@@ -27,6 +27,11 @@ describe('静态预检分类与保存契约', () => {
     expect(issues.filter((item) => item.level === 'blocking')).toEqual([])
     expect(issues).toContainEqual(expect.objectContaining({ level: 'unknown', field: 'connectionId' }))
   })
+  it('明确清空的执行图必须阻塞，不能悄悄回退原图', () => {
+    const template = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: [{ name: 'workflowJson', type: 'STRING' }, { name: 'workflow', type: 'OBJECT' }] }
+    const issues = check([node('image', 'image-generation', { provider: 'COMFYUI', mode: 'workflow', workflow: { '1': { class_type: 'KSampler' } }, workflowJson: '' })], [template])
+    expect(issues).toContainEqual(expect.objectContaining({ level: 'blocking', nodeId: 'image', field: 'workflowJson' }))
+  })
   it('非法变量名阻塞，未证明的运行输入仅提醒', () => {
     const issues = check([node('llm', 'llm', { promptVariable: 'invalid.path', contextVariable: 'externalInput' })])
     expect(issues).toContainEqual(expect.objectContaining({ level: 'blocking', field: 'promptVariable', code: 'variableName' }))

@@ -45,21 +45,29 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
 
     @Override
     public RunPageResponse listInstances(String workflowId, String status, int page, int pageSize) {
+        return listInstances(workflowId, null, status, page, pageSize);
+    }
+
+    @Override
+    public RunPageResponse listInstances(String workflowId, Long definitionId, String status, int page, int pageSize) {
         int normalizedPage = Math.max(1, page);
         int normalizedPageSize = normalizePageSize(pageSize);
         Long numericWorkflowId = parseWorkflowId(workflowId);
         if (hasText(workflowId) && numericWorkflowId == null) {
             return new RunPageResponse(normalizedPage, normalizedPageSize, 0, List.of());
         }
+        if (definitionId != null && definitionId <= 0) {
+            throw new BusinessException(ResultCode.BAD_REQUEST, "workflow definition id is invalid");
+        }
 
-        LambdaQueryWrapper<WorkflowInstance> countQuery = query(numericWorkflowId, status);
+        LambdaQueryWrapper<WorkflowInstance> countQuery = query(numericWorkflowId, definitionId, status);
         long total = instanceMapper.selectCount(countQuery);
         if (total == 0) {
             return new RunPageResponse(normalizedPage, normalizedPageSize, 0, List.of());
         }
 
         long offset = (long) (normalizedPage - 1) * normalizedPageSize;
-        LambdaQueryWrapper<WorkflowInstance> listQuery = query(numericWorkflowId, status)
+        LambdaQueryWrapper<WorkflowInstance> listQuery = query(numericWorkflowId, definitionId, status)
                 .orderByDesc(WorkflowInstance::getStartedAt)
                 .orderByDesc(WorkflowInstance::getId)
                 .last("LIMIT " + offset + ", " + normalizedPageSize);
@@ -109,10 +117,14 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                 .toList();
     }
 
-    private LambdaQueryWrapper<WorkflowInstance> query(Long workflowId, String status) {
+    private LambdaQueryWrapper<WorkflowInstance> query(Long workflowId, Long definitionId, String status) {
         LambdaQueryWrapper<WorkflowInstance> query = new LambdaQueryWrapper<>();
         query.eq(WorkflowInstance::getUserId, currentUserId());
-        if (workflowId != null) {
+        if (definitionId != null) {
+            // 明确的定义 ID 精确筛选：不再顺带匹配同号的运行实例，避免 ID 撞号时返回别的运行。
+            query.eq(WorkflowInstance::getDefinitionId, definitionId);
+        } else if (workflowId != null) {
+            // 兼容旧入口：按工作流 ID 筛选时同时匹配运行实例 ID。
             query.and(wrapper -> wrapper.eq(WorkflowInstance::getDefinitionId, workflowId)
                     .or()
                     .eq(WorkflowInstance::getId, workflowId));

@@ -65,7 +65,6 @@ import { useModelStore } from '@/stores/modelStore'
 import { useRunStore } from '@/stores/runStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import type { FileAsset } from '@/types/file'
 import type { WorkflowNodeKind } from '@/types/workflow'
 import { workflowRequiresFileInput } from '@/utils/workflowInputRequirements'
 import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
@@ -86,6 +85,9 @@ const selectedNode = computed(() => {
   const selectedByStore = workflowStore.nodes.find((node) => node.id === uiStore.selectedNodeId)
   return selectedByFlow ?? selectedByStore ?? null
 })
+// 上传回执的归属代次：按节点记录，迟到回执不得写入其他节点或覆盖更新的选择。
+const inputFileIntents = new Map<string, number>()
+let inputFileIntentCounter = 0
 const { t, te } = useI18n()
 const { t: ct } = useI18n({ useScope: 'local', messages: capabilitySupportMessages })
 const router = useRouter()
@@ -189,7 +191,7 @@ watch(capabilityContext, () => {
   capabilityChecking.value = false
   capabilityCheckState.value = ''
 }, { flush: 'sync' })
-onBeforeUnmount(() => { inspectorAlive = false; capabilityCheckSequence += 1 })
+onBeforeUnmount(() => { inspectorAlive = false; capabilityCheckSequence += 1; inputFileIntents.clear() })
 const workflowNeedsFileInput = computed(() => workflowRequiresFileInput(workflowStore.nodes))
 const imageSchemaKinds = new Set<WorkflowNodeKind>(['prompt', 'image-generation', 'upscale', 'save-image'])
 const backendTypeByKind: Partial<Record<WorkflowNodeKind, string>> = {
@@ -630,12 +632,29 @@ function handleDynamicFieldToggle(field: WorkflowNodeConfigSchema, event: Event)
   updateConfig(field.name, (event.target as HTMLInputElement).checked)
 }
 
-function selectInputFile(file: FileAsset) {
-  if (!file.backendFileId) {
-    return
+/** 上传回执归属：绑定发起节点与代次，迟到结果不写入其他节点，也不覆盖更新的选择。 */
+function beginInputFileIntent(nodeId: string) {
+  const generation = ++inputFileIntentCounter
+  inputFileIntents.set(nodeId, generation)
+  return generation
+}
+
+function isCurrentInputFileIntent(nodeId: string, generation: number) {
+  return inputFileIntents.get(nodeId) === generation
+}
+
+function applyInputFileToNode(nodeId: string, fileId: ConfigValue, fileName: ConfigValue) {
+  workflowStore.updateNodeConfig(nodeId, 'fileId', fileId)
+  workflowStore.updateNodeConfig(nodeId, 'fileName', fileName)
+}
+
+/** 手动改选已有文件同样让更早的上传回执失效。 */
+function handleInputFileSelection(event: Event) {
+  const node = selectedNode.value
+  if (node) {
+    beginInputFileIntent(node.id)
   }
-  updateConfig('fileId', file.backendFileId)
-  updateConfig('fileName', file.name)
+  handleTextInput('fileId', event)
 }
 
 async function handleInputFileUpload(event: Event) {
@@ -645,11 +664,35 @@ async function handleInputFileUpload(event: Event) {
   if (!file) {
     return
   }
+  const node = selectedNode.value
+  if (!node) {
+    return
+  }
+  const nodeId = node.id
+  const workflowId = workflowStore.workflowId
+  const generation = beginInputFileIntent(nodeId)
   try {
     const asset = await fileStore.upload(file)
-    if (asset?.backendFileId) {
-      selectInputFile(asset)
+    if (!asset?.backendFileId) {
+      return
     }
+    // 迟到回执：节点已删除、工作流已切换或已有更新的选择时一律丢弃。
+    if (!isCurrentInputFileIntent(nodeId, generation)) {
+      return
+    }
+    if (workflowStore.workflowId !== workflowId) {
+      return
+    }
+    if (!workflowStore.nodes.some((item) => item.id === nodeId)) {
+      return
+    }
+    // 节点上已有更新的文件选择时，迟到回执不得覆盖。
+    const current = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
+    if (current !== undefined && current !== null && String(current).trim() !== ''
+      && String(current) !== String(asset.backendFileId)) {
+      return
+    }
+    applyInputFileToNode(nodeId, asset.backendFileId, asset.name)
   } catch {
     // The file store exposes uploadError for the inspector banner.
   }
@@ -822,7 +865,7 @@ onMounted(() => {
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.selectExistingFile') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileId" :value="textConfig('fileId', '')" @change="handleTextInput('fileId', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="fileId" :value="textConfig('fileId', '')" @change="handleInputFileSelection($event)">
               <option value="">{{ t('workflow.inspector.noFileSelected') }}</option>
               <option v-for="file in selectableInputFiles" :key="file.id" :value="file.backendFileId">
                 {{ file.name }} · fileId={{ file.backendFileId }}

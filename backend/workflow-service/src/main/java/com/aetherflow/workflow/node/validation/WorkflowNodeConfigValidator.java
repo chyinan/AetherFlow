@@ -65,8 +65,10 @@ public final class WorkflowNodeConfigValidator {
                 }
                 continue;
             }
+            // 可选枚举的空白值统一按"未指定"处理，交给部署默认；只有非空的非法值才拒绝。
             if (!runtimeConnectionOption(item.type(), field.name(), config)
                     && !field.options().isEmpty() && value instanceof String selected
+                    && !isBlank(selected)
                     && field.options().stream().noneMatch(option -> option.equalsIgnoreCase(selected.trim()))) {
                 violations.add(prefix + "config field '" + field.name() + "' must be one of " + field.options());
             }
@@ -110,8 +112,7 @@ public final class WorkflowNodeConfigValidator {
             if (concurrency instanceof Number value && (value.doubleValue() < 1 || value.doubleValue() > 8 || value.doubleValue() != value.intValue()))
                 violations.add(prefix + "concurrency 必须是 1 至 8 的整数");
         }
-        if ("KNOWLEDGE_RETRIEVAL".equals(type)) {
-            Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
+        if ("KNOWLEDGE_RETRIEVAL".equals(type)) {            Object datasetId = first(config, "datasetId", "dataset", "vectorCollection");
             if (!isBlank(datasetId) && !isPositiveLong(datasetId)) {
                 violations.add(prefix + "datasetId must be a positive number");
             }

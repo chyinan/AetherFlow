@@ -168,9 +168,21 @@ const RECOMMENDED_BACKEND_TYPES = new Set([
   'END',
 ])
 
-function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition): WorkflowGraphNode {
+/**
+ * 生成当前图里没有被占用的 ID。
+ * 冷重开后计数器会从头开始，直接使用会让新节点撞上已保存节点的 ID。
+ */
+function nextFreeId(prefix: string, usedIds: ReadonlySet<string>) {
+  let id = `${prefix}-${nodeCounter++}`
+  while (usedIds.has(id)) {
+    id = `${prefix}-${nodeCounter++}`
+  }
+  return id
+}
+
+function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition, usedIds: ReadonlySet<string>): WorkflowGraphNode {
   return {
-    id: `node-${template.kind}-${nodeCounter++}`,
+    id: nextFreeId(`node-${template.kind}`, usedIds),
     type: 'workflow',
     position,
     data: createWorkflowNodeDataFromTemplate(template, i18n.global.t('workflow.mockResults.newNode')),
@@ -293,6 +305,8 @@ export const useWorkflowStore = defineStore('workflow', {
       workflowId: string
       message: string
     },
+    /** 结果不确定、仍待核对的提交快照；跨保存保留，下一次保存前继续核对。 */
+    pendingSaveSubmission: null as SaveSubmissionSnapshot | null,
     workflowSaveRequestSequence: 0,
     runError: null as string | null,
     historyPast: [] as WorkflowGraphHistoryEntry[],
@@ -537,6 +551,13 @@ export const useWorkflowStore = defineStore('workflow', {
       })
       this.markDirty()
     },
+    /** 当前图已经占用的节点与连线 ID，新增节点和连线必须避开它们。 */
+    usedGraphIds() {
+      return new Set<string>([
+        ...this.nodes.map((node) => node.id),
+        ...this.edges.map((edge) => edge.id),
+      ])
+    },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
       const unavailableReason = templateUnavailableReason(this.templates, template)
       if (unavailableReason) {
@@ -544,7 +565,7 @@ export const useWorkflowStore = defineStore('workflow', {
         return null
       }
       this.recordHistory()
-      const node = createNodeFromTemplate(template, position)
+      const node = createNodeFromTemplate(template, position, this.usedGraphIds())
       this.nodes.push(node)
       this.markDirty()
       return node
@@ -569,11 +590,11 @@ export const useWorkflowStore = defineStore('workflow', {
       while (this.nodes.some((node) => Math.abs(node.position.x - position.x) < 260 && Math.abs(node.position.y - position.y) < 130)) {
         position.y += 150
       }
-      const node = createNodeFromTemplate(template, position)
+      const node = createNodeFromTemplate(template, position, this.usedGraphIds())
       this.recordHistory()
       this.nodes.push(node)
       this.edges.push({
-        id: `edge-${edgeCounter++}`,
+        id: nextFreeId('edge', this.usedGraphIds()),
         source: source.id,
         target: node.id,
         animated: true,
@@ -596,7 +617,7 @@ export const useWorkflowStore = defineStore('workflow', {
         return null
       }
       const node = duplicateWorkflowNode(source, {
-        id: `${source.id}-copy-${nodeCounter++}`,
+        id: nextFreeId(`${source.id}-copy`, this.usedGraphIds()),
         position: findDuplicateNodePosition(source, this.nodes),
         lastResult: i18n.global.t('workflow.mockResults.newNode'),
       })
@@ -715,6 +736,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.savingError = null
       // 换了工作流就没有待核对的保存，旧的核对结果不得写进新页面。
       this.saveRecovery = null
+      this.pendingSaveSubmission = null
       try {
         const workflow = await workflowApi.getWorkflow(workflowId)
         if (requestId !== workflowLoadRequestCounter) {
@@ -778,6 +800,14 @@ export const useWorkflowStore = defineStore('workflow', {
       // 提交快照在发出前固定，核对时用它判断远端是否真的落库了这次内容。
       let submission: SaveSubmissionSnapshot | null = null
       try {
+        // 上一次保存的结果仍不确定时先核对远端：确认已落库就更新基线，
+        // 否则下一次保存会一直带着旧版本重复冲突。
+        if (this.pendingSaveSubmission) {
+          await this.reconcilePendingSave(ownsSaveState)
+          if (!ownsSaveState()) {
+            return
+          }
+        }
         const currentWorkflow: WorkflowDefinition = {
           id: this.workflowId,
           name: this.workflowName,
@@ -810,6 +840,8 @@ export const useWorkflowStore = defineStore('workflow', {
         if (this.editRevision === savedRevision) this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.backendVersion = savedWorkflow.backendVersion ?? this.backendVersion ?? null
+        // 保存成功说明基线已经前进，之前的待核对提交不再适用。
+        this.pendingSaveSubmission = null
         if (this.backendDefinitionId) {
           this.createIdempotencyKey = null
           this.createIntent = null
@@ -836,20 +868,26 @@ export const useWorkflowStore = defineStore('workflow', {
           throw error
         }
         // 响应丢失：结果不确定。只读核对远端，绝不用重载覆盖当前画布或草稿。
+        this.pendingSaveSubmission = submission
         this.saveRecovery = {
           status: 'uncertain',
           workflowId: submission?.workflowId ?? this.workflowId,
           message: i18n.global.t('workflow.saveRecoveryUncertain'),
         }
-        const recovered = await this.reconcileUncertainSave(submission, editRevisionAtStart, ownsSaveState, error)
+        const recovered = await this.reconcileUncertainSave(submission, ownsSaveState, error)
         if (!ownsSaveState()) {
           throw error
+        }
+        if (recovered.status === 'committed' || recovered.status === 'committedWithNewerEdits'
+          || recovered.status === 'notSubmitted') {
+          this.pendingSaveSubmission = null
         }
         if (recovered.status === 'committed' || recovered.status === 'committedWithNewerEdits') {
           return { workflowId: this.workflowId }
         }
         this.savingError = recovered.message
-        throw new Error(recovered.message)      } finally {
+        throw new Error(recovered.message)
+      } finally {
         if (ownsSaveState()) {
           this.saving = false
         }
@@ -864,19 +902,43 @@ export const useWorkflowStore = defineStore('workflow', {
         workflowId: currentWorkflow.id,
         definitionId: this.backendDefinitionId,
         expectedVersion: this.backendVersion,
+        editRevision: this.editRevision,
         payload: JSON.parse(JSON.stringify(mapWorkflowToDefinitionDTO(currentWorkflow))) as WorkflowDefinitionDTO,
+      }
+    },
+    /**
+     * 上一次保存的结果仍不确定时先核对远端：确认已落库就更新基线，
+     * 否则下一次保存会一直带着旧版本重复冲突。核对失败时保留待核对提交，下次继续。
+     */
+    async reconcilePendingSave(ownsSaveState: () => boolean) {
+      const pending = this.pendingSaveSubmission
+      if (!pending || pending.workflowId !== this.workflowId) {
+        return
+      }
+      if (this.backendVersion !== pending.expectedVersion) {
+        // 基线已经前进，之前的待核对提交不再适用。
+        this.pendingSaveSubmission = null
+        return
+      }
+      const recovered = await this.reconcileUncertainSave(pending, ownsSaveState)
+      if (recovered.status === 'conflict') {
+        // 真正的远端冲突不能靠再次提交解决，也不能覆盖远端。
+        throw new Error(recovered.message)
+      }
+      if (recovered.status === 'committed' || recovered.status === 'committedWithNewerEdits'
+        || recovered.status === 'notSubmitted') {
+        this.pendingSaveSubmission = null
       }
     },
     async reconcileUncertainSave(
       submission: SaveSubmissionSnapshot | null,
-      editRevisionAtStart: number,
       ownsSaveState: () => boolean,
-      cause: unknown,
+      cause?: unknown,
     ): Promise<{ status: 'committed' | 'committedWithNewerEdits' | 'notSubmitted' | 'conflict' | 'retryable'; message: string }> {
-      const details = toApiError(cause, 'workflow').message
+      const details = cause === undefined ? '' : toApiError(cause, 'workflow').message
       if (!submission) {
         // 首次创建没有可核对的远端版本，沿用既有幂等键恢复路径：重试会拿回原记录。
-        const message = `${i18n.global.t('workflow.saveRecoveryUnknown')}: ${details}`
+        const message = `${i18n.global.t('workflow.saveRecoveryUnknown')}${details ? `: ${details}` : ''}`
         this.saveRecovery = { status: 'retryable', workflowId: this.workflowId, message }
         return { status: 'retryable', message }
       }
@@ -902,7 +964,7 @@ export const useWorkflowStore = defineStore('workflow', {
       const state = classifyRemoteSaveState(submission, remote)
       if (state === 'committed') {
         this.backendVersion = remote.version ?? this.backendVersion
-        if (this.editRevision === editRevisionAtStart) {
+        if (this.editRevision === submission.editRevision) {
           this.markSaved()
           const message = i18n.global.t('workflow.saveRecoveryCommitted')
           this.saveRecovery = { status: 'committed', workflowId: submission.workflowId, message }
@@ -914,11 +976,11 @@ export const useWorkflowStore = defineStore('workflow', {
         return { status: 'committedWithNewerEdits', message }
       }
       if (state === 'notSubmitted') {
-        const message = `${i18n.global.t('workflow.saveRecoveryNotSubmitted')}: ${details}`
+        const message = `${i18n.global.t('workflow.saveRecoveryNotSubmitted')}${details ? `: ${details}` : ''}`
         this.saveRecovery = { status: 'notSubmitted', workflowId: submission.workflowId, message }
         return { status: 'notSubmitted', message }
       }
-      const message = `${i18n.global.t('workflow.saveRecoveryConflict')}: ${details}`
+      const message = `${i18n.global.t('workflow.saveRecoveryConflict')}${details ? `: ${details}` : ''}`
       this.saveRecovery = { status: 'conflict', workflowId: submission.workflowId, message }
       return { status: 'conflict', message }
     },

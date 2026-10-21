@@ -39,7 +39,7 @@ class WorkflowInstanceControllerTest {
 
     @Test
     void listsWorkflowInstances() throws Exception {
-        when(queryService.listInstances("10", "SUCCESS", 2, 20))
+        when(queryService.listInstances("10", null, "SUCCESS", 2, 20))
                 .thenReturn(new RunPageResponse(2, 20, 1, List.of(runView())));
 
         mockMvc.perform(get("/workflow-instances")
@@ -53,7 +53,22 @@ class WorkflowInstanceControllerTest {
                 .andExpect(jsonPath("$.data.items[0].traceId").value("trace-1"))
                 .andExpect(jsonPath("$.data.items[0].nodes[0].nodeId").value("node-summary"));
 
-        verify(queryService).listInstances("10", "SUCCESS", 2, 20);
+        verify(queryService).listInstances("10", null, "SUCCESS", 2, 20);
+    }
+
+    @Test
+    void listsWorkflowInstancesByDefinitionId() throws Exception {
+        when(queryService.listInstances(null, 10L, "SUCCESS", 1, 20))
+                .thenReturn(new RunPageResponse(1, 20, 1, List.of(runView())));
+
+        mockMvc.perform(get("/workflow-instances")
+                        .param("definitionId", "10")
+                        .param("status", "SUCCESS"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.total").value(1));
+
+        verify(queryService).listInstances(null, 10L, "SUCCESS", 1, 20);
     }
 
     @Test

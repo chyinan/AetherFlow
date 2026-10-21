@@ -32,7 +32,8 @@ import java.util.Map;
 @Slf4j
 public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
 
-    private static final int MAX_IMAGES_PER_RESULT = 8;
+    /** 与工作流节点目录的 batchSize 上限一致：1–16 张必须完整交付。 */
+    private static final int MAX_IMAGES_PER_RESULT = 16;
     private static final int MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
     private final ImageProviderRegistry providerRegistry;
@@ -159,12 +160,18 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         output.put("mode", response.mode());
         output.put("metadata", response.metadata());
         List<AiArtifact> artifacts = response.images() == null ? List.of()
-                : response.images().stream()
-                .limit(MAX_IMAGES_PER_RESULT)
-                .map(this::toArtifact)
-                .toList();
+                : toArtifacts(response.images());
         output.put("imageCount", artifacts.size());
         return new AiNodeResult(nodeType, "SUCCEEDED", output, artifacts);
+    }
+
+    private List<AiArtifact> toArtifacts(List<com.aetherflow.ai.image.GeneratedImagePayload> images) {
+        if (images.size() > MAX_IMAGES_PER_RESULT) {
+            // 超过支持上限的响应必须明确失败，不能静默丢弃多出来的图片。
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned more images than the supported limit of " + MAX_IMAGES_PER_RESULT);
+        }
+        return images.stream().map(this::toArtifact).toList();
     }
 
     private AiArtifact toArtifact(com.aetherflow.ai.image.GeneratedImagePayload image) {

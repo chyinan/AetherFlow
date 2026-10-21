@@ -147,8 +147,9 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
         put(payload, "seed", request.seed());
         put(payload, "steps", request.steps());
         put(payload, "cfg_scale", request.cfgScale());
-        put(payload, "sampler_name", request.sampler());
-        put(payload, "scheduler", request.scheduler());
+        // 可选枚举的空白值表示"未指定"：不发送空值，由服务使用自身默认配置。
+        putIfNotBlank(payload, "sampler_name", request.sampler());
+        putIfNotBlank(payload, "scheduler", request.scheduler());
         put(payload, "width", request.width());
         put(payload, "height", request.height());
         put(payload, "batch_size", request.batchSize());
@@ -225,6 +226,12 @@ public class StableDiffusionWebUiProvider implements ImageGenerationProvider {
 
     private void put(Map<String, Object> payload, String key, Object value) {
         if (value != null) {
+            payload.put(key, value);
+        }
+    }
+
+    private void putIfNotBlank(Map<String, Object> payload, String key, String value) {
+        if (value != null && !value.isBlank()) {
             payload.put(key, value);
         }
     }

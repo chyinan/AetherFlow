@@ -129,15 +129,24 @@ function cloneConfigValue(value: unknown) {
 // 其他旧值继续沿用原有保存行为，本修复不额外收紧配置校验。
 function normalizeWorkflowJson(value: unknown): Record<string, unknown> | string | undefined {
   if (isRecord(value)) return cloneConfigValue(value) as Record<string, unknown>
-  const text = optionalString(value)
-  if (!text) return undefined
-  try {
-    const parsed: unknown = JSON.parse(text)
-    if (isRecord(parsed)) return parsed
-  } catch {
-    // 无法解析的旧文本由原有配置校验与运行流程处理。
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) {
+      // 明确清空：保留空串以便与"未编辑"区分，
+      // 否则保存会丢掉这次清空，预检与执行又会悄悄回退原图。
+      return '';
+    }
+    try {
+      const parsed: unknown = JSON.parse(text)
+      if (isRecord(parsed)) return parsed
+    } catch {
+      // 无法解析的旧文本由原有配置校验与运行流程处理。
+    }
+    return text;
   }
-  return text
+  // 非字符串旧值沿用原有保存行为。
+  return optionalString(value);
 }
 
 function optionalModel(value: unknown) {
@@ -398,6 +407,8 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
     seed: numberValue(config.seed, -1),
     steps: Math.max(1, Math.floor(numberValue(config.steps, 30))),
     cfgScale: numberValue(config.cfgScale, 7.5),
+    // 可选枚举空白值统一为"未指定"：保留用户原值以保证保存往返无损，
+    // 校验与执行载荷层按未指定处理。
     sampler: stringValue(config.sampler, ''),
     scheduler: stringValue(config.scheduler, ''),
     width: Math.max(64, Math.floor(numberValue(config.width, 1024))),

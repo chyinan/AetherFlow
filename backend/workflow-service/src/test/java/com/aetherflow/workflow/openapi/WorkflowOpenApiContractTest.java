@@ -31,7 +31,7 @@ class WorkflowOpenApiContractTest {
         assertOperationDocumented(WorkflowController.class, "startInstance", Long.class, StartWorkflowRequest.class);
 
         assertControllerDocumented(WorkflowInstanceController.class);
-        assertOperationDocumented(WorkflowInstanceController.class, "listInstances", String.class, String.class, int.class, int.class);
+        assertOperationDocumented(WorkflowInstanceController.class, "listInstances", String.class, Long.class, String.class, int.class, int.class);
         assertOperationDocumented(WorkflowInstanceController.class, "getInstance", Long.class);
         assertOperationDocumented(WorkflowInstanceController.class, "logs", Long.class);
 

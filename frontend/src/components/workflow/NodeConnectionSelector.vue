@@ -304,7 +304,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
     <div class="flex flex-wrap gap-2">
       <button data-testid="add-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" :disabled="saving" @click="showWizard()">{{ t('add') }}</button>
       <button v-if="selectedConnection && !selectedConnection.readOnly" data-testid="edit-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="saving" @click="showWizard(selectedConnection)">{{ t('edit') }}</button>
-      <button data-testid="refresh-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="probing || loading || missingConnection" @click="ready ? refreshSelected() : loadConnections()">{{ probing ? t('testing') : t('refresh') }}</button>
+      <button data-testid="refresh-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="probing || loading || missingConnection" @click="loadConnections()">{{ probing ? t('testing') : t('refresh') }}</button>
       <button v-if="probing" data-testid="cancel-current-test" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs" @click="cancelSelectedProbe">{{ t('cancelTest') }}</button>
     </div>
     <p v-if="loading" role="status" class="text-xs text-text-muted">{{ t('loading') }}</p>

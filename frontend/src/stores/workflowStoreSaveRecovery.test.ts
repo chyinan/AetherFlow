@@ -59,6 +59,15 @@ function remoteOf(id: number, version: number, payload: unknown): RemoteDefiniti
   }
 }
 
+/** 等待条件成立，避免依赖固定微任务数量。 */
+async function waitFor(predicate: () => boolean, label: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return
+    await Promise.resolve()
+  }
+  throw new Error(`等待超时：${label}`)
+}
+
 describe('保存响应丢失后的版本恢复', () => {
   let remote: RemoteDefinition
   let putCalls: Array<{ url: string; payload: any }>
@@ -139,7 +148,7 @@ describe('保存响应丢失后的版本恢复', () => {
     const historyBefore = store.historyPast.length
 
     const saving = store.saveCurrentWorkflow()
-    await Promise.resolve()
+    await waitFor(() => putCalls.length > 0, '保存请求发出')
     // 保存响应丢失后用户继续编辑到 B。
     store.updateNodeConfig('start-1', 'description', 'B 的内容')
     await saving
@@ -157,8 +166,7 @@ describe('保存响应丢失后的版本恢复', () => {
     pendingRead = true
 
     const saving = store.saveCurrentWorkflow()
-    await Promise.resolve()
-    await Promise.resolve()
+    await waitFor(() => releaseRead !== null, '核对读回挂起')
     store.updateNodeConfig('start-1', 'description', 'C 的内容')
     releaseRead!(remote)
     await saving
@@ -258,8 +266,7 @@ describe('保存响应丢失后的版本恢复', () => {
     pendingRead = true
 
     const saving = store.saveCurrentWorkflow()
-    await Promise.resolve()
-    await Promise.resolve()
+    await waitFor(() => releaseRead !== null, '核对读回挂起')
     // 页面切到另一个工作流。
     await store.loadWorkflow('303')
     releaseRead!(remote)

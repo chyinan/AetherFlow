@@ -20,13 +20,14 @@ it.each(['image-generation', 'upscale'] as const)('%s 对象与 JSON 文本均�
     expect(JSON.parse(JSON.stringify(result)).workflowJson).toEqual(graph)
   }
 })
-it.each(['image-generation', 'upscale'] as const)('%s 空值及非对象旧值沿用原有行为', kind => {
-  for (const value of ['[object Object]', '[]', 'null', '42', 'true', [], 42]) {
-    const result = mapConfig(kind, { provider: 'SD_WEBUI', workflowJson: value })
-    expect(result.workflowJson).toBe(String(value).trim() || undefined)
-  }
-  for (const value of [undefined, null, '', '  ']) {
+it.each(['image-generation', 'upscale'] as const)('%s 明确清空执行图保留为空值，与未编辑区分', kind => {
+  // 未编辑：字段缺省，保存时省略，回落原图的兼容行为不变。
+  for (const value of [undefined, null]) {
     expect(mapConfig(kind, { workflowJson: value })).not.toHaveProperty('workflowJson')
+  }
+  // 明确清空：保留为空串，预检与保存才能识别，不能悄悄回退原图。
+  for (const value of ['', '  ']) {
+    expect(mapConfig(kind, { workflowJson: value })).toHaveProperty('workflowJson', '')
   }
 })
 it.each(['loop', 'iteration'] as const)('%s 递归解除显式嵌套代理，保留顺序和值并隔离引用', kind => {

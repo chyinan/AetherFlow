@@ -44,7 +44,15 @@ const detailFocusCleanups = new Set<() => void>()
 let active = true
 
 function requestHistoryPage() {
-  historyRequest = runStore.loadHistoryPage({ workflowId: filters.value.workflowId || undefined, status: filters.value.status || undefined, page: filters.value.page, pageSize: filters.value.pageSize })
+  const workflowFilter = filters.value.workflowId || undefined
+  // 数字工作流 ID 是定义 ID，精确匹配；其他取值沿用旧参数保持兼容。
+  const definitionId = workflowFilter && /^\d+$/.test(workflowFilter) ? Number(workflowFilter) : undefined
+  historyRequest = runStore.loadHistoryPage({
+    ...(definitionId !== undefined ? { definitionId } : workflowFilter ? { workflowId: workflowFilter } : {}),
+    status: filters.value.status || undefined,
+    page: filters.value.page,
+    pageSize: filters.value.pageSize,
+  })
   return historyRequest
 }
 
@@ -58,7 +66,15 @@ function updateFilters(patch: Record<string, string | number | undefined>) {
 }
 
 function applyFilters() {
-  updateFilters({ q: searchDraft.value.trim(), workflowId: workflowDraft.value.trim(), status: statusDraft.value, page: 1 })
+  // 关键词只搜索已加载的这一页，不影响取数：只有服务器筛选变化才回到第一页。
+  const serverFiltersChanged = workflowDraft.value.trim() !== filters.value.workflowId
+    || statusDraft.value !== filters.value.status
+  updateFilters({
+    q: searchDraft.value.trim(),
+    workflowId: workflowDraft.value.trim(),
+    status: statusDraft.value,
+    page: serverFiltersChanged ? 1 : filters.value.page,
+  })
 }
 
 function clearFilters() {
