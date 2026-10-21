@@ -168,9 +168,21 @@ const RECOMMENDED_BACKEND_TYPES = new Set([
   'END',
 ])
 
-function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition): WorkflowGraphNode {
+/**
+ * 生成当前图里没有被占用的 ID。
+ * 冷重开后计数器会从头开始，直接使用会让新节点撞上已保存节点的 ID。
+ */
+function nextFreeId(prefix: string, usedIds: ReadonlySet<string>) {
+  let id = `${prefix}-${nodeCounter++}`
+  while (usedIds.has(id)) {
+    id = `${prefix}-${nodeCounter++}`
+  }
+  return id
+}
+
+function createNodeFromTemplate(template: NodeTemplate, position: CanvasPosition, usedIds: ReadonlySet<string>): WorkflowGraphNode {
   return {
-    id: `node-${template.kind}-${nodeCounter++}`,
+    id: nextFreeId(`node-${template.kind}`, usedIds),
     type: 'workflow',
     position,
     data: createWorkflowNodeDataFromTemplate(template, i18n.global.t('workflow.mockResults.newNode')),
@@ -539,6 +551,13 @@ export const useWorkflowStore = defineStore('workflow', {
       })
       this.markDirty()
     },
+    /** 当前图已经占用的节点与连线 ID，新增节点和连线必须避开它们。 */
+    usedGraphIds() {
+      return new Set<string>([
+        ...this.nodes.map((node) => node.id),
+        ...this.edges.map((edge) => edge.id),
+      ])
+    },
     addNodeFromTemplate(template: NodeTemplate, position: CanvasPosition) {
       const unavailableReason = templateUnavailableReason(this.templates, template)
       if (unavailableReason) {
@@ -546,7 +565,7 @@ export const useWorkflowStore = defineStore('workflow', {
         return null
       }
       this.recordHistory()
-      const node = createNodeFromTemplate(template, position)
+      const node = createNodeFromTemplate(template, position, this.usedGraphIds())
       this.nodes.push(node)
       this.markDirty()
       return node
@@ -571,11 +590,11 @@ export const useWorkflowStore = defineStore('workflow', {
       while (this.nodes.some((node) => Math.abs(node.position.x - position.x) < 260 && Math.abs(node.position.y - position.y) < 130)) {
         position.y += 150
       }
-      const node = createNodeFromTemplate(template, position)
+      const node = createNodeFromTemplate(template, position, this.usedGraphIds())
       this.recordHistory()
       this.nodes.push(node)
       this.edges.push({
-        id: `edge-${edgeCounter++}`,
+        id: nextFreeId('edge', this.usedGraphIds()),
         source: source.id,
         target: node.id,
         animated: true,
@@ -598,7 +617,7 @@ export const useWorkflowStore = defineStore('workflow', {
         return null
       }
       const node = duplicateWorkflowNode(source, {
-        id: `${source.id}-copy-${nodeCounter++}`,
+        id: nextFreeId(`${source.id}-copy`, this.usedGraphIds()),
         position: findDuplicateNodePosition(source, this.nodes),
         lastResult: i18n.global.t('workflow.mockResults.newNode'),
       })
@@ -783,9 +802,11 @@ export const useWorkflowStore = defineStore('workflow', {
       try {
         // 上一次保存的结果仍不确定时先核对远端：确认已落库就更新基线，
         // 否则下一次保存会一直带着旧版本重复冲突。
-        await this.reconcilePendingSave(ownsSaveState)
-        if (!ownsSaveState()) {
-          return
+        if (this.pendingSaveSubmission) {
+          await this.reconcilePendingSave(ownsSaveState)
+          if (!ownsSaveState()) {
+            return
+          }
         }
         const currentWorkflow: WorkflowDefinition = {
           id: this.workflowId,
