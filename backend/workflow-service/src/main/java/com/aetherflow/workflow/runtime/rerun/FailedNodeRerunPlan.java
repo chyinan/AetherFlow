@@ -102,10 +102,17 @@ public record FailedNodeRerunPlan(String nodeId, List<String> invalidatedNodeIds
             }
         });
         Map<String, Object> variables = new LinkedHashMap<>(initialVariables);
+        // 同名变量由最后写入者生效：必须沿用原运行的真实写入顺序，
+        // 不能按深度与节点 ID 重建，否则重跑会读到另一份最终值。
+        List<String> completionOrder = source.completedNodeIds();
+        Map<String, Integer> completionIndex = new java.util.HashMap<>();
+        for (int index = 0; index < completionOrder.size(); index++) {
+            completionIndex.putIfAbsent(completionOrder.get(index), index);
+        }
         Map<String, Integer> depths = WorkflowDag.from(source.definition()).topologicalDepths();
-        // 同深度时字典序较小的写入者优先，与并行执行的合并规则一致。
-        preservedNodeIds.stream().sorted(Comparator.<String>comparingInt(id -> depths.getOrDefault(id, 0))
-                        .thenComparing(Comparator.reverseOrder()))
+        preservedNodeIds.stream()
+                .sorted(Comparator.comparingInt((String id) -> completionIndex.getOrDefault(id, Integer.MAX_VALUE))
+                        .thenComparing(Comparator.comparingInt(id -> depths.getOrDefault(id, 0))))
                 .forEach(id -> variables.putAll(outputs.get(id).variables()));
         // 嵌套执行的已完成上下文仅在所属根节点被复用时保留。
         for (String key : List.of("__nestedContexts", "__nestedNodeTypes")) {
