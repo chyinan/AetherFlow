@@ -189,13 +189,30 @@ public class WorkflowRuntimeEngine {
             if (!stateMachine.isTerminal(context.runtimeState())) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
             }
-            RuntimeLogContext.run(context, context.currentNodeId(),
+            // 失败事件归属真正失败的节点；并行执行时 currentNodeId 可能已经是另一个成功节点。
+            String failedNodeId = failedNodeId(exception, context);
+            RuntimeLogContext.run(context, failedNodeId,
                     () -> log.error("workflow runtime failed", exception));
-            publish(context, RuntimeEventType.WORKFLOW_FAILED, context.currentNodeId(),
+            publish(context, RuntimeEventType.WORKFLOW_FAILED, failedNodeId,
                     Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage()));
             saveSnapshot(request, context, tracker);
-            throw exception;
+            throw unwrapNodeFailure(exception);
         }
+    }
+
+    /** 并行执行时失败节点可能不是当前节点，优先使用节点执行异常携带的身份。 */
+    private String failedNodeId(RuntimeException exception, DefaultWorkflowContext context) {
+        if (exception instanceof NodeExecutionException nodeExecutionException && nodeExecutionException.nodeId() != null) {
+            return nodeExecutionException.nodeId();
+        }
+        return context.currentNodeId();
+    }
+
+    /** 对外仍然抛出原始失败，节点身份只用于事件归属，不改变调用方拿到的异常。 */
+    private RuntimeException unwrapNodeFailure(RuntimeException exception) {
+        return exception instanceof NodeExecutionException nodeExecutionException
+                ? nodeExecutionException.failure()
+                : exception;
     }
 
     public WorkflowExecutionSnapshot resume(WorkflowRuntimeRequest request, WorkflowExecutionSnapshot recoverySnapshot) {
@@ -274,13 +291,14 @@ public class WorkflowRuntimeEngine {
             if (!stateMachine.isTerminal(context.runtimeState())) {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
             }
-            RuntimeLogContext.run(context, context.currentNodeId(),
+            String failedNodeId = failedNodeId(exception, context);
+            RuntimeLogContext.run(context, failedNodeId,
                     () -> log.error("workflow runtime recovery failed, reason={}", exception.getMessage()));
-            publish(context, RuntimeEventType.WORKFLOW_FAILED, context.currentNodeId(),
+            publish(context, RuntimeEventType.WORKFLOW_FAILED, failedNodeId,
                     Map.of("error", exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage(),
                             "recovered", true));
             saveSnapshot(request, context, tracker);
-            throw exception;
+            throw unwrapNodeFailure(exception);
         }
     }
 
@@ -1062,7 +1080,8 @@ public class WorkflowRuntimeEngine {
             throw new IllegalStateException("workflow runtime interrupted", exception);
         } catch (ExecutionException exception) {
             if (exception.getCause() instanceof NodeExecutionException nodeExecutionException) {
-                throw nodeExecutionException.failure();
+                // 保留真正失败的节点身份：并行执行时最后完成的节点可能是另一个成功节点。
+                throw nodeExecutionException;
             }
             throw toRuntimeException(exception.getCause());
         }
@@ -1428,7 +1447,7 @@ public class WorkflowRuntimeEngine {
         private final RuntimeException failure;
 
         private NodeExecutionException(String nodeId, RuntimeException failure) {
-            super(failure);
+            super(failure.getMessage(), failure);
             this.nodeId = nodeId;
             this.failure = failure;
         }
