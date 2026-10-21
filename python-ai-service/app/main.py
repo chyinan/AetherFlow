@@ -1033,11 +1033,29 @@ def _stream_openai(request: LlmRequest):
             yield {"provider": "openai", "model": request.model, "text": text, "metadata": {}}
 
 
+def _ollama_response_text(chunk: Any) -> str:
+    """读取 ollama 响应里的正文。
+
+    固定依赖 ollama 0.4.x 的流式返回是 GenerateResponse 对象而不是字典，
+    直接按字典读取会丢掉全部正文；旧字典格式继续兼容。
+    """
+    if isinstance(chunk, dict):
+        value = chunk.get("response")
+    else:
+        value = getattr(chunk, "response", None)
+        if value is None:
+            try:
+                value = chunk["response"]
+            except (TypeError, KeyError, IndexError):
+                value = None
+    return value if isinstance(value, str) else ""
+
+
 def _stream_ollama(request: LlmRequest):
     _ensure_runtime_env_loaded()
     client = _ollama_client(_effective_timeout_seconds(request))
     for chunk in client.generate(model=request.model, prompt=request.prompt, options=request.options, stream=True):
-        text = chunk.get("response", "") if isinstance(chunk, dict) else ""
+        text = _ollama_response_text(chunk)
         if text:
             yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
 
@@ -1096,7 +1114,7 @@ async def _stream_ollama_async(request: LlmRequest):
         stream = await client.generate(model=request.model, prompt=request.prompt,
                                        options=request.options, stream=True)
         async for chunk in stream:
-            text = chunk.get("response", "") if isinstance(chunk, dict) else ""
+            text = _ollama_response_text(chunk)
             if text:
                 yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
     finally:
