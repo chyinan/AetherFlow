@@ -20,7 +20,8 @@ import java.util.Map;
 // pattern: Imperative Shell
 public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNodeResultFinisher {
 
-    private static final int MAX_IMAGES_PER_RESULT = 8;
+    /** 与工作流节点目录的 batchSize 上限一致：1–16 张必须完整登记。 */
+    private static final int MAX_IMAGES_PER_RESULT = 16;
     private final ImageArtifactStorage storage;
 
     public DefaultImageWorkflowNodeResultFinisher(ImageArtifactStorage storage) {
@@ -52,11 +53,15 @@ public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNode
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "async image result returned no images");
         }
+        if (images.size() > MAX_IMAGES_PER_RESULT) {
+            // 超过支持上限的响应必须明确失败，不能静默丢弃多出来的图片。
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "async image result returned more images than the supported limit of " + MAX_IMAGES_PER_RESULT);
+        }
         DefaultWorkflowContext snapshotContext = new DefaultWorkflowContext(
                 workflowId, workflowId, workflowId, variables);
         Long userId = ImageWorkflowNodeSupport.userId(snapshotContext);
         List<FileMetadataDTO> files = images.stream()
-                .limit(MAX_IMAGES_PER_RESULT)
                 .map(image -> storage.store(workflowId, nodeId, userId, image))
                 .toList();
 
