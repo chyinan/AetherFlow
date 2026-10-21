@@ -58,7 +58,15 @@ function updateFilters(patch: Record<string, string | number | undefined>) {
 }
 
 function applyFilters() {
-  updateFilters({ q: searchDraft.value.trim(), workflowId: workflowDraft.value.trim(), status: statusDraft.value, page: 1 })
+  // 关键词只搜索已加载的这一页，不影响取数：只有服务器筛选变化才回到第一页。
+  const serverFiltersChanged = workflowDraft.value.trim() !== filters.value.workflowId
+    || statusDraft.value !== filters.value.status
+  updateFilters({
+    q: searchDraft.value.trim(),
+    workflowId: workflowDraft.value.trim(),
+    status: statusDraft.value,
+    page: serverFiltersChanged ? 1 : filters.value.page,
+  })
 }
 
 function clearFilters() {

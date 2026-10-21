@@ -127,6 +127,27 @@ it('名称和 ID 关键词明确只搜索本页；查询无匹配不冒称全库
   expect(pageCalls()).toHaveLength(1)
 })
 
+it('本页关键词提交时保留当前页码，不跳回第一页重新取数', async () => {
+  const { router } = await setup('/runs/run-21?page=2')
+  expect(displayedIds()).toContain('run-21')
+  const callsBefore = pageCalls().length
+
+  await wrapper!.get('[data-testid="history-search"]').setValue('run-21')
+  await apply()
+
+  // 关键词只搜索已加载的这一页：页码保持不变，不重取第一页。
+  expect(router.currentRoute.value.query.page).toBe('2')
+  expect(pageCalls()).toHaveLength(callsBefore)
+  expect(displayedIds()).toEqual(['run-21'])
+
+  // 清空关键词同样不改变页码。
+  await wrapper!.get('[data-testid="history-search"]').setValue('')
+  await apply()
+  expect(router.currentRoute.value.query.page).toBe('2')
+  expect(pageCalls()).toHaveLength(callsBefore)
+  expect(displayedIds()).toEqual(list({ page: 2 }).items.map(run => `run-${run.id}`))
+})
+
 it('分页与筛选写入 URL，切运行、刷新及前进后退保留条件且不多读页', async () => {
   const { router } = await setup('/runs/run-1?unused=keep')
   await wrapper!.get('[data-testid="history-next"]').trigger('click'); await flushPromises()
