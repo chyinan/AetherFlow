@@ -398,9 +398,10 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
     seed: numberValue(config.seed, -1),
     steps: Math.max(1, Math.floor(numberValue(config.steps, 30))),
     cfgScale: numberValue(config.cfgScale, 7.5),
-    // 可选枚举空白值统一为"未指定"，不发送空串交给后端拒绝部署默认连接。
-    ...(optionalString(config.sampler) ? { sampler: optionalString(config.sampler) } : {}),
-    ...(optionalString(config.scheduler) ? { scheduler: optionalString(config.scheduler) } : {}),
+    // 可选枚举空白值统一为"未指定"：保留用户原值以保证保存往返无损，
+    // 校验与执行载荷层按未指定处理。
+    sampler: stringValue(config.sampler, ''),
+    scheduler: stringValue(config.scheduler, ''),
     width: Math.max(64, Math.floor(numberValue(config.width, 1024))),
     height: Math.max(64, Math.floor(numberValue(config.height, 1024))),
     batchSize: Math.max(1, Math.floor(numberValue(config.batchSize, 1))),
