@@ -41,13 +41,15 @@ public class WorkflowInstanceController {
     public Result<RunPageResponse> listInstances(
             @Parameter(description = "Frontend workflow id or runtime workflow id.", example = "1")
             @RequestParam(required = false) String workflowId,
+            @Parameter(description = "Workflow definition id, matched exactly.", example = "1")
+            @RequestParam(required = false) Long definitionId,
             @Parameter(description = "Workflow run status.", example = "SUCCESS")
             @RequestParam(required = false) String status,
             @Parameter(description = "Page number, starting from 1.", example = "1")
             @RequestParam(defaultValue = "1") int page,
             @Parameter(description = "Page size.", example = "20")
             @RequestParam(defaultValue = "20") int pageSize) {
-        return Result.success(queryService.listInstances(workflowId, status, page, pageSize));
+        return Result.success(queryService.listInstances(workflowId, definitionId, status, page, pageSize));
     }
 
     @Operation(summary = "Get workflow run detail",

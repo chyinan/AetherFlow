@@ -295,14 +295,19 @@ export const useRunStore = defineStore('run', {
         if (isCurrentLoad()) this.historyLoading = false
       }
     },
-    async loadWorkflowRuns(workflowId: string) {
+    async loadWorkflowRuns(workflowId: string, definitionId?: number | null) {
       const requestId = ++this.workflowRequestId
       const selectionRequestId = this.selectionRequestId
       const isCurrentLoad = () => requestId === this.workflowRequestId && selectionRequestId === this.selectionRequestId
       const updateVersions = { ...this.runUpdateVersions }
       this.workflowRunsId = null
       try {
-        const result = await runApi.listRunsPage({ workflowId, page: 1, pageSize: 50 })
+        // 已知定义 ID 时精确筛选，避免顺带匹配同号的运行实例。
+        const result = await runApi.listRunsPage({
+          ...(typeof definitionId === 'number' ? { definitionId } : { workflowId }),
+          page: 1,
+          pageSize: 50,
+        })
         if (!isCurrentLoad()) return
         this.mergeLoadedRuns(result.items, updateVersions, 'workflow')
         this.workflowRunsId = workflowId
@@ -310,9 +315,9 @@ export const useRunStore = defineStore('run', {
         if (isCurrentLoad()) this.error = errorMessage(error)
       }
     },
-    async loadRuns(options: { selectDefault?: boolean; workflowId?: string } = {}) {
+    async loadRuns(options: { selectDefault?: boolean; workflowId?: string; definitionId?: number | null } = {}) {
       if (options.workflowId) {
-        await this.loadWorkflowRuns(options.workflowId)
+        await this.loadWorkflowRuns(options.workflowId, options.definitionId)
         return
       }
       const selectDefault = options.selectDefault ?? true
@@ -453,7 +458,7 @@ export const useRunStore = defineStore('run', {
     async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
       // 工作流最近运行可能不在全局第一页，必须按工作流定向读取。
       const selectionRequestId = ++this.selectionRequestId
-      await this.loadRuns({ selectDefault: false, workflowId })
+      await this.loadRuns({ selectDefault: false, workflowId, definitionId })
       if (selectionRequestId !== this.selectionRequestId || this.workflowRunsId !== workflowId) return null
       const run = this.workflowRuns.find((item) =>
         item.workflowId === workflowId

@@ -97,7 +97,8 @@ it('编辑器定向恢复全局第一页以外的工作流运行，独立缓存�
   store.runs = []
   const original = mocks.get.getMockImplementation()!
   mocks.get.mockImplementation((url: string, options?: { params?: RunPageQuery }) => {
-    if (url === '/workflow-instances' && options?.params?.workflowId === 'wf-old') {
+    if (url === '/workflow-instances'
+      && (options?.params?.workflowId === 'wf-old' || options?.params?.definitionId === 7)) {
       return Promise.resolve({ total: 1, items: [{ ...records[80], workflowId: 'wf-old' }] })
     }
     return original(url, options)
@@ -109,7 +110,8 @@ it('编辑器定向恢复全局第一页以外的工作流运行，独立缓存�
   expect(store.initialized).toBe(false)
   expect(store.workflowRuns).toHaveLength(1)
   expect(pageCalls()).toHaveLength(2)
-  expect(pageCalls()[1]![1].params).toEqual({ workflowId: 'wf-old', page: 1, pageSize: 50 })
+  // 已知定义 ID 时按定义精确读取。
+  expect(pageCalls()[1]![1].params).toEqual({ definitionId: 7, page: 1, pageSize: 50 })
 })
 
 it('名称和 ID 关键词明确只搜索本页；查询无匹配不冒称全库不存在', async () => {
@@ -146,6 +148,18 @@ it('本页关键词提交时保留当前页码，不跳回第一页重新取数'
   expect(router.currentRoute.value.query.page).toBe('2')
   expect(pageCalls()).toHaveLength(callsBefore)
   expect(displayedIds()).toEqual(list({ page: 2 }).items.map(run => `run-${run.id}`))
+})
+
+it('按工作流定义 ID 精确筛选，数字 ID 使用 definitionId 参数', async () => {
+  await setup('/runs/run-1?workflowId=7&page=1')
+  expect(pageCalls()).toHaveLength(1)
+  // 定义 ID 必须精确匹配，不能顺带匹配同号的运行实例。
+  expect(pageCalls()[0]![1]).toEqual({ params: { definitionId: 7, page: 1, pageSize: 20 }, source: 'workflow' })
+})
+
+it('非数字工作流筛选仍使用旧参数，保持既有兼容行为', async () => {
+  await setup('/runs/run-1?workflowId=wf-b')
+  expect(pageCalls()[0]![1]).toEqual({ params: { workflowId: 'wf-b', page: 1, pageSize: 20 }, source: 'workflow' })
 })
 
 it('分页与筛选写入 URL，切运行、刷新及前进后退保留条件且不多读页', async () => {

@@ -44,7 +44,15 @@ const detailFocusCleanups = new Set<() => void>()
 let active = true
 
 function requestHistoryPage() {
-  historyRequest = runStore.loadHistoryPage({ workflowId: filters.value.workflowId || undefined, status: filters.value.status || undefined, page: filters.value.page, pageSize: filters.value.pageSize })
+  const workflowFilter = filters.value.workflowId || undefined
+  // 数字工作流 ID 是定义 ID，精确匹配；其他取值沿用旧参数保持兼容。
+  const definitionId = workflowFilter && /^\d+$/.test(workflowFilter) ? Number(workflowFilter) : undefined
+  historyRequest = runStore.loadHistoryPage({
+    ...(definitionId !== undefined ? { definitionId } : workflowFilter ? { workflowId: workflowFilter } : {}),
+    status: filters.value.status || undefined,
+    page: filters.value.page,
+    pageSize: filters.value.pageSize,
+  })
   return historyRequest
 }
 

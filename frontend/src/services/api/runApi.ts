@@ -313,6 +313,8 @@ async function getLogs(runId: string) {
 
 export interface RunPageQuery {
   workflowId?: string
+  /** 工作流定义 ID，精确匹配定义，不顺带匹配同号的运行实例。 */
+  definitionId?: number
   status?: string
   page?: number
   pageSize?: number
@@ -328,7 +330,7 @@ export interface RunPage {
 export async function listRunsPage(query: RunPageQuery = {}): Promise<RunPage> {
   const page = Math.max(1, Math.min(1_000_000, Math.trunc(query.page || 1)))
   const pageSize = Math.max(1, Math.min(100, Math.trunc(query.pageSize || 20)))
-  const params = { page, pageSize, ...(query.workflowId ? { workflowId: query.workflowId } : {}), ...(query.status ? { status: query.status } : {}) }
+  const params = { page, pageSize, ...(query.definitionId !== undefined ? { definitionId: query.definitionId } : {}), ...(query.workflowId ? { workflowId: query.workflowId } : {}), ...(query.status ? { status: query.status } : {}) }
   try {
     // 每次只读取用户请求的页；名称搜索由界面明确限定在这一页。
     const result = await listWorkflowInstances(params)
@@ -338,7 +340,8 @@ export async function listRunsPage(query: RunPageQuery = {}): Promise<RunPage> {
     return { items, total, page, pageSize }
   } catch (error) {
     if (shouldUseMockFallback(error, 'workflow')) {
-      const filtered = mockRuns.filter(run => (!query.workflowId || run.workflowId === query.workflowId)
+      const filtered = mockRuns.filter(run => (query.definitionId === undefined || run.definitionId === query.definitionId)
+        && (!query.workflowId || run.workflowId === query.workflowId)
         && (!query.status || (run.backendStatus ?? ({ queued: 'PENDING', running: 'RUNNING', paused: 'WAITING', success: 'SUCCESS', failed: 'FAILED', cancelled: 'CANCELLED' }[run.status])) === query.status))
       return delay({ items: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize })
     }
