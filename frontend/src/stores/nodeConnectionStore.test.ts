@@ -34,15 +34,25 @@ describe('连接目录与保存请求归属', () => {
     expect(store.connections).toEqual([created]); expect(store.pendingSave).toBeNull()
   })
 
-  it.each(['resolve', 'reject'] as const)('保存后旧目录 %s 都不能覆盖已保存记录或显示过期错误', async (completion) => {
+  it.each(['resolve', 'reject'] as const)('保存后旧目录 %s 都不能覆盖已保存记录', async (completion) => {
     const pending = deferred<{ connections: NodeConnection[] }>(); mocks.getNodeConnections.mockReturnValueOnce(pending.promise)
     const store = useNodeConnectionStore(createPinia()); const load = store.loadConnections()
     await store.saveConnection(created, null)
     if (completion === 'resolve') pending.resolve({ connections: [saved] })
     else pending.reject(new Error('过期读取错误'))
-    expect(await load).toBe(false)
-    expect(store.connections).toEqual([created]); expect(store.loadError).toBeNull()
-    expect(store.ready).toBe(true); expect(store.loading).toBe(false)
+    if (completion === 'resolve') {
+      // 旧目录结果与局部保存结果合并去重：已保存的连接不会被覆盖，已有连接也不会消失。
+      expect(await load).toBe(true)
+      expect(store.connections).toEqual([saved, created])
+      expect(store.loadError).toBeNull()
+      expect(store.ready).toBe(true); expect(store.loading).toBe(false)
+    } else {
+      // 目录没读成功时不能宣称就绪，错误要留给用户重试，局部结果仍然保留。
+      expect(await load).toBe(false)
+      expect(store.connections).toEqual([created])
+      expect(store.loadError).toBeInstanceOf(Error)
+      expect(store.ready).toBe(false); expect(store.loading).toBe(false)
+    }
   })
 
   it('状态按 Pinia 实例隔离，不跨会话共享写锁、目录或完成反馈', async () => {
