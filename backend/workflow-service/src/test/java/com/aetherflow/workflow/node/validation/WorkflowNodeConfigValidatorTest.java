@@ -37,6 +37,26 @@ class WorkflowNodeConfigValidatorTest {
     }
 
     @Test
+    void acceptsBlankOptionalEnumFieldsAsDeploymentDefaults() {
+        WorkflowNodeDTO node = node("sd", "IMAGE_GENERATION", Map.of(
+                "provider", "SD_WEBUI", "mode", "txt2img", "prompt", "cat",
+                "sampler", "", "scheduler", ""));
+
+        assertThat(WorkflowNodeConfigValidator.validate(node, catalogService.catalog()))
+                .noneMatch(message -> message.contains("'sampler'") || message.contains("'scheduler'"));
+    }
+
+    @Test
+    void stillRejectsNonBlankUnsupportedEnumValues() {
+        WorkflowNodeDTO node = node("sd", "IMAGE_GENERATION", Map.of(
+                "provider", "SD_WEBUI", "mode", "txt2img", "prompt", "cat",
+                "sampler", "NOT_A_SAMPLER"));
+
+        assertThat(WorkflowNodeConfigValidator.validate(node, catalogService.catalog()))
+                .anyMatch(message -> message.contains("'sampler' must be one of"));
+    }
+
+    @Test
     void rejectsExecutableNodesWithoutAnExplicitInputContract() {
         assertThat(WorkflowNodeConfigValidator.validate(
                 node("media", "FFMPEG", Map.of()), catalogService.catalog()))

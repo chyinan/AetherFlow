@@ -570,4 +570,13 @@ describe('图像节点连接序列化', () => {
     expect(mapConfig(kind, {})).toHaveProperty('provider', kind === 'image-generation' ? 'SD_WEBUI' : 'COMFYUI')
     expect(mapConfig(kind, { provider: 'SD_WEBUI' })).toHaveProperty('provider', 'SD_WEBUI')
   })
+  it('保存 image-generation 时可选枚举空串统一为未指定，不发空 sampler/scheduler', () => {
+    const config = mapConfig('image-generation', { sampler: '', scheduler: '' })
+    expect(config).not.toHaveProperty('sampler')
+    expect(config).not.toHaveProperty('scheduler')
+  })
+  it('保存 image-generation 时非空合法 sampler/scheduler 仍然保留', () => {
+    const config = mapConfig('image-generation', { sampler: 'DPM++ 2M', scheduler: 'karras' })
+    expect(config).toMatchObject({ sampler: 'DPM++ 2M', scheduler: 'karras' })
+  })
 })
