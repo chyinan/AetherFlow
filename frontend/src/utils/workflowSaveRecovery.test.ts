@@ -24,6 +24,7 @@ function submission(patch: Partial<WorkflowDefinitionDTO> = {}): SaveSubmissionS
     workflowId: '201',
     definitionId: 201,
     expectedVersion: 5,
+    editRevision: 3,
     payload: payload(patch),
   }
 }
@@ -67,7 +68,7 @@ describe('远端保存结果核对', () => {
     expect(classifyRemoteSaveState(submission(), remote(6, undefined))).toBe('unknown')
     expect(classifyRemoteSaveState(submission(), remote(6, 'not json'))).toBe('unknown')
     expect(classifyRemoteSaveState(
-      { workflowId: '201', definitionId: 201, expectedVersion: undefined, payload: payload() },
+      { workflowId: '201', definitionId: 201, expectedVersion: undefined, editRevision: 3, payload: payload() },
       remote(6, payload()),
     )).toBe('unknown')
   })

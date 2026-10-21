@@ -72,11 +72,11 @@ describe('核对失败后的再次保存', () => {
   it('核对全失败后再次保存会先核对远端再提交新编辑', async () => {
     const store = loadedStore()
     // 第一次保存：远端确实落库并递增版本，但回执丢失，核对读回也全部失败。
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
-      throw networkError(url)
+      throw networkError(_url)
     })
     await expect(store.saveCurrentWorkflow()).rejects.toThrow()
     expect(store.backendVersion).toBe(5)
@@ -85,7 +85,7 @@ describe('核对失败后的再次保存', () => {
     // 用户继续编辑成 B，网络恢复后再次保存。
     store.updateNodeConfig('start-1', 'description', 'B 的内容')
     readFails = false
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
@@ -108,18 +108,18 @@ describe('核对失败后的再次保存', () => {
 
   it('核对确认已提交时保留较新的本地编辑与撤销重做历史', async () => {
     const store = loadedStore()
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
-      throw networkError(url)
+      throw networkError(_url)
     })
     await expect(store.saveCurrentWorkflow()).rejects.toThrow()
 
     store.updateNodeConfig('start-1', 'description', 'B 的内容')
     const historyBefore = store.historyPast.length
     readFails = false
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
@@ -139,11 +139,11 @@ describe('核对失败后的再次保存', () => {
 
   it('远端是真正的冲突时不提交新编辑并保留草稿', async () => {
     const store = loadedStore()
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
-      throw networkError(url)
+      throw networkError(_url)
     })
     await expect(store.saveCurrentWorkflow()).rejects.toThrow()
 
@@ -167,11 +167,11 @@ describe('核对失败后的再次保存', () => {
 
   it('切换工作流后旧的待核对提交不再影响新工作流', async () => {
     const store = loadedStore()
-    http.put.mockImplementation(async (url: string, payload: any) => {
+    http.put.mockImplementation(async (_url: string, payload: any) => {
       putPayloads.push(payload)
       remoteVersion = remoteVersion + 1
       remotePayload = payload
-      throw networkError(url)
+      throw networkError(_url)
     })
     await expect(store.saveCurrentWorkflow()).rejects.toThrow()
     expect(store.pendingSaveSubmission).not.toBeNull()
