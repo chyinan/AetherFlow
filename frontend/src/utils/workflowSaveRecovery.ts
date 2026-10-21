@@ -6,6 +6,8 @@ export interface SaveSubmissionSnapshot {
   workflowId: string
   definitionId?: number
   expectedVersion?: number
+  /** 提交时的编辑版本，用于判断核对期间是否出现了较新的本地编辑。 */
+  editRevision: number
   payload: WorkflowDefinitionDTO
 }
 
