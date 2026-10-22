@@ -670,6 +670,8 @@ async function handleInputFileUpload(event: Event) {
   }
   const nodeId = node.id
   const workflowId = workflowStore.workflowId
+  // 上传开始时的文件选择：回执只应替换这个旧值，不能覆盖上传期间的新用户意图。
+  const fileIdBeforeUpload = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
   const generation = beginInputFileIntent(nodeId)
   try {
     const asset = await fileStore.upload(file)
@@ -686,10 +688,9 @@ async function handleInputFileUpload(event: Event) {
     if (!workflowStore.nodes.some((item) => item.id === nodeId)) {
       return
     }
-    // 节点上已有更新的文件选择时，迟到回执不得覆盖。
+    // 节点上的文件选择已不是上传开始时的旧值：用户在上传期间改过，保护用户新操作。
     const current = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
-    if (current !== undefined && current !== null && String(current).trim() !== ''
-      && String(current) !== String(asset.backendFileId)) {
+    if (String(current ?? '') !== String(fileIdBeforeUpload ?? '')) {
       return
     }
     applyInputFileToNode(nodeId, asset.backendFileId, asset.name)
