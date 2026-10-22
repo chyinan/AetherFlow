@@ -659,6 +659,11 @@ def llm_chat_stream(request: LlmRequest, http_request: Request) -> StreamingResp
             if not await http_request.is_disconnected():
                 error = {"error": {"code": "deadline_exceeded", "message": "LLM provider deadline exceeded"}}
                 yield f"event: error\ndata: {json.dumps(error)}\n\n"
+        except LlmStreamIncompleteError as exc:
+            # 缺终块的回答不可信：走错误链，不发 [DONE]，调用方不得把半截回答当完成。
+            if not await http_request.is_disconnected():
+                error = {"error": {"code": "stream_incomplete", "message": str(exc)}}
+                yield f"event: error\ndata: {json.dumps(error)}\n\n"
         finally:
             try:
                 close = getattr(iterator, "aclose", None)
@@ -1051,13 +1056,36 @@ def _ollama_response_text(chunk: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _ollama_response_done(chunk: Any) -> bool:
+    """读取 ollama 响应的终块标记。"""
+    if isinstance(chunk, dict):
+        value = chunk.get("done")
+    else:
+        value = getattr(chunk, "done", None)
+        if value is None:
+            try:
+                value = chunk["done"]
+            except (TypeError, KeyError, IndexError):
+                value = None
+    return value is True
+
+
+class LlmStreamIncompleteError(RuntimeError):
+    """Provider 的流在没有成功终块的情况下结束，答案不可信。"""
+
+
 def _stream_ollama(request: LlmRequest):
     _ensure_runtime_env_loaded()
     client = _ollama_client(_effective_timeout_seconds(request))
+    completed = False
     for chunk in client.generate(model=request.model, prompt=request.prompt, options=request.options, stream=True):
+        completed = completed or _ollama_response_done(chunk)
         text = _ollama_response_text(chunk)
         if text:
             yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
+    if not completed:
+        # 没有终块的正常 EOF 说明回答被截断，不能当成完整回答。
+        raise LlmStreamIncompleteError("ollama stream ended without a terminal chunk")
 
 
 async def _stream_openai_async(request: LlmRequest):
@@ -1110,13 +1138,18 @@ async def _stream_ollama_async(request: LlmRequest):
         timeout=_effective_timeout_seconds(request),
     )
     stream = None
+    completed = False
     try:
         stream = await client.generate(model=request.model, prompt=request.prompt,
                                        options=request.options, stream=True)
         async for chunk in stream:
+            completed = completed or _ollama_response_done(chunk)
             text = _ollama_response_text(chunk)
             if text:
                 yield {"provider": "ollama", "model": request.model, "text": text, "metadata": {}}
+        if not completed:
+            # 没有终块的正常 EOF 说明回答被截断，不能当成完整回答。
+            raise LlmStreamIncompleteError("ollama stream ended without a terminal chunk")
     finally:
         close_stream = getattr(stream, "aclose", None)
         if close_stream is not None:

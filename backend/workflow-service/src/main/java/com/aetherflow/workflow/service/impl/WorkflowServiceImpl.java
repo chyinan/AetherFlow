@@ -647,9 +647,10 @@ public class WorkflowServiceImpl implements WorkflowService {
     }
 
     private WorkflowDefinitionDTO textSummaryTemplate() {
+        // 提示词走既有变量绑定：固定值优先于变量，字面量 "{{ prompt }}" 会被原样发给模型。
         return template("Text summary", "Generate a concise summary from a prompt.", List.of(
                 templateNode("start", "START", "Start", Map.of("nextNodes", List.of("llm"))),
-                templateNode("llm", "LLM", "Generate summary", Map.of("nextNodes", List.of("end"), "prompt", "{{ prompt }}")),
+                templateNode("llm", "LLM", "Generate summary", Map.of("nextNodes", List.of("end"), "promptVariable", "prompt")),
                 templateNode("end", "END", "Complete", Map.of())
         ));
     }

@@ -109,6 +109,33 @@ class WorkflowServiceImplTest {
     }
 
     @Test
+    void textSummaryTemplateBindsThePromptVariableInsteadOfAFixedLiteral() {
+        WorkflowDefinitionDTO template = workflowService.listTemplates().stream()
+                .filter(item -> "Text summary".equals(item.getName()))
+                .findFirst()
+                .orElseThrow();
+        WorkflowNodeDTO llm = template.getNodes().stream()
+                .filter(node -> "LLM".equals(node.getNodeType()))
+                .findFirst()
+                .orElseThrow();
+
+        // 固定字面量必须消失：它会优先于变量绑定，模型会收到 "{{ prompt }}" 本身。
+        assertThat(llm.getConfig()).doesNotContainKey("prompt");
+        assertThat(llm.getConfig()).containsEntry("promptVariable", "prompt");
+    }
+
+    @Test
+    void mediaDigestTemplateKeepsItsExistingNodes() {
+        WorkflowDefinitionDTO template = workflowService.listTemplates().stream()
+                .filter(item -> "Media digest".equals(item.getName()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(template.getNodes()).extracting(WorkflowNodeDTO::getNodeType)
+                .contains("START", "UPLOAD", "WHISPER", "SUMMARY", "END");
+    }
+
+    @Test
     void startInstanceUsesLocalTransactionAndDurableOutboxForCrossServiceDispatch() throws Exception {
         Method method = WorkflowServiceImpl.class.getMethod("startInstance", Long.class, StartWorkflowRequest.class);
 

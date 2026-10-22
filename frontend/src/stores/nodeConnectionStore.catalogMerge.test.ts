@@ -72,4 +72,42 @@ describe('连接目录的全量与局部结果', () => {
     expect(store.connections.filter((item) => item.id === 'saved')).toHaveLength(1)
     expect(store.connections.filter((item) => item.id === 'created')).toHaveLength(1)
   })
+
+  it('保存后发起的权威 GET 能刷新连接，不被本地结果永久覆盖', async () => {
+    const store = useNodeConnectionStore(createPinia())
+    await store.loadConnections()
+    await store.saveConnection(created, saved.id)
+
+    // 别的标签页修改了同一连接：保存之后发起的刷新必须以服务端为准。
+    const updatedByOther: NodeConnection = { ...saved, name: '他处改过', baseUrl: 'http://other:8188' }
+    mocks.getNodeConnections.mockResolvedValue({ connections: [updatedByOther] })
+    await store.loadConnections()
+
+    expect(store.connections).toEqual([updatedByOther])
+  })
+
+  it('保存前发起的旧 GET 不能盖掉刚保存的结果', async () => {
+    const stale = deferred<{ connections: NodeConnection[] }>()
+    mocks.getNodeConnections.mockReturnValueOnce(stale.promise)
+    const store = useNodeConnectionStore(createPinia())
+    const loading = store.loadConnections()
+
+    await store.saveConnection(created, saved.id)
+    stale.resolve({ connections: [saved] })
+    await loading
+
+    // 旧读取不含刚保存的内容，本地结果必须保留。
+    expect(store.connections.find((item) => item.id === saved.id)?.name).toBe(created.name)
+  })
+
+  it('服务端尚未包含该连接时保留本地结果', async () => {
+    const store = useNodeConnectionStore(createPinia())
+    await store.loadConnections()
+    await store.saveConnection(created, null)
+
+    mocks.getNodeConnections.mockResolvedValue({ connections: [saved] })
+    await store.loadConnections()
+
+    expect(store.connections.find((item) => item.id === created.id)).toBeDefined()
+  })
 })

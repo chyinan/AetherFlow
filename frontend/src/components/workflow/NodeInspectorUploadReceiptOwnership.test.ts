@@ -44,6 +44,18 @@ async function startUpload(wrapper: VueWrapper, name = 'a.mp4') {
   await flushPromises()
 }
 
+/** 模拟用户在下拉框里改选或清空已有文件。 */
+async function selectExistingFile(wrapper: VueWrapper, backendFileId: string) {
+  const fileStore = useFileStore()
+  fileStore.files = [
+    { id: 'file-99', backendFileId: 99, name: 'c.mp4', status: 'ready', source: 'input', size: 1, mime: 'video/mp4' },
+    { id: 'file-5', backendFileId: 5, name: 'a.mp4', status: 'ready', source: 'input', size: 1, mime: 'video/mp4' },
+  ] as never
+  await flushPromises()
+  await wrapper.get('[data-config-field="fileId"]').setValue(backendFileId)
+  await flushPromises()
+}
+
 describe('上传回执的节点归属', () => {
   beforeEach(() => {
     vi.mocked(getNodeCatalog).mockResolvedValue([])
@@ -90,6 +102,116 @@ describe('上传回执的节点归属', () => {
     vi.spyOn(useFileStore(), 'upload').mockRejectedValue(new Error('上传失败'))
 
     await startUpload(wrapper)
+    await flushPromises()
+
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBeUndefined()
+  })
+})
+
+describe('上传替换已有文件', () => {
+  beforeEach(() => {
+    vi.mocked(getNodeCatalog).mockResolvedValue([])
+  })
+  afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); vi.restoreAllMocks() })
+
+  it('已绑定 A 时正常上传 B 替换为 B', async () => {
+    const { wrapper, store, start } = await render()
+    store.updateNodeConfig(start.id, 'fileId', 5)
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    // 正常上传必须替换旧文件，运行才能用新文件。
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(7)
+  })
+
+  it('没有旧文件时上传正常写入', async () => {
+    const { wrapper, store, start } = await render()
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(7)
+  })
+
+  it('上传期间用户改选已有文件时保护用户新操作', async () => {
+    const { wrapper, store, start } = await render()
+    store.updateNodeConfig(start.id, 'fileId', 5)
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    await selectExistingFile(wrapper, '99')
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(String(store.nodes.find((node) => node.id === start.id)?.data.config.fileId)).toBe('99')
+  })
+
+  it('上传期间用户清空文件时保护用户新操作', async () => {
+    const { wrapper, store, start } = await render()
+    store.updateNodeConfig(start.id, 'fileId', 5)
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    await selectExistingFile(wrapper, '')
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe('')
+  })
+
+  it('上传期间改选又改回原值时仍保护用户操作', async () => {
+    const { wrapper, store, start } = await render()
+    store.updateNodeConfig(start.id, 'fileId', 5)
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    // 用户先改选 C，又改回 A。
+    await selectExistingFile(wrapper, '99')
+    await selectExistingFile(wrapper, '5')
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(String(store.nodes.find((node) => node.id === start.id)?.data.config.fileId)).toBe('5')
+  })
+
+  it('重叠上传时只有最后一次生效', async () => {
+    const { wrapper, store, start } = await render()
+    const first = deferred<{ backendFileId: number; name: string }>()
+    const second = deferred<{ backendFileId: number; name: string }>()
+    const upload = vi.spyOn(useFileStore(), 'upload')
+      .mockReturnValueOnce(first.promise as never)
+      .mockReturnValueOnce(second.promise as never)
+
+    await startUpload(wrapper, 'first.mp4')
+    await startUpload(wrapper, 'second.mp4')
+
+    first.resolve({ backendFileId: 7, name: 'first.mp4' })
+    await flushPromises()
+    second.resolve({ backendFileId: 8, name: 'second.mp4' })
+    await flushPromises()
+
+    expect(upload).toHaveBeenCalledTimes(2)
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(8)
+  })
+
+  it('切换工作流后迟到回执不写入任何节点', async () => {
+    const { wrapper, store, start } = await render()
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    store.workflowId = 'other-workflow'
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
     await flushPromises()
 
     expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBeUndefined()

@@ -276,6 +276,16 @@ const conditionOperators = [
 ]
 const summaryLanguages = ['Chinese', 'English']
 const summaryProviders = ['ollama', 'openai']
+/** 未配置 Provider 时按服务默认（自动路由）执行，界面不得显示并不存在的选定值。 */
+const summaryProviderOptions = computed(() => {
+  const configured = textConfig('provider', '').trim()
+  const options = [...summaryProviders]
+  if (configured && !options.includes(configured)) {
+    // 已保存的取值原样列出，界面显示与存储保持一致。
+    options.unshift(configured)
+  }
+  return options
+})
 const translationSourceLanguages = ['auto', 'zh', 'en']
 const translationTargetLanguages = ['Chinese', 'English']
 const exportFormats = ['MARKDOWN', 'TXT', 'JSON']
@@ -670,6 +680,8 @@ async function handleInputFileUpload(event: Event) {
   }
   const nodeId = node.id
   const workflowId = workflowStore.workflowId
+  // 上传开始时的文件选择：回执只应替换这个旧值，不能覆盖上传期间的新用户意图。
+  const fileIdBeforeUpload = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
   const generation = beginInputFileIntent(nodeId)
   try {
     const asset = await fileStore.upload(file)
@@ -686,10 +698,9 @@ async function handleInputFileUpload(event: Event) {
     if (!workflowStore.nodes.some((item) => item.id === nodeId)) {
       return
     }
-    // 节点上已有更新的文件选择时，迟到回执不得覆盖。
+    // 节点上的文件选择已不是上传开始时的旧值：用户在上传期间改过，保护用户新操作。
     const current = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
-    if (current !== undefined && current !== null && String(current).trim() !== ''
-      && String(current) !== String(asset.backendFileId)) {
+    if (String(current ?? '') !== String(fileIdBeforeUpload ?? '')) {
       return
     }
     applyInputFileToNode(nodeId, asset.backendFileId, asset.name)
@@ -988,13 +999,14 @@ onMounted(() => {
           <div class="grid gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.provider') }} <span class="text-status-error">*</span></span>
-              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="provider" :value="textConfig('provider', 'ollama')" @change="handleTextInput('provider', $event)">
-                <option v-for="provider in summaryProviders" :key="provider" :value="provider">{{ provider }}</option>
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="provider" :value="textConfig('provider', '')" @change="handleTextInput('provider', $event)">
+                <option value="">{{ t('workflow.inspector.serviceDefault') }}</option>
+                <option v-for="provider in summaryProviderOptions" :key="provider" :value="provider">{{ provider }}</option>
               </select>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', 'qwen3.5:9b')" @input="handleTextInput('model', $event)" />
+              <input class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" :placeholder="t('workflow.inspector.serviceDefault')" @input="handleTextInput('model', $event)" />
             </label>
           </div>
           <label class="block">
