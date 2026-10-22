@@ -84,7 +84,7 @@ describe('离开确认弹窗期间的画布快捷键', () => {
 
     const navigation = router.push('/elsewhere')
     await flushPromises()
-    expect(dialog().exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(true)
 
     // 焦点在弹窗按钮上时按 Ctrl+Z：画布不得被撤销。
     const button = dialog().get('[data-action="leave-stay"]')
@@ -110,7 +110,7 @@ describe('离开确认弹窗期间的画布快捷键', () => {
 
     const navigation = router.push('/elsewhere')
     await flushPromises()
-    expect(dialog().exists()).toBe(true)
+    expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(true)
 
     ;(dialog().get('[data-action="leave-save"]').element as HTMLElement).focus()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true }))

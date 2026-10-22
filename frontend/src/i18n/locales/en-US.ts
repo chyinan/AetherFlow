@@ -657,6 +657,7 @@ export const enUS = {
       whisperRuntimeHint: 'Python AI Runtime extracts audio with FFmpeg internally, then faster-whisper generates transcription.',
       textVariable: 'Input text variable',
       summaryLanguage: 'Summary language',
+      serviceDefault: 'Service default (auto routing)',
       provider: 'Model provider',
       summaryPrompt: 'Summary prompt',
       promptVersion: 'Prompt version',

@@ -663,6 +663,7 @@ export const zhCN = {
       whisperRuntimeHint: '音频分离由 Python AI Runtime 内部调用 FFmpeg 完成，随后通过 faster-whisper 生成 transcription。',
       textVariable: '输入文本变量',
       summaryLanguage: '总结语言',
+      serviceDefault: '服务默认（自动路由）',
       provider: '模型供应商',
       summaryPrompt: '总结提示词',
       promptVersion: '提示词版本',

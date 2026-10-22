@@ -659,6 +659,7 @@ export const jaJP = {
       whisperRuntimeHint: 'Python AI Runtime は内部で FFmpeg で音声を抽出し、faster-whisper で文字起こしを行います。',
       textVariable: '入力テキスト変数',
       summaryLanguage: '要約言語',
+      serviceDefault: 'サービス既定（自動ルーティング）',
       provider: 'モデルプロバイダ',
       summaryPrompt: '要約プロンプト',
       promptVersion: 'プロンプトバージョン',
