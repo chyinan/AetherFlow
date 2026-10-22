@@ -43,6 +43,8 @@ export const useNodeConnectionStore = defineStore('nodeConnections', () => {
 
   async function loadConnections() {
     const sequence = ++listSequence
+    // 本次读取开始时已保存的局部结果：读取之后服务端才是权威，读取之前保存的仍以本地为准。
+    const startedAtRevision = localRevision
     ready.value = false
     loading.value = true
     loadError.value = null
@@ -50,6 +52,16 @@ export const useNodeConnectionStore = defineStore('nodeConnections', () => {
       const result = await getNodeConnections()
       if (sequence !== listSequence) return false
       catalogConnections.value = result.connections
+      // 服务端已确认的局部结果不再永久覆盖：读取开始前保存且服务端已列出时，以后端为准。
+      const catalogIds = new Set(result.connections.map((item) => item.id))
+      const remaining: Record<string, LocalConnection> = {}
+      Object.entries(localConnections.value).forEach(([id, item]) => {
+        if (item.revision > startedAtRevision || !catalogIds.has(id)) {
+          // 读取期间保存的，或服务端尚未列出的：继续保留本地结果。
+          remaining[id] = item
+        }
+      })
+      localConnections.value = remaining
       ready.value = true
       return true
     } catch (cause) {
