@@ -343,6 +343,10 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
 }
 
 function handleEditorKeydown(event: KeyboardEvent) {
+  // 离开确认弹窗打开时隔离画布快捷键：撤销/重做不得在用户做决定时改动画布。
+  if (pendingNavigation.value) {
+    return
+  }
   const target = event.target as HTMLElement | null
   if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) {
     return
