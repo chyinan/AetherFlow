@@ -284,6 +284,33 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     }
 
     private Map<String, Object> upscaleWorkflow(ImageGenerationRequest request, ComfyUploadResponse upload) {
+        Map<String, Object> graph = request.workflowJson();
+        if (graph == null || graph.isEmpty()) {
+            // 没有显式执行图时才走默认放大图。
+            return defaultUpscaleWorkflow(request, upload);
+        }
+        ComfyUiWorkflow.Format format = ComfyUiWorkflow.format(graph);
+        if (format == ComfyUiWorkflow.Format.UI) {
+            // 导入的原图不是 API 执行图，不能直接执行：按无执行图处理。
+            return defaultUpscaleWorkflow(request, upload);
+        }
+        if (format != ComfyUiWorkflow.Format.API) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "[IMAGE_EXECUTION:COMFYUI:INPUT:workflow:VALIDATION] ComfyUI 放大执行图必须是 API 格式 JSON");
+        }
+        // 显式有效图必须执行。源图绑定是输入契约，缺绑定明确报错，不静默忽略。
+        List<ComfyUiWorkflow.Binding> bindings = ComfyUiWorkflow.bindings(
+                request.options().get("workflowBindings"), graph);
+        if (bindings.stream().noneMatch(binding -> "sourceImage".equals(binding.parameter()))) {
+            throw new BusinessException(ResultCode.BAD_REQUEST,
+                    "[IMAGE_EXECUTION:COMFYUI:INPUT:sourceImage:VALIDATION] 放大执行图必须绑定源图输入（sourceImage）");
+        }
+        Map<String, Object> executable = mutableWorkflow(graph);
+        applyBindings(executable, request, upload);
+        return executable;
+    }
+
+    private Map<String, Object> defaultUpscaleWorkflow(ImageGenerationRequest request, ComfyUploadResponse upload) {
         Map<String, Object> workflow = new LinkedHashMap<>();
         workflow.put("1", node("LoadImage", Map.of(
                 "image", sourceImageName(request, upload)
