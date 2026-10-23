@@ -39,4 +39,18 @@ describe('runApi 正式模式', () => {
       status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
     })
   })
+
+  it('终态节点即使携带旧 NODE_WAITING 摘要也不恢复待审批状态', async () => {
+    api.getWorkflowInstance.mockResolvedValue({
+      id: 101, status: 'SUCCESS', nodes: [
+        { nodeId: 'human', status: 'SUCCESS', latestEventType: 'NODE_WAITING', attributes: {
+          nodeType: 'HUMAN', approvalStatus: 'pending', approved: false, reviewer: 'ops',
+        } },
+      ],
+    })
+
+    const run = await runApi.getRun('run-101')
+
+    expect(run.nodeStates[0]).toMatchObject({ status: 'success', approval: null })
+  })
 })

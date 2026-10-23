@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 // pattern: Mixed (needs refactoring)
 
 import { toApiError } from '@/api/client/apiError'
-import { mapRuntimeStateToRunStatus } from '@/api/mappers/runtimeMapper'
+import { mapRuntimeStateToRunStatus, mergeHumanApprovalState } from '@/api/mappers/runtimeMapper'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import { i18n } from '@/i18n'
 import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun, type RunPageQuery } from '@/services/api/runApi'
@@ -187,13 +187,13 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
       continue
     }
     const merged = { ...existing, ...definedFields(node) }
+    const approval = mergeHumanApprovalState(existing.status, existing.approval, node.status, node.approval)
     // HTTP 与实时事件采用同样的信息保留规则。
     merged.output = mergeNodeOutput(existing, node)
     if (node.label === node.nodeId) merged.label = existing.label
     if (existing.durationMs !== undefined) merged.durationMs = Math.max(existing.durationMs, node.durationMs ?? 0)
     if (existing.retryCount !== undefined) merged.retryCount = Math.max(existing.retryCount, node.retryCount ?? 0)
-    if (node.approval === null
-      || (merged.status !== 'paused' && merged.approval?.approvalStatus === 'pending')) merged.approval = undefined
+    if (approval !== undefined) merged.approval = approval ?? undefined
     nodes.set(node.nodeId, merged)
   }
   // 列表只包含摘要，缺省字段和空数组不能抹掉实时恢复的详情。
@@ -522,8 +522,7 @@ export const useRunStore = defineStore('run', {
       const normalizedPatch = patch.approval || patch.approval === null || patch.status === 'paused'
         ? patch
         : { ...patch, approval: undefined }
-      const clearApproval = patch.approval === null
-        || (patch.status !== undefined && patch.status !== 'paused' && !patch.approval)
+      const approval = mergeHumanApprovalState(state?.status, state?.approval, patch.status, patch.approval)
       this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       const nodeVersions = this.nodeUpdateVersions[this.currentRun.id] ??= {}
       nodeVersions[patch.nodeId] = (nodeVersions[patch.nodeId] ?? 0) + 1
@@ -535,9 +534,12 @@ export const useRunStore = defineStore('run', {
         if (state.durationMs !== undefined) merged.durationMs = Math.max(state.durationMs, patch.durationMs ?? 0)
         if (state.retryCount !== undefined) merged.retryCount = Math.max(state.retryCount, patch.retryCount ?? 0)
         Object.assign(state, merged)
-        if (clearApproval) state.approval = undefined
+        if (approval !== undefined) state.approval = approval ?? undefined
       } else {
-        this.currentRun.nodeStates.push(normalizedPatch)
+        this.currentRun.nodeStates.push({
+          ...normalizedPatch,
+          ...(approval !== undefined ? { approval: approval ?? undefined } : {}),
+        })
       }
       // 后端确认终态后，节点只能补齐详情；尚未恢复完整的节点局部推导结果仍需重新计算。
       if (options.inferRunStatus !== false

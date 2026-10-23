@@ -8,6 +8,7 @@ import {
   type WorkflowRunViewDTO,
 } from '@/api/modules/workflow'
 import {
+  mergeHumanApprovalState,
   mapObservationToRunPatch,
   mapRuntimeEventToLogEntry,
   mapRuntimeEventsToNodePatches,
@@ -119,7 +120,7 @@ function approvalFromBackendSummary(node: WorkflowRunNodeSummaryDTO): HumanAppro
   if ((nodeType && nodeType !== 'HUMAN')
     || !['pending', 'approved', 'rejected'].includes(String(approvalStatus))
     || typeof attributes.approved !== 'boolean') return null
-  return {
+  const approval: HumanApprovalDetails = {
     approved: attributes.approved,
     approvalStatus: approvalStatus as HumanApprovalDetails['approvalStatus'],
     ...(typeof attributes.reviewer === 'string' && attributes.reviewer.trim() ? { reviewer: attributes.reviewer.trim() } : {}),
@@ -127,6 +128,7 @@ function approvalFromBackendSummary(node: WorkflowRunNodeSummaryDTO): HumanAppro
     ...(typeof attributes.comment === 'string' && attributes.comment.trim() ? { comment: attributes.comment.trim() } : {}),
     ...(typeof attributes.approvedAt === 'string' && attributes.approvedAt.trim() ? { approvedAt: attributes.approvedAt.trim() } : {}),
   }
+  return mergeHumanApprovalState(undefined, undefined, mapRuntimeStateToNodeStatus(toRuntimeState(node.status)), approval)
 }
 
 function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {

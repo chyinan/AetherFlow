@@ -31,7 +31,13 @@ function event(nodeId: string, completed = false, instanceId = 101): RuntimeEven
   return {
     eventId: `${instanceId}-${nodeId}-${completed ? 'done' : 'waiting'}`, workflowId: String(instanceId), traceId: 'trace', nodeId,
     eventType: completed ? 'NODE_COMPLETED' : 'NODE_WAITING', runtimeState: completed ? 'RUNNING' : 'WAITING',
-    attributes: completed ? {} : { approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+    attributes: completed ? {} : { nodeType: 'HUMAN', approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+  }
+}
+function workflowWaiting(nodeId: string): RuntimeEvent {
+  return {
+    eventId: `workflow-wait-${nodeId}`, eventType: 'WORKFLOW_WAITING', workflowId: '101', traceId: 'trace',
+    nodeId, runtimeState: 'WAITING', attributes: {},
   }
 }
 function externalWait(nodeId: string): RuntimeEvent {
@@ -65,8 +71,10 @@ beforeEach(() => {
   events = [event('approval-a')]
   runtimeState = 'WAITING'; currentNodeId = 'approval-a'
   mocks.get.mockImplementation(async (url: string) => {
+    const latestApprovalA = [...events].reverse().find(item => item.nodeId === 'approval-a')
     const record = (id: number) => ({ id, workflowId: `wf-${id}`, definitionId: id, workflowName: `审批流程${id}`, status: id === 101 ? runtimeState : 'WAITING', nodes: [
-      { nodeId: 'approval-a', status: 'WAITING' }, { nodeId: 'approval-b', status: 'PENDING' },
+      { nodeId: 'approval-a', status: 'WAITING', latestEventType: latestApprovalA?.eventType, attributes: latestApprovalA?.attributes },
+      { nodeId: 'approval-b', status: 'PENDING' },
     ] })
     if (url === '/workflow-instances') return { total: 2, items: [record(101), record(202)] }
     if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 1, retryable: false }
@@ -96,6 +104,19 @@ async function setup() {
 }
 
 describe('人工审批请求的归属与中断恢复', () => {
+  it('冷打开时 HTTP 回放的 NODE_WAITING→WORKFLOW_WAITING 保留 HUMAN 审批入口', async () => {
+    events = [event('approval-a'), workflowWaiting('approval-a')]
+
+    const { store } = await setup()
+
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({
+      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+    })
+    expect(dialog()?.textContent).toContain('approval-a')
+    expect(action('approve').disabled).toBe(false)
+    expect(approvalPosts()).toHaveLength(0)
+  })
+
   it('普通 AI 等待经实时事件和 HTTP 回放后保持 WAITING 且不显示审批动作', async () => {
     const { store } = await setup()
     await close()

@@ -89,4 +89,27 @@ describe('runtimeMapper waiting state', () => {
     expect(mapRuntimeEventsToNodePatches([human, external])[0]?.approval).toBeNull()
     expect(mapRuntimeEventsToNodePatches([external, human])[0]?.approval).toMatchObject({ approvalStatus: 'pending' })
   })
+
+  it('完整回放保留 HUMAN 审批直到节点终态，终态后不复活旧审批', () => {
+    const human: RuntimeEvent = {
+      eventId: 'human-wait', eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-human', runtimeState: 'WAITING',
+      attributes: { nodeType: 'HUMAN', approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+    }
+    const workflowWaiting: RuntimeEvent = {
+      eventId: 'workflow-waiting', eventType: 'WORKFLOW_WAITING', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-human', runtimeState: 'WAITING', attributes: {},
+    }
+    const completed: RuntimeEvent = {
+      eventId: 'human-completed', eventType: 'NODE_COMPLETED', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-human', runtimeState: 'RUNNING', attributes: { nodeType: 'HUMAN' },
+    }
+
+    expect(mapRuntimeEventsToNodePatches([human, workflowWaiting])[0]).toMatchObject({
+      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+    })
+    expect(mapRuntimeEventsToNodePatches([human, workflowWaiting, completed, human])[0]).toMatchObject({
+      status: 'success', approval: null,
+    })
+  })
 })

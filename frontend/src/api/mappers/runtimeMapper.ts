@@ -225,6 +225,31 @@ export function runtimeRetryCount(eventType?: string, attributes?: Record<string
     && Number.isSafeInteger(attempt) && attempt > 0 ? attempt : undefined
 }
 
+function terminalNodeStatus(status?: RunNodeState['status']) {
+  return status === 'success' || status === 'failed' || status === 'skipped'
+}
+
+/** HTTP 快照与实时事件采用同一审批保留规则。 */
+export function mergeHumanApprovalState(
+  currentStatus: RunNodeState['status'] | undefined,
+  currentApproval: HumanApprovalDetails | null | undefined,
+  incomingStatus: RunNodeState['status'] | undefined,
+  incomingApproval: HumanApprovalDetails | null | undefined,
+): HumanApprovalDetails | null | undefined {
+  if (terminalNodeStatus(currentStatus) && incomingStatus !== currentStatus) return null
+  if (incomingApproval === null) return null
+  if (incomingStatus === undefined) return incomingApproval ?? currentApproval
+  if (incomingStatus !== 'paused') {
+    if (incomingApproval !== undefined) {
+      return incomingApproval.approvalStatus === 'pending' ? null : incomingApproval
+    }
+    return currentApproval?.approvalStatus === 'pending' ? null : currentApproval
+  }
+  if (incomingApproval !== undefined) return incomingApproval
+  if (currentStatus === 'paused') return currentApproval
+  return currentApproval ? null : undefined
+}
+
 export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | null {
   if (!event.nodeId) {
     return null
@@ -259,11 +284,21 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       if (durationMs !== undefined && ['success', 'failed', 'paused'].includes(patch.status)) {
         patch.durationMs = durationMs
       }
-      const previousRetryCount = patches.get(patch.nodeId)?.retryCount
-      if (previousRetryCount !== undefined) {
-        patch.retryCount = Math.max(previousRetryCount, patch.retryCount ?? 0)
+      const previous = patches.get(patch.nodeId)
+      if (previous) {
+        if (terminalNodeStatus(previous.status) && previous.status !== patch.status) return
+        const merged = { ...previous, ...patch }
+        const approval = mergeHumanApprovalState(previous.status, previous.approval, patch.status, patch.approval)
+        if (approval !== undefined) merged.approval = approval
+        else delete merged.approval
+        if (patch.label === patch.nodeId) merged.label = previous.label
+        if (previous.retryCount !== undefined) {
+          merged.retryCount = Math.max(previous.retryCount, patch.retryCount ?? 0)
+        }
+        patches.set(patch.nodeId, merged)
+      } else {
+        patches.set(patch.nodeId, patch)
       }
-      patches.set(patch.nodeId, patch)
     }
   })
 
