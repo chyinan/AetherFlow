@@ -51,6 +51,7 @@ export interface AiProviderHealth {
   checkedAt?: string
   latencyMillis?: number
   message?: string
+  observationSource?: string
   metadata?: Record<string, unknown>
 }
 
@@ -81,7 +82,7 @@ export interface AIInferenceLog {
 export interface ProviderStatusResponse {
   activeProvider?: AiProviderType
   routingPolicy?: ProviderRoutingPolicy | null
-  circuitStates?: Record<string, ProviderCircuitSnapshot> | null
+  circuitStates?: Record<string, ProviderCircuitSnapshot | null> | null
   healthStates?: Record<string, AiProviderHealth> | null
   metrics?: Record<string, ProviderMetricsSnapshot> | null
   recentLogs?: AIInferenceLog[] | null

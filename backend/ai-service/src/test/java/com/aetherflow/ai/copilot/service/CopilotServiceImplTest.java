@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -309,6 +310,45 @@ class CopilotServiceImplTest {
         verify(aiProviderRouter).complete(providerRequest.capture());
         assertThat(providerRequest.getValue().prompt())
                 .contains("Latest persisted structured plan", "Keep decisions and owners", "把摘要语言改成 English");
+    }
+
+    @Test
+    void workflowPlannerReceivesOnlyBoundedUnappliedDraftRevisionContext() {
+        CopilotConversationEntity conversation = conversation(11L);
+        when(conversationMapper.selectOne(any(Wrapper.class))).thenReturn(conversation);
+        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation);
+        CopilotMessageEntity previous = message(22L, 11L, "assistant", "上一轮草稿");
+        previous.setPlanJson(validMediaPlanJson("Chinese", "Keep decisions and owners"));
+        when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of(previous));
+        stubAiReply(validMediaPlanJson("Chinese", "Keep decisions and owners"));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId("assistant".equals(entity.getRole()) ? 24L : 23L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setConversationId("conv-11");
+        request.setWorkflowId("wf-1001");
+        request.setPrompt("只修改当前草稿名称");
+        request.setContext(Map.of("pendingDraft", Map.of(
+                "messageId", "draft-22",
+                "definition", Map.of(
+                        "id", "wf-1001", "name", "Current draft",
+                        "nodes", List.of(Map.of("id", "summary-1", "kind", "summary", "label", "Summary",
+                                "config", Map.of("prompt", "Keep action owners", "apiKey", "must-not-reach-provider"))),
+                        "edges", List.of(Map.of("id", "edge-1", "source", "summary-1", "target", "export-1", "label", "summary"))),
+                "operations", List.of(Map.of("type", "update_node", "nodeId", "summary-1", "label", "Summary")),
+                "validation", Map.of("structurallyValid", false, "runtimeReady", false,
+                        "issues", List.of("Summary configuration is invalid")))));
+
+        service.planWorkflow(7L, request);
+
+        ArgumentCaptor<AiProviderRequest> providerRequest = ArgumentCaptor.forClass(AiProviderRequest.class);
+        verify(aiProviderRouter).complete(providerRequest.capture());
+        assertThat(providerRequest.getValue().prompt())
+                .contains("Latest un-applied workflow definition", "draft-22", "Keep action owners",
+                        "update_node", "Summary configuration is invalid", "revise that exact definition")
+                .doesNotContain("must-not-reach-provider", "apiKey");
     }
 
     @Test

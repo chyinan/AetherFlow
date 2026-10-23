@@ -108,7 +108,7 @@ class AiProviderControllerTest {
         assertThat(result.isSuccess()).isTrue();
         assertThat(result.getData().providers())
                 .extracting(ProviderCatalogResponse.ProviderCatalogProvider::endpointLabel)
-                .contains("OpenAI API", "Ollama Local Runtime");
+                .contains("OpenAI-compatible API", "Ollama Local Runtime");
         assertThat(result.getData().models())
                 .anySatisfy(model -> {
                     assertThat(model.name()).isEqualTo("gpt-4o-mini");

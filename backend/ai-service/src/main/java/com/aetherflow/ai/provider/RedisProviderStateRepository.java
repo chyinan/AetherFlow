@@ -25,12 +25,12 @@ public class RedisProviderStateRepository implements ProviderStateRepository {
         try {
             String json = redisTemplate.opsForValue().get(ProviderRedisKeys.circuit(provider));
             if (json == null || json.isBlank()) {
-                return ProviderCircuitSnapshot.closed(provider);
+                return null;
             }
             return objectMapper.readValue(json, ProviderCircuitSnapshot.class);
         } catch (RuntimeException | JsonProcessingException exception) {
             log.warn("Failed to read provider circuit from Redis provider={}", provider, exception);
-            return ProviderCircuitSnapshot.closed(provider);
+            return null;
         }
     }
 

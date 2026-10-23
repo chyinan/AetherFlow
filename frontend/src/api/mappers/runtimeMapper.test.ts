@@ -5,6 +5,7 @@ import {
   mapObservationToRunPatch,
   mapRuntimeEventToLogEntry,
   mapRuntimeEventToNodePatch,
+  mapRuntimeEventsToNodePatches,
   mapRuntimeStateToRunStatus,
 } from '@/api/mappers/runtimeMapper'
 
@@ -39,6 +40,17 @@ describe('runtimeMapper waiting state', () => {
     expect(mapRuntimeEventToLogEntry(event).message).toContain('waiting for an external result')
   })
 
+  it('keeps ordinary external task waits separate from human approval', () => {
+    const event: RuntimeEvent = {
+      eventId: 'event-ai-wait', eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-ai', runtimeState: 'WAITING', attributes: { nodeType: 'LLM', externalTaskId: 712 },
+    }
+
+    const patch = mapRuntimeEventToNodePatch(event)
+    expect(patch?.status).toBe('paused')
+    expect(patch?.approval).toBeNull()
+  })
+
   it('preserves human approval details from a waiting event', () => {
     const event: RuntimeEvent = {
       eventId: 'event-human-1',
@@ -61,5 +73,20 @@ describe('runtimeMapper waiting state', () => {
       reviewer: 'ops',
       method: 'webapp',
     })
+  })
+
+  it('mixed replay order lets the newest wait kind replace stale approval state', () => {
+    const human: RuntimeEvent = {
+      eventId: 'human', eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-shared', runtimeState: 'WAITING',
+      attributes: { approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+    }
+    const external: RuntimeEvent = {
+      eventId: 'ai', eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace-101',
+      nodeId: 'node-shared', runtimeState: 'WAITING', attributes: { nodeType: 'LLM', externalTaskId: 712 },
+    }
+
+    expect(mapRuntimeEventsToNodePatches([human, external])[0]?.approval).toBeNull()
+    expect(mapRuntimeEventsToNodePatches([external, human])[0]?.approval).toMatchObject({ approvalStatus: 'pending' })
   })
 })

@@ -17,6 +17,7 @@ beforeEach(() => {
   vi.clearAllMocks(); status = 'RUNNING'; mocks.post.mockResolvedValue(undefined)
   mocks.get.mockImplementation(async (url: string) => {
     if (url === '/workflow-instances') return { total: 1, items: [{ id: 101, workflowId: 'workflow-demo', definitionId: 7, workflowName: '等待审批示例', status, nodes: [{ nodeId: 'approval', status }] }] }
+    if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 101, status: 'PENDING', attemptCount: 0, retryable: true }
     if (url.endsWith('/logs')) return []
     if (url.startsWith('/workflow/runtime/observability/')) return { workflowId: '101', runtimeState: status, progress: status === 'WAITING' ? 1 : 0.5 }
     if (url.startsWith('/workflow/runtime/events/')) return []

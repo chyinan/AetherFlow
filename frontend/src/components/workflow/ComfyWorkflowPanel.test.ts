@@ -35,13 +35,27 @@ describe('ComfyUI 导入与参数绑定', () => {
     const wrapper = panel(config)
     Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ text:async () => JSON.stringify(api) }], configurable:true })
     await wrapper.get('[data-testid="comfy-api-file"]').trigger('change'); await flushPromises()
-    expect(wrapper.emitted('update')).toEqual([['workflowJson',api],['workflowBindings',[]]])
+    expect(wrapper.emitted('update')).toBeUndefined()
+    expect(wrapper.emitted('replace-workflow')).toEqual([[{ workflowJson: api, workflowBindings: [] }, 'image']])
     expect(config.workflow).toEqual(ui)
     await wrapper.setProps({ config: { ...config, workflowJson:api, workflowBindings:[] } })
     await wrapper.get('[data-testid="comfy-target"]').setValue(JSON.stringify(['second','steps']))
     await wrapper.get('[data-testid="comfy-parameter"]').setValue('steps')
     await wrapper.get('[data-testid="comfy-add-binding"]').trigger('click')
     expect(wrapper.emitted('update')?.at(-1)).toEqual(['workflowBindings',[{ nodeId:'second', inputName:'steps', parameter:'steps' }]])
+    wrapper.unmount()
+  })
+  it('复合替换没有既存原图字段时，会在同一补丁保留旧执行图为原图', async () => {
+    const previousGraph = { '1': { class_type: 'KSampler', inputs: { seed: 5 } } }
+    const wrapper = panel({ workflowJson: previousGraph, workflowBindings:[{ nodeId:'old', inputName:'seed', parameter:'seed' }] })
+    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ text:async () => JSON.stringify(api) }], configurable:true })
+
+    await wrapper.get('[data-testid="comfy-api-file"]').trigger('change'); await flushPromises()
+
+    expect(wrapper.emitted('replace-workflow')).toEqual([[
+      { workflow: previousGraph, workflowJson: api, workflowBindings: [] },
+      'image',
+    ]])
     wrapper.unmount()
   })
   it('保存映射保留两份图、绑定、解析状态；API 图不被静态预检拦为 UI', () => {

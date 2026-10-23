@@ -3,19 +3,21 @@ import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import {
   createDefinition,
   cancelWorkflowInstance,
+  getWorkflowCancellationCleanup,
   copyDefinition as copyWorkflowDefinition,
   deleteDefinition,
   getDefinition,
   listDefinitions,
   listWorkflowTemplates as fetchWorkflowTemplates,
   startInstance,
+  retryWorkflowCancellationCleanup,
   updateDefinition,
   validateWorkflowDraft,
   type WorkflowDefinitionEntity,
 } from '@/api/modules/workflow'
 import type { CopilotWorkflowRecipe } from '@/types/copilotWorkflowPlan'
 
-export { cancelWorkflowInstance }
+export { cancelWorkflowInstance, getWorkflowCancellationCleanup, retryWorkflowCancellationCleanup }
 import { useAuthStore } from '@/stores/authStore'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowSummary } from '@/types/workflow'
 import { formatDateTime as formatLocaleDateTime } from '@/utils/localeFormat'

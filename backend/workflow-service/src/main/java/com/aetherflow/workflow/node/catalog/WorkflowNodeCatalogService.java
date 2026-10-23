@@ -888,12 +888,16 @@ public class WorkflowNodeCatalogService {
                 "Writes a configured value or source variable value into a workflow variable.",
                 List.of(
                         field("variable", "STRING", true, "Target workflow variable name.", "result"),
-                        field("value", "OBJECT", false, "Fixed value.", "ready"),
+                        field("valueMode", "STRING", false, "Choose a fixed JSON value or a source variable.",
+                                "LITERAL", List.of("LITERAL", "SOURCE_VARIABLE")),
+                        field("valueType", "STRING", false, "Interpret a fixed value as text or JSON.",
+                                "STRING", List.of("STRING", "JSON")),
+                        field("value", "JSON", false, "Fixed string or JSON value.", "ready"),
                         field("sourceVariable", "STRING", false, "Source variable used when value is empty.", "draft")
                 ),
                 List.of(variable("draft", "OBJECT", "Source value.", "ready")),
-                List.of(variable("result", "OBJECT", "Assigned value.", "ready")),
-                mapOf("variable", "result", "value", "")
+                List.of(variable("result", "JSON", "Assigned JSON scalar, array, or object.", "ready")),
+                mapOf("variable", "result", "valueMode", "LITERAL", "valueType", "STRING", "value", "")
         );
     }
 

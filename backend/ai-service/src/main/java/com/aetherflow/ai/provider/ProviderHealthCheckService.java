@@ -51,12 +51,19 @@ public class ProviderHealthCheckService {
             }
             try {
                 AiProviderHealth health = provider.health();
-                stateRepository.saveHealth(health, policy.getHealthCheckInterval().plusSeconds(60));
-                if (!health.healthy()) {
-                    openCircuitFromHealthCheck(policy, providerType, health.message());
+                if (health == null) {
+                    stateRepository.saveHealth(AiProviderHealth.unknown(providerType,
+                            "provider adapter returned no health snapshot"),
+                            policy.getHealthCheckInterval().plusSeconds(60));
                     continue;
                 }
-                recoverHealthyProvider(policy, providerType, primary);
+                stateRepository.saveHealth(health, policy.getHealthCheckInterval().plusSeconds(60));
+                if (health.status() == ProviderHealthStatus.DOWN) {
+                    openCircuitFromHealthCheck(policy, providerType, health.message());
+                } else if (health.status() == ProviderHealthStatus.UP && health.healthy()) {
+                    recoverHealthyProvider(policy, providerType, primary);
+                }
+                // UNKNOWN and DEGRADED observations do not prove either failure or recovery.
             } catch (RuntimeException exception) {
                 log.warn("Provider health check failed provider={}", providerType, exception);
                 stateRepository.saveHealth(AiProviderHealth.down(providerType, exception.getMessage(), Map.of()),
@@ -99,7 +106,7 @@ public class ProviderHealthCheckService {
         if (!policy.isAutoRecoverPrimary() || providerType != primary) {
             return;
         }
-        if (activeProvider.isPresent() && activeProvider.get() == primary && (snapshot == null || snapshot.state() == ProviderCircuitState.CLOSED)) {
+        if (activeProvider.isPresent() && activeProvider.get() == primary) {
             return;
         }
         stateRepository.saveActiveProvider(primary, policy.getHealthCheckInterval().plus(policy.getCircuitOpenDuration()).plusSeconds(60));

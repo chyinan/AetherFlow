@@ -98,12 +98,25 @@ watch(filters, value => {
 const dismissedApprovalKey = ref<string | null>(null)
 const cancellingRunIds = ref(new Set<string>())
 const cancellationErrors = ref<Record<string, string>>({})
+const cancellationCleanupError = ref<string | null>(null)
+const retryingCancellationCleanup = ref(false)
+let cancellationCleanupPoll: ReturnType<typeof setInterval> | undefined
 const cancelling = computed(() => Boolean(runStore.currentRun && cancellingRunIds.value.has(runStore.currentRun.id)))
 const cancellationError = computed(() => {
   const run = runStore.currentRun
   // 节点局部推断终态不能确认取消结果，只有后端权威终态才能隐藏提示。
   return run && !['SUCCESS', 'FAILED', 'CANCELLED'].includes(run.backendStatus ?? '')
     ? cancellationErrors.value[run.id] : undefined
+})
+const cancellationCleanupMessage = computed(() => {
+  const cleanup = runStore.currentRun?.cancellationCleanup
+  if (!cleanup) return ''
+  if (cleanup.status === 'COMPLETE' || cleanup.status === 'NOT_REQUIRED') {
+    return t(cleanup.status === 'COMPLETE' ? 'runs.cleanupComplete' : 'runs.cleanupNotRequired')
+  }
+  if (cleanup.status === 'PROCESSING') return t('runs.cleanupProcessing')
+  if (cleanup.status === 'FAILED' || cleanup.lastError) return t('runs.cleanupFailed')
+  return t('runs.cleanupPending')
 })
 const rerunNode = ref<RunNodeState | null>(null)
 const canRerun = computed(() => selectedDetailReady.value && runStore.currentRun?.backendStatus === 'FAILED' && Boolean(runStore.currentRun?.backendInstanceId))
@@ -146,6 +159,51 @@ async function cancelCurrentRun() {
     cancellingRunIds.value.delete(runId)
   }
 }
+
+async function retryCancellationCleanup() {
+  const run = runStore.currentRun
+  const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
+  if (!run || !instanceId || retryingCancellationCleanup.value) return
+  retryingCancellationCleanup.value = true
+  cancellationCleanupError.value = null
+  try {
+    await runStore.retryCancellationCleanup(instanceId)
+  } catch (error) {
+    cancellationCleanupError.value = toApiError(error, 'workflow').message
+  } finally {
+    retryingCancellationCleanup.value = false
+  }
+}
+
+async function refreshCancellationCleanup() {
+  const run = runStore.currentRun
+  const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
+  if (!run || run.backendStatus !== 'CANCELLED' || !instanceId) return
+  cancellationCleanupError.value = null
+  try {
+    await runStore.loadCancellationCleanup(instanceId)
+  } catch (error) {
+    if (runStore.currentRun?.id === run.id) {
+      cancellationCleanupError.value = toApiError(error, 'workflow').message
+    }
+  }
+}
+
+watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runStore.currentRun?.cancellationCleanup] as const,
+  ([runId, backendStatus, cleanup], previous) => {
+    if (!previous || previous[0] !== runId) cancellationCleanupError.value = null
+    if (!runId || backendStatus !== 'CANCELLED') {
+      cancellationCleanupError.value = null
+      if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
+      cancellationCleanupPoll = undefined
+      return
+    }
+    if (!cleanup) void refreshCancellationCleanup()
+    if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
+    if (cleanup?.retryable || ['PENDING', 'PROCESSING', 'FAILED'].includes(cleanup?.status ?? '')) {
+      cancellationCleanupPoll = setInterval(() => { void refreshCancellationCleanup() }, 5_000)
+    }
+  }, { immediate: true })
 
 const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
   if (!selectedDetailReady.value) return null
@@ -214,6 +272,8 @@ watch(
 
 onBeforeUnmount(() => {
   active = false
+  if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
+  cancellationCleanupPoll = undefined
   detailFocusCleanups.forEach(cleanup => cleanup())
   routeGeneration += 1
   runStore.historyRequestId += 1
@@ -474,6 +534,36 @@ watch(
                 <p class="mt-1">{{ t('runs.cancelErrorHint') }}</p>
                 <p class="mt-1 break-words text-xs">{{ cancellationError }}</p>
               </div>
+
+              <section
+                v-if="runStore.currentRun.backendStatus === 'CANCELLED' && (runStore.currentRun.cancellationCleanup || cancellationCleanupError)"
+                data-testid="cancel-cleanup-status"
+                class="mt-4 rounded-md border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary"
+              >
+                <p class="font-semibold text-text-primary">{{ t('runs.cleanupTitle') }}</p>
+                <p v-if="cancellationCleanupMessage" class="mt-1">{{ cancellationCleanupMessage }}</p>
+                <p v-if="runStore.currentRun.cancellationCleanup?.lastError" class="mt-1 break-words text-xs text-status-error">
+                  {{ runStore.currentRun.cancellationCleanup.lastError }}
+                </p>
+                <p v-if="cancellationCleanupError" role="alert" class="mt-1 break-words text-xs text-status-error">
+                  {{ t('runs.cleanupLoadFailed') }} {{ cancellationCleanupError }}
+                </p>
+                <button
+                  v-if="runStore.currentRun.cancellationCleanup?.retryable"
+                  type="button"
+                  data-testid="retry-cancel-cleanup"
+                  class="mt-2 rounded border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50"
+                  :disabled="retryingCancellationCleanup"
+                  @click="retryCancellationCleanup"
+                >{{ retryingCancellationCleanup ? t('runs.cleanupRetrying') : t('runs.cleanupRetry') }}</button>
+                <button
+                  v-else-if="cancellationCleanupError"
+                  type="button"
+                  class="mt-2 rounded border border-app-border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                  :disabled="retryingCancellationCleanup"
+                  @click="refreshCancellationCleanup"
+                >{{ t('runs.cleanupRefresh') }}</button>
+              </section>
 
               <div class="mt-4 grid gap-3 md:grid-cols-4">
                 <div class="rounded-md bg-app-bg2 p-3">

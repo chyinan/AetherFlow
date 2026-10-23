@@ -138,12 +138,16 @@ function approvalDetails(event: RuntimeEvent): HumanApprovalDetails | undefined 
   }
 
   const attributes = event.attributes
-  const approvalStatus = attributes.approvalStatus === 'approved' || attributes.approvalStatus === 'rejected'
-    ? attributes.approvalStatus
-    : 'pending'
+  const nodeType = typeof attributes.nodeType === 'string' ? attributes.nodeType.trim().toUpperCase() : ''
+  const approvalStatus = attributes.approvalStatus
+  if ((nodeType && nodeType !== 'HUMAN')
+    || !['pending', 'approved', 'rejected'].includes(String(approvalStatus))
+    || typeof attributes.approved !== 'boolean') {
+    return undefined
+  }
   const details: HumanApprovalDetails = {
-    approved: typeof attributes.approved === 'boolean' ? attributes.approved : false,
-    approvalStatus,
+    approved: attributes.approved,
+    approvalStatus: approvalStatus as HumanApprovalDetails['approvalStatus'],
   }
   if (typeof attributes.reviewer === 'string' && attributes.reviewer.trim()) {
     details.reviewer = attributes.reviewer.trim()
@@ -235,6 +239,7 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     output: Object.keys(event.attributes ?? {}).length > 0 ? JSON.stringify(event.attributes) : event.eventType,
     retryCount: runtimeRetryCount(event.eventType, event.attributes),
     ...(approval ? { approval } : {}),
+    ...(event.eventType === 'NODE_WAITING' && !approval ? { approval: null } : {}),
     ...(event.attributes?.reused === true ? { reused: true } : {}),
   }
 }

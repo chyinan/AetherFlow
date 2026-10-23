@@ -347,7 +347,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Transform',
     catalog: 'tool',
     group: 'allTools',
-    config: { variable: 'result', value: '' },
+    config: { variable: 'result', valueMode: 'LITERAL', valueType: 'STRING', value: '' },
     inputs: ['value.text'],
     outputs: ['variable.json'],
   },

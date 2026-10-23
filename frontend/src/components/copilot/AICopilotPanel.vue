@@ -11,6 +11,7 @@ import {
   buildCopilotWorkflowPlanGraph,
   buildWorkflowPlannerContext,
   recommendNextNodeAction,
+  redactCopilotValue,
   workflowCopilotPrompt,
   type WorkflowCopilotActionMessage,
   type WorkflowCopilotCanvasAction,
@@ -45,6 +46,7 @@ type CustomNodePreview = {
   status: 'pending' | 'applying' | 'applied' | 'cancelled'
   saved: boolean
   error: string
+  validation: { structurallyValid: boolean | null; runtimeReady: boolean | null; issues: string[] } | null
 }
 const customNodePreviews = ref(new Map<string, CustomNodePreview>())
 let customNodeController: AbortController | null = null
@@ -312,6 +314,56 @@ function planBaseIsCurrent(message: CopilotMessage) {
     && (message.planBaseVersion ?? null) === current.backendVersion)
 }
 
+function pendingPlannerDraftContext() {
+  const preview = planPreview.value
+  if (!preview || preview.applied || cancelledPlanMessageId.value === preview.messageId) return undefined
+  const message = messages.value.find((item) => item.id === preview.messageId)
+  if (!message?.plan || message.plan.status !== 'READY' || !message.plan.recipe) return undefined
+  return {
+    messageId: preview.messageId,
+    stale: preview.stale,
+    definition: {
+      id: preview.workflow.id,
+      name: preview.workflow.name,
+      nodes: preview.workflow.nodes.map((node) => ({
+        id: node.id, kind: node.data.kind, label: node.data.label,
+        config: redactCopilotValue(node.data.config),
+      })),
+      edges: preview.workflow.edges.map((edge) => ({
+        id: edge.id, source: edge.source, target: edge.target, label: edge.label ?? '',
+      })),
+    },
+    operations: [
+      ...preview.workflow.nodes.map((node) => ({ type: 'add_node', nodeId: node.id, kind: node.data.kind, label: node.data.label })),
+      ...preview.workflow.edges.map((edge) => ({ type: 'connect', source: edge.source, target: edge.target, label: edge.label ?? '' })),
+    ],
+    validation: {
+      structurallyValid: preview.structurallyValid,
+      runtimeReady: preview.runtimeReady,
+      issues: [...preview.issues],
+    },
+  }
+}
+
+function pendingCustomNodeDraftContext() {
+  const entry = [...customNodePreviews.value.entries()].reverse()
+    .find(([, draft]) => draft.status === 'pending' || draft.status === 'applying')
+  if (!entry) return undefined
+  const [messageId, draft] = entry
+  return {
+    messageId,
+    baseWorkflowId: draft.base.workflowId,
+    baseEditRevision: draft.base.editRevision,
+    definition: redactCopilotValue(draft.definitions),
+    operations: redactCopilotValue((draft.canvasEdit?.operations ?? []).map((operation) =>
+      operation.type === 'create_custom_node'
+        ? { type: operation.type, draftId: operation.draftId }
+        : operation)),
+    validation: draft.validation,
+    saved: draft.saved,
+  }
+}
+
 function candidateWorkflow(
   plan: CopilotWorkflowPlan,
   messageId: string,
@@ -530,6 +582,7 @@ async function sendCanvasEdit(value = prompt.value) {
   if (snapshot.nodes.length > 100) return
   const base = currentPlannerBase()
   if (!base) return
+  const pendingDraft = pendingCustomNodeDraftContext()
   beginConversationInteraction()
   const session = plannerSessionSequence
   const controller = new AbortController()
@@ -553,6 +606,7 @@ async function sendCanvasEdit(value = prompt.value) {
       context: {
         ...buildCanvasEditContext(snapshot, locale.value),
         capabilities: { customNodeDrafts: Boolean(props.saveCustomNodeDrafts) },
+        ...(pendingDraft ? { pendingDraft } : {}),
         selectedModel: { provider: providerTypeOf(model?.providerId), model: model?.name },
         availableModels: availableModels.value.map((item) => ({ provider: providerTypeOf(item.providerId), model: item.name })),
       }, signal: controller.signal,
@@ -571,7 +625,7 @@ async function sendCanvasEdit(value = prompt.value) {
       if (!prepared.ok) throw new Error(prepared.error)
       customNodePreviews.value.set(responseMessageId, {
         definitions: prepared.definitions, canvasEdit: prepared.canvasEdit, snapshot, base,
-        status: 'pending', saved: false, error: '',
+        status: 'pending', saved: false, error: '', validation: null,
       })
       return
     }
@@ -673,6 +727,9 @@ async function confirmCustomNodeDraft(messageId: string) {
       backendDefinitionId: snapshot.backendDefinitionId ?? undefined, backendVersion: snapshot.backendVersion ?? undefined,
       projectId: snapshot.projectId ?? undefined, nodes: candidate.nodes, edges: candidate.edges,
     }, controller.signal) : null
+    preview.validation = validation
+      ? { structurallyValid: validation.structurallyValid, runtimeReady: validation.runtimeReady, issues: [...validation.issues] }
+      : null
     ensureCurrent()
     if (validation && !validation.structurallyValid) throw new Error(validation.issues.join('；') || t('copilot.editor.invalid'))
     if (!preview.saved) {
@@ -701,6 +758,9 @@ async function confirmCustomNodeDraft(messageId: string) {
     if (stillCurrent()) {
       preview.status = 'pending'
       preview.error = `${preview.saved ? '模板已保存，画布尚未应用。' : ''}${toApiError(error, 'ai').message}`
+      if (!preview.validation) {
+        preview.validation = { structurallyValid: false, runtimeReady: false, issues: [preview.error] }
+      }
     }
   } finally {
     if (customNodeController === controller) {
@@ -715,6 +775,7 @@ async function sendWorkflowPlan(value = prompt.value) {
   if (!text || interactionPending.value || !props.context) return
   const base = currentPlannerBase()
   if (!base) return
+  const pendingDraft = pendingPlannerDraftContext()
   beginConversationInteraction()
   enterPlannerMode()
   cancelledPlanMessageId.value = null
@@ -747,7 +808,10 @@ async function sendWorkflowPlan(value = prompt.value) {
       projectId: base.projectId ? String(base.projectId) : undefined,
       provider: providerTypeOf(model?.providerId),
       model: model?.name,
-      context: buildWorkflowPlannerContext(props.context, locale.value),
+      context: {
+        ...buildWorkflowPlannerContext(props.context, locale.value),
+        ...(pendingDraft ? { pendingDraft } : {}),
+      },
       signal: controller.signal,
     })
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)

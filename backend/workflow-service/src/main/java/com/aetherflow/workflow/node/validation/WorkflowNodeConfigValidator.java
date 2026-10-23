@@ -133,6 +133,9 @@ public final class WorkflowNodeConfigValidator {
                 && isBlank(config.get("prompt")) && isBlank(config.get("promptVariable"))) {
             violations.add(prefix + "one of prompt or promptVariable is required");
         }
+        if ("VARIABLE_ASSIGNER".equals(type)) {
+            validateVariableAssigner(violations, prefix, config);
+        }
         if ("SUBWORKFLOW".equals(type)) {
             try { com.aetherflow.workflow.subworkflow.SubworkflowConfig.from(config); }
             catch (IllegalArgumentException exception) { violations.add(prefix + exception.getMessage()); }
@@ -291,8 +294,52 @@ public final class WorkflowNodeConfigValidator {
             case "BOOLEAN" -> value instanceof Boolean;
             case "OBJECT" -> value instanceof Map<?, ?>;
             case "ARRAY" -> value instanceof Collection<?>;
+            case "JSON" -> isJsonValue(value);
             default -> true;
         };
+    }
+
+    private static boolean isJsonValue(Object value) {
+        if (value == null || value instanceof CharSequence || value instanceof Boolean) return true;
+        if (value instanceof Number number) {
+            return !(number instanceof Double doubleValue && !Double.isFinite(doubleValue))
+                    && !(number instanceof Float floatValue && !Float.isFinite(floatValue));
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().allMatch(WorkflowNodeConfigValidator::isJsonValue);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.entrySet().stream().allMatch(entry -> entry.getKey() instanceof String
+                    && isJsonValue(entry.getValue()));
+        }
+        return false;
+    }
+
+    private static void validateVariableAssigner(List<String> violations,
+                                                 String prefix,
+                                                 Map<String, Object> config) {
+        if (!isBlank(config.get("valueValidationError"))) {
+            violations.add(prefix + "value must be valid JSON");
+        }
+        String mode = normalize(config.get("valueMode") == null ? null : String.valueOf(config.get("valueMode")));
+        if ("SOURCE_VARIABLE".equals(mode)) {
+            if (isBlank(config.get("sourceVariable"))) {
+                violations.add(prefix + "sourceVariable is required in SOURCE_VARIABLE mode");
+            }
+            return;
+        }
+        if (!"LITERAL".equals(mode)) return;
+        if (!config.containsKey("value")) {
+            violations.add(prefix + "value is required in LITERAL mode");
+            return;
+        }
+        String valueType = normalize(config.get("valueType") == null ? "STRING" : String.valueOf(config.get("valueType")));
+        Object value = config.get("value");
+        if ("STRING".equals(valueType) && !(value instanceof CharSequence)) {
+            violations.add(prefix + "value must match valueType STRING");
+        } else if ("JSON".equals(valueType) && !isJsonValue(value)) {
+            violations.add(prefix + "value must be a JSON value");
+        }
     }
 
     private static boolean isBlank(Object value) {

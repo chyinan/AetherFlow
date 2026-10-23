@@ -1,47 +1,46 @@
 package com.aetherflow.workflow.runtime.cancellation;
 
-import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
-import com.aetherflow.workflow.client.TaskClient;
-import com.aetherflow.workflow.config.TaskClientProperties;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
-/** 直接取消和子流程回收共用的幂等取消流程；失败由调用方保留收据并重试。 */
+/** Commits cancellation state and durable cleanup work together; task cleanup runs after commit. */
 @Service
 public class WorkflowCancellationService {
     private final WorkflowInstanceMapper instances;
     private final WorkflowRuntimeSnapshotMapper snapshotMapper;
     private final RuntimeSnapshotRepository snapshots;
-    private final TaskClient tasks;
-    private final TaskClientProperties taskProperties;
+    private final WorkflowCancellationCleanupMapper cleanupMapper;
     private final WorkflowTerminalNotificationOutboxService notifications;
 
     public WorkflowCancellationService(WorkflowInstanceMapper instances,
                                        WorkflowRuntimeSnapshotMapper snapshotMapper,
                                        RuntimeSnapshotRepository snapshots,
-                                       TaskClient tasks,
-                                       TaskClientProperties taskProperties,
+                                       WorkflowCancellationCleanupMapper cleanupMapper,
                                        WorkflowTerminalNotificationOutboxService notifications) {
         this.instances = instances;
         this.snapshotMapper = snapshotMapper;
         this.snapshots = snapshots;
-        this.tasks = tasks;
-        this.taskProperties = taskProperties;
+        this.cleanupMapper = cleanupMapper;
         this.notifications = notifications;
     }
 
     /** 返回 false 表示运行已成功或失败，调用方不得把它改成取消。 */
+    @Transactional(rollbackFor = Exception.class)
     public boolean cancel(Long instanceId, Long userId) {
         WorkflowInstance instance = requireInstance(instanceId);
+        if (userId == null || userId <= 0) throw new BusinessException(ResultCode.UNAUTHORIZED, "authenticated user is required");
+        if (!Objects.equals(instance.getUserId(), userId)) throw new BusinessException(ResultCode.FORBIDDEN, "workflow instance does not belong to user");
         if (completed(instance.getStatus())) return false;
         if (!"CANCELLED".equals(instance.getStatus())) {
             if (completedSnapshot(instanceId)) return false;
@@ -54,11 +53,12 @@ public class WorkflowCancellationService {
                 }
             }
         }
-        // 已取消实例也必须重放清理；不能因上轮实例更新成功而跳过失败的任务请求。
+        // 运行状态、取消清理收据和终态通知在同一数据库事务内提交。
         snapshotMapper.markCancelled(String.valueOf(instanceId));
-        Result<Integer> result = tasks.cancelWorkflowTasks(taskProperties.issueInternalToken(), instanceId);
-        if (result == null || !result.isSuccess() || result.getData() == null || result.getData() < 0) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "工作流已取消，任务清理尚未确认，请重试");
+        LocalDateTime now = LocalDateTime.now();
+        cleanupMapper.ensurePending(instanceId, userId, now);
+        if (cleanupMapper.findByWorkflowInstanceId(instanceId) == null) {
+            throw new IllegalStateException("工作流已取消，但取消清理收据未能持久化");
         }
         notifications.enqueue(instanceId, userId, null, RuntimeState.CANCELLED, null);
         return true;

@@ -21,7 +21,7 @@ import { formatDateTime as formatLocaleDateTime, formatTime as formatLocaleTime 
 import { getStartedRunLink } from '@/services/api/workflowApi'
 import { parseImageExecutionFailure } from '@/utils/imageExecutionFailure'
 import type { ApiErrorSource } from '@/types/api'
-import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
+import type { HumanApprovalDetails, RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
 
 import { mockLogs, mockRuns } from '../mock/runMock'
 import { delay } from '../mock/timing'
@@ -111,11 +111,30 @@ function normalizeLogLevel(level?: string): RunLogEntry['level'] {
   return 'info'
 }
 
+function approvalFromBackendSummary(node: WorkflowRunNodeSummaryDTO): HumanApprovalDetails | null | undefined {
+  if (node.latestEventType !== 'NODE_WAITING') return undefined
+  const attributes = node.attributes ?? {}
+  const nodeType = typeof attributes.nodeType === 'string' ? attributes.nodeType.trim().toUpperCase() : ''
+  const approvalStatus = attributes.approvalStatus
+  if ((nodeType && nodeType !== 'HUMAN')
+    || !['pending', 'approved', 'rejected'].includes(String(approvalStatus))
+    || typeof attributes.approved !== 'boolean') return null
+  return {
+    approved: attributes.approved,
+    approvalStatus: approvalStatus as HumanApprovalDetails['approvalStatus'],
+    ...(typeof attributes.reviewer === 'string' && attributes.reviewer.trim() ? { reviewer: attributes.reviewer.trim() } : {}),
+    ...(typeof attributes.method === 'string' && attributes.method.trim() ? { method: attributes.method.trim() } : {}),
+    ...(typeof attributes.comment === 'string' && attributes.comment.trim() ? { comment: attributes.comment.trim() } : {}),
+    ...(typeof attributes.approvedAt === 'string' && attributes.approvedAt.trim() ? { approvedAt: attributes.approvedAt.trim() } : {}),
+  }
+}
+
 function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
   const status = mapRuntimeStateToNodeStatus(toRuntimeState(node.status))
   const durationMs = typeof node.durationMs === 'number'
     ? node.durationMs
     : durationBetween(node.startedAt, node.completedAt)
+  const approval = approvalFromBackendSummary(node)
 
   return {
     nodeId: node.nodeId || 'unknown-node',
@@ -123,6 +142,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
     status,
     durationMs,
     retryCount: runtimeRetryCount(node.latestEventType, node.attributes),
+    ...(approval !== undefined ? { approval } : {}),
     ...(node.attributes?.reused === true ? { reused: true } : {}),
     output: Object.keys(node.attributes ?? {}).length > 0
       ? JSON.stringify(node.attributes)

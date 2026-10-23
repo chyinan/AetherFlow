@@ -3,20 +3,27 @@ package com.aetherflow.ai.image;
 import com.aetherflow.ai.config.ImageProviderProperties;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.exception.BusinessException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
+import java.awt.image.BufferedImage;
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.imageio.ImageIO;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -171,14 +178,37 @@ class ComfyUiProviderTest {
                               "inputs": {"image": "uploaded-source.png"}
                             },
                             "5": {
-                              "class_type": "VAEEncode",
-                              "inputs": {"pixels": ["4", 0]}
+                              "class_type": "ImageScale",
+                              "inputs": {
+                                "image": ["4", 0],
+                                "upscale_method": "lanczos",
+                                "width": 768,
+                                "height": 1024,
+                                "crop": "disabled"
+                              }
                             },
                             "6": {
+                              "class_type": "VAEEncode",
+                              "inputs": {"pixels": ["5", 0], "vae": ["1", 2]}
+                            },
+                            "7": {
+                              "class_type": "RepeatLatentBatch",
+                              "inputs": {"samples": ["6", 0], "amount": 2}
+                            },
+                            "8": {
                               "class_type": "KSampler",
                               "inputs": {
                                 "denoise": 0.35,
-                                "latent_image": ["5", 0]
+                                "latent_image": ["7", 0]
+                              }
+                            },
+                            "9": {
+                              "class_type": "VAEDecode",
+                              "inputs": {"samples": ["8", 0], "vae": ["1", 2]}
+                            },
+                            "10": {
+                              "class_type": "SaveImage",
+                              "inputs": {"images": ["9", 0]}
                               }
                             }
                           },
@@ -187,7 +217,7 @@ class ComfyUiProviderTest {
                         """))
                 .andRespond(withSuccess("{\"prompt_id\":\"abc\"}", MediaType.APPLICATION_JSON));
         expectQueue(server);
-        expectHistory(server, "abc", "out.png", "", "output");
+        expectHistory(server, "abc", "out.png", "", "output", "10");
         expectView(server, "out.png", "", "output");
 
         ImageGenerationResponse response = provider.generate(new ImageGenerationRequest(
@@ -215,6 +245,73 @@ class ComfyUiProviderTest {
         ));
 
         assertThat(response.mode()).isEqualTo("img2img");
+        server.verify();
+    }
+
+    @Test
+    void img2imgResizesAndReturnsTheRequestedBatchAcrossRepeatedRuns() throws Exception {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+        int[][] cases = { { 24, 12, 512, 512, 1 }, { 10, 30, 768, 512, 2 }, { 40, 24, 512, 768, 16 } };
+        record Img2ImgCase(int width, int height, int batchSize, String sourceImage, String promptId, List<String> filenames) { }
+        List<Img2ImgCase> requests = new ArrayList<>();
+
+        for (int[] run : cases) {
+            int sourceWidth = run[0], sourceHeight = run[1], width = run[2], height = run[3], batchSize = run[4];
+            String sourceImage = pngBase64(sourceWidth, sourceHeight);
+            String promptId = "img2img-" + batchSize;
+            List<String> filenames = new ArrayList<>();
+            for (int index = 0; index < batchSize; index++) {
+                filenames.add("batch-" + batchSize + "-" + index + ".png");
+            }
+            requests.add(new Img2ImgCase(width, height, batchSize, sourceImage, promptId, filenames));
+
+            server.expect(once(), requestTo("http://comfy/upload/image"))
+                    .andExpect(method(POST))
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.MULTIPART_FORM_DATA))
+                    .andExpect(request -> assertThat(containsBytes(
+                            ((MockClientHttpRequest) request).getBodyAsBytes(), Base64.getDecoder().decode(sourceImage))).isTrue())
+                    .andRespond(withSuccess("{\"name\":\"uploaded-source.png\",\"subfolder\":\"\",\"type\":\"input\"}", MediaType.APPLICATION_JSON));
+            Map<String, Object> expectedWorkflow = img2imgWorkflow(width, height, batchSize);
+            server.expect(once(), requestTo("http://comfy/prompt"))
+                    .andExpect(method(POST))
+                    .andExpect(content().json(json(Map.of("prompt", expectedWorkflow, "client_id", "aetherflow"))))
+                    .andRespond(withSuccess("{\"prompt_id\":\"" + promptId + "\"}", MediaType.APPLICATION_JSON));
+            expectQueue(server);
+            expectHistory(server, promptId, filenames, batchSize > 1 ? "10" : "9");
+            filenames.forEach(filename -> expectView(server, filename, "", "output"));
+        }
+
+        for (Img2ImgCase run : requests) {
+            ImageGenerationResponse response = provider.generate(new ImageGenerationRequest(
+                    ImageProviderType.COMFYUI, "img2img", "cat", "blur", 7L, 20, 6.5,
+                    "euler", "normal", run.width(), run.height(), run.batchSize(), 0.35,
+                    "sdxl.safetensors", null, List.of(), run.sourceImage(), "image/png", null, null,
+                    Duration.ofSeconds(1)));
+
+            assertThat(response.images()).hasSize(run.batchSize());
+            assertThat(response.metadata()).containsEntry("imageCount", run.batchSize());
+            assertThat(response.images()).extracting(GeneratedImagePayload::fileName).containsExactlyElementsOf(run.filenames());
+        }
+
+        server.verify();
+    }
+
+    @Test
+    void rejectsBatchSizesOutsideTheSupportedRangeBeforeUploading() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+
+        assertThatThrownBy(() -> provider.generate(new ImageGenerationRequest(
+                ImageProviderType.COMFYUI, "img2img", "cat", "blur", 7L, 20, 6.5,
+                "euler", "normal", 512, 512, 17, 0.35,
+                "sdxl.safetensors", null, List.of(), "c291cmNlLWltYWdl", "image/png", null, null,
+                Duration.ofSeconds(1))))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getMessage()).contains("batchSize:VALIDATION"));
+
         server.verify();
     }
 
@@ -636,15 +733,30 @@ class ComfyUiProviderTest {
                         """, MediaType.APPLICATION_JSON));
     }
 
+    private void expectHistory(MockRestServiceServer server, String promptId, List<String> filenames, String outputNodeId) {
+        String images = filenames.stream()
+                .map(filename -> "{\"filename\":\"" + filename + "\",\"subfolder\":\"\",\"type\":\"output\"}")
+                .collect(java.util.stream.Collectors.joining(","));
+        server.expect(once(), requestTo("http://comfy/history/" + promptId))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("{\"" + promptId + "\":{\"outputs\":{\"" + outputNodeId
+                        + "\":{\"images\":[" + images + "]}}}}", MediaType.APPLICATION_JSON));
+    }
+
     private void expectHistory(MockRestServiceServer server, String promptId, String filename, String subfolder,
                                String type) {
+        expectHistory(server, promptId, filename, subfolder, type, "9");
+    }
+
+    private void expectHistory(MockRestServiceServer server, String promptId, String filename, String subfolder,
+                               String type, String outputNodeId) {
         server.expect(once(), requestTo("http://comfy/history/" + promptId))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("""
                         {
                           "%s": {
                             "outputs": {
-                              "9": {
+                              "%s": {
                                 "images": [
                                   {"filename": "%s", "subfolder": "%s", "type": "%s"}
                                 ]
@@ -652,7 +764,7 @@ class ComfyUiProviderTest {
                             }
                           }
                         }
-                        """.formatted(promptId, filename, subfolder, type), MediaType.APPLICATION_JSON));
+                        """.formatted(promptId, outputNodeId, filename, subfolder, type), MediaType.APPLICATION_JSON));
     }
 
     private void expectView(MockRestServiceServer server, String filename, String subfolder, String type) {
@@ -660,6 +772,58 @@ class ComfyUiProviderTest {
                 + "&type=" + type))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("image-bytes", MediaType.IMAGE_PNG));
+    }
+
+    private Map<String, Object> img2imgWorkflow(int width, int height, int batchSize) {
+        Map<String, Object> workflow = new LinkedHashMap<>();
+        workflow.put("1", node("CheckpointLoaderSimple", Map.of("ckpt_name", "sdxl.safetensors")));
+        workflow.put("2", node("CLIPTextEncode", Map.of("text", "cat", "clip", List.of("1", 1))));
+        workflow.put("3", node("CLIPTextEncode", Map.of("text", "blur", "clip", List.of("1", 1))));
+        workflow.put("4", node("LoadImage", Map.of("image", "uploaded-source.png")));
+        workflow.put("5", node("ImageScale", Map.of(
+                "image", List.of("4", 0), "upscale_method", "lanczos", "width", width,
+                "height", height, "crop", "disabled")));
+        workflow.put("6", node("VAEEncode", Map.of("pixels", List.of("5", 0), "vae", List.of("1", 2))));
+        List<Object> latentRef = List.of("6", 0);
+        int nextNodeId = 7;
+        if (batchSize > 1) {
+            workflow.put("7", node("RepeatLatentBatch", Map.of("samples", latentRef, "amount", batchSize)));
+            latentRef = List.of("7", 0);
+            nextNodeId++;
+        }
+        String samplerNodeId = String.valueOf(nextNodeId++);
+        String decodeNodeId = String.valueOf(nextNodeId++);
+        String saveNodeId = String.valueOf(nextNodeId);
+        workflow.put(samplerNodeId, node("KSampler", Map.of(
+                "seed", 7L, "steps", 20, "cfg", 6.5, "sampler_name", "euler",
+                "scheduler", "normal", "denoise", 0.35, "model", List.of("1", 0),
+                "positive", List.of("2", 0), "negative", List.of("3", 0), "latent_image", latentRef)));
+        workflow.put(decodeNodeId, node("VAEDecode", Map.of("samples", List.of(samplerNodeId, 0), "vae", List.of("1", 2))));
+        workflow.put(saveNodeId, node("SaveImage", Map.of("filename_prefix", "aetherflow", "images", List.of(decodeNodeId, 0))));
+        return workflow;
+    }
+
+    private String pngBase64(int width, int height) throws IOException {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        return Base64.getEncoder().encodeToString(bytes.toByteArray());
+    }
+
+    private boolean containsBytes(byte[] source, byte[] expected) {
+        if (expected.length > source.length) return false;
+        for (int offset = 0; offset <= source.length - expected.length; offset++) {
+            boolean matches = true;
+            for (int index = 0; index < expected.length; index++) {
+                if (source[offset + index] != expected[index]) { matches = false; break; }
+            }
+            if (matches) return true;
+        }
+        return false;
+    }
+
+    private String json(Object value) throws Exception {
+        return new ObjectMapper().writeValueAsString(value);
     }
 
     private String slowPromptServer(Duration delay) throws IOException {

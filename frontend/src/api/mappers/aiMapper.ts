@@ -34,7 +34,7 @@ export interface AiModelSnapshot {
 
 const providerMetadata: Record<string, { name: string; runtime: string; capabilities: string[] }> = {
   OPENAI: {
-    name: 'OpenAI Gateway',
+    name: 'OpenAI-Compatible Gateway',
     runtime: 'cloud llm',
     capabilities: ['chat', 'summary', 'translate', 'subtitle', 'governed failover'],
   },
@@ -139,14 +139,16 @@ function durationToMs(value: ProviderRoutingPolicy['requestTimeout']) {
 }
 
 function readMapValue<T extends { provider?: AiProviderType }>(
-  map: Record<string, T> | null | undefined,
+  map: Record<string, T | null> | null | undefined,
   provider: string,
 ) {
   if (!map) {
     return undefined
   }
 
-  return map[provider] ?? Object.values(map).find((entry) => normalizeProvider(entry?.provider) === provider)
+  const direct = map[provider]
+  return direct ?? Object.values(map).find((entry): entry is T =>
+    entry !== null && normalizeProvider(entry.provider) === provider)
 }
 
 function collectProviders(input: AiModelMappingInput) {
@@ -206,19 +208,19 @@ function mapProviderStatus(health?: AiProviderHealth, circuit?: ProviderCircuitS
     return 'offline'
   }
 
-  if (circuitState === 'HALF_OPEN' || healthStatus === 'DEGRADED' || healthStatus === 'UNKNOWN') {
+  if (circuitState === 'HALF_OPEN' || healthStatus === 'DEGRADED') {
     return 'degraded'
   }
 
-  if (health?.healthy === false) {
-    return 'degraded'
+  if (healthStatus === 'UNKNOWN' || health?.healthy === false || !health) {
+    return 'unknown'
   }
 
-  if (health?.healthy === true || healthStatus === 'UP' || circuitState === 'CLOSED') {
+  if (health?.healthy === true || healthStatus === 'UP') {
     return 'online'
   }
 
-  return 'degraded'
+  return 'unknown'
 }
 
 function defaultModelForProvider(
@@ -304,6 +306,7 @@ function mapProvider(
     capabilities: capabilitySet(provider, input.serviceStatus, catalogProvider),
     lastCheckedAt: formatDateTime(health?.checkedAt ?? metrics?.updatedAt ?? circuit?.updatedAt ?? input.serviceStatus?.time),
     healthStatus: textOr(health?.status, health?.healthy === true ? 'UP' : 'UNKNOWN'),
+    healthObservationSource: textOr(health?.observationSource, ''),
     circuitState: textOr(circuit?.state, 'UNKNOWN'),
     statusMessage: textOr(circuit?.reason, textOr(health?.message, active ? 'active provider route' : 'registered provider')),
   }

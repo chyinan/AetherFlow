@@ -7,6 +7,7 @@ import com.aetherflow.workflow.runtime.engine.WorkflowExecutionSnapshot;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.LinkedHashMap;
@@ -100,10 +101,10 @@ public record WorkflowRuntimeSnapshot(
         }
         Map<String, Object> safe = new LinkedHashMap<>();
         value.forEach((key, item) -> {
-            if (key != null && item != null) {
+            if (key != null) {
                 safe.put(key, item);
             }
         });
-        return Map.copyOf(safe);
+        return Collections.unmodifiableMap(safe);
     }
 }

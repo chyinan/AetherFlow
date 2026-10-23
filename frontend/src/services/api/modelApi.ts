@@ -43,13 +43,14 @@ async function loadRealSnapshot({ management = false }: ModelSnapshotOptions = {
     source: 'real',
     providers: snapshot.providers.filter((provider) => registered.has(provider.providerType ?? '')).map((provider) => {
       const catalog = catalogResponse.providers?.find((entry) => (normalizeProvider(entry.provider) || providerFromId(entry.id)) === provider.providerType)
-      const health = Object.entries(providerStatus?.healthStates ?? {}).find(([key, value]) => normalizeProvider(value.provider ?? key) === provider.providerType)?.[1]
-      const circuit = Object.entries(providerStatus?.circuitStates ?? {}).find(([key, value]) => normalizeProvider(value.provider ?? key) === provider.providerType)?.[1]
+      const health = Object.entries(providerStatus?.healthStates ?? {}).find(([key, value]) => normalizeProvider(value?.provider ?? key) === provider.providerType)?.[1]
+      const circuit = Object.entries(providerStatus?.circuitStates ?? {}).find(([key, value]) => normalizeProvider(value?.provider ?? key) === provider.providerType)?.[1]
       const healthState = normalizeProvider(health?.status)
       const circuitState = normalizeProvider(circuit?.state)
       const status: ModelProviderStatus = circuitState === 'OPEN' || healthState === 'DOWN' ? 'offline'
-        : circuitState === 'HALF_OPEN' || healthState === 'DEGRADED' || health?.healthy === false ? 'degraded'
-          : healthState === 'UP' || health?.healthy === true ? 'online' : 'unknown'
+        : circuitState === 'HALF_OPEN' || healthState === 'DEGRADED' ? 'degraded'
+          : healthState === 'UNKNOWN' || !health || health.healthy === false ? 'unknown'
+            : healthState === 'UP' || health.healthy === true ? 'online' : 'unknown'
       return {
         ...provider,
         status,

@@ -65,8 +65,7 @@ public class ProviderStatusService {
     }
 
     private ProviderCircuitSnapshot safeCircuit(AiProviderType provider) {
-        ProviderCircuitSnapshot snapshot = stateRepository.readCircuit(provider);
-        return snapshot == null ? ProviderCircuitSnapshot.closed(provider) : snapshot;
+        return stateRepository.readCircuit(provider);
     }
 
     private AiProviderHealth safeHealth(AiProviderType provider) {

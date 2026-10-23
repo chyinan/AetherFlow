@@ -139,6 +139,12 @@ public class WorkflowDag {
         return Map.copyOf(depths);
     }
 
+    /** 正数表示左侧生产者按运行规则覆盖右侧生产者。 */
+    public static int compareVariableWriters(int leftDepth, String leftNodeId, int rightDepth, String rightNodeId) {
+        int depthOrder = Integer.compare(leftDepth, rightDepth);
+        return depthOrder != 0 ? depthOrder : rightNodeId.compareTo(leftNodeId);
+    }
+
     public List<String> nextNodeIds(String nodeId, NodeResult result) {
         WorkflowNodeDTO node = node(nodeId);
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();

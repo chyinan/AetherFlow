@@ -88,6 +88,11 @@ const selectedNode = computed(() => {
 // 上传回执的归属代次：按节点记录，迟到回执不得写入其他节点或覆盖更新的选择。
 const inputFileIntents = new Map<string, number>()
 let inputFileIntentCounter = 0
+watch(() => selectedNode.value?.id, (nextNodeId, previousNodeId) => {
+  if (previousNodeId && previousNodeId !== nextNodeId && inputFileIntents.has(previousNodeId)) {
+    inputFileIntents.set(previousNodeId, ++inputFileIntentCounter)
+  }
+}, { flush: 'sync' })
 const { t, te } = useI18n()
 const { t: ct } = useI18n({ useScope: 'local', messages: capabilitySupportMessages })
 const router = useRouter()
@@ -330,6 +335,38 @@ function modelOptionLabel(model: { name: string; providerId: string }) {
   return provider ? `${model.name} · ${provider.name}` : model.name
 }
 
+function normalizedProviderType(value: string) {
+  return value.trim().toUpperCase().replace(/-/g, '_')
+}
+
+function chatModelProviderType(model: { providerId: string }) {
+  const provider = modelStore.providers.find((item) => item.id === model.providerId)
+  return (provider?.providerType || model.providerId.replace(/^provider-/, '').replace(/-/g, '_')).trim()
+}
+
+function selectedLlmModelId() {
+  const modelName = textConfig('model', '').trim()
+  const configuredProvider = textConfig('provider', '').trim()
+  if (!modelName || !configuredProvider) return ''
+  return availableChatModels.value.find((model) => model.name === modelName
+    && normalizedProviderType(chatModelProviderType(model)) === normalizedProviderType(configuredProvider))?.id ?? ''
+}
+
+function handleLlmModelSelection(event: Event) {
+  if (!selectedNode.value) return
+  const selectedModelId = (event.target as HTMLSelectElement).value
+  const model = availableChatModels.value.find((item) => item.id === selectedModelId)
+  if (!model) {
+    // 清除选择时恢复服务默认 Provider/模型路由。
+    workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
+    return
+  }
+  workflowStore.updateNodeConfigValues(selectedNode.value.id, {
+    model: model.name,
+    provider: chatModelProviderType(model).toLowerCase(),
+  })
+}
+
 function knowledgeDatasetLabel(dataset: { name: string; documentCount: number; chunkCount: number }) {
   return `${dataset.name} · ${dataset.documentCount} docs · ${dataset.chunkCount} chunks`
 }
@@ -371,6 +408,10 @@ function updateConfig(key: string, value: ConfigValue) {
     return
   }
   workflowStore.updateNodeConfig(selectedNode.value.id, key, value)
+}
+
+function replaceComfyWorkflow(values: Record<string, unknown>, nodeId: string) {
+  workflowStore.updateNodeConfigValues(nodeId, values)
 }
 
 function changeTransformMode(event: Event) {
@@ -447,6 +488,91 @@ function boolConfig(key: string, fallback = false) {
 
 function handleTextInput(key: string, event: Event) {
   updateConfig(key, (event.target as HTMLInputElement | HTMLTextAreaElement).value)
+}
+
+function variableAssignerValue() {
+  const config = selectedNode.value?.data.config
+  return isConfigRecord(config) && Object.hasOwn(config, 'value') ? config.value : undefined
+}
+
+function variableAssignerMode() {
+  const configured = textConfig('valueMode', '').trim().toUpperCase()
+  if (configured === 'LITERAL' || configured === 'SOURCE_VARIABLE') return configured
+  const value = variableAssignerValue()
+  return value !== undefined && value !== null && String(value).trim() !== ''
+    ? 'LITERAL'
+    : textConfig('sourceVariable', '').trim() ? 'SOURCE_VARIABLE' : 'LITERAL'
+}
+
+function variableAssignerValueType() {
+  const configured = textConfig('valueType', '').trim().toUpperCase()
+  if (configured === 'STRING' || configured === 'JSON') return configured
+  return typeof variableAssignerValue() === 'string' ? 'STRING' : 'JSON'
+}
+
+function variableAssignerJsonText() {
+  const config = selectedNode.value?.data.config
+  if (isConfigRecord(config) && typeof config.valueJsonText === 'string') return config.valueJsonText
+  const value = variableAssignerValue()
+  return JSON.stringify(value === undefined ? '' : value, null, 2) ?? 'null'
+}
+
+function updateVariableAssigner(values: Record<string, unknown>) {
+  if (selectedNode.value?.data.kind === 'variable-assigner') {
+    workflowStore.updateNodeConfigValues(selectedNode.value.id, values)
+  }
+}
+
+function handleVariableAssignerModeChange(event: Event) {
+  const valueMode = (event.target as HTMLSelectElement).value
+  updateVariableAssigner({
+    valueMode,
+    ...(valueMode === 'SOURCE_VARIABLE' ? { valueValidationError: '' } : {}),
+  })
+}
+
+function handleVariableAssignerValueTypeChange(event: Event) {
+  const valueType = (event.target as HTMLSelectElement).value
+  const current = variableAssignerValue()
+  if (valueType === 'JSON') {
+    const nextValue = current === undefined ? '' : current
+    updateVariableAssigner({
+      valueMode: 'LITERAL', valueType, value: nextValue,
+      valueJsonText: JSON.stringify(nextValue, null, 2) ?? 'null', valueValidationError: '',
+    })
+    return
+  }
+  const nextValue = current === undefined || current === null
+    ? ''
+    : typeof current === 'string' ? current : JSON.stringify(current) ?? String(current)
+  updateVariableAssigner({
+    valueMode: 'LITERAL', valueType: 'STRING', value: nextValue,
+    valueValidationError: '',
+  })
+}
+
+function handleVariableAssignerStringInput(event: Event) {
+  updateVariableAssigner({
+    valueMode: 'LITERAL', valueType: 'STRING',
+    value: (event.target as HTMLTextAreaElement).value,
+    valueValidationError: '',
+  })
+}
+
+function handleVariableAssignerJsonInput(event: Event) {
+  const valueJsonText = (event.target as HTMLTextAreaElement).value
+  try {
+    const value: unknown = JSON.parse(valueJsonText)
+    updateVariableAssigner({
+      valueMode: 'LITERAL', valueType: 'JSON', value,
+      valueJsonText, valueValidationError: '',
+    })
+  } catch {
+    updateVariableAssigner({
+      valueMode: 'LITERAL', valueType: 'JSON', valueJsonText,
+      valueValidationError: t('workflow.inspector.invalidJsonValue'),
+    })
+  }
 }
 
 function metadataFilterErrorMessage(value: string) {
@@ -654,8 +780,7 @@ function isCurrentInputFileIntent(nodeId: string, generation: number) {
 }
 
 function applyInputFileToNode(nodeId: string, fileId: ConfigValue, fileName: ConfigValue) {
-  workflowStore.updateNodeConfig(nodeId, 'fileId', fileId)
-  workflowStore.updateNodeConfig(nodeId, 'fileName', fileName)
+  workflowStore.updateNodeConfigValues(nodeId, { fileId, fileName })
 }
 
 /** 手动改选已有文件同样让更早的上传回执失效。 */
@@ -680,8 +805,8 @@ async function handleInputFileUpload(event: Event) {
   }
   const nodeId = node.id
   const workflowId = workflowStore.workflowId
-  // 上传开始时的文件选择：回执只应替换这个旧值，不能覆盖上传期间的新用户意图。
-  const fileIdBeforeUpload = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
+  // 上传回执同时绑定节点意图与历史代次；撤销后再重做回同值也会作废。
+  const editRevisionAtUpload = workflowStore.editRevision
   const generation = beginInputFileIntent(nodeId)
   try {
     const asset = await fileStore.upload(file)
@@ -689,18 +814,14 @@ async function handleInputFileUpload(event: Event) {
       return
     }
     // 迟到回执：节点已删除、工作流已切换或已有更新的选择时一律丢弃。
-    if (!isCurrentInputFileIntent(nodeId, generation)) {
+    if (!isCurrentInputFileIntent(nodeId, generation)
+      || workflowStore.editRevision !== editRevisionAtUpload) {
       return
     }
     if (workflowStore.workflowId !== workflowId) {
       return
     }
     if (!workflowStore.nodes.some((item) => item.id === nodeId)) {
-      return
-    }
-    // 节点上的文件选择已不是上传开始时的旧值：用户在上传期间改过，保护用户新操作。
-    const current = workflowStore.nodes.find((item) => item.id === nodeId)?.data.config?.fileId
-    if (String(current ?? '') !== String(fileIdBeforeUpload ?? '')) {
       return
     }
     applyInputFileToNode(nodeId, asset.backendFileId, asset.name)
@@ -838,7 +959,7 @@ onMounted(() => {
           />
           <ComfyWorkflowPanel
             v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
-            :key="`comfy-${selectedNode.id}`" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig"
+            :key="`comfy-${selectedNode.id}`" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" @replace-workflow="replaceComfyWorkflow"
           />
         </div>
         <CustomNodeConfigPanel v-if="selectedNode.data.config.customDefinition" :key="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" />
@@ -953,7 +1074,8 @@ onMounted(() => {
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrPrompt') }}</span>
-            <textarea class="min-h-28 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="prompt" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+            <textarea class="min-h-28 w-full resize-none rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="prompt" maxlength="8000" :value="textConfig('prompt', '')" @input="handleTextInput('prompt', $event)" />
+            <span class="mt-1 block text-xs text-text-muted">{{ t('workflow.inspector.whisperPromptLimit') }}</span>
           </label>
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary">
             {{ t('workflow.inspector.whisperRuntimeHint') }}
@@ -1040,9 +1162,9 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'llm'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :value="selectedLlmModelId()" @change="handleLlmModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
           <UpstreamVariableSelector :key="`${selectedNode.id}-promptVariable`" :node-id="selectedNode.id" field="promptVariable" :label="t('workflow.inspector.inputVariable')" :model-value="textConfig('promptVariable', 'question')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('prompt', ''))" @update:model-value="updateConfig('promptVariable', $event)" />
@@ -1459,9 +1581,53 @@ onMounted(() => {
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="variable" :value="textConfig('variable', 'conversation.summary')" @input="handleTextInput('variable', $event)" />
           </label>
           <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.assignedValue') }}</span>
-            <textarea class="min-h-28 w-full resize-none rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.setVariable')" data-config-field="value" :value="textConfig('value', '')" @input="handleTextInput('value', $event)" />
+            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.valueMode') }}</span>
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="valueMode" :value="variableAssignerMode()" @change="handleVariableAssignerModeChange">
+              <option value="LITERAL">{{ t('workflow.inspector.fixedValue') }}</option>
+              <option value="SOURCE_VARIABLE">{{ t('workflow.inspector.sourceVariableMode') }}</option>
+            </select>
           </label>
+          <template v-if="variableAssignerMode() === 'SOURCE_VARIABLE'">
+            <UpstreamVariableSelector
+              :key="`${selectedNode.id}-sourceVariable`"
+              :node-id="selectedNode.id"
+              field="sourceVariable"
+              :label="t('workflow.inspector.sourceVariable')"
+              :model-value="textConfig('sourceVariable', '')"
+              :nodes="workflowStore.nodes"
+              :edges="workflowStore.edges"
+              :templates="workflowStore.templates"
+              @update:model-value="updateConfig('sourceVariable', $event)"
+            />
+          </template>
+          <template v-else>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.valueType') }}</span>
+              <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="valueType" :value="variableAssignerValueType()" @change="handleVariableAssignerValueTypeChange">
+                <option value="STRING">{{ t('workflow.inspector.stringLiteral') }}</option>
+                <option value="JSON">{{ t('workflow.inspector.jsonValue') }}</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.assignedValue') }}</span>
+              <textarea
+                v-if="variableAssignerValueType() === 'JSON'"
+                class="min-h-28 w-full resize-y rounded-lg border border-app-border bg-app-muted px-3 py-3 font-mono text-sm outline-none focus:border-primary"
+                data-config-field="value"
+                :value="variableAssignerJsonText()"
+                @input="handleVariableAssignerJsonInput"
+              />
+              <textarea
+                v-else
+                class="min-h-28 w-full resize-y rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary"
+                data-config-field="value"
+                :placeholder="t('workflow.inspector.setVariable')"
+                :value="String(variableAssignerValue() ?? '')"
+                @input="handleVariableAssignerStringInput"
+              />
+            </label>
+            <p v-if="textConfig('valueValidationError', '')" role="alert" class="text-sm text-status-error">{{ textConfig('valueValidationError', '') }}</p>
+          </template>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
 

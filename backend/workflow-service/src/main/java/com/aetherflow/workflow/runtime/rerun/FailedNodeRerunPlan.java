@@ -8,7 +8,6 @@ import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -102,17 +101,12 @@ public record FailedNodeRerunPlan(String nodeId, List<String> invalidatedNodeIds
             }
         });
         Map<String, Object> variables = new LinkedHashMap<>(initialVariables);
-        // 同名变量由最后写入者生效：必须沿用原运行的真实写入顺序，
-        // 不能按深度与节点 ID 重建，否则重跑会读到另一份最终值。
-        List<String> completionOrder = source.completedNodeIds();
-        Map<String, Integer> completionIndex = new java.util.HashMap<>();
-        for (int index = 0; index < completionOrder.size(); index++) {
-            completionIndex.putIfAbsent(completionOrder.get(index), index);
-        }
+        // 正常运行按最长 DAG 深度、再按节点 ID 决定同名变量的生产者；
+        // 恢复时按同一优先级从低到高合并，避免并行完成顺序改变下游输入。
         Map<String, Integer> depths = WorkflowDag.from(source.definition()).topologicalDepths();
         preservedNodeIds.stream()
-                .sorted(Comparator.comparingInt((String id) -> completionIndex.getOrDefault(id, Integer.MAX_VALUE))
-                        .thenComparing(Comparator.comparingInt(id -> depths.getOrDefault(id, 0))))
+                .sorted((left, right) -> WorkflowDag.compareVariableWriters(
+                        depths.getOrDefault(left, 0), left, depths.getOrDefault(right, 0), right))
                 .forEach(id -> variables.putAll(outputs.get(id).variables()));
         // 嵌套执行的已完成上下文仅在所属根节点被复用时保留。
         for (String key : List.of("__nestedContexts", "__nestedNodeTypes")) {
