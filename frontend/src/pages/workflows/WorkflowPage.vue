@@ -444,6 +444,11 @@ function settleNavigation(allowed: boolean) {
   pending.resolve(allowed)
 }
 
+function discardNavigation() {
+  workflowStore.discardCurrentWorkflowSave()
+  settleNavigation(true)
+}
+
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (to.fullPath === from.fullPath) return true
   if (copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath) {
@@ -905,7 +910,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
-  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="settleNavigation(true)" @stay="settleNavigation(false)" />
+  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
   <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"

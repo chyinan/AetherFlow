@@ -811,6 +811,14 @@ export const useWorkflowStore = defineStore('workflow', {
         }
       }
     },
+    discardCurrentWorkflowSave() {
+      // 丢弃离开会使尚未重放的旧提交失效；已发出的网络请求无法撤回。
+      this.workflowSaveRequestSequence += 1
+      this.saving = false
+      this.savingError = null
+      this.saveRecovery = null
+      this.pendingSaveSubmission = null
+    },
     async saveCurrentWorkflow(options: { allowMockFallback?: boolean; projectId?: number } = {}) {
       const editRevisionAtStart = this.editRevision
       const loadRequestAtStart = workflowLoadRequestCounter
@@ -940,11 +948,14 @@ export const useWorkflowStore = defineStore('workflow', {
     async reconcilePendingSave(ownsSaveState: () => boolean): Promise<boolean> {
       const pending = this.pendingSaveSubmission
       if (!pending) return false
+      if (!ownsSaveState()) return false
       if (pending.workflowId !== this.workflowId) {
         this.pendingSaveSubmission = null
         return false
       }
       const recovered = await this.reconcileUncertainSave(pending, ownsSaveState)
+      // 核对期间用户可能已丢弃并离开；旧 GET 失败后不能再发出旧快照的 PUT。
+      if (!ownsSaveState() || this.workflowId !== pending.workflowId) return false
       if (recovered.status === 'conflict') {
         // 真正的远端冲突不能靠再次提交解决，也不能覆盖远端。
         throw new Error(recovered.message)
@@ -1027,6 +1038,9 @@ export const useWorkflowStore = defineStore('workflow', {
       submission: SaveSubmissionSnapshot,
       ownsSaveState: () => boolean,
     ): Promise<{ status: 'committed' | 'committedWithNewerEdits' | 'notSubmitted' | 'conflict' | 'retryable'; message: string }> {
+      if (!ownsSaveState() || this.workflowId !== submission.workflowId) {
+        return { status: 'conflict', message: i18n.global.t('workflow.saveRecoveryStale') }
+      }
       if (!submission.workflow || typeof submission.expectedVersion !== 'number') {
         const message = i18n.global.t('workflow.saveRecoveryRetryable')
         this.saveRecovery = { status: 'retryable', workflowId: submission.workflowId, message }

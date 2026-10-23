@@ -10,7 +10,7 @@ import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowDefinition } from '@/types/workflow'
 import WorkflowPage from './WorkflowPage.vue'
 
-const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn() }))
+const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn(), readWorkflowDefinition: vi.fn() }))
 const projects = vi.hoisted(() => ({ linkWorkflowToProject: vi.fn(), updateWorkflowStatus: vi.fn() }))
 vi.mock('@/services/api/workflowApi', async (original) => ({
   ...await original<typeof import('@/services/api/workflowApi')>(), workflowApi: api,
@@ -29,6 +29,10 @@ function deferred<T>() {
   let reject!: (reason: unknown) => void
   const promise = new Promise<T>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
   return { promise, resolve, reject }
+}
+
+function uncertainNetworkError() {
+  return { isAxiosError: true, message: 'Network Error', config: { url: '/workflows/definitions/101' } }
 }
 
 function definition(id: string): WorkflowDefinition {
@@ -89,6 +93,31 @@ async function choose(action: 'save' | 'stay' | 'discard') {
 }
 
 describe('离开保存请求跨工作流恢复', () => {
+  it('核对等待期间丢弃离开后，迟到的核对失败不会重放旧工作流', async () => {
+    const { store, router } = await setup()
+    const pendingRead = deferred<{ id: number; version: number; definitionJson: string }>()
+    api.saveWorkflow.mockRejectedValueOnce(uncertainNetworkError())
+    api.readWorkflowDefinition.mockRejectedValueOnce(uncertainNetworkError())
+      .mockReturnValueOnce(pendingRead.promise)
+
+    const navigation = router.push('/workflows/102?projectId=22')
+    await flushPromises()
+    await choose('save')
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+
+    await choose('save')
+    await vi.waitFor(() => expect(api.readWorkflowDefinition).toHaveBeenCalledTimes(2))
+    await choose('discard')
+    expect(await navigation).toBeUndefined()
+    expect(store.workflowId).toBe('102')
+
+    pendingRead.reject(new Error('迟到的核对失败'))
+    await flushPromises()
+
+    expect(store.workflowId).toBe('102')
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+  })
+
   it.each(['成功', '失败'] as const)('A 保存后丢弃离开，B 可立即保存且 A 迟到%s不解除 B 等待', async (outcome) => {
     const { store, router } = await setup()
     const savingA = deferred<WorkflowDefinition>()
