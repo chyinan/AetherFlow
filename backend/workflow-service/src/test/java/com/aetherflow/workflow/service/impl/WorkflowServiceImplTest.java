@@ -42,6 +42,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -106,6 +107,29 @@ class WorkflowServiceImplTest {
                 Runnable::run,
                 workflowStartOutboxMapper
         );
+    }
+
+    @Test
+    void runtimeNodeConfigCopyKeepsExplicitJsonNullValues() throws Exception {
+        WorkflowNodeDTO assigner = new WorkflowNodeDTO();
+        assigner.setNodeId("assign");
+        assigner.setNodeType("VARIABLE_ASSIGNER");
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("variable", "result");
+        config.put("valueMode", "LITERAL");
+        config.put("valueType", "JSON");
+        config.put("value", null);
+        assigner.setConfig(config);
+        WorkflowDefinitionDTO definition = new WorkflowDefinitionDTO();
+        definition.setName("JSON null");
+        definition.setNodes(List.of(assigner));
+
+        Method nodeConfigs = WorkflowServiceImpl.class.getDeclaredMethod("nodeConfigs", WorkflowDefinitionDTO.class);
+        nodeConfigs.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, Map<String, Object>> copied = (Map<String, Map<String, Object>>) nodeConfigs.invoke(workflowService, definition);
+
+        assertThat(copied.get("assign")).containsKey("value").containsEntry("value", null);
     }
 
     @Test

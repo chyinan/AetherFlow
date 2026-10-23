@@ -13,6 +13,8 @@ type RunHandlers = {
 
 const mocks = vi.hoisted(() => ({
   cancelWorkflowInstance: vi.fn(),
+  getWorkflowCancellationCleanup: vi.fn(),
+  retryWorkflowCancellationCleanup: vi.fn(),
   getLogs: vi.fn(),
   recoverRuntime: vi.fn(),
   subscribeRun: vi.fn((_options: unknown, _handlers: RunHandlers) => vi.fn()),
@@ -25,6 +27,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/services/api/workflowApi', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/services/api/workflowApi')>(),
   cancelWorkflowInstance: mocks.cancelWorkflowInstance,
+  getWorkflowCancellationCleanup: mocks.getWorkflowCancellationCleanup,
+  retryWorkflowCancellationCleanup: mocks.retryWorkflowCancellationCleanup,
 }))
 vi.mock('@/services/api/runApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/api/runApi')>()
@@ -137,6 +141,31 @@ describe('取消运行的异步目标与订阅隔离', () => {
     expect(active.stop).toHaveBeenCalledTimes(1)
     expect(mocks.stopNotificationStream).not.toHaveBeenCalled()
     expect(store.runRealtimeState).toBe('offline')
+  })
+
+  it('保存清理失败状态供刷新读取，手动重试只更新清理状态不回退 CANCELLED', async () => {
+    const store = setupStore()
+    const failed = {
+      workflowInstanceId: 101, status: 'FAILED', attemptCount: 1,
+      lastError: 'Task Service unavailable', nextAttemptAt: '2026-10-23T03:10:00',
+      retryable: true,
+    }
+    mocks.cancelWorkflowInstance.mockResolvedValueOnce(failed)
+    await store.cancelCurrentRun()
+    expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: failed })
+
+    mocks.getWorkflowCancellationCleanup.mockResolvedValueOnce(failed)
+    await store.loadCancellationCleanup(101)
+    const complete = {
+      workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 2, completedAt: '2026-10-23T03:11:00', retryable: false,
+    }
+    mocks.retryWorkflowCancellationCleanup.mockResolvedValueOnce(complete)
+    await store.retryCancellationCleanup(101)
+
+    expect(mocks.getWorkflowCancellationCleanup).toHaveBeenCalledWith(101)
+    expect(mocks.retryWorkflowCancellationCleanup).toHaveBeenCalledWith(101)
+    expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', status: 'cancelled', cancellationCleanup: complete })
+    expect(store.runs[0]).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: complete })
   })
 
   it('取消完成后让旧订阅的日志、节点、运行和连接回调全部失效', async () => {

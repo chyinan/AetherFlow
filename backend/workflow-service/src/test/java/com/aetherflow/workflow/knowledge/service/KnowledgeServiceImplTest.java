@@ -50,8 +50,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -598,6 +600,36 @@ class KnowledgeServiceImplTest {
         RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
 
         assertThat(response.results()).extracting(result -> result.source()).containsExactly("artifact.md");
+    }
+
+    @Test
+    void lexicalMetadataFilterCanFindMatchesPastTheFirstTwoThousandCandidates() {
+        KnowledgeDatasetEntity dataset = dataset();
+        dataset.setEmbeddingModel("keyword");
+        when(datasetMapper.selectById(11L)).thenReturn(dataset);
+        List<KnowledgeChunkEntity> lexicalCandidates = new ArrayList<>();
+        for (int index = 0; index <= 2_000; index++) {
+            KnowledgeChunkEntity candidate = chunk("pricing-" + index + ".md", "pricing policy candidate", 0.8D);
+            candidate.setId((long) index + 1);
+            candidate.setChunkIndex(index);
+            candidate.setMetadataJson(index == 2_000 ? "{\"scope\":\"outside-window\"}" : "{\"scope\":\"ignored\"}");
+            lexicalCandidates.add(candidate);
+        }
+        AtomicInteger pageNumber = new AtomicInteger();
+        when(chunkMapper.selectList(any(Wrapper.class))).thenAnswer(invocation -> {
+            // 每次代表数据库返回一个最多 2000 条的稳定排序页；目标只在旧截断窗外。
+            int offset = pageNumber.getAndIncrement() * 2_000;
+            return lexicalCandidates.stream().skip(offset).limit(2_000).toList();
+        });
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("pricing");
+        request.setTopK(1);
+        request.setMetadataFilter("{\"scope\":\"outside-window\"}");
+
+        RetrievalTestResponse response = asUser(7L, () -> service.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("pricing-2000.md");
+        verify(chunkMapper, times(2)).selectList(any(Wrapper.class));
     }
 
     @Test

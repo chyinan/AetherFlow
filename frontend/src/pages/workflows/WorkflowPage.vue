@@ -18,6 +18,7 @@ import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
 import RunConsole from '@/components/workflow/RunConsole.vue'
 import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import { workflowStartIntent } from '@/utils/workflowStartIntent'
+import { upstreamVariables } from '@/utils/workflowVariables'
 import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 import { toApiError } from '@/api/client/apiError'
 import { importComfyUiWorkflow } from '@/api/modules/workflow'
@@ -85,6 +86,8 @@ async function locateSourceRunNode(nodeId: string, automaticRevision?: number) {
 }
 const showRunConsole = ref(false)
 const startingRun = ref(false)
+const runPromptValues = ref<Record<string, string>>({})
+const runPromptInputError = ref('')
 const importingComfyUi = ref(false)
 let pageActive = true
 let pageNavigationRevision = 0
@@ -153,6 +156,43 @@ const runButtonLabel = computed(() => currentWorkflowRunWaiting.value
     ? t('status.running')
     : t('workflow.run'),
 )
+
+const runPromptInputs = computed(() => {
+  const required = new Map<string, { variable: string; nodeLabels: string[] }>()
+  for (const node of workflowStore.nodes) {
+    if (node.data.kind !== 'llm') continue
+    const config = node.data.config
+    if (typeof config.prompt === 'string' && config.prompt.trim()) continue
+    const variable = typeof config.promptVariable === 'string' && config.promptVariable.trim()
+      ? config.promptVariable.trim()
+      : 'prompt'
+    const suppliedUpstream = upstreamVariables(node.id, workflowStore.nodes, workflowStore.edges, workflowStore.templates)
+      .some((candidate) => candidate.name === variable)
+    if (suppliedUpstream) continue
+    const existing = required.get(variable)
+    if (existing) existing.nodeLabels.push(node.data.label)
+    else required.set(variable, { variable, nodeLabels: [node.data.label] })
+  }
+  return [...required.values()]
+})
+
+watch(() => String(route.params.id ?? 'new'), (next, previous) => {
+  if (next === previous || (previous === 'new' && next === workflowStore.workflowId)) return
+  runPromptValues.value = {}
+  runPromptInputError.value = ''
+}, { flush: 'sync' })
+
+function updateRunPromptValue(variable: string, event: Event) {
+  runPromptValues.value = {
+    ...runPromptValues.value,
+    [variable]: (event.target as HTMLTextAreaElement).value,
+  }
+  if (runPromptValues.value[variable]?.trim()) runPromptInputError.value = ''
+}
+
+function promptRunVariables() {
+  return Object.fromEntries(runPromptInputs.value.map(({ variable }) => [variable, runPromptValues.value[variable] ?? '']))
+}
 
 const hasWorkflowContext = computed(() => {
   return String(route.params.id || '') !== 'new'
@@ -402,6 +442,11 @@ function settleNavigation(allowed: boolean) {
     ? { fromPath: pending.fromPath, fullPath: pending.fullPath, editRevision: workflowStore.editRevision }
     : null
   pending.resolve(allowed)
+}
+
+function discardNavigation() {
+  workflowStore.discardCurrentWorkflowSave()
+  settleNavigation(true)
 }
 
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
@@ -704,6 +749,13 @@ async function startRun() {
   }
 
   if (blockInvalidRunInput()) return
+  const missingPromptInput = runPromptInputs.value.find(({ variable }) => !runPromptValues.value[variable]?.trim())
+  if (missingPromptInput) {
+    runPromptInputError.value = t('workflow.runPromptInputRequired', { variable: missingPromptInput.variable })
+    return
+  }
+  runPromptInputError.value = ''
+  const promptVariables = promptRunVariables()
   startingRun.value = true
   const operation = {
     generation: startNavigationGeneration,
@@ -736,7 +788,7 @@ async function startRun() {
       name: workflowStore.workflowName,
       nodes: workflowStore.nodes,
       edges: workflowStore.edges,
-    }, fileId)
+    }, fileId, promptVariables)
     // 上次回执失败不代表未启动；改配置必须明确选择新运行，不能静默重复执行。
     if (pendingStart && pendingStart.intent !== intent
       && !window.confirm(t('workflow.runChangedIntentConfirm'))) return
@@ -777,7 +829,7 @@ async function startRun() {
     dispatched = true
     const result = await workflowApi.startRun(
       operation.workflowId,
-      fileId ? { fileId } : {},
+      { ...promptVariables, ...(fileId ? { fileId } : {}) },
       { allowMockFallback: false, idempotencyKey },
     )
     // 已派发的后端运行可从历史重新发现，但迟到响应不能接管新页面。
@@ -858,7 +910,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
-  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="settleNavigation(true)" @stay="settleNavigation(false)" />
+  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
   <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"
@@ -1040,6 +1092,23 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         </button>
       </div>
     </header>
+
+    <section v-if="runPromptInputs.length" data-testid="workflow-run-inputs" class="mx-5 mt-4 space-y-3 rounded-xl border border-app-border bg-white p-4 shadow-sm">
+      <h2 class="text-sm font-semibold text-text-primary">{{ t('workflow.runPromptInputsTitle') }}</h2>
+      <label v-for="input in runPromptInputs" :key="input.variable" class="block">
+        <span class="mb-2 block text-sm font-medium text-text-primary">{{ t('workflow.runPromptInputLabel', { variable: input.variable }) }}</span>
+        <textarea
+          class="min-h-24 w-full resize-y rounded-lg border border-app-border bg-app-bg2 px-3 py-3 text-sm outline-none focus:border-primary disabled:opacity-60"
+          :aria-label="t('workflow.runPromptInputLabel', { variable: input.variable })"
+          :data-run-input="input.variable"
+          :disabled="runButtonBusy || workflowStore.saving"
+          :value="runPromptValues[input.variable] ?? ''"
+          @input="updateRunPromptValue(input.variable, $event)"
+        />
+        <p class="mt-1 text-xs text-text-muted">{{ input.nodeLabels.join(', ') }}</p>
+      </label>
+      <p v-if="runPromptInputError" data-run-input-error role="alert" class="text-sm text-status-error">{{ runPromptInputError }}</p>
+    </section>
 
     <div class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">

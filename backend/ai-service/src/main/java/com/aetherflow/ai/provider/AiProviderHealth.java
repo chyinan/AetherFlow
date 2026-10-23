@@ -25,23 +25,45 @@ public record AiProviderHealth(
         @Schema(description = "Health check message.", example = "provider health check succeeded")
         String message,
 
+        @Schema(description = "Component whose health was observed.", example = "PYTHON_AI_RUNTIME")
+        String observationSource,
+
         @Schema(description = "Provider-specific health metadata.", example = "{\"model\":\"gpt-4o-mini\"}")
         Map<String, Object> metadata
 ) {
 
     public static AiProviderHealth unknown(AiProviderType provider, String message) {
-        return new AiProviderHealth(provider, ProviderHealthStatus.UNKNOWN, false, Instant.now(), -1L, message, Map.of());
+        return unknown(provider, message, "PROVIDER_ADAPTER", Map.of());
+    }
+
+    public static AiProviderHealth unknown(AiProviderType provider, String message, String observationSource,
+                                           Map<String, Object> metadata) {
+        return new AiProviderHealth(provider, ProviderHealthStatus.UNKNOWN, false, Instant.now(), -1L, message,
+                observationSource, metadata == null ? Map.of() : Map.copyOf(metadata));
     }
 
     public static AiProviderHealth up(AiProviderType provider, long latencyMillis, String message, Map<String, Object> metadata) {
-        return new AiProviderHealth(provider, ProviderHealthStatus.UP, true, Instant.now(), latencyMillis, message, metadata == null ? Map.of() : Map.copyOf(metadata));
+        return new AiProviderHealth(provider, ProviderHealthStatus.UP, true, Instant.now(), latencyMillis, message,
+                "PROVIDER_ADAPTER", metadata == null ? Map.of() : Map.copyOf(metadata));
     }
 
     public static AiProviderHealth degraded(AiProviderType provider, long latencyMillis, String message, Map<String, Object> metadata) {
-        return new AiProviderHealth(provider, ProviderHealthStatus.DEGRADED, true, Instant.now(), latencyMillis, message, metadata == null ? Map.of() : Map.copyOf(metadata));
+        return degraded(provider, latencyMillis, message, "PROVIDER_ADAPTER", metadata);
+    }
+
+    public static AiProviderHealth degraded(AiProviderType provider, long latencyMillis, String message,
+                                            String observationSource, Map<String, Object> metadata) {
+        return new AiProviderHealth(provider, ProviderHealthStatus.DEGRADED, true, Instant.now(), latencyMillis,
+                message, observationSource, metadata == null ? Map.of() : Map.copyOf(metadata));
     }
 
     public static AiProviderHealth down(AiProviderType provider, String message, Map<String, Object> metadata) {
-        return new AiProviderHealth(provider, ProviderHealthStatus.DOWN, false, Instant.now(), -1L, message, metadata == null ? Map.of() : Map.copyOf(metadata));
+        return down(provider, message, "PROVIDER_ADAPTER", metadata);
+    }
+
+    public static AiProviderHealth down(AiProviderType provider, String message, String observationSource,
+                                        Map<String, Object> metadata) {
+        return new AiProviderHealth(provider, ProviderHealthStatus.DOWN, false, Instant.now(), -1L, message,
+                observationSource, metadata == null ? Map.of() : Map.copyOf(metadata));
     }
 }

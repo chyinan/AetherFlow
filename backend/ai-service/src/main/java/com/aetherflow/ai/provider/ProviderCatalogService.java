@@ -90,9 +90,9 @@ public class ProviderCatalogService {
             case OPENAI -> new ProviderCatalogResponse.ProviderCatalogProvider(
                     providerId(provider),
                     provider,
-                    "OpenAI Gateway",
-                    "cloud llm",
-                    "OpenAI API",
+                    "OpenAI-Compatible Gateway",
+                    "OpenAI-compatible LLM route",
+                    "OpenAI-compatible API",
                     "provider-managed://openai",
                     catalogDefaultModel(provider, runtimeCatalog),
                     List.of("chat", "summary", "translate", "json", "governed failover"),

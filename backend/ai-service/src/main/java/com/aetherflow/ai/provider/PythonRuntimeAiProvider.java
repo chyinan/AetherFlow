@@ -23,6 +23,7 @@ import java.util.function.Consumer;
 
 @Slf4j
 public abstract class PythonRuntimeAiProvider implements AiProvider {
+    private static final String HEALTH_OBSERVATION_SOURCE = "PYTHON_AI_RUNTIME";
 
     private final RestClient pythonAiStatusRestClient;
     private final PythonAiInferenceClientFactory inferenceClientFactory;
@@ -62,20 +63,25 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
                         .body(Map.class);
                 long latency = System.currentTimeMillis() - startedAt;
                 if (status == null) {
-                    return AiProviderHealth.down(type(), "python ai status response is empty", Map.of());
+                    return AiProviderHealth.unknown(type(), "Python AI runtime returned no status snapshot",
+                            HEALTH_OBSERVATION_SOURCE, Map.of());
                 }
-                boolean llmEnabled = Boolean.TRUE.equals(status.get("llmEnabled"));
-                boolean providerEnabled = providerListed(status.get("providers"));
-                if (!llmEnabled) {
-                    return AiProviderHealth.degraded(type(), latency, "python ai llm fallback enabled", status);
+                if (!(status.get("llmEnabled") instanceof Boolean llmEnabled)
+                        || !(status.get("providers") instanceof Collection<?> configuredProviders)) {
+                    return AiProviderHealth.unknown(type(), "Python AI runtime status is incomplete; upstream provider health is unknown",
+                            HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
                 }
-                if (providerEnabled) {
-                    return AiProviderHealth.up(type(), latency, "python ai provider healthy", status);
+                if (!llmEnabled || !providerListed(configuredProviders)) {
+                    return AiProviderHealth.unknown(type(), "Python AI runtime did not confirm this provider route is configured",
+                            HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
                 }
-                return AiProviderHealth.degraded(type(), latency, "python ai runtime reachable but provider metadata incomplete", status);
+                return AiProviderHealth.degraded(type(), latency,
+                        "Python AI runtime is reachable; upstream provider availability was not probed",
+                        HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
             } catch (RuntimeException exception) {
                 log.warn("Provider health check failed provider={}", type(), exception);
-                return AiProviderHealth.down(type(), exception.getMessage(), Map.of("checkedAt", Instant.now().toString()));
+                return AiProviderHealth.down(type(), "Python AI runtime health request failed",
+                        HEALTH_OBSERVATION_SOURCE, Map.of("checkedAt", Instant.now().toString()));
             }
         });
     }
@@ -160,12 +166,19 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
         return new AiProviderResponse(type(), response.model(), response.text(), response.metadata());
     }
 
-    private boolean providerListed(Object providers) {
-        if (!(providers instanceof Collection<?> providerList)) {
-            return false;
-        }
+    private boolean providerListed(Collection<?> providerList) {
         String expected = type().name().toLowerCase(Locale.ROOT);
         return providerList.stream().anyMatch(provider -> expected.equals(String.valueOf(provider).toLowerCase(Locale.ROOT)));
+    }
+
+    private Map<String, Object> runtimeMetadata(Map<String, Object> status) {
+        java.util.LinkedHashMap<String, Object> metadata = new java.util.LinkedHashMap<>();
+        if (status.get("llmEnabled") instanceof Boolean enabled) metadata.put("llmEnabled", enabled);
+        if (status.get("providers") instanceof Collection<?> providers) {
+            metadata.put("configuredProviders", providers.stream().filter(String.class::isInstance).toList());
+        }
+        metadata.put("upstreamProviderHealth", ProviderHealthStatus.UNKNOWN.name());
+        return Map.copyOf(metadata);
     }
 
     private double timeoutSeconds(AiProviderRequest request) {

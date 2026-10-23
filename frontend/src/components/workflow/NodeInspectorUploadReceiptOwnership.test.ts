@@ -8,6 +8,7 @@ import { getNodeCatalog } from '@/api/modules/node'
 import { i18n } from '@/i18n'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useFileStore } from '@/stores/fileStore'
+import { useDifyStore } from '@/stores/difyStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import NodeInspector from './NodeInspector.vue'
@@ -26,6 +27,7 @@ function deferred<T>() {
 async function render() {
   const pinia = createPinia(); setActivePinia(pinia)
   const store = useWorkflowStore(); store.resetToEmptyWorkflow()
+  vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue()
   const start = store.addNodeFromTemplate(nodeTemplates.find((item) => item.kind === 'start')!, { x: 0, y: 0 })!
   const upload = store.addNodeFromTemplate(nodeTemplates.find((item) => item.kind === 'upload')!, { x: 240, y: 0 })!
   useUiStore().setSelectedNode(start.id)
@@ -62,7 +64,7 @@ describe('上传回执的节点归属', () => {
   })
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); vi.restoreAllMocks() })
 
-  it('上传过程中切换节点，迟到回执只写回发起的节点', async () => {
+  it('上传过程中切换节点使迟到回执失效', async () => {
     const { wrapper, store, start, upload } = await render()
     const pending = deferred<{ backendFileId: number; name: string }>()
     vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
@@ -75,10 +77,9 @@ describe('上传回执的节点归属', () => {
     pending.resolve({ backendFileId: 7, name: 'a.mp4' })
     await flushPromises()
 
-    // 回执不得污染当前选中的 UPLOAD 节点。
+    // 切换检查器焦点后，旧上传意图不再写入任何节点。
     expect(store.nodes.find((node) => node.id === upload.id)?.data.config.fileId).toBeUndefined()
-    // 回执归属发起上传的节点。
-    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(7)
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBeUndefined()
   })
 
   it('同一节点上更晚的选择优先于迟到的上传回执', async () => {
@@ -182,6 +183,38 @@ describe('上传替换已有文件', () => {
     await flushPromises()
 
     expect(String(store.nodes.find((node) => node.id === start.id)?.data.config.fileId)).toBe('5')
+  })
+
+  it('上传期间 Undo/Redo 回到相同文件值仍使旧回执失效', async () => {
+    const { wrapper, store, start } = await render()
+    store.updateNodeConfig(start.id, 'fileId', 3)
+    store.updateNodeConfig(start.id, 'fileId', 5)
+    store.markSaved()
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    expect(store.undo()).toBe(true)
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(3)
+    expect(store.redo()).toBe(true)
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(5)
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBe(5)
+  })
+
+  it('检查器卸载期间丢弃迟到上传回执', async () => {
+    const { wrapper, store, start } = await render()
+    const pending = deferred<{ backendFileId: number; name: string }>()
+    vi.spyOn(useFileStore(), 'upload').mockReturnValue(pending.promise as never)
+
+    await startUpload(wrapper)
+    wrapper.unmount()
+    pending.resolve({ backendFileId: 7, name: 'b.mp4' })
+    await flushPromises()
+
+    expect(store.nodes.find((node) => node.id === start.id)?.data.config.fileId).toBeUndefined()
   })
 
   it('重叠上传时只有最后一次生效', async () => {

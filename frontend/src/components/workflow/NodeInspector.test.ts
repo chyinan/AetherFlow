@@ -68,6 +68,17 @@ describe('节点配置与后端执行语义一致', () => {
     expect(source).toContain("textConfig('outputVariable'")
   })
 
+  it('赋值器明确区分固定字符串、JSON 字面值和来源变量', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const panel = source.slice(source.indexOf("selectedKind === 'variable-assigner'"), source.indexOf("selectedKind === 'variable-aggregate'"))
+
+    expect(panel).toContain('valueMode')
+    expect(panel).toContain('SOURCE_VARIABLE')
+    expect(panel).toContain('valueType')
+    expect(panel).toContain('handleVariableAssignerJsonInput')
+    expect(panel).toContain('valueValidationError')
+  })
+
   it('不展示参数提取节点未被执行器读取的视觉和参数字段', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
     const panelStart = source.indexOf(`<section v-else-if="selectedKind === 'parameter-extractor'"`)
@@ -113,6 +124,14 @@ describe('节点配置与后端执行语义一致', () => {
     expect(llmPanel).toContain("textConfig('promptVariable'")
     expect(llmPanel).toContain("textConfig('contextVariable'")
     expect(llmPanel).toContain("updateConfig('contextVariable'")
+  })
+
+  it('Whisper 提示词输入遵守服务端 8000 字符限制', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const whisperPanel = source.slice(source.indexOf("selectedKind === 'whisper'"), source.indexOf("selectedKind === 'translate'"))
+
+    expect(whisperPanel).toContain('maxlength="8000"')
+    expect(whisperPanel).toContain("t('workflow.inspector.whisperPromptLimit')")
   })
 
   it('LLM 面板不展示后端未实现的视觉、节点重试和 fallback 配置', () => {

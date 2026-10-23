@@ -62,6 +62,35 @@ describe('节点连接向导', () => {
     expect(config.workflow).toBe(graph);expect(wrapper.emitted('updateConfig')).toBeUndefined()
     expect(mocks.probeSavedNodeConnection).toHaveBeenCalledWith('deployment-comfyui',undefined,undefined,['PluginCustom'])
   })
+  it('从 Stable Diffusion 节点切换到 ComfyUI 时向导仍按导入图类型探测并保存', async () => {
+    const graph = JSON.stringify({ n: { class_type: 'PluginCustom', inputs: { text: 'synthetic' } } })
+    const wrapper = render({ provider: 'STABLE_DIFFUSION_WEBUI', mode: 'workflow', workflowJson: graph })
+    await flushPromises()
+    await openForm(wrapper)
+    await wrapper.get('[data-testid="connection-provider"]').setValue('COMFYUI')
+    await testForm(wrapper)
+
+    const workflowNodeTypes = ['PluginCustom']
+    expect(mocks.probeNodeConnection).toHaveBeenLastCalledWith({ provider: 'COMFYUI', baseUrl: 'http://new-service:8188', workflowNodeTypes })
+    await wrapper.get('[data-testid="save-connection"]').trigger('click')
+    await flushPromises()
+    expect(mocks.createNodeConnection).toHaveBeenCalledWith({ name: 'New connection', provider: 'COMFYUI', baseUrl: 'http://new-service:8188', workflowNodeTypes })
+  })
+  it('导入 API 图的探测结果仍提供服务 Checkpoint 目录供显式选择', async () => {
+    const graph = JSON.stringify({ plugin: { class_type: 'PluginCustom', inputs: { checkpoint: 'graph-default' } } })
+    mocks.probeSavedNodeConnection.mockResolvedValueOnce(probe({
+      models: { ...probe().models, checkpoints: ['graph-default', 'model-b.safetensors'] },
+      capabilities: ['IMAGE_GENERATION'],
+    }))
+    const wrapper = render({ provider: 'COMFYUI', connectionId: saved.id, mode: 'workflow', workflowJson: graph })
+    await flushPromises()
+
+    expect(mocks.probeSavedNodeConnection).toHaveBeenCalledWith(saved.id, undefined, undefined, ['PluginCustom'])
+    const checkpoint = wrapper.get('[data-testid="model-checkpoint"]')
+    expect(checkpoint.text()).toContain('model-b.safetensors')
+    await checkpoint.setValue('model-b.safetensors')
+    expect(wrapper.emitted('updateConfig')).toEqual([['checkpoint', 'model-b.safetensors']])
+  })
   it('打开、测试、取消不保存或修改节点；重开清空状态', async () => {
     const wrapper = render({}); await flushPromises()
     expect(mocks.probeSavedNodeConnection).toHaveBeenCalledWith('deployment-sd', 'IMAGE_GENERATION', undefined)

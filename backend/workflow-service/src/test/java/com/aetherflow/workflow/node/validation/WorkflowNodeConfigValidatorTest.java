@@ -5,6 +5,7 @@ import com.aetherflow.workflow.node.catalog.WorkflowNodeCatalogService;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,6 +68,65 @@ class WorkflowNodeConfigValidatorTest {
 
         assertThat(WorkflowNodeConfigValidator.validate(node, catalogService.catalog()))
                 .anyMatch(message -> message.contains("'sampler' must be one of"));
+    }
+
+    @Test
+    void acceptsVariableAssignerJsonLiteralsWithoutChangingObjectValidation() {
+        List<Object> values = java.util.Arrays.asList(
+                "", "text", 0, 3.5D, true, false, Map.of("nested", List.of(1, "two")), List.of(), null);
+
+        for (Object value : values) {
+            Map<String, Object> config = new LinkedHashMap<>();
+            config.put("variable", "result");
+            config.put("valueMode", "LITERAL");
+            config.put("valueType", "JSON");
+            config.put("value", value);
+
+            assertThat(WorkflowNodeConfigValidator.validate(
+                    node("assign", "VARIABLE_ASSIGNER", config), catalogService.catalog()))
+                    .as("JSON literal %s", value)
+                    .isEmpty();
+        }
+
+        assertThat(WorkflowNodeConfigValidator.validate(node("export", "EXPORT", Map.of(
+                "format", "JSON", "content", "not-an-object")),
+                catalogService.catalog()))
+                .anyMatch(message -> message.contains("config field 'content' must be OBJECT"));
+    }
+
+    @Test
+    void requiresAValidExplicitVariableAssignerModeAndValueType() {
+        assertThat(WorkflowNodeConfigValidator.validate(node("assign", "VARIABLE_ASSIGNER", Map.of(
+                "variable", "result", "valueMode", "SOURCE_VARIABLE", "valueType", "JSON")), catalogService.catalog()))
+                .contains("node assign (VARIABLE_ASSIGNER): sourceVariable is required in SOURCE_VARIABLE mode");
+
+        assertThat(WorkflowNodeConfigValidator.validate(node("assign", "VARIABLE_ASSIGNER", Map.of(
+                "variable", "result", "valueMode", "LITERAL", "valueType", "STRING", "value", 5)),
+                catalogService.catalog()))
+                .contains("node assign (VARIABLE_ASSIGNER): value must match valueType STRING");
+    }
+
+    @Test
+    void rejectsNonJsonObjectsAsVariableAssignerLiterals() {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("variable", "result");
+        config.put("valueMode", "LITERAL");
+        config.put("valueType", "JSON");
+        config.put("value", new Object());
+
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("assign", "VARIABLE_ASSIGNER", config), catalogService.catalog()))
+                .anyMatch(message -> message.contains("config field 'value' must be JSON"));
+    }
+
+    @Test
+    void variableAssignerCatalogDeclaresDynamicJsonOutput() {
+        assertThat(catalogService.catalog().stream()
+                .filter(item -> "VARIABLE_ASSIGNER".equals(item.type()))
+                .findFirst().orElseThrow().outputVariables())
+                .singleElement()
+                .extracting(variable -> variable.type())
+                .isEqualTo("JSON");
     }
 
     @Test

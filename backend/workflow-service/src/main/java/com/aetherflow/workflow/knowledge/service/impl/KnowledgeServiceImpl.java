@@ -646,7 +646,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         boolean semanticSearch = !queryVector.isEmpty();
         List<KnowledgeChunkEntity> storedChunks = semanticSearch
                 ? loadSemanticRetrievalCandidates(datasetId, queryTokens, queryVector, metadataFilter, topK)
-                : loadRetrievalCandidates(datasetId, query, queryTokens, false);
+                : loadRetrievalCandidates(datasetId, query, queryTokens, metadataFilter, false);
         boolean hasCompatibleSemanticCandidate = semanticSearch;
         List<KnowledgeChunkEntity> rankedEntities = storedChunks.stream()
                 .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
@@ -794,55 +794,79 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     private List<KnowledgeChunkEntity> loadRetrievalCandidates(Long datasetId,
                                                                String query,
                                                                Set<String> queryTokens,
+                                                               Map<String, Object> metadataFilter,
                                                                boolean semanticSearch) {
-        LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
-                .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
-                .eq(KnowledgeChunkEntity::getStatus, STATUS_READY)
-                .and(nested -> nested.ne(KnowledgeChunkEntity::getChunkType, "parent")
-                        .or()
-                        .isNull(KnowledgeChunkEntity::getChunkType))
-                .apply("EXISTS (SELECT 1 FROM af_knowledge_document d "
-                        + "WHERE d.id = af_knowledge_chunk.document_id "
-                        + "AND d.dataset_id = af_knowledge_chunk.dataset_id "
-                        + "AND d.status = {0})", STATUS_READY)
-                .orderByDesc(KnowledgeChunkEntity::getScore)
-                .orderByAsc(KnowledgeChunkEntity::getChunkIndex);
-        if (!semanticSearch) {
-            wrapper.last("LIMIT " + MAX_RETRIEVAL_CANDIDATES);
+        if (queryTokens.isEmpty()) {
+            return List.of();
         }
-        if (!semanticSearch) {
-            if (queryTokens.isEmpty()) {
-                return List.of();
-            }
-            if (containsHan(query)) {
-                wrapper.and(nested -> {
-                    boolean first = true;
-                    for (String token : queryTokens) {
-                        if (!first) {
-                            nested.or();
-                        }
-                        nested.like(KnowledgeChunkEntity::getPreview, token)
-                                .or()
-                                .like(KnowledgeChunkEntity::getSource, token);
-                        first = false;
-                    }
-                });
-            } else {
-                wrapper.and(nested -> {
-                    nested.apply("MATCH(source, preview) AGAINST ({0} IN NATURAL LANGUAGE MODE)", query);
-                    queryTokens.stream()
-                            .filter(token -> token.length() < 4)
-                            .forEach(token -> nested.or(orClause -> orClause
-                                    .like(KnowledgeChunkEntity::getPreview, token)
+        List<KnowledgeChunkEntity> candidates = new ArrayList<>(MAX_RETRIEVAL_CANDIDATES);
+        int offset = 0;
+        while (candidates.size() < MAX_RETRIEVAL_CANDIDATES) {
+            LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = new LambdaQueryWrapper<KnowledgeChunkEntity>()
+                    .eq(KnowledgeChunkEntity::getDatasetId, datasetId)
+                    .eq(KnowledgeChunkEntity::getStatus, STATUS_READY)
+                    .and(nested -> nested.ne(KnowledgeChunkEntity::getChunkType, "parent")
+                            .or()
+                            .isNull(KnowledgeChunkEntity::getChunkType))
+                    .apply("EXISTS (SELECT 1 FROM af_knowledge_document d "
+                            + "WHERE d.id = af_knowledge_chunk.document_id "
+                            + "AND d.dataset_id = af_knowledge_chunk.dataset_id "
+                            + "AND d.status = {0})", STATUS_READY)
+                    .orderByDesc(KnowledgeChunkEntity::getScore)
+                    .orderByAsc(KnowledgeChunkEntity::getChunkIndex)
+                    .orderByAsc(KnowledgeChunkEntity::getId);
+            if (!semanticSearch) {
+                if (containsHan(query)) {
+                    wrapper.and(nested -> {
+                        boolean first = true;
+                        for (String token : queryTokens) {
+                            if (!first) {
+                                nested.or();
+                            }
+                            nested.like(KnowledgeChunkEntity::getPreview, token)
                                     .or()
-                                    .like(KnowledgeChunkEntity::getSource, token)));
-                });
+                                    .like(KnowledgeChunkEntity::getSource, token);
+                            first = false;
+                        }
+                    });
+                } else {
+                    wrapper.and(nested -> {
+                        nested.apply("MATCH(source, preview) AGAINST ({0} IN NATURAL LANGUAGE MODE)", query);
+                        queryTokens.stream()
+                                .filter(token -> token.length() < 4)
+                                .forEach(token -> nested.or(orClause -> orClause
+                                        .like(KnowledgeChunkEntity::getPreview, token)
+                                        .or()
+                                        .like(KnowledgeChunkEntity::getSource, token)));
+                    });
+                }
             }
+
+            // 词法候选按数据库稳定顺序分页，先应用精确 metadataFilter，再计入有界候选集。
+            // 不带过滤时维持原有单页上限；带过滤时继续越过不匹配页，直到收满有效候选或读完。
+            int pageSize = MAX_RETRIEVAL_CANDIDATES;
+            wrapper.last("LIMIT " + pageSize + " OFFSET " + offset);
+            List<KnowledgeChunkEntity> page = chunkMapper.selectList(wrapper);
+            if (page == null || page.isEmpty()) {
+                break;
+            }
+            for (KnowledgeChunkEntity chunk : page) {
+                if (chunk != null
+                        && STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), ""))
+                        && !"parent".equalsIgnoreCase(chunk.getChunkType())
+                        && metadataMatches(chunk, metadataFilter)) {
+                    candidates.add(chunk);
+                    if (candidates.size() == MAX_RETRIEVAL_CANDIDATES) {
+                        break;
+                    }
+                }
+            }
+            if (metadataFilter.isEmpty() || page.size() < pageSize) {
+                break;
+            }
+            offset += page.size();
         }
-        return chunkMapper.selectList(wrapper).stream()
-                .filter(chunk -> STATUS_READY.equalsIgnoreCase(defaultText(chunk.getStatus(), "")))
-                .filter(chunk -> !"parent".equalsIgnoreCase(chunk.getChunkType()))
-                .toList();
+        return List.copyOf(candidates);
     }
 
     /**

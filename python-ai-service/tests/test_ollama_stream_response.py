@@ -50,6 +50,23 @@ class FakeAsyncClient:
         self.close_calls += 1
 
 
+class FakeResponseClient:
+    """返回单个非流式响应，并记录关闭状态。"""
+
+    def __init__(self, response=None, error=None):
+        self.response = response
+        self.error = error
+        self.close_calls = 0
+
+    async def generate(self, **kwargs):
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+    async def close(self):
+        self.close_calls += 1
+
+
 class FakeSyncStream:
     def __init__(self, chunks, error=None):
         self.chunks = list(chunks)
@@ -128,6 +145,50 @@ def test_legacy_dict_chunks_remain_supported(monkeypatch):
     events = asyncio.run(collect())
 
     assert [event["text"] for event in events] == ["旧"]
+
+
+@pytest.mark.parametrize("response", [
+    {"response": "部分回答", "done": False},
+    {"response": "缺少完成字段"},
+    GenerateResponse(model="test-model", response="SDK 部分回答", done=False),
+])
+def test_non_stream_ollama_rejects_incomplete_or_unmarked_responses(monkeypatch, response):
+    client = FakeResponseClient(response)
+    monkeypatch.setattr(ollama, "AsyncClient", lambda **kwargs: client)
+    monkeypatch.setattr(main, "_ensure_runtime_env_loaded", lambda: None)
+
+    with pytest.raises(main.HTTPException) as raised:
+        asyncio.run(main._call_ollama_async(request()))
+
+    assert raised.value.status_code == 502
+    assert client.close_calls == 1
+
+
+@pytest.mark.parametrize("response", [
+    {"response": "完整回答", "done": True},
+    GenerateResponse(model="test-model", response="SDK 完整回答", done=True),
+])
+def test_non_stream_ollama_returns_only_completed_response(monkeypatch, response):
+    client = FakeResponseClient(response)
+    monkeypatch.setattr(ollama, "AsyncClient", lambda **kwargs: client)
+    monkeypatch.setattr(main, "_ensure_runtime_env_loaded", lambda: None)
+
+    result = asyncio.run(main._call_ollama_async(request()))
+
+    assert result.text in {"完整回答", "SDK 完整回答"}
+    assert result.metadata["done"] is True
+    assert client.close_calls == 1
+
+
+def test_non_stream_ollama_propagates_provider_error_and_closes(monkeypatch):
+    client = FakeResponseClient(error=RuntimeError("provider failed"))
+    monkeypatch.setattr(ollama, "AsyncClient", lambda **kwargs: client)
+    monkeypatch.setattr(main, "_ensure_runtime_env_loaded", lambda: None)
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        asyncio.run(main._call_ollama_async(request()))
+
+    assert client.close_calls == 1
 
 
 def test_provider_failure_propagates_and_closes_client(monkeypatch):

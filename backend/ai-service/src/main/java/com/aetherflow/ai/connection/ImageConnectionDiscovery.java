@@ -116,8 +116,22 @@ public class ImageConnectionDiscovery {
             if (!(response instanceof Map<?, ?> info) || info.isEmpty()) return NodeConnectionProbe.unavailable("unreachable", "服务未返回有效的 ComfyUI 节点目录");
             List<String> missing = nodeTypes.stream().distinct().filter(type -> !info.containsKey(type)).toList();
             if (!missing.isEmpty()) return NodeConnectionProbe.unavailable("unconfigured", "执行图含服务未提供的节点类型：" + String.join("、", missing) + "；原图已保留，请在原有 ComfyUI 检查插件版本");
-            return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend", NodeConnectionProbe.Models.empty(),
-                    List.of("IMAGE_GENERATION"), List.of("类型存在不代表插件前端、模型文件或实际执行已验证"), List.of());
+            Map<String, List<String>> models = new LinkedHashMap<>();
+            CATALOGS.forEach(key -> models.put(key, List.of()));
+            List<String> unavailable = new ArrayList<>();
+            comfyCatalog(info, models, unavailable, "checkpoints", "CheckpointLoaderSimple", "ckpt_name");
+            comfyCatalog(info, models, unavailable, "vaes", "VAELoader", "vae_name");
+            comfyCatalog(info, models, unavailable, "loras", "LoraLoader", "lora_name");
+            comfyCatalog(info, models, unavailable, "samplers", "KSampler", "sampler_name");
+            comfyCatalog(info, models, unavailable, "schedulers", "KSampler", "scheduler");
+            comfyCatalog(info, models, unavailable, "upscalers", "ImageScaleBy", "upscale_method");
+            List<String> warnings = new ArrayList<>();
+            if (!unavailable.isEmpty()) warnings.add("部分目录无法读取，不能据此判断模型缺失：" + String.join("、", unavailable));
+            warnings.add("类型存在不代表插件前端、模型文件或实际执行已验证");
+            return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend",
+                    new NodeConnectionProbe.Models(models.get("checkpoints"), models.get("vaes"), models.get("loras"),
+                            models.get("samplers"), models.get("schedulers"), models.get("upscalers")),
+                    List.of("IMAGE_GENERATION"), List.copyOf(warnings), List.copyOf(unavailable));
         } catch (RestClientException | IllegalStateException exception) {
             return NodeConnectionProbe.unavailable("unreachable", "无法验证执行图的插件节点目录，请检查已有 ComfyUI 连接");
         }

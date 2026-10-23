@@ -3,7 +3,7 @@ import type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeL
 export const mockModelProviders: ModelProvider[] = [
   {
     id: 'provider-openai',
-    name: 'OpenAI Gateway',
+    name: 'OpenAI-Compatible Gateway',
     runtime: 'cloud llm',
     status: 'online',
     endpoint: 'https://gateway.aetherflow.mock/v1',

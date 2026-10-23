@@ -998,10 +998,12 @@ async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
     )
     try:
         response = await client.generate(model=request.model, prompt=request.prompt, options=request.options)
-        metadata = {"done": response.get("done", False)}
+        if not _ollama_response_done(response):
+            raise HTTPException(status_code=502, detail="Ollama returned a response without a completion marker")
+        metadata = {"done": True}
         metadata.update(_ollama_usage_metadata(response))
         return LlmResponse(provider="ollama", model=request.model,
-                           text=response.get("response", ""), metadata=metadata)
+                           text=_ollama_response_text(response), metadata=metadata)
     finally:
         close = getattr(client, "close", None)
         if close is not None:
@@ -1038,35 +1040,32 @@ def _stream_openai(request: LlmRequest):
             yield {"provider": "openai", "model": request.model, "text": text, "metadata": {}}
 
 
+def _ollama_response_field(response: Any, name: str) -> Any:
+    """兼容 Ollama SDK 模型和旧字典响应。"""
+    if isinstance(response, dict):
+        return response.get(name)
+    try:
+        return getattr(response, name)
+    except AttributeError:
+        try:
+            return response[name]
+        except (TypeError, KeyError, IndexError):
+            return None
+
+
 def _ollama_response_text(chunk: Any) -> str:
     """读取 ollama 响应里的正文。
 
     固定依赖 ollama 0.4.x 的流式返回是 GenerateResponse 对象而不是字典，
     直接按字典读取会丢掉全部正文；旧字典格式继续兼容。
     """
-    if isinstance(chunk, dict):
-        value = chunk.get("response")
-    else:
-        value = getattr(chunk, "response", None)
-        if value is None:
-            try:
-                value = chunk["response"]
-            except (TypeError, KeyError, IndexError):
-                value = None
+    value = _ollama_response_field(chunk, "response")
     return value if isinstance(value, str) else ""
 
 
 def _ollama_response_done(chunk: Any) -> bool:
     """读取 ollama 响应的终块标记。"""
-    if isinstance(chunk, dict):
-        value = chunk.get("done")
-    else:
-        value = getattr(chunk, "done", None)
-        if value is None:
-            try:
-                value = chunk["done"]
-            except (TypeError, KeyError, IndexError):
-                value = None
+    value = _ollama_response_field(chunk, "done")
     return value is True
 
 
@@ -1173,9 +1172,9 @@ def _openai_usage_metadata(completion: Any) -> dict[str, int]:
     return {key: int(value) for key, value in values.items() if isinstance(value, int) and value >= 0}
 
 
-def _ollama_usage_metadata(response: dict[str, Any]) -> dict[str, int]:
-    prompt_tokens = response.get("prompt_eval_count")
-    completion_tokens = response.get("eval_count")
+def _ollama_usage_metadata(response: Any) -> dict[str, int]:
+    prompt_tokens = _ollama_response_field(response, "prompt_eval_count")
+    completion_tokens = _ollama_response_field(response, "eval_count")
     metadata: dict[str, int] = {}
     if isinstance(prompt_tokens, int) and prompt_tokens >= 0:
         metadata["promptTokens"] = prompt_tokens

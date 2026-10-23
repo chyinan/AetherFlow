@@ -20,6 +20,8 @@ import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
 import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -61,6 +63,9 @@ public class WorkflowRuntimeController {
 
     @Autowired
     WorkflowCancellationService cancellationService;
+
+    @Autowired(required = false)
+    WorkflowCancellationCleanupService cancellationCleanupService;
 
     @Autowired
     public WorkflowRuntimeController(WorkflowRuntimeMetrics metrics,
@@ -239,9 +244,9 @@ public class WorkflowRuntimeController {
         return Result.success(streamTokenService.issue(userId, username, workflowId));
     }
 
-    @Operation(summary = "Cancel workflow run", description = "Cancels an active owned workflow run. The runtime checks this durable state before every subsequent node dispatch.")
+    @Operation(summary = "Cancel workflow run", description = "Commits CANCELLED and durable external-task cleanup work. Cleanup status is returned separately from the run state.")
     @PostMapping("/instances/{workflowInstanceId}/cancel")
-    public Result<Void> cancel(
+    public Result<WorkflowCancellationCleanupStatus> cancel(
             @PathVariable Long workflowInstanceId,
             @RequestHeader(value = "X-User-Id", required = false) Long userId) {
         assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
@@ -251,7 +256,34 @@ public class WorkflowRuntimeController {
         if (!cancellationService.cancel(workflowInstanceId, userId)) {
             throw new BusinessException(ResultCode.CONFLICT, "workflow run is already terminal");
         }
-        return Result.success();
+        WorkflowCancellationCleanupService cleanupService = requireCancellationCleanupService();
+        cleanupService.dispatchInstance(workflowInstanceId);
+        return Result.success(cleanupService.status(workflowInstanceId, userId));
+    }
+
+    @Operation(summary = "Read cancellation cleanup status", description = "Reads durable external-task cleanup status without changing the CANCELLED run state.")
+    @GetMapping("/instances/{workflowInstanceId}/cancellation-cleanup")
+    public Result<WorkflowCancellationCleanupStatus> cancellationCleanupStatus(
+            @PathVariable Long workflowInstanceId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
+        return Result.success(requireCancellationCleanupService().status(workflowInstanceId, userId));
+    }
+
+    @Operation(summary = "Retry cancellation cleanup", description = "Retries pending task cleanup for an owned CANCELLED run. The run state remains CANCELLED.")
+    @PostMapping("/instances/{workflowInstanceId}/cancellation-cleanup/retry")
+    public Result<WorkflowCancellationCleanupStatus> retryCancellationCleanup(
+            @PathVariable Long workflowInstanceId,
+            @RequestHeader(value = "X-User-Id", required = false) Long userId) {
+        assertWorkflowOwner(String.valueOf(workflowInstanceId), userId);
+        return Result.success(requireCancellationCleanupService().retry(workflowInstanceId, userId));
+    }
+
+    private WorkflowCancellationCleanupService requireCancellationCleanupService() {
+        if (cancellationCleanupService == null) {
+            throw new BusinessException(ResultCode.INTERNAL_ERROR, "workflow cancellation cleanup service is unavailable");
+        }
+        return cancellationCleanupService;
     }
 
     @Operation(summary = "Complete a human approval node",

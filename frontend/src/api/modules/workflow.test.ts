@@ -12,7 +12,10 @@ vi.mock('@/api/client/apiClient', () => ({
   },
 }))
 
-import { cancelWorkflowInstance, copyDefinition, importComfyUiWorkflow, listWorkflowTemplates } from './workflow'
+import {
+  cancelWorkflowInstance, copyDefinition, getWorkflowCancellationCleanup, importComfyUiWorkflow,
+  listWorkflowTemplates, retryWorkflowCancellationCleanup,
+} from './workflow'
 
 describe('workflow module', () => {
   beforeEach(() => {
@@ -42,9 +45,13 @@ describe('workflow module', () => {
     await copyDefinition(10, { name: 'Copy' })
     await listWorkflowTemplates()
     await cancelWorkflowInstance(99)
+    await getWorkflowCancellationCleanup(99)
+    await retryWorkflowCancellationCleanup(99)
 
     expect(mocks.post).toHaveBeenCalledWith('/workflows/definitions/10/copy', { name: 'Copy' }, { source: 'workflow' })
     expect(mocks.get).toHaveBeenCalledWith('/workflows/templates', { source: 'workflow' })
     expect(mocks.post).toHaveBeenCalledWith('/workflow/runtime/instances/99/cancel', {}, { source: 'workflow' })
+    expect(mocks.get).toHaveBeenCalledWith('/workflow/runtime/instances/99/cancellation-cleanup', { source: 'workflow' })
+    expect(mocks.post).toHaveBeenCalledWith('/workflow/runtime/instances/99/cancellation-cleanup/retry', {}, { source: 'workflow' })
   })
 })

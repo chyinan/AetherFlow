@@ -22,7 +22,8 @@ class ProviderCatalogServiceTest {
 
         assertThat(catalog.providers())
                 .extracting(ProviderCatalogResponse.ProviderCatalogProvider::endpointLabel)
-                .containsExactly("OpenAI API", "Ollama Local Runtime");
+                .containsExactly("OpenAI-compatible API", "Ollama Local Runtime");
+        assertThat(catalog.providers().get(0).name()).isEqualTo("OpenAI-Compatible Gateway");
         assertThat(catalog.models())
                 .anySatisfy(model -> {
                     assertThat(model.provider()).isEqualTo(AiProviderType.OPENAI);

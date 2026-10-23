@@ -1117,8 +1117,7 @@ public class WorkflowRuntimeEngine {
         variables.forEach((name, value) -> {
             VariableWriter previous = variableWriters.get(name);
             if (previous == null
-                    || currentDepth > previous.depth()
-                    || (currentDepth == previous.depth() && nodeId.compareTo(previous.nodeId()) < 0)) {
+                    || WorkflowDag.compareVariableWriters(currentDepth, nodeId, previous.depth(), previous.nodeId()) > 0) {
                 context.variables().put(name, value);
                 variableWriters.put(name, new VariableWriter(nodeId, currentDepth));
             }
@@ -1370,7 +1369,7 @@ public class WorkflowRuntimeEngine {
                 context.runtimeState(),
                 currentNodeIds.isEmpty() ? context.currentNodeId() : currentNodeIds.get(currentNodeIds.size() - 1),
                 currentNodeIds,
-                context.variables(),
+                context.snapshotVariables(),
                 context.nodeOutputs(),
                 tracker.completedNodeIds(),
                 tracker.failedNodeIds()

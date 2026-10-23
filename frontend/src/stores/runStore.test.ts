@@ -40,6 +40,8 @@ vi.mock('@/services/realtime/realtimeClient', () => ({
 
 import { useRunStore } from './runStore'
 import { useWorkflowStore } from './workflowStore'
+import { mapRuntimeEventToNodePatch } from '@/api/mappers/runtimeMapper'
+import type { RuntimeEvent } from '@/api/modules/runtime'
 import type { RunLogEntry, WorkflowRun } from '@/types/run'
 
 function deferred<T>() {
@@ -194,6 +196,73 @@ describe('真实运行初始化', () => {
       runtimeWorkflowId: '102',
       status: 'running',
     })
+  })
+
+  it('实时异步 AI 等待清除残留审批状态但继续保持 WAITING', () => {
+    const runStore = useRunStore()
+    const current = run('run-a')
+    current.nodeStates = [{ nodeId: 'node-ai', label: 'AI', status: 'paused', approval: {
+      approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
+    } }]
+    runStore.currentRun = current
+    const event: RuntimeEvent = {
+      eventId: 'external-wait', eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace-run-a',
+      nodeId: 'node-ai', runtimeState: 'WAITING', attributes: { nodeType: 'LLM', externalTaskId: 712 },
+    }
+
+    runStore.patchNodeState(mapRuntimeEventToNodePatch(event)!)
+
+    expect(runStore.currentRun?.nodeStates[0]).toMatchObject({ nodeId: 'node-ai', status: 'paused' })
+    expect(runStore.currentRun?.nodeStates[0]?.approval).toBeUndefined()
+  })
+
+  it('实时 WORKFLOW_WAITING 保留 HUMAN 审批，终态后旧审批不能复活', () => {
+    const runStore = useRunStore()
+    const current = run('run-a')
+    current.status = 'paused'
+    current.backendStatus = 'WAITING'
+    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'paused', approval: {
+      approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
+    } }]
+    runStore.currentRun = current
+    const workflowWaiting: RuntimeEvent = {
+      eventId: 'workflow-waiting', eventType: 'WORKFLOW_WAITING', workflowId: '101', traceId: 'trace-run-a',
+      nodeId: 'node-human', runtimeState: 'WAITING', attributes: {},
+    }
+    runStore.patchNodeState(mapRuntimeEventToNodePatch(workflowWaiting)!)
+    expect(runStore.currentRun?.nodeStates[0]).toMatchObject({
+      status: 'paused', approval: { approvalStatus: 'pending', reviewer: 'ops' },
+    })
+
+    const completed: RuntimeEvent = {
+      eventId: 'human-completed', eventType: 'NODE_COMPLETED', workflowId: '101', traceId: 'trace-run-a',
+      nodeId: 'node-human', runtimeState: 'SUCCESS', attributes: { nodeType: 'HUMAN' },
+    }
+    runStore.patchNodeState(mapRuntimeEventToNodePatch(completed)!)
+    runStore.patchNodeState(mapRuntimeEventToNodePatch({ ...workflowWaiting, eventId: 'stale-waiting' })!)
+
+    expect(runStore.currentRun?.nodeStates[0]).toMatchObject({ status: 'success' })
+    expect(runStore.currentRun?.nodeStates[0]?.approval).toBeUndefined()
+  })
+
+  it('HTTP 历史摘要明确标记外部等待时清除旧的待审批标记', async () => {
+    const runStore = useRunStore()
+    const current = run('run-a')
+    current.status = 'paused'
+    current.backendStatus = 'WAITING'
+    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'paused', approval: {
+      approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
+    } }]
+    runStore.currentRun = current
+    runStore.runs = [current]
+    const snapshot = { ...run('run-a'), status: 'paused' as const, backendStatus: 'WAITING' as const,
+      nodeStates: [{ nodeId: 'node-human', label: 'Human', status: 'paused' as const, approval: null }] }
+    runApiMocks.listRuns.mockResolvedValue([snapshot])
+
+    await runStore.loadRuns({ selectDefault: false })
+
+    expect(runStore.currentRun?.nodeStates[0]?.status).toBe('paused')
+    expect(runStore.currentRun?.nodeStates[0]?.approval).toBeUndefined()
   })
 
   it('不会把其他工作流的运行节点状态写入当前工作流画布', () => {

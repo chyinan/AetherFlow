@@ -49,7 +49,16 @@ export function nodeVariableOutputs(node: WorkflowGraphNode, templates: Readonly
     catch { return [] }
   }
   if (kind === 'output') return []
-  if (kind === 'variable-assigner') return text(config.variable) ? [{ name: text(config.variable), type: Object.hasOwn(config, 'value') ? valueType(config.value) : 'UNKNOWN' }] : []
+  if (kind === 'variable-assigner') {
+    if (!text(config.variable)) return []
+    const mode = text(config.valueMode).toUpperCase()
+    const configuredType = text(config.valueType).toUpperCase()
+    const type = mode === 'SOURCE_VARIABLE' || configuredType === 'JSON'
+      ? 'JSON'
+      : configuredType === 'STRING' ? 'STRING'
+        : Object.hasOwn(config, 'value') ? valueType(config.value) : 'UNKNOWN'
+    return [{ name: text(config.variable), type }]
+  }
   if (kind === 'template-transform') return [{ name: text(config.outputVariable, config.transformMode === 'structured' ? 'mappedValue' : 'renderedText'), type: config.transformMode === 'structured' ? 'UNKNOWN' : 'STRING' }]
   const configured = configurableOutputs[kind]
   if (configured) {

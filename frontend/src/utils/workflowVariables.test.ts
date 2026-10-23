@@ -41,6 +41,18 @@ it('候选与保存规范化一致：清空文件ID、数值类型、旧循环�
   expect(nodeVariableOutputs(node('v', 'variable-assigner'))).toEqual([{ name: 'result', type: 'UNKNOWN' }])
 })
 
+it('赋值器输出类型反映显式 JSON 字面值与来源变量契约', () => {
+  expect(nodeVariableOutputs(node('json', 'variable-assigner', {
+    variable: 'payload', valueMode: 'LITERAL', valueType: 'JSON', value: [1, null],
+  }))).toEqual([{ name: 'payload', type: 'JSON' }])
+  expect(nodeVariableOutputs(node('source', 'variable-assigner', {
+    variable: 'payload', valueMode: 'SOURCE_VARIABLE', sourceVariable: 'upstream', value: 'ignored',
+  }))).toEqual([{ name: 'payload', type: 'JSON' }])
+  expect(nodeVariableOutputs(node('text', 'variable-assigner', {
+    variable: 'label', valueMode: 'LITERAL', valueType: 'STRING', value: '',
+  }))).toEqual([{ name: 'label', type: 'STRING' }])
+})
+
 it('可配置主输出不隐藏执行器仍写入的固定全局键', () => {
   const names = (kind: WorkflowNodeKind) => nodeVariableOutputs(node('source', kind, { outputVariable: 'custom' })).map((item) => item.name)
   expect(names('knowledge-retrieval')).toEqual(expect.arrayContaining(['custom', 'retrievalContext', 'retrievalResults', 'retrievalCount', 'retrievalDatasetId']))

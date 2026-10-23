@@ -429,6 +429,16 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
 
 function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const workflowJson = normalizeWorkflowJson(config.workflowJson)
+  let options = isRecord(config.options)
+    ? cloneConfigValue(config.options) as Record<string, unknown>
+    : undefined
+  // 新格式以顶层 workflowBindings 为准；旧保存格式可从 options 中恢复。
+  const workflowBindings = config.workflowBindings !== undefined
+    ? config.workflowBindings
+    : options?.workflowBindings
+  if (workflowBindings !== undefined) {
+    (options ??= {}).workflowBindings = cloneConfigValue(workflowBindings)
+  }
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'COMFYUI'),
@@ -438,8 +448,9 @@ function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: stri
     ...(optionalString(config.upscaler) ? { upscaler: optionalString(config.upscaler) } : {}),
     ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
     ...(workflowJson === undefined ? {} : { workflowJson }),
+    ...(workflowBindings === undefined ? {} : { workflowBindings: cloneConfigValue(workflowBindings) }),
     ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
-    ...(isRecord(config.options) ? { options: config.options } : {}),
+    ...(options === undefined ? {} : { options }),
   }, nextNodes)
 }
 
@@ -663,9 +674,14 @@ function normalizeVariableAggregateConfig(config: Record<string, unknown>, nextN
 }
 
 function normalizeVariableAssignerConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  if (optionalString(config.valueValidationError)) {
+    throw new Error('VARIABLE_ASSIGNER value must be valid JSON')
+  }
   return withNextNodes({
     variable: stringValue(config.variable, 'result'),
-    ...(config.value === undefined ? {} : { value: config.value }),
+    ...(config.valueMode === undefined ? {} : { valueMode: stringValue(config.valueMode, '') }),
+    ...(config.valueType === undefined ? {} : { valueType: stringValue(config.valueType, '') }),
+    ...(config.value === undefined ? {} : { value: cloneConfigValue(config.value) }),
     ...(optionalString(config.sourceVariable) ? { sourceVariable: optionalString(config.sourceVariable) } : {}),
   }, nextNodes)
 }

@@ -1,5 +1,6 @@
 // pattern: Imperative Shell
 import { apiClient } from '@/api/client/apiClient'
+import type { WorkflowCancellationCleanupStatus } from '@/types/run'
 
 export interface WorkflowDefinitionNodeDTO {
   nodeId: string
@@ -188,7 +189,21 @@ export function startInstance(definitionId: number, payload: StartWorkflowReques
 }
 
 export function cancelWorkflowInstance(instanceId: number | string) {
-  return apiClient.post<void>(`/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/cancel`, {}, { source: 'workflow' })
+  return apiClient.post<WorkflowCancellationCleanupStatus>(
+    `/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/cancel`, {}, { source: 'workflow' },
+  )
+}
+
+export function getWorkflowCancellationCleanup(instanceId: number | string) {
+  return apiClient.get<WorkflowCancellationCleanupStatus>(
+    `/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/cancellation-cleanup`, { source: 'workflow' },
+  )
+}
+
+export function retryWorkflowCancellationCleanup(instanceId: number | string) {
+  return apiClient.post<WorkflowCancellationCleanupStatus>(
+    `/workflow/runtime/instances/${encodeURIComponent(String(instanceId))}/cancellation-cleanup/retry`, {}, { source: 'workflow' },
+  )
 }
 
 export interface ListWorkflowInstancesParams {

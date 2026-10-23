@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.resetAllMocks(); vi.stubGlobal('fetch', fetchMock); fetchMock.mockImplementation(async () => ({ ok: true, body: new ReadableStream<Uint8Array>({ start(c) { stream = c } }) }))
   mocks.get.mockImplementation(async (url: string) => {
     if (url === '/workflow-instances') return { items: [run], total: 1 }
+    if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 1, status: 'PENDING', attemptCount: 0, retryable: true }
     if (url.endsWith('/logs')) return [{ id: url, message: `日志 ${url}` }]
     if (url.startsWith('/workflow/runtime/observability/')) return { workflowId: '1', runtimeState: 'RUNNING', progress: 0.25 }
     if (url.startsWith('/workflow/runtime/events/')) return [{ eventId: `event-${url}`, eventType: 'NODE_COMPLETED', workflowId: '1', nodeId: 'parent-call', runtimeState: 'RUNNING', attributes: { output: '保留已完成节点输出' } }]

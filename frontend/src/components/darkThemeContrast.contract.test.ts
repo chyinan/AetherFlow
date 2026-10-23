@@ -22,7 +22,7 @@ describe('dark theme contrast contracts', () => {
     expect(source).not.toContain('bg-app-bg2/70')
     expect(source).toContain('v-if="!item.read"')
     expect(source).toContain('bg-primary')
-    expect(source).toContain('<StatusDot :tone="item.tone" :label="item.tone" />')
+    expect(source).toContain('<StatusDot v-if="item.tone" :tone="item.tone" :label="item.tone" />')
   })
 
   it('keeps the semantic colors covered by the dark theme stylesheet', () => {

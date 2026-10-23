@@ -3,7 +3,10 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { comfyBindingError, comfyParameters, describeComfyGraph, isRecord } from '@/utils/comfyWorkflow'
 const props = defineProps<{ nodeId: string; config: Record<string, unknown> }>()
-const emit = defineEmits<{ update: [key: string, value: unknown] }>()
+const emit = defineEmits<{
+  update: [key: string, value: unknown]
+  'replace-workflow': [values: Record<string, unknown>, nodeId: string]
+}>()
 const { t } = useI18n({ useScope: 'local', messages: {
   'zh-CN': { title: 'ComfyUI 原图与执行图', wrap: '导入创建 4 个 AF 外层节点，封装原图的 {nodes} 个节点、{links} 条连线。', api: 'API 执行图：{nodes} 个节点。默认保持原参数与插件节点。', ui: '原图已保留。请在原有 ComfyUI 中导出 API 格式 JSON，再载入执行图。当前界面 JSON 只能查看和保存，不能运行。', invalid: '执行图格式无效，请重新导出 API 格式 JSON。', plugins: '插件、模型和原生前端尚未验证。依赖插件前端的编辑仍在原有 ComfyUI 完成。', unresolved: '原始正向提示词尚未解析：插件文本链或多分支需要原生 ComfyUI 求值；没有用负向文本代替。', list: '查看内部节点与输入', source: '查看完整原图 JSON', load: '载入 API 执行图', preserve: '载入后保留原图，清空旧参数绑定；不会运行工作流。', bindings: '指定参数覆盖', hint: '默认不覆盖。明确添加目标后，才使用下方对应的 AF 参数或提示词变量；其他节点及输入保持原样。', target: '执行图输入', parameter: 'AF 参数', add: '添加覆盖', remove: '移除', empty: '未设置覆盖，按原图参数执行。', error: '无法读取文件，请选择有效的 API JSON。', linked: '覆盖链接输入会替换原有上游引用。', format: '原图格式：{format}' },
   en: { title: 'ComfyUI source and execution graph', wrap: 'Import creates 4 AF wrapper nodes around {nodes} original nodes and {links} links.', api: 'API execution graph: {nodes} nodes. Original parameters and plugin nodes are retained by default.', ui: 'Source retained. Export API JSON from your existing ComfyUI and load it here. UI JSON can be viewed and saved, but cannot run.', invalid: 'Invalid execution graph. Export API JSON again.', plugins: 'Plugins, models and native frontend are unverified. Edit frontend-dependent plugins in your existing ComfyUI.', unresolved: 'Original positive prompt unresolved: plugin chains or multiple branches require native evaluation. Negative text was not substituted.', list: 'Internal nodes and inputs', source: 'Complete source JSON', load: 'Load API execution graph', preserve: 'Retains source and clears old bindings. Does not run the graph.', bindings: 'Explicit parameter overrides', hint: 'No overrides by default. Add a target to use the corresponding AF parameter or prompt variable below. Other inputs remain unchanged.', target: 'Execution input', parameter: 'AF parameter', add: 'Add override', remove: 'Remove', empty: 'No overrides; run with original parameters.', error: 'Cannot read file. Select valid API JSON.', linked: 'Overriding a linked input replaces its upstream reference.', format: 'Source format: {format}' },
@@ -28,9 +31,12 @@ async function loadApi(event: Event) {
     const parsed: unknown = JSON.parse(await file.text())
     if (!alive || current !== sequence || nodeId !== props.nodeId || previousGraph !== props.config.workflowJson) return
     if (describeComfyGraph(parsed).format !== 'API') { error.value = t('invalid'); return }
-    if (!props.config.workflow) emit('update', 'workflow', props.config.workflowJson)
-    emit('update', 'workflowJson', parsed)
-    emit('update', 'workflowBindings', [])
+    const values: Record<string, unknown> = {
+      workflowJson: parsed,
+      workflowBindings: [],
+    }
+    if (!props.config.workflow) values.workflow = props.config.workflowJson
+    emit('replace-workflow', values, nodeId)
     target.value = ''
   } catch { if (alive && current === sequence && nodeId === props.nodeId) error.value = t('error') }
   finally { if (alive && current === sequence) element.value = '' }

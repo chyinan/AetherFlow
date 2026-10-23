@@ -48,6 +48,19 @@ function definition(id: string): WorkflowDefinition {
   }
 }
 
+function textSummaryGraph() {
+  const start = node('start', 'start'); start.data.config.fileId = 42
+  const llm = node('llm', 'llm'); llm.data.config = {
+    provider: 'ollama', model: 'qwen3.5:9b', promptVariable: 'prompt', prompt: '',
+    context: '固定背景只作为 context', contextVariable: '',
+  }
+  const end = node('end', 'output')
+  return {
+    nodes: [start, llm, end],
+    edges: [{ id: 'start-llm', source: 'start', target: 'llm' }, { id: 'llm-end', source: 'llm', target: 'end' }],
+  }
+}
+
 const result = {
   runId: 'run-901', backendInstanceId: 901, runtimeWorkflowId: '901', definitionId: 101, backendStatus: 'RUNNING',
 }
@@ -98,6 +111,65 @@ function runButton() {
 async function clickRun() { await runButton().trigger('click'); await flushPromises() }
 
 describe('Run 启动操作的工作流与导航所有权', () => {
+  it('保存重开后为未绑定的 promptVariable 提供文本输入并随运行请求发送', async () => {
+    const { store } = await setup()
+    let persisted: WorkflowDefinition | undefined
+    api.saveWorkflow.mockImplementation(async (workflow: WorkflowDefinition) => {
+      persisted = { ...JSON.parse(JSON.stringify(workflow)), backendVersion: 2 }
+      return persisted
+    })
+    api.getWorkflow.mockImplementation(async () => persisted ?? definition('101'))
+    const graph = textSummaryGraph()
+    store.nodes = graph.nodes
+    store.edges = graph.edges
+    await store.saveCurrentWorkflow()
+    expect(persisted?.nodes.find(item => item.id === 'llm')?.data.config.promptVariable).toBe('prompt')
+    expect(await store.loadWorkflow('101')).toBe(true)
+    await flushPromises()
+    expect(wrapper!.find('[data-run-input="prompt"]').exists()).toBe(true)
+
+    await wrapper!.get<HTMLTextAreaElement>('[data-run-input="prompt"]').setValue('请用三句话总结视频')
+    api.startRun.mockResolvedValue(result)
+    await clickRun()
+
+    expect(api.startRun.mock.calls[0]![1]).toEqual({ fileId: '42', prompt: '请用三句话总结视频' })
+    expect(api.saveWorkflow.mock.calls.at(-1)![0].nodes.find((item: WorkflowGraphNode) => item.id === 'llm')?.data.config.context)
+      .toBe('固定背景只作为 context')
+  })
+
+  it('动态 prompt 输入为空时提示用户且不保存或启动流程', async () => {
+    const { store } = await setup()
+    store.nodes = textSummaryGraph().nodes
+    store.edges = textSummaryGraph().edges
+    store.markSaved()
+
+    await clickRun()
+
+    expect(wrapper!.get('[data-run-input-error]').text()).toContain('prompt')
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
+  it('固定提示词或已有上游 prompt 不会重复要求运行时文本', async () => {
+    const { store } = await setup()
+    const graph = textSummaryGraph()
+    graph.nodes.find(item => item.id === 'llm')!.data.config.prompt = '固定提示词优先'
+    store.nodes = graph.nodes; store.edges = graph.edges
+    await flushPromises()
+    expect(wrapper!.find('[data-run-input="prompt"]').exists()).toBe(false)
+
+    graph.nodes.find(item => item.id === 'llm')!.data.config.prompt = ''
+    const promptNode = node('prompt-source', 'prompt'); promptNode.data.config.prompt = '上游提示词'
+    store.nodes = [graph.nodes[0]!, promptNode, graph.nodes[1]!, graph.nodes[2]!]
+    store.edges = [
+      { id: 'start-llm', source: 'start', target: 'llm' },
+      { id: 'prompt-llm', source: 'prompt-source', target: 'llm' },
+      { id: 'llm-end', source: 'llm', target: 'end' },
+    ]
+    await flushPromises()
+    expect(wrapper!.find('[data-run-input="prompt"]').exists()).toBe(false)
+  })
+
   it('连续点击只发起一次，正常响应保持 A 的身份并打开运行详情', async () => {
     const { runs, router, status } = await setup()
     const pending = deferred<typeof result>()
