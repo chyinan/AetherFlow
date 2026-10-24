@@ -10,7 +10,7 @@ import {
   type NotifyMessageDTO,
 } from '@/api/modules/notify'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
-import { mergeNotificationHistory } from '@/services/notifications/notificationHistory'
+import { mergeNotificationHistory, normalizeNotificationTimestamp } from '@/services/notifications/notificationHistory'
 import type { ServiceStatus } from '@/types/api'
 import { formatTime } from '@/utils/localeFormat'
 import { tokenManager } from '@/api/client/tokenManager'
@@ -82,7 +82,8 @@ function notificationTime(occurredAt: string | undefined) {
     return formatTime(new Date())
   }
 
-  const date = new Date(occurredAt)
+  // 历史记录的时间不带 offset，必须先按配置的服务器偏移补齐成绝对时刻再格式化。
+  const date = new Date(normalizeNotificationTimestamp(occurredAt) ?? occurredAt)
   return Number.isNaN(date.getTime())
     ? formatTime(new Date())
     : formatTime(date)
@@ -121,20 +122,23 @@ function statusKeyForTone(tone: UiNotification['tone']) {
 }
 
 function normalizeRecord(record: NotificationRecordDTO): UiNotification {
+  // 历史 createdAt 是 LocalDateTime（不带 offset），按配置的服务器偏移补齐成绝对时刻，
+  // 否则会和带 offset 的实时通知相差"服务器时区 − 浏览器时区"。
+  const occurredAt = normalizeNotificationTimestamp(record.createdAt)
   const message: NotifyMessageDTO = {
     userId: record.userId,
     channel: record.channel,
     eventType: record.eventType,
     payload: record.payload ?? {},
-    occurredAt: record.createdAt,
+    occurredAt,
   }
   const messageKey = notificationMessageKey(message)
   const tone = notificationTone(message)
 
   return {
     id: `record-${record.id}`,
-    time: notificationTime(record.createdAt),
-    occurredAt: record.createdAt,
+    time: notificationTime(occurredAt),
+    occurredAt,
     title: notificationTitle(message),
     messageKey,
     messageParams: {
@@ -310,7 +314,8 @@ export const useUiStore = defineStore('ui', {
       this.notifications.unshift({
         id,
         time: notificationTime(message.occurredAt),
-        occurredAt: message.occurredAt ?? new Date().toISOString(),
+        // 实时通知本应带 offset；万一缺了也要按同一个服务器偏移补齐，不能落到浏览器本地时区。
+        occurredAt: normalizeNotificationTimestamp(message.occurredAt) ?? new Date().toISOString(),
         title: notificationTitle(message),
         messageKey,
         messageParams: {
