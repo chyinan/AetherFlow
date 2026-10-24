@@ -8,6 +8,8 @@ import { getNodeCatalog } from '@/api/modules/node'
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import { i18n } from '@/i18n'
 import { nodeTemplates } from '@/services/mock/workflowMock'
+import { useDifyStore } from '@/stores/difyStore'
+import { useModelStore } from '@/stores/modelStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import NodeInspector from './NodeInspector.vue'
@@ -23,6 +25,9 @@ async function render(config: Record<string, unknown> = {}) {
   const node = store.addNodeFromTemplate(nodeTemplates.find((item) => item.kind === 'summary')!, { x: 0, y: 0 })!
   store.updateNodeConfigValues(node.id, config)
   useUiStore().setSelectedNode(node.id)
+  // 检查器挂载会拉取模型目录与知识库数据集，测试内固定为空，避免真实请求变成未处理的 404。
+  vi.spyOn(useModelStore(), 'loadModels').mockResolvedValue(undefined)
+  vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue(undefined)
   const wrapper = mount(NodeInspector, { attachTo: document.body, global: { plugins: [pinia, i18n], stubs: {
     NodeConnectionSelector: { name: 'NodeConnectionSelector', template: '<div />' },
     WhisperEnvironmentDialog: true,

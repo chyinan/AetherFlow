@@ -302,7 +302,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Transform',
     catalog: 'tool',
     group: 'allTools',
-    config: { language: 'python3', code: 'def main(arg1: str, arg2: str):\n    return {"result": arg1 + arg2}', outputVariable: 'codeResult', timeoutSec: 30 },
+    config: { language: 'python3', code: 'def main(payload):\n    return payload', outputVariable: 'codeResult', timeoutSec: 30 },
     inputs: ['payload.json'],
     outputs: ['payload.json', 'log.txt'],
   },

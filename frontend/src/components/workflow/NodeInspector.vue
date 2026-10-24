@@ -268,7 +268,8 @@ const fileTypes = computed(() => {
     ? supported
     : [...SUPPORTED_KNOWLEDGE_FILE_EXTENSIONS]
 })
-const defaultPythonCode = 'def main(arg1: str, arg2: str):\n    return {\n        "result": arg1 + arg2,\n    }'
+// 与 Python 运行时一致：入口恒为单参 main(payload)，示例不得暗示双参数签名。
+const defaultPythonCode = 'def main(payload):\n    return payload'
 const defaultJinjaTemplate = '{{ arg1 }}'
 const conditionOperators = [
   { value: 'EQUALS', labelKey: 'workflow.inspector.conditionOperators.equals' },
@@ -344,6 +345,19 @@ function chatModelProviderType(model: { providerId: string }) {
   return (provider?.providerType || model.providerId.replace(/^provider-/, '').replace(/-/g, '_')).trim()
 }
 
+/**
+ * 按 id 解析下拉选中行。后端 slug 去重会让不同模型共用一个 id，
+ * 因此 id 不唯一时按下拉行位置解析，绝不回写成相邻模型；定位失败返回 undefined。
+ */
+function modelAtSelectedOption(select: HTMLSelectElement) {
+  const selectedId = select.value.trim()
+  if (!selectedId) return undefined
+  const matched = availableChatModels.value.filter((model) => model.id === selectedId)
+  if (matched.length === 1) return matched[0]
+  const byIndex = select.selectedIndex > 0 ? availableChatModels.value[select.selectedIndex - 1] : undefined
+  return byIndex && byIndex.id === selectedId ? byIndex : undefined
+}
+
 function selectedLlmModelId() {
   const modelName = textConfig('model', '').trim()
   const configuredProvider = textConfig('provider', '').trim()
@@ -354,11 +368,41 @@ function selectedLlmModelId() {
 
 function handleLlmModelSelection(event: Event) {
   if (!selectedNode.value) return
-  const selectedModelId = (event.target as HTMLSelectElement).value
-  const model = availableChatModels.value.find((item) => item.id === selectedModelId)
+  const select = event.target as HTMLSelectElement
+  const model = modelAtSelectedOption(select)
   if (!model) {
-    // 清除选择时恢复服务默认 Provider/模型路由。
-    workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
+    // 只有显式清空才恢复服务默认 Provider/模型路由；定位失败时保留原配置。
+    if (!select.value.trim()) {
+      workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
+    }
+    return
+  }
+  workflowStore.updateNodeConfigValues(selectedNode.value.id, {
+    model: model.name,
+    provider: chatModelProviderType(model).toLowerCase(),
+  })
+}
+
+/** 翻译节点按 Provider/Model 对回显；只保存模型名的历史配置在名称唯一时才回显。 */
+function selectedTranslateModelId() {
+  const modelName = textConfig('model', '').trim()
+  if (!modelName) return ''
+  const candidates = availableChatModels.value.filter((model) => model.name === modelName)
+  const configuredProvider = textConfig('provider', '').trim()
+  if (!configuredProvider) return candidates.length === 1 ? candidates[0].id : ''
+  return candidates.find((model) => normalizedProviderType(chatModelProviderType(model))
+    === normalizedProviderType(configuredProvider))?.id ?? ''
+}
+
+function handleTranslateModelSelection(event: Event) {
+  if (!selectedNode.value) return
+  const select = event.target as HTMLSelectElement
+  const model = modelAtSelectedOption(select)
+  if (!model) {
+    // 与 LLM 段一致：显式清空即回到服务默认自动路由，定位失败时保持原配置。
+    if (!select.value.trim()) {
+      workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
+    }
     return
   }
   workflowStore.updateNodeConfigValues(selectedNode.value.id, {
@@ -518,17 +562,33 @@ function variableAssignerJsonText() {
 }
 
 function updateVariableAssigner(values: Record<string, unknown>) {
-  if (selectedNode.value?.data.kind === 'variable-assigner') {
-    workflowStore.updateNodeConfigValues(selectedNode.value.id, values)
-  }
+  if (selectedNode.value?.data.kind !== 'variable-assigner') return
+  const config = selectedNode.value.data.config
+  // 校验状态改为按 valueJsonText 派生，历史版本存进 config 的错误字段就地失效，避免它继续阻断保存。
+  const legacyError = isConfigRecord(config) && typeof config.valueValidationError === 'string' && config.valueValidationError
+    ? { valueValidationError: '' }
+    : {}
+  workflowStore.updateNodeConfigValues(selectedNode.value.id, { ...values, ...legacyError })
 }
 
+/**
+ * JSON 合法性始终由当前界面文本派生，不再存进 config。
+ * config.valueJsonText 在任何输入、模式或类型切换时都保留最新原始文本；
+ * config.value 只在解析成功时更新，因此非法文本与已保存值的差异只能靠提示暴露。
+ */
+const valueValidationError = computed(() => {
+  if (variableAssignerValueType() !== 'JSON') return ''
+  try {
+    JSON.parse(variableAssignerJsonText())
+    return ''
+  } catch {
+    return t('workflow.inspector.invalidJsonValue')
+  }
+})
+
 function handleVariableAssignerModeChange(event: Event) {
-  const valueMode = (event.target as HTMLSelectElement).value
-  updateVariableAssigner({
-    valueMode,
-    ...(valueMode === 'SOURCE_VARIABLE' ? { valueValidationError: '' } : {}),
-  })
+  // 模式切换不得清空 JSON 校验状态：切回固定值时必须继续提示未解析文本。
+  updateVariableAssigner({ valueMode: (event.target as HTMLSelectElement).value })
 }
 
 function handleVariableAssignerValueTypeChange(event: Event) {
@@ -538,7 +598,7 @@ function handleVariableAssignerValueTypeChange(event: Event) {
     const nextValue = current === undefined ? '' : current
     updateVariableAssigner({
       valueMode: 'LITERAL', valueType, value: nextValue,
-      valueJsonText: JSON.stringify(nextValue, null, 2) ?? 'null', valueValidationError: '',
+      valueJsonText: JSON.stringify(nextValue, null, 2) ?? 'null',
     })
     return
   }
@@ -547,7 +607,6 @@ function handleVariableAssignerValueTypeChange(event: Event) {
     : typeof current === 'string' ? current : JSON.stringify(current) ?? String(current)
   updateVariableAssigner({
     valueMode: 'LITERAL', valueType: 'STRING', value: nextValue,
-    valueValidationError: '',
   })
 }
 
@@ -555,7 +614,6 @@ function handleVariableAssignerStringInput(event: Event) {
   updateVariableAssigner({
     valueMode: 'LITERAL', valueType: 'STRING',
     value: (event.target as HTMLTextAreaElement).value,
-    valueValidationError: '',
   })
 }
 
@@ -565,12 +623,12 @@ function handleVariableAssignerJsonInput(event: Event) {
     const value: unknown = JSON.parse(valueJsonText)
     updateVariableAssigner({
       valueMode: 'LITERAL', valueType: 'JSON', value,
-      valueJsonText, valueValidationError: '',
+      valueJsonText,
     })
   } catch {
+    // 解析失败时只保留原始文本，config.value 维持上一次解析成功的值，提示由派生校验给出。
     updateVariableAssigner({
       valueMode: 'LITERAL', valueType: 'JSON', valueJsonText,
-      valueValidationError: t('workflow.inspector.invalidJsonValue'),
     })
   }
 }
@@ -1103,9 +1161,9 @@ onMounted(() => {
           </div>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="selectedTranslateModelId()" @change="handleTranslateModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
             </select>
           </label>
         </section>
@@ -1626,8 +1684,9 @@ onMounted(() => {
                 @input="handleVariableAssignerStringInput"
               />
             </label>
-            <p v-if="textConfig('valueValidationError', '')" role="alert" class="text-sm text-status-error">{{ textConfig('valueValidationError', '') }}</p>
           </template>
+          <!-- 未解析文本随 config 一起保存，切到来源变量后仍要提示，否则保存会被静默驳回。 -->
+          <p v-if="valueValidationError" role="alert" class="text-sm text-status-error">{{ valueValidationError }}</p>
           <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</p>
         </section>
 
