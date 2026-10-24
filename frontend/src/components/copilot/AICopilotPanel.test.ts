@@ -493,11 +493,13 @@ describe('AICopilotPanel', () => {
       data: { kind: 'start', label: 'Start', description: '', config: { variables: {}, output: {} }, inputs: [], outputs: [], status: 'idle' },
     }
     const context = { ...panelContext(), nodes: [startNode] }
+    // A04：深度字段（inputs/outputs/request.headers）与超长描述都必须保留足够信息，密钥仍要脱敏。
+    const longDescription = 'fetch weather '.repeat(40)
     const customDefinition = {
-      formatVersion: 1, id: 'weather-api', version: '1.0.0', name: 'Weather API', description: 'Fetch weather',
+      formatVersion: 1, id: 'weather-api', version: '1.0.0', name: 'Weather API', description: longDescription,
       kind: 'API', inputs: [{ name: 'city', type: 'STRING', required: true }], fields: [],
       outputs: [{ name: 'result', type: 'STRING' }],
-      request: { url: 'https://example.test/weather', method: 'GET', headers: {} },
+      request: { url: 'https://example.test/weather', method: 'GET', headers: { Authorization: 'Bearer SECRET-VALUE', 'X-Trace': 'trace-1' } },
     }
     editCanvas.mockResolvedValueOnce({
       message: { id: 'custom-draft-1', conversationId: 'conv-1', role: 'assistant', content: '草稿已生成', createdAt: '' },
@@ -535,6 +537,14 @@ describe('AICopilotPanel', () => {
     const revisionDraft = editCanvas.mock.calls[1][1].context.pendingDraft
     expect(revisionDraft.messageId).toBe('custom-draft-1')
     expect(revisionDraft.definition[0]).toMatchObject({ id: 'weather-api', version: '1.0.0', name: 'Weather API' })
+    // A04：待确认草稿的深度字段不能整体被占位符替换，否则模型续改时看不到精确 schema。
+    expect(revisionDraft.definition[0].inputs[0]).toEqual({ name: 'city', type: 'STRING', required: true })
+    expect(revisionDraft.definition[0].outputs[0]).toEqual({ name: 'result', type: 'STRING' })
+    expect(revisionDraft.definition[0].request.headers).toEqual({ Authorization: '[redacted]', 'X-Trace': 'trace-1' })
+    expect(revisionDraft.definition[0].request.url).toBe('https://example.test/weather')
+    // 秘密键仍要脱敏，超长字符串仍要截断。
+    expect(JSON.stringify(revisionDraft.definition)).not.toContain('SECRET-VALUE')
+    expect(revisionDraft.definition[0].description).toBe(`${longDescription.slice(0, 400)}...`)
     expect(revisionDraft.operations).toEqual([
       { type: 'add_node', nodeId: 'weather-node', kind: 'http-request', customNodeId: 'weather-api', customNodeVersion: '1.0.0' },
     ])
@@ -999,7 +1009,7 @@ describe('AICopilotPanel', () => {
     wrapper.unmount()
   })
 
-  it('allows a selected conversation to continue while its messages are still loading', async () => {
+  it('waits for the selected conversation history before continuing it', async () => {
     const context = panelContext()
     writeConversationSelection(conversationSessionKey(context), 'conv-1')
     const history = deferred<CopilotMessage[]>()
@@ -1011,11 +1021,15 @@ describe('AICopilotPanel', () => {
     await wrapper.find('form input').setValue('Continue')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
-    history.resolve([assistantMessage('OLD_HISTORY', 'conv-1')])
+    // 历史未恢复完成前不允许续发：否则会按默认模式写到错误会话，迟到的规划历史也会失效。
+    expect(stream).not.toHaveBeenCalled()
+    history.resolve([assistantMessage('RESTORED_HISTORY', 'conv-1')])
     await flushPromises()
+    expect(wrapper.text()).toContain('RESTORED_HISTORY')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
     expect(wrapper.text()).toContain('CONTINUED')
-    expect(wrapper.text()).not.toContain('OLD_HISTORY')
     wrapper.unmount()
   })
 
