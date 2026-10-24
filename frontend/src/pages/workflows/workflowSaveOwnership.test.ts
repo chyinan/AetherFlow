@@ -277,15 +277,11 @@ describe('工作流保存反馈归属', () => {
   })
 
   it.each([
-    { first: '旧', olderFails: false, newerFails: false },
-    { first: '旧', olderFails: true, newerFails: false },
-    { first: '旧', olderFails: false, newerFails: true },
-    { first: '旧', olderFails: true, newerFails: true },
-    { first: '新', olderFails: false, newerFails: false },
-    { first: '新', olderFails: true, newerFails: false },
-    { first: '新', olderFails: false, newerFails: true },
-    { first: '新', olderFails: true, newerFails: true },
-  ])('同代重叠保存以最新请求拥有状态：$first 请求先结束，旧失败=$olderFails，新失败=$newerFails', async ({ first, olderFails, newerFails }) => {
+    { olderFails: false, newerFails: false },
+    { olderFails: true, newerFails: false },
+    { olderFails: false, newerFails: true },
+    { olderFails: true, newerFails: true },
+  ])('同代重叠保存串行执行，迟到回执只推进版本：旧失败=$olderFails，新失败=$newerFails', async ({ olderFails, newerFails }) => {
     const { store, start } = await setup()
     const older = deferred<WorkflowDefinition>()
     const newer = deferred<WorkflowDefinition>()
@@ -296,33 +292,36 @@ describe('工作流保存反馈归属', () => {
     const olderResult = store.saveCurrentWorkflow().catch((failure: unknown) => failure)
     store.updateNodeConfig(start.id, 'label', '最新编辑')
     const newerResult = store.saveCurrentWorkflow().catch((failure: unknown) => failure)
-    const finishOlder = () => olderFails ? older.reject(olderError) : older.resolve({ ...definition('101', 2), name: '旧响应名称' })
-    const finishNewer = () => newerFails ? newer.reject(newerError) : newer.resolve(definition('101', 3))
+    await flushPromises()
+    // 保存入口共用一条队列：第二个请求必须等第一个回执，不能并发占用同一版本基线。
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
 
-    if (first === '旧') {
-      finishOlder()
-      await olderResult
-      await flushPromises()
-      expect(store.saving).toBe(true)
-      expect(store.dirty).toBe(true)
-      expect(store.backendVersion).toBe(1)
-      expect(store.workflowName).toBe('Workflow 101')
-      expectNoSaveError()
-      finishNewer()
-    } else {
-      finishNewer()
-      await newerResult
-      await flushPromises()
-      expect(store.saving).toBe(false)
-      finishOlder()
-    }
+    if (olderFails) older.reject(olderError)
+    else older.resolve({ ...definition('101', 2), name: '旧响应名称' })
+    await olderResult
+    await flushPromises()
+
+    // 先到的回执仍推进版本基线（旧行为会把它连同版本号一起丢掉），
+    // 但不得覆盖当前画布与名称。
+    expect(store.saving).toBe(true)
+    expect(store.dirty).toBe(true)
+    expect(store.backendVersion).toBe(olderFails ? 1 : 2)
+    expect(store.workflowName).toBe('Workflow 101')
+    expect(store.nodes[0]!.data.config.label).toBe('最新编辑')
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(2)
+
+    if (newerFails) newer.reject(newerError)
+    else newer.resolve(definition('101', 3))
     const results = await Promise.all([olderResult, newerResult])
     await flushPromises()
 
-    expect(results).toEqual([olderFails ? olderError : undefined, newerFails ? newerError : { workflowId: '101' }])
+    expect(results).toEqual([
+      olderFails ? olderError : { workflowId: '101' },
+      newerFails ? newerError : { workflowId: '101' },
+    ])
     expect(store.saving).toBe(false)
     expect(store.dirty).toBe(newerFails)
-    expect(store.backendVersion).toBe(newerFails ? 1 : 3)
+    expect(store.backendVersion).toBe(newerFails ? (olderFails ? 1 : 2) : 3)
     expect(store.workflowName).toBe('Workflow 101')
     expect(store.nodes[0]!.data.config.label).toBe('最新编辑')
     if (newerFails) {

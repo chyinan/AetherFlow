@@ -64,6 +64,48 @@ function isUncertainSaveOutcome(error: unknown) {
   return status >= 500
 }
 
+type SaveWorkflowOptions = { allowMockFallback?: boolean; projectId?: number }
+
+/**
+ * 每个 Store 实例一条保存队列：所有保存入口（按钮保存、运行前保存、离开前保存）
+ * 都排在同一个队尾，同一时刻最多一个 PUT 在途。重叠保存会让先到的回执被整体丢弃，
+ * 版本基线停住，随后每次保存都带着旧版本撞 409。
+ */
+type WorkflowSaveQueue = {
+  /** 队列所属的加载代次：换工作流后旧队列里的保存已被判定失效，不能阻塞新画布。 */
+  generation: number
+  tail: Promise<unknown>
+  pending: number
+}
+
+const saveQueues = new WeakMap<object, WorkflowSaveQueue>()
+
+function currentSaveQueue(owner: object): WorkflowSaveQueue {
+  const existing = saveQueues.get(owner)
+  if (existing && existing.generation === workflowLoadRequestCounter) return existing
+  // 加载、替换、重置都会推进加载代次：新画布不能被已失效的旧保存堵住。
+  const queue: WorkflowSaveQueue = { generation: workflowLoadRequestCounter, tail: Promise.resolve(), pending: 0 }
+  saveQueues.set(owner, queue)
+  return queue
+}
+
+/**
+ * 迟到的成功回执不得覆盖当前页面状态，但它证明服务端版本已经前进：
+ * 只把更大的版本号吸收为基线，否则下一次保存仍会带着旧版本冲突。
+ */
+function absorbLateSaveVersion(
+  store: { workflowId: string; backendVersion: number | null },
+  receipt: WorkflowDefinition,
+  loadRequestAtStart: number,
+) {
+  if (loadRequestAtStart !== workflowLoadRequestCounter) return
+  if (!receipt || typeof receipt.id !== 'string' || receipt.id !== store.workflowId) return
+  const version = receipt.backendVersion
+  if (typeof version !== 'number' || !Number.isFinite(version)) return
+  if (typeof store.backendVersion === 'number' && version <= store.backendVersion) return
+  store.backendVersion = version
+}
+
 type WorkflowGraphHistoryEntry = {
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
@@ -819,7 +861,35 @@ export const useWorkflowStore = defineStore('workflow', {
       this.saveRecovery = null
       this.pendingSaveSubmission = null
     },
-    async saveCurrentWorkflow(options: { allowMockFallback?: boolean; projectId?: number } = {}) {
+    /**
+     * 所有保存入口共用同一条队列：前一次保存结束后才发出下一次 PUT。
+     * 排队期间保持 saving 反馈，队列排空后才解除。
+     */
+    async saveCurrentWorkflow(options: SaveWorkflowOptions = {}) {
+      const queue = currentSaveQueue(this)
+      queue.pending += 1
+      this.saving = true
+      this.savingError = null
+      // 队列空闲时同步开始：调用瞬间的工作流身份、画布与编辑代次必须被立刻固定，
+      // 不能被推后一拍让出给后续的替换/重置。
+      const task = queue.pending === 1
+        ? this.performSaveCurrentWorkflow(queue, options)
+        : queue.tail.catch(() => undefined).then(() => (
+          // 排队期间换了工作流：这次保存的目标画布已经不存在，不能再落库。
+          saveQueues.get(this) === queue
+            ? this.performSaveCurrentWorkflow(queue, options)
+            : undefined
+        ))
+      queue.tail = task.then(() => undefined, () => undefined)
+      try {
+        return await task
+      } finally {
+        queue.pending -= 1
+        // 同一代次队列排空才解除忙碌；换工作流后由新的队列决定页面反馈。
+        if (saveQueues.get(this) === queue && queue.pending === 0) this.saving = false
+      }
+    },
+    async performSaveCurrentWorkflow(queue: WorkflowSaveQueue, options: SaveWorkflowOptions = {}) {
       const editRevisionAtStart = this.editRevision
       const loadRequestAtStart = workflowLoadRequestCounter
       const saveRequestId = ++this.workflowSaveRequestSequence
@@ -868,6 +938,8 @@ export const useWorkflowStore = defineStore('workflow', {
           { ...options, idempotencyKey: this.createIdempotencyKey ?? undefined },
         )
         if (!ownsSaveState()) {
+          // 迟到回执不覆盖当前页面，但它证明服务端版本已前进：只吸收版本基线。
+          absorbLateSaveVersion(this, savedWorkflow, loadRequestAtStart)
           return
         }
         this.workflowId = savedWorkflow.id
@@ -897,7 +969,12 @@ export const useWorkflowStore = defineStore('workflow', {
           throw error
         }
         if (!isUncertainSaveOutcome(error)) {
-          const details = toApiError(error, 'workflow').message || i18n.global.t('workflow.saveFailedUnknown')
+          const apiError = toApiError(error, 'workflow')
+          // 版本冲突是确定失败，但基线可以只读刷新：否则之后每次保存都会带着旧版本继续 409。
+          if (apiError.status === 409) {
+            await this.refreshSaveBaselineAfterConflict(ownsSaveState)
+          }
+          const details = apiError.message || i18n.global.t('workflow.saveFailedUnknown')
           this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`
           throw error
         }
@@ -922,9 +999,32 @@ export const useWorkflowStore = defineStore('workflow', {
         this.savingError = recovered.message
         throw new Error(recovered.message)
       } finally {
-        if (ownsSaveState()) {
+        // 队列里还有排队的保存时保持忙碌反馈，等队列排空统一解除。
+        if (ownsSaveState() && queue.pending <= 1) {
           this.saving = false
         }
+      }
+    },
+    /**
+     * 版本冲突后只读刷新保存基线：只推进本端 backendVersion。
+     * 不重载画布、不清空草稿、不用远端内容覆盖本地编辑。
+     */
+    async refreshSaveBaselineAfterConflict(ownsSaveState: () => boolean): Promise<boolean> {
+      const definitionId = this.backendDefinitionId
+      const workflowId = this.workflowId
+      if (typeof definitionId !== 'number') return false
+      try {
+        const remote = await workflowApi.readWorkflowDefinition(definitionId)
+        if (!ownsSaveState() || this.workflowId !== workflowId || this.backendDefinitionId !== definitionId) return false
+        const version = typeof remote?.version === 'number' && Number.isFinite(remote.version) ? remote.version : undefined
+        if (version === undefined) return false
+        if (typeof this.backendVersion !== 'number' || version > this.backendVersion) {
+          this.backendVersion = version
+        }
+        return true
+      } catch {
+        // 只读刷新失败不影响本地草稿；下一次保存会再刷新一次基线。
+        return false
       }
     },
     captureSaveSubmission(currentWorkflow: WorkflowDefinition): SaveSubmissionSnapshot | null {

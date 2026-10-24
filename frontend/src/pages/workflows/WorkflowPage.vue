@@ -21,6 +21,7 @@ import { workflowStartIntent } from '@/utils/workflowStartIntent'
 import { upstreamVariables } from '@/utils/workflowVariables'
 import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 import { toApiError } from '@/api/client/apiError'
+import { normalizeLlmPromptVariable } from '@/api/mappers/workflowMapper'
 import { importComfyUiWorkflow } from '@/api/modules/workflow'
 import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
 import type { WorkflowCopilotCanvasAction } from '@/services/copilot/workflowCopilotActions'
@@ -163,9 +164,9 @@ const runPromptInputs = computed(() => {
     if (node.data.kind !== 'llm') continue
     const config = node.data.config
     if (typeof config.prompt === 'string' && config.prompt.trim()) continue
-    const variable = typeof config.promptVariable === 'string' && config.promptVariable.trim()
-      ? config.promptVariable.trim()
-      : 'prompt'
+    // 与保存映射和执行器共用同一个默认值：清空 promptVariable 后落库的是 question，
+    // 运行表单若按别的名字采集，服务端执行落库配置时就取不到提示词。
+    const variable = normalizeLlmPromptVariable(config.promptVariable)
     const suppliedUpstream = upstreamVariables(node.id, workflowStore.nodes, workflowStore.edges, workflowStore.templates)
       .some((candidate) => candidate.name === variable)
     if (suppliedUpstream) continue
