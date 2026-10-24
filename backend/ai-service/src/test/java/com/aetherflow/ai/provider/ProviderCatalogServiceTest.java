@@ -106,6 +106,67 @@ class ProviderCatalogServiceTest {
     }
 
     @Test
+    void keepsCollidingModelNamesDistinctWithStableSuffix() {
+        // qwen2.5:7b 与 qwen2-5:7b 的 slug 相同，旧实现会把两个模型压成同一个 id，
+        // 前端按 id 选择时发生碰撞。这里要求 id 互不相同且仍可读。
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("qwen2.5:7b");
+        ProviderCatalogService service = new ProviderCatalogService(
+                properties,
+                () -> ProviderRuntimeCatalog.of(
+                        List.of(AiProviderType.OLLAMA),
+                        List.of(
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen2.5:7b"),
+                                new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen2-5:7b")
+                        )
+                )
+        );
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OLLAMA));
+
+        List<ProviderCatalogResponse.ProviderCatalogModel> models = service.catalog(policy).models();
+
+        assertThat(models).hasSize(2);
+        assertThat(models).extracting(ProviderCatalogResponse.ProviderCatalogModel::id)
+                .doesNotHaveDuplicates()
+                .allSatisfy(id -> assertThat(id).matches("model-ollama-qwen2-5-7b-[0-9a-f]{8}"));
+        assertThat(models).extracting(ProviderCatalogResponse.ProviderCatalogModel::name)
+                .containsExactlyInAnyOrder("qwen2.5:7b", "qwen2-5:7b");
+    }
+
+    @Test
+    void keepsModelIdsStableAcrossCatalogRebuilds() {
+        AiTaskProperties properties = new AiTaskProperties();
+        properties.setDefaultProvider(AiProviderType.OLLAMA);
+        properties.setDefaultModel("llama3");
+        ProviderRuntimeCatalog runtimeCatalog = ProviderRuntimeCatalog.of(
+                List.of(AiProviderType.OLLAMA),
+                List.of(
+                        new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen2.5:7b"),
+                        new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "qwen2-5:7b"),
+                        new ProviderRuntimeCatalog.RuntimeModel(AiProviderType.OLLAMA, "nomic-embed-text:latest")
+                )
+        );
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OLLAMA));
+
+        List<String> first = new ProviderCatalogService(properties, () -> runtimeCatalog)
+                .catalog(policy).models().stream()
+                .map(ProviderCatalogResponse.ProviderCatalogModel::id)
+                .toList();
+        List<String> second = new ProviderCatalogService(properties, () -> runtimeCatalog)
+                .catalog(policy).models().stream()
+                .map(ProviderCatalogResponse.ProviderCatalogModel::id)
+                .toList();
+
+        // id 不入库，但同一模型跨调用必须稳定，否则前端选中的模型会漂移。
+        assertThat(first).isEqualTo(second);
+        assertThat(first).doesNotHaveDuplicates();
+        assertThat(first).allSatisfy(id -> assertThat(id).matches("[a-z0-9-]+"));
+    }
+
+    @Test
     void omitsStaticOllamaFallbackModelWhenRuntimeCatalogIsEmpty() {
         AiTaskProperties properties = new AiTaskProperties();
         properties.setDefaultProvider(AiProviderType.OLLAMA);

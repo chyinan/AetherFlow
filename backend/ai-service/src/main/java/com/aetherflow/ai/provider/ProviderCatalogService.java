@@ -4,8 +4,12 @@ import com.aetherflow.ai.config.AiTaskProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -350,7 +354,20 @@ public class ProviderCatalogService {
     }
 
     private String modelId(AiProviderType provider, String model) {
-        return "model-" + provider.name().toLowerCase(Locale.ROOT).replace('_', '-') + "-" + slug(model);
+        String providerSlug = provider.name().toLowerCase(Locale.ROOT).replace('_', '-');
+        // slug 会丢掉分隔符差异（qwen2.5:7b 与 qwen2-5:7b 同为 qwen-2-5-7b），
+        // 因此 id 追加"provider + 完整模型名"的稳定短哈希，保证不同模型 id 唯一且跨调用稳定。
+        return "model-" + providerSlug + "-" + slug(model) + "-" + shortHash(provider.name() + ":" + model);
+    }
+
+    private String shortHash(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(String.valueOf(value).getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest).substring(0, 8);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
     }
 
     private String slug(String value) {

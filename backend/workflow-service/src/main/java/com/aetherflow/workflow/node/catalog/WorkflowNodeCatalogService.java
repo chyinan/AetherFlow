@@ -688,11 +688,13 @@ public class WorkflowNodeCatalogService {
                         field("variable", "STRING", true, "Workflow variable to evaluate.", "summary"),
                         field("operator", "STRING", false, "Comparison operator.", "EXISTS",
                                 List.of("EQUALS", "NOT_EQUALS", "EXISTS", "NOT_EXISTS", "CONTAINS", "GREATER_THAN", "LESS_THAN")),
-                        field("value", "OBJECT", false, "Expected value for comparison.", "approved"),
+                        // 运行时用 String.valueOf 比较，前端写入的是字符串/数字/布尔标量；
+                        // OBJECT 契约会把这些标量判成类型错误，JSON 同时接受标量与结构。
+                        field("value", "JSON", false, "Expected value for comparison.", "approved"),
                         field("trueBranch", "STRING", false, "Branch key when condition is true.", "true"),
                         field("falseBranch", "STRING", false, "Branch key when condition is false.", "false")
                 ),
-                List.of(variable("variable", "OBJECT", "Workflow variable selected by config.variable.", "approved")),
+                List.of(variable("variable", "JSON", "Workflow variable selected by config.variable.", "approved")),
                 List.of(
                         variable("matched", "BOOLEAN", "Condition result.", true),
                         variable("branchKey", "STRING", "Selected branch key.", "true")

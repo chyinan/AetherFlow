@@ -152,6 +152,86 @@ class WorkflowNodeConfigValidatorTest {
                 "outputMappings", Map.of())), catalogService.catalog())).isNotEmpty();
     }
 
+    @Test
+    void acceptsConditionScalarComparisonValues() {
+        // 目录把 value 标成 OBJECT 时，前端写入的字符串/数字/布尔标量会被判成类型错误，
+        // 而运行时 ConditionNodeExecutor 用 String.valueOf 比较，接受的正是标量。
+        List<Object> values = java.util.Arrays.asList("approved", 10, 3.5D, true, "");
+        for (Object value : values) {
+            Map<String, Object> config = new LinkedHashMap<>();
+            config.put("variable", "status");
+            config.put("operator", "EQUALS");
+            config.put("value", value);
+
+            assertThat(WorkflowNodeConfigValidator.validate(
+                    node("cond", "CONDITION", config), catalogService.catalog()))
+                    .as("CONDITION value=%s (%s)", value, value == null ? "null" : value.getClass().getSimpleName())
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void acceptsConditionStructuredComparisonValue() {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("variable", "payload");
+        config.put("operator", "EQUALS");
+        config.put("value", Map.of("state", "approved", "tags", List.of("a", "b")));
+
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("cond", "CONDITION", config), catalogService.catalog()))
+                .isEmpty();
+    }
+
+    @Test
+    void acceptsConditionOperatorsWithoutComparisonValue() {
+        // EXISTS / NOT_EXISTS 不读取 value，缺省时必须零违规。
+        assertThat(WorkflowNodeConfigValidator.validate(node("cond", "CONDITION", Map.of(
+                "variable", "status", "operator", "EXISTS")), catalogService.catalog()))
+                .isEmpty();
+        assertThat(WorkflowNodeConfigValidator.validate(node("cond", "CONDITION", Map.of(
+                "variable", "status", "operator", "NOT_EXISTS")), catalogService.catalog()))
+                .isEmpty();
+    }
+
+    @Test
+    void stillRejectsNonJsonConditionComparisonValues() {
+        Map<String, Object> config = new LinkedHashMap<>();
+        config.put("variable", "status");
+        config.put("operator", "EQUALS");
+        config.put("value", Double.NaN);
+
+        assertThat(WorkflowNodeConfigValidator.validate(
+                node("cond", "CONDITION", config), catalogService.catalog()))
+                .anyMatch(message -> message.contains("config field 'value' must be JSON"));
+    }
+
+    @Test
+    void conditionCatalogDeclaresJsonValueAndKeepsStringVariableName() {
+        var condition = catalogService.catalog().stream()
+                .filter(item -> "CONDITION".equals(item.type()))
+                .findFirst().orElseThrow();
+
+        assertThat(condition.configSchema())
+                .filteredOn(field -> "value".equals(field.name()))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo("JSON");
+                    assertThat(field.required()).isFalse();
+                });
+        assertThat(condition.configSchema())
+                .filteredOn(field -> "variable".equals(field.name()))
+                .singleElement()
+                .satisfies(field -> {
+                    assertThat(field.type()).isEqualTo("STRING");
+                    assertThat(field.required()).isTrue();
+                });
+        assertThat(condition.inputVariables())
+                .filteredOn(variable -> "variable".equals(variable.name()))
+                .singleElement()
+                .extracting(variable -> variable.type())
+                .isEqualTo("JSON");
+    }
+
     private static WorkflowNodeDTO node(String id, String type, Map<String, Object> config) {
         WorkflowNodeDTO node = new WorkflowNodeDTO();
         node.setNodeId(id);
