@@ -20,6 +20,11 @@ import java.util.function.BiFunction;
 @Service
 public class ImageConnectionDiscovery {
     private static final List<String> CATALOGS = List.of("checkpoints", "vaes", "loras", "samplers", "schedulers", "upscalers");
+    /** 内置放大路径与外置放大插件图共有的放大节点类型。 */
+    private static final List<String> UPSCALE_NODE_TYPES = List.of(
+            "ImageScaleBy", "ImageScale", "ImageUpscaleWithModel", "UpscaleModelLoader", "ImageResize");
+    private static final List<String> GENERATION_NODE_TYPES = List.of(
+            "KSampler", "KSamplerAdvanced", "SamplerCustom", "RandomNoise", "CFGGuider", "BasicScheduler");
     private static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(8);
     private final BiFunction<String, Duration, RestClient> clients;
     private final Duration requestTimeout;
@@ -131,10 +136,25 @@ public class ImageConnectionDiscovery {
             return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend",
                     new NodeConnectionProbe.Models(models.get("checkpoints"), models.get("vaes"), models.get("loras"),
                             models.get("samplers"), models.get("schedulers"), models.get("upscalers")),
-                    List.of("IMAGE_GENERATION"), List.copyOf(warnings), List.copyOf(unavailable));
+                    workflowCapabilities(nodeTypes), List.copyOf(warnings), List.copyOf(unavailable));
         } catch (RestClientException | IllegalStateException exception) {
             return NodeConnectionProbe.unavailable("unreachable", "无法验证执行图的插件节点目录，请检查已有 ComfyUI 连接");
         }
+    }
+
+    /**
+     * 有实际执行图时按图判定能力：含放大节点的图自带 UPSCALE，其余按生成能力处理，
+     * 不再固定只报 IMAGE_GENERATION。
+     */
+    private List<String> workflowCapabilities(List<String> nodeTypes) {
+        List<String> capabilities = new ArrayList<>();
+        if (nodeTypes.stream().anyMatch(UPSCALE_NODE_TYPES::contains)) {
+            capabilities.add("UPSCALE");
+        }
+        if (nodeTypes.stream().anyMatch(GENERATION_NODE_TYPES::contains) || capabilities.isEmpty()) {
+            capabilities.add("IMAGE_GENERATION");
+        }
+        return List.copyOf(capabilities);
     }
 
     private Object get(String baseUrl, String path, long deadline) {

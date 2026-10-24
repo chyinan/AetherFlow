@@ -642,6 +642,120 @@ class ComfyUiProviderTest {
         server.verify();
     }
 
+    @Test
+    void uploadsUniqueSourceImageFileNameForRepeatedUpscaleRuns() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+        List<String> uploadedFileNames = new ArrayList<>();
+        List<String> promptBodies = new ArrayList<>();
+
+        for (int run = 1; run <= 2; run++) {
+            String storedName = "aetherflow-run-" + run + ".png";
+            server.expect(once(), requestTo("http://comfy/upload/image"))
+                    .andExpect(method(POST))
+                    .andExpect(content().contentTypeCompatibleWith(MediaType.MULTIPART_FORM_DATA))
+                    .andExpect(request -> uploadedFileNames.add(multipartFileName(request)))
+                    .andRespond(withSuccess("{\"name\":\"" + storedName + "\",\"subfolder\":\"\",\"type\":\"input\"}",
+                            MediaType.APPLICATION_JSON));
+            server.expect(once(), requestTo("http://comfy/prompt"))
+                    .andExpect(method(POST))
+                    .andExpect(request -> promptBodies.add(((MockClientHttpRequest) request).getBodyAsString()))
+                    .andRespond(withSuccess("{\"prompt_id\":\"upscale-" + run + "\"}", MediaType.APPLICATION_JSON));
+            expectQueue(server);
+            expectHistory(server, "upscale-" + run, "upscaled-" + run + ".png", "", "output");
+            expectView(server, "upscaled-" + run + ".png", "", "output");
+        }
+
+        for (int run = 0; run < 2; run++) {
+            ImageGenerationResponse response = provider.upscale(upscaleRequest());
+            assertThat(response.images()).hasSize(1);
+        }
+
+        // 两次执行的上传文件名必须不同，否则 ComfyUI 侧 source.png 会被后一次执行覆盖
+        assertThat(uploadedFileNames).hasSize(2);
+        assertThat(uploadedFileNames.get(0))
+                .matches("aetherflow-src-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.png");
+        assertThat(uploadedFileNames.get(1)).isNotEqualTo(uploadedFileNames.get(0));
+        // 各自工作流内引用的仍是各自上传返回的 name
+        assertThat(promptBodies.get(0)).contains("\"image\":\"aetherflow-run-1.png\"");
+        assertThat(promptBodies.get(1)).contains("\"image\":\"aetherflow-run-2.png\"");
+        server.verify();
+    }
+
+    @Test
+    void retriedUpscaleUploadsTheOwnNameAndWorkflowReference() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+        List<String> uploadedFileNames = new ArrayList<>();
+
+        server.expect(once(), requestTo("http://comfy/upload/image"))
+                .andExpect(method(POST))
+                .andExpect(request -> uploadedFileNames.add(multipartFileName(request)))
+                .andRespond(withSuccess("{\"name\":\"aetherflow-first.png\",\"subfolder\":\"\",\"type\":\"input\"}",
+                        MediaType.APPLICATION_JSON));
+        // 首次入队失败：执行方会重试整次执行
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().string(containsString("\"image\":\"aetherflow-first.png\"")))
+                .andRespond(withServerError());
+        server.expect(once(), requestTo("http://comfy/upload/image"))
+                .andExpect(method(POST))
+                .andExpect(request -> uploadedFileNames.add(multipartFileName(request)))
+                .andRespond(withSuccess("{\"name\":\"aetherflow-second.png\",\"subfolder\":\"\",\"type\":\"input\"}",
+                        MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().string(containsString("\"image\":\"aetherflow-second.png\"")))
+                .andRespond(withSuccess("{\"prompt_id\":\"upscale-retry\"}", MediaType.APPLICATION_JSON));
+        expectQueue(server);
+        expectHistory(server, "upscale-retry", "upscaled.png", "", "output");
+        expectView(server, "upscaled.png", "", "output");
+
+        assertThatThrownBy(() -> provider.upscale(upscaleRequest()))
+                .isInstanceOf(BusinessException.class);
+        ImageGenerationResponse retried = provider.upscale(upscaleRequest());
+
+        assertThat(retried.images()).hasSize(1);
+        assertThat(uploadedFileNames).hasSize(2);
+        assertThat(uploadedFileNames.get(0)).isNotEqualTo(uploadedFileNames.get(1));
+        server.verify();
+    }
+
+    private ImageGenerationRequest upscaleRequest() {
+        return new ImageGenerationRequest(
+                ImageProviderType.COMFYUI,
+                "upscale",
+                "",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                "c291cmNlLWltYWdl",
+                "image/png",
+                null,
+                Map.of("scale", 4, "upscaler", "lanczos"),
+                Duration.ofSeconds(1)
+        );
+    }
+
+    private static String multipartFileName(Object request) {
+        String body = ((MockClientHttpRequest) request).getBodyAsString();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("filename=\"([^\"]+)\"").matcher(body);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
     private ComfyUiProvider provider(RestClient.Builder builder) {
         RestClient restClient = builder.baseUrl("http://comfy").build();
         ImageProviderProperties properties = new ImageProviderProperties();

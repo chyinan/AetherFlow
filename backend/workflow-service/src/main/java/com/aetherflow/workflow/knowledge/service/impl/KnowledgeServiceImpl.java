@@ -883,9 +883,19 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             boolean indexAvailable = isKnowledgeVectorIndexAvailable();
             if (indexAvailable) {
                 try {
+                    int candidateLimit = semanticCandidateLimit(topK, metadataFilter);
                     List<Long> indexedIds = knowledgeVectorIndex.search(
-                            datasetId, queryVector, Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20)), metadataFilter);
-                    return loadIndexedSemanticCandidates(datasetId, indexedIds, queryTokens, queryVector, metadataFilter);
+                            datasetId, queryVector, candidateLimit, metadataFilter);
+                    List<KnowledgeChunkEntity> indexedCandidates = loadIndexedSemanticCandidates(
+                            datasetId, indexedIds, queryTokens, queryVector, metadataFilter);
+                    if (shouldWidenSemanticWindow(indexedCandidates, indexedIds, candidateLimit, topK)) {
+                        // 候选窗已被填满却仍不足 topK：后续命中被窗口截断，放大到 Qdrant 单次上限再本地过滤
+                        List<Long> widenedIds = knowledgeVectorIndex.search(
+                                datasetId, queryVector, MAX_SEMANTIC_BUFFER, metadataFilter);
+                        return loadIndexedSemanticCandidates(
+                                datasetId, widenedIds, queryTokens, queryVector, metadataFilter);
+                    }
+                    return indexedCandidates;
                 } catch (RuntimeException exception) {
                     if (embeddingProperties.isKnowledgeVectorIndexRequired()) {
                         throw exception;
@@ -983,6 +993,36 @@ public class KnowledgeServiceImpl implements KnowledgeService {
                 .filter(chunk -> metadataMatches(chunk, metadataFilter))
                 .filter(chunk -> matchesRetrievalQuery(chunk, queryTokens, queryVector, true, true))
                 .toList();
+    }
+
+    /**
+     * 语义候选窗：metadataFilter 里只要存在无法完整下推到 Qdrant 的值（对象/数组/null），
+     * 命中就只能靠本地深过滤，必须直接取到 Qdrant 单次上限，否则真实命中可能落在窗口之外。
+     * 标量条件仍照常下推，候选窗维持 topK*20 与下限 50 的原有语义。
+     */
+    private int semanticCandidateLimit(int topK, Map<String, Object> metadataFilter) {
+        int preferred = Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20));
+        return metadataFilterRequiresLocalFiltering(metadataFilter) ? MAX_SEMANTIC_BUFFER : preferred;
+    }
+
+    private boolean metadataFilterRequiresLocalFiltering(Map<String, Object> metadataFilter) {
+        return metadataFilter.values().stream()
+                .anyMatch(value -> !(value instanceof String
+                        || value instanceof Number
+                        || value instanceof Boolean));
+    }
+
+    /**
+     * 候选窗已被填满却仍不足 topK 时，说明后续命中被窗口截断，需要放大窗口再本地过滤。
+     */
+    private boolean shouldWidenSemanticWindow(List<KnowledgeChunkEntity> candidates,
+                                              List<Long> indexedIds,
+                                              int candidateLimit,
+                                              int topK) {
+        return candidates.size() < Math.max(1, topK)
+                && indexedIds != null
+                && indexedIds.size() >= candidateLimit
+                && candidateLimit < MAX_SEMANTIC_BUFFER;
     }
 
     private boolean isKnowledgeVectorIndexAvailable() {

@@ -17,10 +17,12 @@ import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -214,14 +216,16 @@ class ImageProviderFailureStagesTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"image/png,image/png,source.png", "image/jpeg,image/jpeg,source.jpg",
-            "image/webp,image/webp,source.webp", "text/html,image/png,source.png"})
-    void uploadedImageUsesAllowlistedMimeAndMatchingDefaultFilename(String inputMime, String expectedMime,
-                                                                   String filename) {
+    @CsvSource({"image/png,image/png,.png", "image/jpeg,image/jpeg,.jpg",
+            "image/webp,image/webp,.webp", "text/html,image/png,.png"})
+    void uploadedImageUsesAllowlistedMimeAndMatchingDefaultExtension(String inputMime, String expectedMime,
+                                                                    String extension) {
         Fixture fixture = comfy(Duration.ZERO);
         fixture.server.expect(requestTo("http://provider/upload/image"))
                 .andExpect(content().string(containsString("Content-Type: " + expectedMime)))
-                .andExpect(content().string(containsString("filename=\"" + filename + "\"")))
+                // 上传文件名为每次执行唯一的 aetherflow-src-<uuid>，扩展名跟随源图类型
+                .andExpect(content().string(matchesPattern(
+                        "(?s).*filename=\"aetherflow-src-[0-9a-f-]{36}" + Pattern.quote(extension) + "\".*")))
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
         ImageGenerationRequest request = request("upscale", "aW1n", Duration.ofSeconds(2), inputMime, Map.of());
         assertFailure(() -> fixture.provider.upscale(request), "COMFYUI:UPLOAD:sourceImage:INVALID_RESPONSE");
@@ -229,11 +233,12 @@ class ImageProviderFailureStagesTest {
     }
 
     @Test
-    void uploadedImagePreservesExplicitSourceFilename() {
+    void uploadedImagePreservesExplicitSourceFilenameExtension() {
         Fixture fixture = comfy(Duration.ZERO);
         fixture.server.expect(requestTo("http://provider/upload/image"))
                 .andExpect(content().string(containsString("Content-Type: image/webp")))
-                .andExpect(content().string(containsString("filename=\"custom-input.webp\"")))
+                .andExpect(content().string(matchesPattern(
+                        "(?s).*filename=\"aetherflow-src-[0-9a-f-]{36}\\.webp\".*")))
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
         ImageGenerationRequest request = request("upscale", "aW1n", Duration.ofSeconds(2), "image/webp",
                 Map.of("sourceImageName", "custom-input.webp"));

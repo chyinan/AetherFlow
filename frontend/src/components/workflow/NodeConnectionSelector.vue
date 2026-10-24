@@ -48,7 +48,7 @@ function normalizeProvider(value: unknown): ImageConnectionProvider {
   return normalized === 'COMFYUI' ? 'COMFYUI' : 'STABLE_DIFFUSION_WEBUI'
 }
 const provider = computed(() => normalizeProvider(props.config.provider))
-const importedComfyApi = computed(() => props.nodeType === 'IMAGE_GENERATION' && describeComfyGraph(props.config.workflowJson ?? props.config.workflow).format === 'API')
+const importedComfyApi = computed(() => describeComfyGraph(props.config.workflowJson ?? props.config.workflow).format === 'API')
 const importedComfyApiNodeTypes = computed(() => {
   if (!importedComfyApi.value) return []
   const graph = describeComfyGraph(props.config.workflowJson ?? props.config.workflow)
@@ -62,7 +62,7 @@ const selectedConnection = computed(() => connections.value.find((connection) =>
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
 const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode, workflowNodeTypes.value]))
 const modelFields = computed<Array<{ key: string; catalog: ImageCatalog }>>(() => props.nodeType === 'UPSCALE'
-  ? [{ key: 'upscaler', catalog: 'upscalers' }]
+  ? (importedApi.value ? [] : [{ key: 'upscaler', catalog: 'upscalers' }])
   : [{ key: 'checkpoint', catalog: 'checkpoints' }, { key: 'vae', catalog: 'vaes' }, { key: 'sampler', catalog: 'samplers' }, { key: 'scheduler', catalog: 'schedulers' }])
 const checkpointRequired = computed(() => props.nodeType === 'IMAGE_GENERATION' && Boolean(connectionId.value)
   && provider.value === 'COMFYUI' && !importedApi.value && !String(props.config.checkpoint ?? '').trim())

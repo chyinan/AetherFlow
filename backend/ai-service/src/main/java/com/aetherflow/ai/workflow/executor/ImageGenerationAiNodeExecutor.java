@@ -76,8 +76,7 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
                 context.taskMessage() == null ? null : context.taskMessage().getNodeId(),
                 nodeType(), connectionId, string(context.payload(), "provider", ""), request.checkpoint(),
                 string(request.options(), "upscaler", ""), request.vae(), request.sampler(), request.scheduler(), loras,
-                !upscale && request.provider() == ImageProviderType.COMFYUI && !request.workflowJson().isEmpty()
-                        ? ComfyUiWorkflow.apiNodeTypes(request.workflowJson()) : List.of());
+                workflowNodeTypes(request));
         var provider = connectionService.resolveForExecution(contextUserId(context), selection);
         ImageGenerationRequest routed = withProvider(request, provider.type());
         // 显式连接失败直接报告，不回退到部署默认或另一个 Provider。
@@ -127,6 +126,21 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         }
         throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                 "all image providers failed: " + (lastException == null ? "unknown" : lastException.getMessage()));
+    }
+
+    /**
+     * 有实际 Comfy API 执行图时把图上节点类型传给连接预检，生成与放大节点一致对待。
+     * UI 格式或非法图按“无执行图”处理，交由 Provider 自身的默认工作流与校验路径。
+     */
+    private List<String> workflowNodeTypes(ImageGenerationRequest request) {
+        if (request.provider() != ImageProviderType.COMFYUI || request.workflowJson().isEmpty()) {
+            return List.of();
+        }
+        try {
+            return ComfyUiWorkflow.apiNodeTypes(request.workflowJson());
+        } catch (IllegalArgumentException exception) {
+            return List.of();
+        }
     }
 
     private ImageGenerationRequest withProvider(ImageGenerationRequest request, ImageProviderType provider) {

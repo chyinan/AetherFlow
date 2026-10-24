@@ -175,8 +175,11 @@ public class NodeConnectionService {
         if (!probe.capabilities().contains(nodeType)) {
             throw invalid("连接不支持所选节点类型");
         }
-        if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && "IMAGE_GENERATION".equals(nodeType)
-                && !selection.workflowNodeTypes().isEmpty()) return;
+        // 有实际 Comfy 执行图的节点按图判定：内置 ImageScaleBy/SD 目录与节点顶层模型选项都不适用，
+        // 否则自定义 UPSCALE 图会被无关的 SD upscaler 目录拦截。
+        if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && !selection.workflowNodeTypes().isEmpty()) {
+            return;
+        }
         if ("IMAGE_GENERATION".equals(nodeType)) {
             if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && blank(selection.checkpoint())) {
                 throw invalid("请为 ComfyUI 选择 Checkpoint");

@@ -94,9 +94,11 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
     private List<EmbeddingResult> embedWithTimeout(EmbeddingProvider provider,
                                                    EmbeddingNodeConfig config,
                                                    List<TextChunk> chunks) throws Exception {
+        // 绝对截止时间：整次执行共享同一个总超时预算，分片循环入口据此决定是否还启动下一片
+        long deadlineNanos = System.nanoTime() + properties.getTimeout().toNanos();
         CompletableFuture<List<EmbeddingResult>> future = CompletableFuture.supplyAsync(() -> {
             try {
-                return embedChunks(provider, config, chunks);
+                return embedChunks(provider, config, chunks, deadlineNanos);
             } catch (Exception exception) {
                 throw new CompletionException(exception);
             }
@@ -104,7 +106,7 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
         try {
             return future.get(properties.getTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException exception) {
-            future.cancel(true);
+            handleOrphanBatch(future, chunks);
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "embedding execution timed out");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -121,11 +123,32 @@ public class EmbeddingNodeExecutor extends BaseNodeExecutor {
         }
     }
 
+    /**
+     * 超时后的孤儿批次处理：{@code cancel(false)} 不打断已在执行的 provider 调用（对已完成起步的
+     * supplier 也本就无效），剩余分片由分片循环里的截止时间检查自行收尾，这里只做可观察记录。
+     */
+    private void handleOrphanBatch(CompletableFuture<?> future, List<TextChunk> chunks) {
+        boolean cancelled = future.cancel(false);
+        embeddingMetrics.recordOrphanBatch(chunks.size());
+        log.warn("embedding batch timed out, cancelAccepted={}, abandonedChunkCount={}, timeoutMs={}",
+                cancelled, chunks.size(), properties.getTimeout().toMillis());
+    }
+
     private List<EmbeddingResult> embedChunks(EmbeddingProvider provider,
                                               EmbeddingNodeConfig config,
-                                              List<TextChunk> chunks) throws Exception {
+                                              List<TextChunk> chunks,
+                                              long deadlineNanos) throws Exception {
         List<EmbeddingResult> results = new ArrayList<>();
         for (TextChunk chunk : chunks) {
+            // 分片循环入口双重检查：线程已被打断或已过绝对截止时间就不再启动下一片
+            if (Thread.currentThread().isInterrupted()) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "embedding execution interrupted");
+            }
+            if (System.nanoTime() > deadlineNanos) {
+                log.warn("embedding chunk deadline exceeded, stop remaining chunks, completedChunks={}, totalChunks={}",
+                        results.size(), chunks.size());
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "embedding execution timed out");
+            }
             results.add(provider.embed(new EmbeddingRequest(
                     chunk.text(),
                     config.model(),

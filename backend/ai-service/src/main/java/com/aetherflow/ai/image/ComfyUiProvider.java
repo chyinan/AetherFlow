@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -368,6 +369,31 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         return workflow;
     }
 
+    /**
+     * 上传文件名按执行生成唯一标识，只保留扩展名语义（仍由 sourceImageName/content-type 决定）。
+     * 工作流节点引用的是上传接口返回的 name，因此唯一化不会改变 LoadImage 的引用契约。
+     */
+    private String uniqueSourceImageFileName(ImageGenerationRequest request) {
+        return "aetherflow-src-" + UUID.randomUUID() + sourceImageExtension(request);
+    }
+
+    private String sourceImageExtension(ImageGenerationRequest request) {
+        Object configured = request.options() == null ? null : request.options().get("sourceImageName");
+        String name = configured == null ? "" : String.valueOf(configured).trim();
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0 && dot < name.length() - 1) {
+            String extension = name.substring(dot + 1).toLowerCase(Locale.ROOT);
+            if (extension.matches("[a-z0-9]{1,5}")) {
+                return "." + extension;
+            }
+        }
+        return switch (sourceImageContentType(request).toString()) {
+            case "image/jpeg" -> ".jpg";
+            case "image/webp" -> ".webp";
+            default -> ".png";
+        };
+    }
+
     private String sourceImageName(ImageGenerationRequest request, ComfyUploadResponse upload) {
         if (upload != null && upload.name() != null && !upload.name().isBlank()) {
             return upload.name();
@@ -494,10 +520,12 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             throw input(COMFYUI, Field.sourceImage);
         }
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        // 每次执行使用唯一上传文件名：并发/交错的两次执行不会在 ComfyUI input 目录里互相覆盖
+        String uploadFileName = uniqueSourceImageFileName(request);
         ByteArrayResource source = new ByteArrayResource(bytes) {
             @Override
             public String getFilename() {
-                return sourceImageName(request, null);
+                return uploadFileName;
             }
         };
         HttpHeaders imageHeaders = new HttpHeaders();

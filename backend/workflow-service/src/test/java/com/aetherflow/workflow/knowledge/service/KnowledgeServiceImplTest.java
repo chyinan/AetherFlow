@@ -62,7 +62,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -829,6 +831,83 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
+    void findsComplexMetadataMatchBeyondTheDefaultCandidateWindow() {
+        // 复杂 metadata（对象值）无法完整下推到 Qdrant：候选窗只取 50 条时，
+        // 排在第 51 条、真正满足条件的 chunk 会被静默丢掉。
+        Map<String, Object> filter = Map.of("tag", Map.of("team", "search"));
+        List<KnowledgeChunkEntity> indexedChunks = complexMetadataCandidates(50);
+        KnowledgeChunkEntity deepMatch = chunk("deep-match.md", "indexed semantic facts", 0.0D);
+        deepMatch.setId(900_001L);
+        deepMatch.setMetadataJson("{\"tag\":{\"team\":\"search\"}}");
+        indexedChunks.add(deepMatch);
+        indexedChunks.forEach(entry -> entry.setVectorJson("[1.0,0.0]"));
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectBatchIds(any())).thenAnswer(invocation ->
+                selectedChunks(invocation.getArgument(0), indexedChunks));
+        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(readyDocument(21L)));
+        KnowledgeVectorIndex index = candidateWindowIndex(11L, filter, indexedChunks);
+        KnowledgeServiceImpl indexedService = semanticRetrievalService();
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(1);
+        request.setMetadataFilter("{\"tag\":{\"team\":\"search\"}}");
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("deep-match.md");
+        verify(index, atLeastOnce()).search(eq(11L), any(), eq(1000), eq(filter));
+    }
+
+    @Test
+    void keepsTheDefaultCandidateWindowForScalarMetadataFilter() {
+        Map<String, Object> filter = Map.of("stage", "final");
+        List<KnowledgeChunkEntity> indexedChunks = scalarMetadataCandidates(50, "final");
+        indexedChunks.forEach(entry -> entry.setVectorJson("[1.0,0.0]"));
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectBatchIds(any())).thenAnswer(invocation ->
+                selectedChunks(invocation.getArgument(0), indexedChunks));
+        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(readyDocument(21L)));
+        KnowledgeVectorIndex index = candidateWindowIndex(11L, filter, indexedChunks);
+        KnowledgeServiceImpl indexedService = semanticRetrievalService();
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(1);
+        request.setMetadataFilter("{\"stage\":\"final\"}");
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        // 标量过滤仍照常下推，候选窗保持 topK*20 与下限 50 的原有语义
+        assertThat(response.results()).hasSize(1);
+        verify(index).search(eq(11L), any(), eq(50), eq(filter));
+        verify(index, never()).search(eq(11L), any(), eq(1000), any());
+    }
+
+    @Test
+    void returnsEmptyWhenComplexMetadataFilterMatchesNoCandidate() {
+        Map<String, Object> filter = Map.of("tag", Map.of("team", "missing"));
+        List<KnowledgeChunkEntity> indexedChunks = complexMetadataCandidates(51);
+        indexedChunks.forEach(entry -> entry.setVectorJson("[1.0,0.0]"));
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectBatchIds(any())).thenAnswer(invocation ->
+                selectedChunks(invocation.getArgument(0), indexedChunks));
+        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(readyDocument(21L)));
+        KnowledgeVectorIndex index = candidateWindowIndex(11L, filter, indexedChunks);
+        KnowledgeServiceImpl indexedService = semanticRetrievalService();
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(1);
+        request.setMetadataFilter("{\"tag\":{\"team\":\"missing\"}}");
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).isEmpty();
+        verify(index, atLeastOnce()).search(eq(11L), any(), eq(1000), eq(filter));
+    }
+
+    @Test
     void excludesSemanticallyUnrelatedChunksWithCompatibleVectors() {
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
         KnowledgeChunkEntity catChunk = chunk("cats.md", "feline facts", 0.0D);
@@ -1031,6 +1110,80 @@ class KnowledgeServiceImplTest {
         assertThatThrownBy(() -> asUser(7L, () -> service.getDataset(11L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("knowledge dataset not found");
+    }
+
+    private KnowledgeServiceImpl semanticRetrievalService() {
+        EmbeddingProvider provider = new EmbeddingProvider() {
+            @Override
+            public String providerName() {
+                return "ollama";
+            }
+
+            @Override
+            public EmbeddingResult embed(com.aetherflow.workflow.embedding.EmbeddingRequest request) {
+                return new EmbeddingResult(List.of(1.0D, 0.0D), 2, request.model(), request.chunkIndex());
+            }
+        };
+        return new KnowledgeServiceImpl(
+                datasetMapper,
+                documentMapper,
+                chunkMapper,
+                new SimpleTextSplitter(),
+                new ObjectMapper().findAndRegisterModules(),
+                new EmbeddingProviderRegistry(List.of(provider)),
+                new EmbeddingProperties(),
+                documentContentExtractionService,
+                new DocumentExtractionProperties()
+        );
+    }
+
+    private static KnowledgeVectorIndex candidateWindowIndex(Long datasetId,
+                                                            Map<String, Object> filter,
+                                                            List<KnowledgeChunkEntity> indexedChunks) {
+        // 模拟 Qdrant：只返回前 limit 条高相似候选，复杂 metadata 条件不会下推
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
+        when(index.search(eq(datasetId), any(), anyInt(), eq(filter))).thenAnswer(invocation -> {
+            int limit = invocation.getArgument(2);
+            return indexedChunks.stream().map(KnowledgeChunkEntity::getId).limit(limit).toList();
+        });
+        return index;
+    }
+
+    private static List<KnowledgeChunkEntity> complexMetadataCandidates(int count) {
+        List<KnowledgeChunkEntity> chunks = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            KnowledgeChunkEntity candidate = chunk("candidate-" + i + ".md", "indexed semantic facts", 0.0D);
+            candidate.setId(800_000L + i);
+            candidate.setMetadataJson("{\"tag\":{\"team\":\"docs\"}}");
+            chunks.add(candidate);
+        }
+        return chunks;
+    }
+
+    private static List<KnowledgeChunkEntity> scalarMetadataCandidates(int count, String stage) {
+        List<KnowledgeChunkEntity> chunks = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            KnowledgeChunkEntity candidate = chunk("scalar-" + i + ".md", "indexed semantic facts", 0.0D);
+            candidate.setId(700_000L + i);
+            candidate.setMetadataJson("{\"stage\":\"" + stage + "\"}");
+            chunks.add(candidate);
+        }
+        return chunks;
+    }
+
+    private static List<KnowledgeChunkEntity> selectedChunks(Object requestedIds,
+                                                             List<KnowledgeChunkEntity> chunks) {
+        List<?> ids = requestedIds == null ? List.of() : (List<?>) requestedIds;
+        return chunks.stream().filter(candidate -> ids.contains(candidate.getId())).toList();
+    }
+
+    private static KnowledgeDocumentEntity readyDocument(Long documentId) {
+        KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
+        document.setId(documentId);
+        document.setDatasetId(11L);
+        document.setStatus("ready");
+        return document;
     }
 
     private static KnowledgeDatasetEntity dataset() {
