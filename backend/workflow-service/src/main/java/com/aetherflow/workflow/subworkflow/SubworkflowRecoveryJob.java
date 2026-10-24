@@ -58,7 +58,7 @@ public class SubworkflowRecoveryJob {
             boolean parentSucceeded = parent != null && "SUCCESS".equals(parent.getStatus())
                     || parentSnapshot != null && parentSnapshot.runtimeState() == RuntimeState.SUCCESS;
             if (!parentSucceeded) {
-                // 只有快照和活动任务都清理成功才结束收据；失败继续使用 WAITING 收据重试。
+                // 取消清理工作已与 CANCELLED 状态一起写入独立持久 Outbox；后台 worker 负责跨副本重试。
                 cancellations.cancel(run.getChildInstanceId(), run.getOwnerUserId());
             }
             return true;

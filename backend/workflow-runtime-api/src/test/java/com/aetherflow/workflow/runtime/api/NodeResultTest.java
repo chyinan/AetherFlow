@@ -38,4 +38,17 @@ class NodeResultTest {
         assertThat(result.nextNodeId()).isEqualTo("node-export");
         assertThat(result.branchKey()).isEqualTo("approved");
     }
+
+    @Test
+    void keepsJsonNullAsAnAssignedValue() {
+        Map<String, Object> output = new HashMap<>();
+        output.put("result", null);
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("result", null);
+
+        NodeResult result = NodeResult.success(output, variables);
+
+        assertThat(result.output()).containsKey("result").containsEntry("result", null);
+        assertThat(result.variables()).containsKey("result").containsEntry("result", null);
+    }
 }

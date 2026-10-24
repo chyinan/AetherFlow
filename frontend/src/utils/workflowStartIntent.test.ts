@@ -54,3 +54,10 @@ it('实际文件输入属于运行意图', () => {
   expect(workflowStartIntent(graph(), 'file-1')).not.toBe(workflowStartIntent(graph(), 'file-2'))
   expect(workflowStartIntent(graph())).not.toBe(workflowStartIntent(graph(), 'file-1'))
 })
+
+it('动态 LLM 提示词也属于运行意图', () => {
+  expect(workflowStartIntent(graph(), 'file-1', { prompt: 'A' }))
+    .not.toBe(workflowStartIntent(graph(), 'file-1', { prompt: 'B' }))
+  expect(workflowStartIntent(graph(), 'file-1', { prompt: 'A' }))
+    .toBe(workflowStartIntent(graph(), 'file-1', { prompt: 'A' }))
+})

@@ -3,13 +3,18 @@ import { defineStore } from 'pinia'
 // pattern: Mixed (needs refactoring)
 
 import { toApiError } from '@/api/client/apiError'
-import { mapRuntimeStateToRunStatus } from '@/api/mappers/runtimeMapper'
+import { mapRuntimeStateToRunStatus, mergeHumanApprovalState } from '@/api/mappers/runtimeMapper'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
 import { i18n } from '@/i18n'
 import { backendInstanceIdFromRunId, runApi, runtimeWorkflowIdFromRun, type RunPageQuery } from '@/services/api/runApi'
-import { cancelWorkflowInstance, getStartedRunLink } from '@/services/api/workflowApi'
+import {
+  cancelWorkflowInstance,
+  getStartedRunLink,
+  getWorkflowCancellationCleanup,
+  retryWorkflowCancellationCleanup,
+} from '@/services/api/workflowApi'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
-import type { RunLogEntry, RunNodeState, WorkflowRun } from '@/types/run'
+import type { RunLogEntry, RunNodeState, WorkflowCancellationCleanupStatus, WorkflowRun } from '@/types/run'
 import type { WorkflowGraphNode } from '@/types/workflow'
 import { formatDateTime, formatTime } from '@/utils/localeFormat'
 import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
@@ -182,12 +187,13 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
       continue
     }
     const merged = { ...existing, ...definedFields(node) }
+    const approval = mergeHumanApprovalState(existing.status, existing.approval, node.status, node.approval)
     // HTTP 与实时事件采用同样的信息保留规则。
     merged.output = mergeNodeOutput(existing, node)
     if (node.label === node.nodeId) merged.label = existing.label
     if (existing.durationMs !== undefined) merged.durationMs = Math.max(existing.durationMs, node.durationMs ?? 0)
     if (existing.retryCount !== undefined) merged.retryCount = Math.max(existing.retryCount, node.retryCount ?? 0)
-    if (merged.status !== 'paused' && merged.approval?.approvalStatus === 'pending') merged.approval = undefined
+    if (approval !== undefined) merged.approval = approval ?? undefined
     nodes.set(node.nodeId, merged)
   }
   // 列表只包含摘要，缺省字段和空数组不能抹掉实时恢复的详情。
@@ -513,9 +519,10 @@ export const useRunStore = defineStore('run', {
         && (!isTerminalNodeStatus(patch.status) || state.status !== patch.status)) {
         return
       }
-      const normalizedPatch = patch.approval || patch.status === 'paused'
+      const normalizedPatch = patch.approval || patch.approval === null || patch.status === 'paused'
         ? patch
         : { ...patch, approval: undefined }
+      const approval = mergeHumanApprovalState(state?.status, state?.approval, patch.status, patch.approval)
       this.runUpdateVersions[this.currentRun.id] = (this.runUpdateVersions[this.currentRun.id] ?? 0) + 1
       const nodeVersions = this.nodeUpdateVersions[this.currentRun.id] ??= {}
       nodeVersions[patch.nodeId] = (nodeVersions[patch.nodeId] ?? 0) + 1
@@ -527,9 +534,12 @@ export const useRunStore = defineStore('run', {
         if (state.durationMs !== undefined) merged.durationMs = Math.max(state.durationMs, patch.durationMs ?? 0)
         if (state.retryCount !== undefined) merged.retryCount = Math.max(state.retryCount, patch.retryCount ?? 0)
         Object.assign(state, merged)
-        if (patch.status !== 'paused' && !patch.approval) state.approval = undefined
+        if (approval !== undefined) state.approval = approval ?? undefined
       } else {
-        this.currentRun.nodeStates.push(normalizedPatch)
+        this.currentRun.nodeStates.push({
+          ...normalizedPatch,
+          ...(approval !== undefined ? { approval: approval ?? undefined } : {}),
+        })
       }
       // 后端确认终态后，节点只能补齐详情；尚未恢复完整的节点局部推导结果仍需重新计算。
       if (options.inferRunStatus !== false
@@ -699,7 +709,8 @@ export const useRunStore = defineStore('run', {
         return false
       }
       const runId = run.id
-      await cancelWorkflowInstance(instanceId)
+      const cleanupStatus = await cancelWorkflowInstance(instanceId)
+      if (cleanupStatus) this.applyCancellationCleanup(instanceId, cleanupStatus)
       const cachedRuns = [this.runs, this.historyRuns, this.workflowRuns].flatMap(runs => runs.filter(item => item.id === runId))
       const currentRun = this.currentRun?.id === runId ? this.currentRun : null
       // 只保护后端确认的终态；节点局部推断的 success/failed 不能忽略取消确认。
@@ -719,6 +730,24 @@ export const useRunStore = defineStore('run', {
         this.stopRunRealtime()
       }
       return true
+    },
+    applyCancellationCleanup(instanceId: number, status: WorkflowCancellationCleanupStatus) {
+      const apply = (run: WorkflowRun) => {
+        const runInstanceId = run.backendInstanceId ?? backendInstanceIdFromRunId(run.id)
+        if (runInstanceId === instanceId) run.cancellationCleanup = status
+      }
+      ;[...this.runs, ...this.historyRuns, ...this.workflowRuns].forEach(apply)
+      if (this.currentRun) apply(this.currentRun)
+    },
+    async loadCancellationCleanup(instanceId: number) {
+      const status = await getWorkflowCancellationCleanup(instanceId)
+      this.applyCancellationCleanup(instanceId, status)
+      return status
+    },
+    async retryCancellationCleanup(instanceId: number) {
+      const status = await retryWorkflowCancellationCleanup(instanceId)
+      this.applyCancellationCleanup(instanceId, status)
+      return status
     },
     async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {
       const targetRun = this.currentRun

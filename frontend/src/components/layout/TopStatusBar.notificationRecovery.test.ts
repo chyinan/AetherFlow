@@ -69,7 +69,8 @@ async function setup() {
   return useUiStore()
 }
 beforeEach(() => {
-  localStorage.clear(); releases = []; errors = []; server = [record(1), record(2, 'READ')]
+  // Historical API returns newest first, matching the notify service orderByDesc(createdAt, id).
+  localStorage.clear(); releases = []; errors = []; server = [record(2), record(1, 'READ')]
   markFailure = false; clearFailure = false; markGate = undefined; clearGate = undefined
   doubles.list.mockReset().mockImplementation(async () => copy(server))
   doubles.mark.mockReset().mockImplementation(async () => {
@@ -95,7 +96,7 @@ afterEach(async () => {
 describe('正常与既有合并契约对照', () => {
   it('成功历史读取后打开可见真实合成列表及未读数', async () => {
     const store = await setup(); await toggle()
-    expect(titles()).toEqual(['合成历史通知1', '合成历史通知2']); expect(store.unreadNotificationCount).toBe(1)
+    expect(titles()).toEqual(['合成历史通知2', '合成历史通知1']); expect(store.unreadNotificationCount).toBe(1)
     expect(doubles.list).toHaveBeenCalledTimes(2); expect(errors).toEqual([]); observe('正常历史打开')
   })
   it('成功空历史才展示真实空列表', async () => {

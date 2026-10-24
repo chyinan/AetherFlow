@@ -24,11 +24,14 @@ import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -118,6 +121,104 @@ class EmbeddingNodeExecutorTest {
         } finally {
             executorService.shutdownNow();
         }
+    }
+
+    @Test
+    void stopsRemainingChunksWhenTimeoutElapses() throws Exception {
+        EmbeddingProvider provider = provider("ollama");
+        EmbeddingProperties properties = embeddingProperties();
+        properties.setTimeout(Duration.ofMillis(100));
+        EmbeddingMetrics embeddingMetrics = new EmbeddingMetrics();
+        InMemoryVectorStore vectorStore = new InMemoryVectorStore();
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        AtomicInteger invokeCount = new AtomicInteger();
+        EmbeddingNodeExecutor executor = executor(provider, properties, embeddingMetrics, vectorStore, executorService);
+        // 第一片阻塞超过总超时，后续分片必须因截止时间而不再启动
+        when(provider.embed(any())).thenAnswer(invocation -> {
+            EmbeddingRequest request = invocation.getArgument(0);
+            if (invokeCount.incrementAndGet() == 1) {
+                Thread.sleep(250);
+            }
+            return new EmbeddingResult(List.of(0.1d), 1, "nomic-embed-text", request.chunkIndex());
+        });
+
+        try {
+            assertThatThrownBy(() -> executor.execute(context(Map.of(
+                    "chunkSize", 3,
+                    "overlap", 1
+            ), Map.of("ocrText", "abcdefg"))))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("embedding execution timed out");
+            // 等孤儿批次有机会继续调用 provider（旧实现会继续处理完成剩余分片）
+            Thread.sleep(800);
+            assertThat(invokeCount.get()).isEqualTo(1);
+            assertThat(vectorStore.count()).isZero();
+            assertThat(embeddingMetrics.orphanBatchCount()).isEqualTo(1);
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
+
+    @Test
+    void embedsAllChunksInOrderWhenNoTimeout() throws Exception {
+        EmbeddingProvider provider = provider("ollama");
+        EmbeddingNodeExecutor executor = executor(provider, embeddingProperties(), new EmbeddingMetrics(),
+                new InMemoryVectorStore(), Runnable::run);
+        when(provider.embed(any())).thenAnswer(invocation -> {
+            EmbeddingRequest request = invocation.getArgument(0);
+            return new EmbeddingResult(List.of((double) request.chunkIndex()), 1, "nomic-embed-text", request.chunkIndex());
+        });
+
+        NodeResult result = executor.execute(context(Map.of(
+                "chunkSize", 3,
+                "overlap", 1,
+                "vectorCollection", "kb-docs"
+        ), Map.of("ocrText", "abcdefg")));
+
+        assertThat(result.output()).containsEntry("chunkCount", 3);
+        assertThat(result.variables()).containsEntry("embeddingVectorCount", 3);
+        assertThat(chunkTexts(result)).containsExactly("abc", "cde", "efg");
+        verify(provider, times(3)).embed(any());
+    }
+
+    @Test
+    void retryAfterTimeoutIsNotPollutedByOrphanBatch() throws Exception {
+        EmbeddingProvider provider = provider("ollama");
+        EmbeddingProperties properties = embeddingProperties();
+        properties.setTimeout(Duration.ofMillis(100));
+        EmbeddingMetrics embeddingMetrics = new EmbeddingMetrics();
+        InMemoryVectorStore vectorStore = new InMemoryVectorStore();
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        AtomicInteger invokeCount = new AtomicInteger();
+        EmbeddingNodeExecutor executor = executor(provider, properties, embeddingMetrics, vectorStore, executorService);
+        when(provider.embed(any())).thenAnswer(invocation -> {
+            EmbeddingRequest request = invocation.getArgument(0);
+            if (invokeCount.incrementAndGet() == 1) {
+                Thread.sleep(250);
+            }
+            return new EmbeddingResult(List.of(0.5d), 1, "nomic-embed-text", request.chunkIndex());
+        });
+        Map<String, Object> config = Map.of("chunkSize", 3, "overlap", 1);
+        Map<String, Object> variables = Map.of("ocrText", "abcdefg");
+
+        try {
+            assertThatThrownBy(() -> executor.execute(context(config, variables)))
+                    .isInstanceOf(BusinessException.class);
+            Thread.sleep(800);
+            // 超时后重试：旧批次不得再贡献调用或向量
+            NodeResult retried = executor.execute(context(config, variables));
+            assertThat(retried.variables()).containsEntry("embeddingVectorCount", 3);
+            assertThat(vectorStore.count()).isEqualTo(3);
+            assertThat(invokeCount.get()).isEqualTo(4);
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
+
+    private static List<String> chunkTexts(NodeResult result) {
+        return ((List<?>) result.variables().get("embeddingChunks")).stream()
+                .map(chunk -> String.valueOf(((Map<?, ?>) chunk).get("text")))
+                .toList();
     }
 
     private static EmbeddingNodeExecutor executor(EmbeddingProvider provider,

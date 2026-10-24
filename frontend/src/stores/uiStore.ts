@@ -10,7 +10,7 @@ import {
   type NotifyMessageDTO,
 } from '@/api/modules/notify'
 import { realtimeClient } from '@/services/realtime/realtimeClient'
-import { mergeNotificationHistory } from '@/services/notifications/notificationHistory'
+import { mergeNotificationHistory, normalizeNotificationTimestamp } from '@/services/notifications/notificationHistory'
 import type { ServiceStatus } from '@/types/api'
 import { formatTime } from '@/utils/localeFormat'
 import { tokenManager } from '@/api/client/tokenManager'
@@ -18,13 +18,14 @@ import { tokenManager } from '@/api/client/tokenManager'
 export interface UiNotification {
   id: string
   time: string
+  occurredAt?: string
   title: string
   messageKey: string
   messageParams?: Record<string, string>
   statusKey?: string
   source?: string
   read: boolean
-  tone: 'online' | 'degraded' | 'offline'
+  tone?: 'online' | 'degraded' | 'offline'
 }
 
 type NotificationMutation = 'markAllRead' | 'clear'
@@ -67,9 +68,13 @@ function notificationTitle(message: NotifyMessageDTO) {
 }
 
 function notificationServiceLabel(message: NotifyMessageDTO) {
-  const channel = message.channel ?? 'notify'
-  const eventType = message.eventType ?? 'message'
-  return `${channel}/${eventType}`
+  const explicit = [message.payload.providerName, message.payload.provider, message.payload.service]
+    .find((value) => typeof value === 'string' && value.trim())
+  const label = typeof explicit === 'string' ? explicit.trim() : message.channel ?? 'notify'
+  if (['OPENAI', 'OPENAI_GATEWAY', 'OPENAI_COMPATIBLE'].includes(label.trim().toUpperCase().replace(/-/g, '_'))) {
+    return i18n.global.t('notifications.openaiCompatibleGateway')
+  }
+  return label
 }
 
 function notificationTime(occurredAt: string | undefined) {
@@ -77,7 +82,8 @@ function notificationTime(occurredAt: string | undefined) {
     return formatTime(new Date())
   }
 
-  const date = new Date(occurredAt)
+  // 历史记录的时间不带 offset，必须先按配置的服务器偏移补齐成绝对时刻再格式化。
+  const date = new Date(normalizeNotificationTimestamp(occurredAt) ?? occurredAt)
   return Number.isNaN(date.getTime())
     ? formatTime(new Date())
     : formatTime(date)
@@ -94,42 +100,54 @@ function notificationMessageKey(message: NotifyMessageDTO) {
     return rawMessage
   }
 
-  return 'notifications.connectionIssue'
+  return 'notifications.connectionUnknown'
 }
 
-function notificationTone(value: string | undefined): UiNotification['tone'] {
-  const normalized = value?.toLowerCase() ?? ''
-  if (normalized.includes('fail') || normalized.includes('error') || normalized.includes('down')) {
-    return 'offline'
-  }
-  if (normalized.includes('warn') || normalized.includes('degrad')) {
-    return 'degraded'
-  }
-  return 'online'
+function notificationTone(message: NotifyMessageDTO): UiNotification['tone'] {
+  const reported = [message.payload.providerHealthStatus, message.payload.healthStatus, message.payload.status]
+    .find((value) => typeof value === 'string')
+  const state = String(reported ?? '').trim().toUpperCase()
+  if (['UP', 'ONLINE', 'RECOVERED', 'HEALTH_UP', 'PROVIDER_RECOVERED', 'PROVIDER_HEALTH_UP'].includes(state)) return 'online'
+  if (['DOWN', 'OFFLINE', 'HEALTH_DOWN', 'PROVIDER_DOWN', 'PROVIDER_HEALTH_DOWN'].includes(state)) return 'offline'
+  if (['DEGRADED', 'HALF_OPEN', 'HEALTH_DEGRADED', 'PROVIDER_DEGRADED'].includes(state)) return 'degraded'
+  const eventType = String(message.eventType ?? '').trim().toUpperCase()
+  if (['HEALTH_UP', 'PROVIDER_RECOVERED', 'PROVIDER_HEALTH_UP'].includes(eventType)) return 'online'
+  if (['HEALTH_DOWN', 'PROVIDER_DOWN', 'PROVIDER_HEALTH_DOWN'].includes(eventType)) return 'offline'
+  if (['HEALTH_DEGRADED', 'PROVIDER_DEGRADED'].includes(eventType)) return 'degraded'
+  return undefined
+}
+
+function statusKeyForTone(tone: UiNotification['tone']) {
+  return tone ? `status.${tone}` : undefined
 }
 
 function normalizeRecord(record: NotificationRecordDTO): UiNotification {
+  // 历史 createdAt 是 LocalDateTime（不带 offset），按配置的服务器偏移补齐成绝对时刻，
+  // 否则会和带 offset 的实时通知相差"服务器时区 − 浏览器时区"。
+  const occurredAt = normalizeNotificationTimestamp(record.createdAt)
   const message: NotifyMessageDTO = {
     userId: record.userId,
     channel: record.channel,
     eventType: record.eventType,
     payload: record.payload ?? {},
-    occurredAt: record.createdAt,
+    occurredAt,
   }
   const messageKey = notificationMessageKey(message)
+  const tone = notificationTone(message)
 
   return {
     id: `record-${record.id}`,
-    time: notificationTime(record.createdAt),
+    time: notificationTime(occurredAt),
+    occurredAt,
     title: notificationTitle(message),
     messageKey,
     messageParams: {
       service: notificationServiceLabel(message),
     },
-    statusKey: messageKey === 'notifications.connectionIssue' ? 'status.online' : undefined,
+    statusKey: statusKeyForTone(tone),
     source: record.channel ?? 'notify',
     read: (record.status ?? '').toUpperCase() === 'READ',
-    tone: notificationTone(record.eventType ?? record.status),
+    tone,
   }
 }
 
@@ -277,27 +295,36 @@ export const useUiStore = defineStore('ui', {
     },
     addNotifyMessage(message: NotifyMessageDTO) {
       const messageKey = notificationMessageKey(message)
+      const tone = notificationTone(message)
       // 服务端推送的 eventId 就是通知记录 ID：与历史列表使用同一身份，
       // 实时与历史都到达时只展示一条，也不按文案去重。
       const persistentId = message.eventId?.trim()
       const id = persistentId
         ? `record-${persistentId}`
         : `local-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      if (this.notifications.some((item) => item.id === id)) {
+      const existingIndex = this.notifications.findIndex((item) => item.id === id)
+      if (existingIndex >= 0) {
+        const existing = this.notifications[existingIndex]
+        if (existing && (message.status ?? '').toUpperCase() === 'READ' && !existing.read) {
+          this.notifications[existingIndex] = { ...existing, read: true }
+          writeStoredNotifications(this.notifications)
+        }
         return
       }
       this.notifications.unshift({
         id,
         time: notificationTime(message.occurredAt),
+        // 实时通知本应带 offset；万一缺了也要按同一个服务器偏移补齐，不能落到浏览器本地时区。
+        occurredAt: normalizeNotificationTimestamp(message.occurredAt) ?? new Date().toISOString(),
         title: notificationTitle(message),
         messageKey,
         messageParams: {
           service: notificationServiceLabel(message),
         },
-        statusKey: messageKey === 'notifications.connectionIssue' ? 'status.online' : undefined,
+        statusKey: statusKeyForTone(tone),
         source: message.channel ?? 'notify',
-        read: false,
-        tone: 'online',
+        read: (message.status ?? '').toUpperCase() === 'READ',
+        tone,
       })
       this.notifications = this.notifications.slice(0, 20)
       writeStoredNotifications(this.notifications)

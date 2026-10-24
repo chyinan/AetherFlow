@@ -6,6 +6,7 @@ import com.aetherflow.workflow.runtime.api.RetryPolicy;
 import java.util.Map;
 import java.util.Objects;
 import java.util.LinkedHashMap;
+import java.util.Collections;
 
 public record WorkflowRuntimeRequest(
         String workflowId,
@@ -29,11 +30,11 @@ public record WorkflowRuntimeRequest(
         } else {
             Map<String, Object> safeVariables = new LinkedHashMap<>();
             variables.forEach((key, value) -> {
-                if (key != null && value != null) {
+                if (key != null) {
                     safeVariables.put(key, value);
                 }
             });
-            variables = Map.copyOf(safeVariables);
+            variables = Collections.unmodifiableMap(safeVariables);
         }
         retryPolicy = retryPolicy == null ? RetryPolicy.none() : retryPolicy;
     }

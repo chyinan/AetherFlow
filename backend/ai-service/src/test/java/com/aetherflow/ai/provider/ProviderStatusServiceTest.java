@@ -40,4 +40,27 @@ class ProviderStatusServiceTest {
         assertThat(response.healthStates()).containsEntry(AiProviderType.OLLAMA, health);
         assertThat(response.recentLogs()).isEmpty();
     }
+
+    @Test
+    void missingCircuitDataStaysMissingAndHealthObservationSourceIsRetained() {
+        ProviderRoutingPolicyService policyService = mock(ProviderRoutingPolicyService.class);
+        ProviderStateRepository stateRepository = mock(ProviderStateRepository.class);
+        ProviderMetricsService metricsService = mock(ProviderMetricsService.class);
+        AIInferenceLogService logService = mock(AIInferenceLogService.class);
+        AiTaskProperties properties = new AiTaskProperties();
+        ProviderRoutingPolicy policy = new ProviderRoutingPolicy();
+        policy.setProviders(List.of(AiProviderType.OPENAI));
+        AiProviderHealth health = AiProviderHealth.degraded(AiProviderType.OPENAI, 12L,
+                "Python runtime reachable; upstream not probed", "PYTHON_AI_RUNTIME", Map.of());
+        when(policyService.currentPolicy()).thenReturn(policy);
+        when(stateRepository.readCircuit(AiProviderType.OPENAI)).thenReturn(null);
+        when(stateRepository.readHealth(AiProviderType.OPENAI)).thenReturn(health);
+
+        ProviderStatusResponse response = new ProviderStatusService(
+                policyService, stateRepository, metricsService, logService, properties).currentStatus(false);
+
+        assertThat(response.circuitStates()).containsKey(AiProviderType.OPENAI);
+        assertThat(response.circuitStates().get(AiProviderType.OPENAI)).isNull();
+        assertThat(response.healthStates().get(AiProviderType.OPENAI).observationSource()).isEqualTo("PYTHON_AI_RUNTIME");
+    }
 }

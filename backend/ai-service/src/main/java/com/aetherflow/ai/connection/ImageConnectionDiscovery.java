@@ -20,6 +20,11 @@ import java.util.function.BiFunction;
 @Service
 public class ImageConnectionDiscovery {
     private static final List<String> CATALOGS = List.of("checkpoints", "vaes", "loras", "samplers", "schedulers", "upscalers");
+    /** 内置放大路径与外置放大插件图共有的放大节点类型。 */
+    private static final List<String> UPSCALE_NODE_TYPES = List.of(
+            "ImageScaleBy", "ImageScale", "ImageUpscaleWithModel", "UpscaleModelLoader", "ImageResize");
+    private static final List<String> GENERATION_NODE_TYPES = List.of(
+            "KSampler", "KSamplerAdvanced", "SamplerCustom", "RandomNoise", "CFGGuider", "BasicScheduler");
     private static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(8);
     private final BiFunction<String, Duration, RestClient> clients;
     private final Duration requestTimeout;
@@ -116,11 +121,40 @@ public class ImageConnectionDiscovery {
             if (!(response instanceof Map<?, ?> info) || info.isEmpty()) return NodeConnectionProbe.unavailable("unreachable", "服务未返回有效的 ComfyUI 节点目录");
             List<String> missing = nodeTypes.stream().distinct().filter(type -> !info.containsKey(type)).toList();
             if (!missing.isEmpty()) return NodeConnectionProbe.unavailable("unconfigured", "执行图含服务未提供的节点类型：" + String.join("、", missing) + "；原图已保留，请在原有 ComfyUI 检查插件版本");
-            return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend", NodeConnectionProbe.Models.empty(),
-                    List.of("IMAGE_GENERATION"), List.of("类型存在不代表插件前端、模型文件或实际执行已验证"), List.of());
+            Map<String, List<String>> models = new LinkedHashMap<>();
+            CATALOGS.forEach(key -> models.put(key, List.of()));
+            List<String> unavailable = new ArrayList<>();
+            comfyCatalog(info, models, unavailable, "checkpoints", "CheckpointLoaderSimple", "ckpt_name");
+            comfyCatalog(info, models, unavailable, "vaes", "VAELoader", "vae_name");
+            comfyCatalog(info, models, unavailable, "loras", "LoraLoader", "lora_name");
+            comfyCatalog(info, models, unavailable, "samplers", "KSampler", "sampler_name");
+            comfyCatalog(info, models, unavailable, "schedulers", "KSampler", "scheduler");
+            comfyCatalog(info, models, unavailable, "upscalers", "ImageScaleBy", "upscale_method");
+            List<String> warnings = new ArrayList<>();
+            if (!unavailable.isEmpty()) warnings.add("部分目录无法读取，不能据此判断模型缺失：" + String.join("、", unavailable));
+            warnings.add("类型存在不代表插件前端、模型文件或实际执行已验证");
+            return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend",
+                    new NodeConnectionProbe.Models(models.get("checkpoints"), models.get("vaes"), models.get("loras"),
+                            models.get("samplers"), models.get("schedulers"), models.get("upscalers")),
+                    workflowCapabilities(nodeTypes), List.copyOf(warnings), List.copyOf(unavailable));
         } catch (RestClientException | IllegalStateException exception) {
             return NodeConnectionProbe.unavailable("unreachable", "无法验证执行图的插件节点目录，请检查已有 ComfyUI 连接");
         }
+    }
+
+    /**
+     * 有实际执行图时按图判定能力：含放大节点的图自带 UPSCALE，其余按生成能力处理，
+     * 不再固定只报 IMAGE_GENERATION。
+     */
+    private List<String> workflowCapabilities(List<String> nodeTypes) {
+        List<String> capabilities = new ArrayList<>();
+        if (nodeTypes.stream().anyMatch(UPSCALE_NODE_TYPES::contains)) {
+            capabilities.add("UPSCALE");
+        }
+        if (nodeTypes.stream().anyMatch(GENERATION_NODE_TYPES::contains) || capabilities.isEmpty()) {
+            capabilities.add("IMAGE_GENERATION");
+        }
+        return List.copyOf(capabilities);
     }
 
     private Object get(String baseUrl, String path, long deadline) {

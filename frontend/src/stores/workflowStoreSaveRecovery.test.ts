@@ -123,6 +123,7 @@ describe('保存响应丢失后的版本恢复', () => {
   function commitButLoseResponse() {
     http.put.mockImplementation(async (url: string, payload: any) => {
       putCalls.push({ url, payload })
+      if (payload.version !== remote.version) throw rejected(409, 'version conflict')
       remote = remoteOf(201, remote.version + 1, payload)
       throw networkError(url)
     })
@@ -185,7 +186,7 @@ describe('保存响应丢失后的版本恢复', () => {
     await expect(store.saveCurrentWorkflow()).rejects.toThrow()
     expect(store.backendVersion).toBe(5)
     expect(store.dirty).toBe(true)
-    expect(store.saveRecovery?.status).toBe('notSubmitted')
+    expect(store.saveRecovery?.status).toBe('retryable')
 
     // 重试成功。
     http.put.mockImplementation(async (url: string, payload: any) => {
@@ -196,6 +197,61 @@ describe('保存响应丢失后的版本恢复', () => {
     await expect(store.saveCurrentWorkflow()).resolves.toEqual({ workflowId: '201' })
     expect(store.backendVersion).toBe(6)
     expect(store.dirty).toBe(false)
+  })
+
+  it('核对旧提交失败时保留 A 证据，不会用新草稿 B 覆盖', async () => {
+    const store = loadedStore()
+    http.put.mockImplementation(async (url: string, payload: any) => {
+      putCalls.push({ url, payload })
+      if (payload.version !== remote.version) throw rejected(409, 'version conflict')
+      remote = remoteOf(201, remote.version + 1, payload)
+      throw networkError(url)
+    })
+    http.get.mockImplementation(async (url: string) => {
+      getCalls.push(url)
+      throw networkError(url)
+    })
+
+    await expect(store.saveCurrentWorkflow()).rejects.toThrow()
+    const pendingA = JSON.parse(JSON.stringify(store.pendingSaveSubmission))
+    expect(pendingA).not.toBeNull()
+    store.updateNodeConfig('start-1', 'variables', { prompt: 'B 的新编辑' })
+
+    await expect(store.saveCurrentWorkflow()).rejects.toThrow()
+
+    expect(putCalls).toHaveLength(2)
+    expect(putCalls[1]!.payload).toEqual(pendingA.payload)
+    expect(store.pendingSaveSubmission).toEqual(pendingA)
+    expect(store.nodes[0]!.data.config.variables).toEqual({ prompt: 'B 的新编辑' })
+    expect(store.dirty).toBe(true)
+  })
+
+  it('旧 PUT 的 GET 仍读到 N 时保留 A；A 后续落库后先恢复基线再提交 B', async () => {
+    const store = loadedStore()
+    http.put.mockImplementation(async (url: string, payload: any) => {
+      putCalls.push({ url, payload })
+      if (putCalls.length === 1) throw networkError(url)
+      if (payload.version !== remote.version) throw rejected(409, 'version conflict')
+      remote = remoteOf(201, remote.version + 1, payload)
+      return remote
+    })
+
+    await expect(store.saveCurrentWorkflow()).rejects.toThrow()
+    expect(store.saveRecovery?.status).toBe('retryable')
+    expect(store.pendingSaveSubmission).not.toBeNull()
+    // 模拟原请求迟到提交：上一轮 GET 看到 N，随后 A 已进入 N+1。
+    remote = remoteOf(201, 6, putCalls[0]!.payload)
+    store.updateNodeConfig('start-1', 'variables', { prompt: 'B 的新编辑' })
+
+    await expect(store.saveCurrentWorkflow()).resolves.toEqual({ workflowId: '201' })
+
+    expect(putCalls).toHaveLength(2)
+    expect(putCalls[0]!.payload.version).toBe(5)
+    expect(putCalls[1]!.payload.version).toBe(6)
+    expect(putCalls[1]!.payload.nodes[0]!.config.variables).toEqual({ prompt: 'B 的新编辑' })
+    expect(store.backendVersion).toBe(7)
+    expect(store.dirty).toBe(false)
+    expect(store.pendingSaveSubmission).toBeNull()
   })
 
   it('远端被他人修改时保留本地草稿并明确冲突', async () => {

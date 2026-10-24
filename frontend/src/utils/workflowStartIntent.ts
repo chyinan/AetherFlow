@@ -12,10 +12,14 @@ function canonicalize(value: unknown): unknown {
   return value
 }
 
-export function workflowStartIntent(workflow: WorkflowDefinition, fileId?: string) {
+export function workflowStartIntent(
+  workflow: WorkflowDefinition,
+  fileId?: string,
+  runtimeVariables: Record<string, unknown> = {},
+) {
   // 使用实际保存的执行图，忽略版本号、选择、布局及展示文字等非执行信息。
   const nodes = mapWorkflowToDefinitionDTO(workflow).nodes
     .map(({ nodeId, nodeType, config }) => ({ nodeId, nodeType, config }))
     .sort((left, right) => left.nodeId.localeCompare(right.nodeId))
-  return JSON.stringify(canonicalize({ nodes, fileId }))
+  return JSON.stringify(canonicalize({ nodes, fileId, runtimeVariables }))
 }

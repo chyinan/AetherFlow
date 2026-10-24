@@ -1,14 +1,12 @@
 package com.aetherflow.workflow.subworkflow;
 
-import com.aetherflow.common.core.Result;
-import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
-import com.aetherflow.workflow.client.TaskClient;
-import com.aetherflow.workflow.config.TaskClientProperties;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanup;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupMapper;
 import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
 import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
 import com.aetherflow.workflow.runtime.engine.WorkflowRuntimeEngine;
@@ -26,7 +24,6 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -36,8 +33,7 @@ class SubworkflowCancellationTest {
     private final WorkflowInstanceMapper instances = mock(WorkflowInstanceMapper.class);
     private final WorkflowRuntimeSnapshotMapper snapshotMapper = mock(WorkflowRuntimeSnapshotMapper.class);
     private final InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
-    private final TaskClient tasks = mock(TaskClient.class);
-    private final TaskClientProperties taskProperties = mock(TaskClientProperties.class);
+    private final WorkflowCancellationCleanupMapper cleanups = mock(WorkflowCancellationCleanupMapper.class);
     private final WorkflowTerminalNotificationOutboxService notifications = mock(WorkflowTerminalNotificationOutboxService.class);
     private final WorkflowInstance parent = instance(1L, "CANCELLED");
     private final WorkflowInstance child = instance(2L, "WAITING");
@@ -67,59 +63,47 @@ class SubworkflowCancellationTest {
                     .contains(snapshots.findByWorkflowId("2").orElseThrow().runtimeState())) return 0;
             saveChild(RuntimeState.CANCELLED); return 1;
         });
-        when(taskProperties.issueInternalToken()).thenReturn("test-token");
-        when(tasks.cancelWorkflowTasks("test-token", 2L)).thenReturn(Result.success(0));
+        when(cleanups.findByWorkflowInstanceId(2L)).thenReturn(cleanup());
+        when(cleanups.ensurePending(eq(2L), eq(7L), any())).thenReturn(1);
     }
 
     @Test
-    void cancelsWaitingChildSnapshotAndTasksBeforeCompletingReceipt() {
+    void cancelsWaitingChildSnapshotAndPersistsCleanupReceiptBeforeCompletingParentReceipt() {
         saveChild(RuntimeState.WAITING);
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("CANCELLED");
         assertThat(snapshots.findByWorkflowId("2").orElseThrow().runtimeState()).isEqualTo(RuntimeState.CANCELLED);
         assertThat(run.getStatus()).isEqualTo("COMPLETED");
-        var order = inOrder(instances, snapshotMapper, tasks, notifications, calls);
+        var order = inOrder(instances, snapshotMapper, cleanups, notifications, calls);
         order.verify(instances).cancelIfActive(eq(2L), eq(7L), any());
         order.verify(snapshotMapper).markCancelled("2");
-        order.verify(tasks).cancelWorkflowTasks("test-token", 2L);
+        order.verify(cleanups).ensurePending(eq(2L), eq(7L), any());
         order.verify(notifications).enqueue(2L, 7L, null, RuntimeState.CANCELLED, null);
         order.verify(calls).recordAttempt(eq(3L), eq("COMPLETED"), any(), any());
     }
 
     @Test
-    void pendingChildWithoutSnapshotStillCancelsTasks() {
+    void pendingChildWithoutSnapshotStillQueuesTaskCleanup() {
         child.setStatus("PENDING");
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("CANCELLED");
-        verify(tasks).cancelWorkflowTasks("test-token", 2L);
+        verify(cleanups).ensurePending(eq(2L), eq(7L), any());
     }
 
     @Test
-    void taskExceptionRetainsReceiptAndFreshScannerRetriesCancelledChild() {
+    void taskCleanupContinuesIndependentlyAfterParentReceiptCompletes() {
         saveChild(RuntimeState.WAITING);
-        when(tasks.cancelWorkflowTasks("test-token", 2L))
-                .thenThrow(new IllegalStateException("暂时断开"))
-                .thenReturn(Result.success(2));
-        assertRetryThenComplete();
-    }
-
-    @ParameterizedTest
-    @MethodSource("unsuccessfulCleanupResults")
-    void unconfirmedTaskResponseRetainsReceiptUntilRetrySucceeds(Result<Integer> response) {
-        saveChild(RuntimeState.WAITING);
-        when(tasks.cancelWorkflowTasks("test-token", 2L)).thenReturn(response, Result.success(0));
-        assertRetryThenComplete();
-    }
-
-    static Stream<Result<Integer>> unsuccessfulCleanupResults() {
-        return Stream.of(null, Result.fail(ResultCode.SERVICE_UNAVAILABLE), Result.success(null), Result.success(-1));
+        assertThat(recovery().reconcile()).isEqualTo(1);
+        assertThat(run.getStatus()).isEqualTo("COMPLETED");
+        assertThat(child.getStatus()).isEqualTo("CANCELLED");
+        verify(cleanups).ensurePending(eq(2L), eq(7L), any());
     }
 
     @Test
     void alreadyCancelledChildSnapshotDoesNotSkipTaskCleanup() {
         child.setStatus("CANCELLED"); saveChild(RuntimeState.CANCELLED);
         assertThat(recovery().reconcile()).isEqualTo(1);
-        verify(tasks).cancelWorkflowTasks("test-token", 2L);
+        verify(cleanups).ensurePending(eq(2L), eq(7L), any());
         verify(instances, never()).cancelIfActive(anyLong(), anyLong(), any());
     }
 
@@ -130,7 +114,7 @@ class SubworkflowCancellationTest {
                 .thenAnswer(invocation -> { saveChild(RuntimeState.CANCELLED); return 1; });
         assertThat(recovery().reconcile()).isZero();
         assertThat(run.getStatus()).isEqualTo("WAITING");
-        verifyNoInteractions(tasks);
+        verifyNoInteractions(cleanups);
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(snapshots.findByWorkflowId("2").orElseThrow().runtimeState()).isEqualTo(RuntimeState.CANCELLED);
     }
@@ -142,7 +126,7 @@ class SubworkflowCancellationTest {
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("WAITING");
         assertThat(snapshots.findByWorkflowId("2").orElseThrow().runtimeState()).isEqualTo(state);
-        verifyNoInteractions(snapshotMapper, tasks, notifications);
+        verifyNoInteractions(snapshotMapper, cleanups, notifications);
         verify(instances, never()).cancelIfActive(anyLong(), anyLong(), any());
     }
 
@@ -157,7 +141,7 @@ class SubworkflowCancellationTest {
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("WAITING");
         assertThat(snapshots.findByWorkflowId("2").orElseThrow().runtimeState()).isEqualTo(RuntimeState.SUCCESS);
-        verifyNoInteractions(snapshotMapper, tasks, notifications);
+        verifyNoInteractions(snapshotMapper, cleanups, notifications);
     }
 
     @Test
@@ -165,7 +149,7 @@ class SubworkflowCancellationTest {
         child.setStatus("SUCCESS"); saveChild(RuntimeState.WAITING);
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("SUCCESS");
-        verifyNoInteractions(snapshotMapper, tasks, notifications);
+        verifyNoInteractions(snapshotMapper, cleanups, notifications);
     }
 
     @Test
@@ -173,7 +157,7 @@ class SubworkflowCancellationTest {
         parent.setStatus("SUCCESS"); saveChild(RuntimeState.WAITING);
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("WAITING");
-        verifyNoInteractions(snapshotMapper, tasks, notifications);
+        verifyNoInteractions(snapshotMapper, cleanups, notifications);
     }
 
     @Test
@@ -181,19 +165,17 @@ class SubworkflowCancellationTest {
         saveChild(RuntimeState.CANCELLED);
         assertThat(recovery().reconcile()).isEqualTo(1);
         assertThat(child.getStatus()).isEqualTo("CANCELLED");
-        verify(tasks).cancelWorkflowTasks("test-token", 2L);
+        verify(cleanups).ensurePending(eq(2L), eq(7L), any());
     }
 
     @Test
-    void directServiceCallerCanRetryAfterTaskCleanupFailure() {
+    void repeatedDirectCancellationReusesTheDurableCleanupReceipt() {
         saveChild(RuntimeState.WAITING);
-        when(tasks.cancelWorkflowTasks("test-token", 2L))
-                .thenThrow(new IllegalStateException("暂时断开")).thenReturn(Result.success(0));
-        assertThatThrownBy(() -> cancellation().cancel(2L, 7L)).isInstanceOf(IllegalStateException.class);
+        assertThat(cancellation().cancel(2L, 7L)).isTrue();
         assertThat(child.getStatus()).isEqualTo("CANCELLED");
         assertThat(cancellation().cancel(2L, 7L)).isTrue();
         verify(instances, times(1)).cancelIfActive(eq(2L), eq(7L), any());
-        verify(tasks, times(2)).cancelWorkflowTasks("test-token", 2L);
+        verify(cleanups, times(2)).ensurePending(eq(2L), eq(7L), any());
     }
 
     @Test
@@ -208,26 +190,20 @@ class SubworkflowCancellationTest {
         assertThat(snapshotSql).contains("runtime_state NOT IN ('SUCCESS', 'FAILED', 'CANCELLED')");
     }
 
-    private void assertRetryThenComplete() {
-        assertThat(recovery().reconcile()).isZero();
-        assertThat(run.getStatus()).isEqualTo("WAITING");
-        assertThat(child.getStatus()).isEqualTo("CANCELLED");
-        assertThat(snapshots.findByWorkflowId("2").orElseThrow().runtimeState()).isEqualTo(RuntimeState.CANCELLED);
-        verifyNoInteractions(notifications);
-        assertThat(recovery().reconcile()).isEqualTo(1);
-        assertThat(run.getStatus()).isEqualTo("COMPLETED");
-        assertThat(recovery().reconcile()).isZero();
-        verify(instances, times(1)).cancelIfActive(eq(2L), eq(7L), any());
-        verify(tasks, times(2)).cancelWorkflowTasks("test-token", 2L);
-    }
-
     private SubworkflowRecoveryJob recovery() {
         return new SubworkflowRecoveryJob(calls, instances, snapshots, mock(SubworkflowService.class),
                 mock(WorkflowRuntimeEngine.class), new WorkflowRuntimeProperties(), cancellation());
     }
 
     private WorkflowCancellationService cancellation() {
-        return new WorkflowCancellationService(instances, snapshotMapper, snapshots, tasks, taskProperties, notifications);
+        return new WorkflowCancellationService(instances, snapshotMapper, snapshots, cleanups, notifications);
+    }
+
+    private WorkflowCancellationCleanup cleanup() {
+        WorkflowCancellationCleanup cleanup = new WorkflowCancellationCleanup();
+        cleanup.setId(1L); cleanup.setWorkflowInstanceId(2L); cleanup.setUserId(7L);
+        cleanup.setStatus(WorkflowCancellationCleanup.PENDING); cleanup.setAttemptCount(0);
+        return cleanup;
     }
 
     private void saveChild(RuntimeState state) {

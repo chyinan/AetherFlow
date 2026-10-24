@@ -548,20 +548,46 @@ public class WorkflowRuntimeEngine {
         ExecutionTracker tracker = ExecutionTracker.from(currentSnapshot);
         context.updateRuntimeState(stateMachine.transition(RuntimeState.WAITING, RuntimeState.RUNNING));
         context.recordNodeOutput(nodeId, result);
-        context.variables().putAll(result.variables());
+        // 异步完成也必须沿用正常路径的写入者仲裁（深度大优先、同深度节点 ID 小优先），
+        // 否则最终变量取决于回调到达顺序，失败节点重跑的输入会与原运行不一致（A09）。
+        Map<String, Integer> nodeDepths = dag.topologicalDepths();
+        Map<String, VariableWriter> variableWriters = restoreVariableWriters(tracker, context, nodeDepths);
         tracker.markCompleted(nodeId);
+        mergeVariables(context, nodeId, result.variables(), nodeDepths, variableWriters);
         ensureNotCancelled(request);
         publish(context, RuntimeEventType.NODE_COMPLETED, nodeId, Map.of("external", true));
         saveSnapshot(request, context, tracker);
         ensureNotCancelled(request);
-        if (executeDag(request, dag, context, tracker)) {
-            context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
-            publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
-        } else {
-            context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
-            publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("resumed", true));
+        try {
+            if (executeDag(request, dag, context, tracker)) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.WAITING));
+                publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
+            } else {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
+                publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("resumed", true));
+            }
+            ensureNotCancelled(request);
+        } catch (WorkflowCancellationException cancelled) {
+            // 取消统一由调用方收尾，这里不能写成失败终态。
+            throw cancelled;
+        } catch (RuntimeException failure) {
+            // 与 resumeLocked 一致的失败收尾：下游失败后立即落 FAILED 终态、归因真正失败的节点并持久化。
+            // 否则快照停在 RUNNING，恢复任务会重新 resume 并多消耗一轮重试预算（A17）。
+            if (!stateMachine.isTerminal(context.runtimeState())) {
+                context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.FAILED));
+            }
+            String failedNodeId = failedNodeId(failure, context);
+            if (failedNodeId != null) {
+                tracker.markFailed(failedNodeId);
+            }
+            RuntimeLogContext.run(context, failedNodeId,
+                    () -> log.error("workflow runtime failed after external completion, reason={}",
+                            failure.getMessage()));
+            publish(context, RuntimeEventType.WORKFLOW_FAILED, failedNodeId,
+                    Map.of("error", errorMessage(failure), "resumed", true));
+            saveSnapshot(request, context, tracker);
+            throw unwrapNodeFailure(failure);
         }
-        ensureNotCancelled(request);
         saveSnapshot(request, context, tracker);
         return snapshot(context, tracker);
     }
@@ -774,20 +800,8 @@ public class WorkflowRuntimeEngine {
         AtomicBoolean dispatchClosed = new AtomicBoolean();
         Map<String, Integer> remainingPredecessors = remainingPredecessors(dag, tracker, context);
         Map<String, Integer> nodeDepths = dag.topologicalDepths();
-        Map<String, VariableWriter> variableWriters = new HashMap<>();
         // 恢复或局部重跑时仍保留已完成写入者的确定性优先级。
-        for (String completedNodeId : tracker.completedNodeIds()) {
-            NodeResult output = context.nodeOutputs().get(completedNodeId);
-            if (output == null) continue;
-            int depth = nodeDepths.getOrDefault(completedNodeId, 0);
-            output.variables().keySet().forEach(name -> {
-                VariableWriter previous = variableWriters.get(name);
-                if (previous == null || depth > previous.depth()
-                        || (depth == previous.depth() && completedNodeId.compareTo(previous.nodeId()) < 0)) {
-                    variableWriters.put(name, new VariableWriter(completedNodeId, depth));
-                }
-            });
-        }
+        Map<String, VariableWriter> variableWriters = restoreVariableWriters(tracker, context, nodeDepths);
         Queue<String> readyQueue = initialReadyNodes(dag, tracker, remainingPredecessors);
         Set<String> scheduled = new LinkedHashSet<>(tracker.completedNodeIds());
         scheduled.addAll(tracker.skippedNodeIds());
@@ -809,7 +823,7 @@ public class WorkflowRuntimeEngine {
                 recordCompletedNode(request, context, tracker, execution, nodeDepths, variableWriters);
 
                 if (!execution.result().waiting()) {
-                    markUnselectedBranches(dag, execution, tracker, remainingPredecessors,
+                    markUnselectedBranches(dag, execution, context, tracker, remainingPredecessors,
                             readyQueue, scheduled, expectedNodeIds);
                     for (String nextNodeId : dag.nextNodeIds(execution.nodeId(), execution.result())) {
                         expectedNodeIds.add(nextNodeId);
@@ -1108,6 +1122,29 @@ public class WorkflowRuntimeEngine {
         saveSnapshot(request, context, tracker);
     }
 
+    /**
+     * 按"最长 DAG 深度大优先、同深度节点 ID 小优先"重建已完成节点的变量写入者。
+     * 正常并行路径、异步完成路径与冷恢复路径共用同一份仲裁结果（A09）。
+     */
+    private Map<String, VariableWriter> restoreVariableWriters(ExecutionTracker tracker,
+                                                              DefaultWorkflowContext context,
+                                                              Map<String, Integer> nodeDepths) {
+        Map<String, VariableWriter> variableWriters = new HashMap<>();
+        for (String completedNodeId : tracker.completedNodeIds()) {
+            NodeResult output = context.nodeOutputs().get(completedNodeId);
+            if (output == null) continue;
+            int depth = nodeDepths.getOrDefault(completedNodeId, 0);
+            output.variables().keySet().forEach(name -> {
+                VariableWriter previous = variableWriters.get(name);
+                if (previous == null || depth > previous.depth()
+                        || (depth == previous.depth() && completedNodeId.compareTo(previous.nodeId()) < 0)) {
+                    variableWriters.put(name, new VariableWriter(completedNodeId, depth));
+                }
+            });
+        }
+        return variableWriters;
+    }
+
     private void mergeVariables(DefaultWorkflowContext context,
                                 String nodeId,
                                 Map<String, Object> variables,
@@ -1117,8 +1154,7 @@ public class WorkflowRuntimeEngine {
         variables.forEach((name, value) -> {
             VariableWriter previous = variableWriters.get(name);
             if (previous == null
-                    || currentDepth > previous.depth()
-                    || (currentDepth == previous.depth() && nodeId.compareTo(previous.nodeId()) < 0)) {
+                    || WorkflowDag.compareVariableWriters(currentDepth, nodeId, previous.depth(), previous.nodeId()) > 0) {
                 context.variables().put(name, value);
                 variableWriters.put(name, new VariableWriter(nodeId, currentDepth));
             }
@@ -1127,6 +1163,7 @@ public class WorkflowRuntimeEngine {
 
     private void markUnselectedBranches(WorkflowDag dag,
                                         NodeExecution execution,
+                                        DefaultWorkflowContext context,
                                         ExecutionTracker tracker,
                                         Map<String, Integer> remainingPredecessors,
                                         Queue<String> readyQueue,
@@ -1138,10 +1175,66 @@ public class WorkflowRuntimeEngine {
         Set<String> selected = Set.copyOf(dag.nextNodeIds(execution.nodeId(), execution.result()));
         for (String candidate : dag.declaredNextNodeIds(execution.nodeId())) {
             if (!selected.contains(candidate)) {
-                markSkippedNode(dag, candidate, execution.nodeId(), tracker, remainingPredecessors,
-                        readyQueue, scheduled, expectedNodeIds);
+                releaseUnselectedEdge(dag, candidate, context, tracker,
+                        remainingPredecessors, readyQueue, scheduled, expectedNodeIds);
             }
         }
+    }
+
+    /**
+     * 释放一条未选中边的入度：入度的递减与"整节点跳过"解耦。
+     * 共享汇合点（如 HTTP 分支的 success/error 共同指向 END）仍然要吃掉这条未选边的入度，
+     * 否则它永远差一个前驱而被判成未完成（A14）。
+     */
+    private void releaseUnselectedEdge(WorkflowDag dag,
+                                       String nodeId,
+                                       DefaultWorkflowContext context,
+                                       ExecutionTracker tracker,
+                                       Map<String, Integer> remainingPredecessors,
+                                       Queue<String> readyQueue,
+                                       Set<String> scheduled,
+                                       Set<String> expectedNodeIds) {
+        int remaining = decrementRemaining(remainingPredecessors, nodeId);
+        if (tracker.isCompleted(nodeId) || tracker.isWaiting(nodeId) || tracker.isInFlight(nodeId)
+                || tracker.isSkipped(nodeId)) {
+            return;
+        }
+        if (remaining > 0) {
+            // 还有入边未解析（含本节点其它前驱的选中边），此处不能判定执行或跳过。
+            return;
+        }
+        // 入度归零且存在被选中的入边：共享节点到此才允许执行，避免重复调度。
+        if (!scheduled.contains(nodeId) && hasSelectedIncomingEdge(dag, nodeId, context, tracker)) {
+            expectedNodeIds.add(nodeId);
+            readyQueue.add(nodeId);
+            return;
+        }
+        if (dag.predecessorNodeIds(nodeId).stream()
+                .anyMatch(predecessor -> !tracker.isSkipped(predecessor) && !tracker.isCompleted(predecessor))) {
+            // 仍有未解析的前驱（例如等待中的节点），暂不判定整体跳过。
+            return;
+        }
+        markSkippedNode(dag, nodeId, context, tracker, remainingPredecessors,
+                readyQueue, scheduled, expectedNodeIds);
+    }
+
+    /** 该节点是否至少有一条入边在已完成前驱的结果里被真正选中。 */
+    private boolean hasSelectedIncomingEdge(WorkflowDag dag,
+                                            String nodeId,
+                                            DefaultWorkflowContext context,
+                                            ExecutionTracker tracker) {
+        for (String predecessorId : dag.predecessorNodeIds(nodeId)) {
+            if (tracker.isSkipped(predecessorId) || !tracker.isCompleted(predecessorId)) {
+                continue;
+            }
+            NodeResult predecessorResult = context.nodeOutputs().get(predecessorId);
+            if (dag.nextNodeIds(predecessorId,
+                            predecessorResult == null ? NodeResult.success(Map.of()) : predecessorResult)
+                    .contains(nodeId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean hasDynamicNext(NodeResult result) {
@@ -1150,7 +1243,7 @@ public class WorkflowRuntimeEngine {
 
     private void markSkippedNode(WorkflowDag dag,
                                  String nodeId,
-                                 String skippedPredecessor,
+                                 DefaultWorkflowContext context,
                                  ExecutionTracker tracker,
                                  Map<String, Integer> remainingPredecessors,
                                  Queue<String> readyQueue,
@@ -1160,27 +1253,12 @@ public class WorkflowRuntimeEngine {
                 || tracker.isSkipped(nodeId)) {
             return;
         }
-        if (dag.predecessorNodeIds(nodeId).stream()
-                .anyMatch(predecessor -> !predecessor.equals(skippedPredecessor)
-                        && !tracker.isSkipped(predecessor))) {
-            return;
-        }
         tracker.markSkipped(nodeId);
         scheduled.add(nodeId);
         expectedNodeIds.remove(nodeId);
         for (String nextNodeId : dag.declaredNextNodeIds(nodeId)) {
-            int remaining = decrementRemaining(remainingPredecessors, nextNodeId);
-            if (remaining == 0 && !tracker.isCompleted(nextNodeId)
-                    && !tracker.isWaiting(nextNodeId) && !tracker.isInFlight(nextNodeId)
-                    && !tracker.isSkipped(nextNodeId)) {
-                if (allPredecessorsSkipped(dag, nextNodeId, tracker)) {
-                    markSkippedNode(dag, nextNodeId, nodeId, tracker, remainingPredecessors,
-                            readyQueue, scheduled, expectedNodeIds);
-                } else {
-                    expectedNodeIds.add(nextNodeId);
-                    readyQueue.add(nextNodeId);
-                }
-            }
+            releaseUnselectedEdge(dag, nextNodeId, context, tracker, remainingPredecessors,
+                    readyQueue, scheduled, expectedNodeIds);
         }
     }
 
@@ -1204,11 +1282,9 @@ public class WorkflowRuntimeEngine {
             remainingPredecessors.put(nodeId, dag.requiredPredecessorCount(nodeId));
         }
         for (String completedNodeId : tracker.completedNodeIds()) {
-            NodeResult completedResult = context.nodeOutputs().get(completedNodeId);
-            if (completedResult == null) {
-                completedResult = NodeResult.success(Map.of());
-            }
-            for (String nextNodeId : dag.nextNodeIds(completedNodeId, completedResult)) {
+            // 已完成节点的每条出边都已解析：被选中的边推进下游，未被选中的边同样吃掉一个入度，
+            // 否则冷恢复后共享汇合点会停在"差一个前驱"的状态（A14）。
+            for (String nextNodeId : dag.declaredNextNodeIds(completedNodeId)) {
                 decrementRemaining(remainingPredecessors, nextNodeId);
             }
         }
@@ -1370,7 +1446,7 @@ public class WorkflowRuntimeEngine {
                 context.runtimeState(),
                 currentNodeIds.isEmpty() ? context.currentNodeId() : currentNodeIds.get(currentNodeIds.size() - 1),
                 currentNodeIds,
-                context.variables(),
+                context.snapshotVariables(),
                 context.nodeOutputs(),
                 tracker.completedNodeIds(),
                 tracker.failedNodeIds()

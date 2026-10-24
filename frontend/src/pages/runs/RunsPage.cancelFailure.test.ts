@@ -19,6 +19,8 @@ const originalAdapter = axiosInstance.defaults.adapter
 let wrapper: ReturnType<typeof mount> | undefined
 let status = 'RUNNING'
 let cancellation: (config: InternalAxiosRequestConfig) => Promise<AxiosResponse>
+let cleanupStatus: { workflowInstanceId: number; status: string; attemptCount: number; lastError?: string | null; retryable: boolean }
+let cleanupRetryStatus: { workflowInstanceId: number; status: string; attemptCount: number; completedAt?: string; retryable: boolean }
 let requests: InternalAxiosRequestConfig[] = []
 let vueErrors: unknown[] = []
 function response(config: InternalAxiosRequestConfig, data: unknown, status = 200): AxiosResponse {
@@ -37,14 +39,20 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks()
   status = 'RUNNING'; requests = []; vueErrors = []
+  cleanupStatus = { workflowInstanceId: 101, status: 'PENDING', attemptCount: 0, retryable: true }
+  cleanupRetryStatus = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 2, completedAt: '2026-10-23T03:11:00', retryable: false }
   cancellation = async config => { throw failure(config) }
   // 只替换 Axios 传输层，保留真实页面、Pinia、API 模块及响应拦截器。
   axiosInstance.defaults.adapter = async config => {
     requests.push(config)
     const url = config.url!
-    if (config.method === 'post') return cancellation(config)
+    if (config.method === 'post') {
+      if (url.endsWith('/cancellation-cleanup/retry')) return response(config, cleanupRetryStatus)
+      return cancellation(config)
+    }
     let data: unknown
     if (url === '/workflow-instances') data = { total: 2, items: [101, 102].map(id => ({ id, definitionId: 7, workflowName: `运行 ${id}`, status, nodes: [] })) }
+    else if (url.endsWith('/cancellation-cleanup')) data = cleanupStatus
     else if (url.endsWith('/logs') || url.startsWith('/workflow/runtime/events/')) data = []
     else if (url.startsWith('/workflow/runtime/observability/')) data = { workflowId: url.split('/').at(-1), runtimeState: status, progress: 0.5 }
     else throw new Error(`非预期读取 ${url}`)
@@ -118,6 +126,32 @@ it('网络超时不声称后端未取消，不自动重试，刷新可确认后�
   expect(wrapper!.find('[data-testid="cancel-error"]').exists()).toBe(false)
   expect(posts()).toHaveLength(1)
   expect(vueErrors).toEqual([])
+})
+
+it('刷新已取消运行后恢复清理失败状态，并可独立重试直到确认完成', async () => {
+  status = 'CANCELLED'
+  cleanupStatus = {
+    workflowInstanceId: 101, status: 'FAILED', attemptCount: 2,
+    lastError: 'Task Service unavailable', retryable: true,
+  }
+  const { store } = await setup()
+  await flushPromises()
+
+  expect(store.currentRun).toMatchObject({
+    status: 'cancelled', backendStatus: 'CANCELLED',
+    cancellationCleanup: { status: 'FAILED', attemptCount: 2, lastError: 'Task Service unavailable', retryable: true },
+  })
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain('Task Service unavailable')
+  expect(wrapper!.find('[data-testid="retry-cancel-cleanup"]').exists()).toBe(true)
+
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+
+  expect(store.currentRun).toMatchObject({
+    status: 'cancelled', backendStatus: 'CANCELLED', cancellationCleanup: { status: 'COMPLETE', retryable: false },
+  })
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(posts().map(request => request.url)).toEqual(['/workflow/runtime/instances/101/cancellation-cleanup/retry'])
 })
 
 it('同一运行等待响应时阻止重复取消，清空选择后的失败不恢复旧详情', async () => {

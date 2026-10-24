@@ -11,6 +11,7 @@ import {
   buildCopilotWorkflowPlanGraph,
   buildWorkflowPlannerContext,
   recommendNextNodeAction,
+  redactCopilotValue,
   workflowCopilotPrompt,
   type WorkflowCopilotActionMessage,
   type WorkflowCopilotCanvasAction,
@@ -45,6 +46,7 @@ type CustomNodePreview = {
   status: 'pending' | 'applying' | 'applied' | 'cancelled'
   saved: boolean
   error: string
+  validation: { structurallyValid: boolean | null; runtimeReady: boolean | null; issues: string[] } | null
 }
 const customNodePreviews = ref(new Map<string, CustomNodePreview>())
 let customNodeController: AbortController | null = null
@@ -87,6 +89,11 @@ const planPreview = ref<{
 let planValidationSequence = 0
 let conversationLoadSequence = 0
 let plannerSessionSequence = 0
+// 用户主动切换模式（对话/直接编辑画布）的代次，用于让迟到历史尊重用户的选择。
+let explicitModeChoiceSequence = 0
+let panelDisposed = false
+// 待确认草稿要让模型看到精确 schema：字段对象位于深度 3，默认脱敏会把它们整体替换为占位符。
+const PENDING_DRAFT_REDACT_DEPTH = 6
 const { locale, t } = useI18n()
 const { t: presentationText } = useI18n({ useScope: 'local', messages: {
   'zh-CN': { send: '发送消息' },
@@ -167,6 +174,9 @@ async function loadConversationHistory() {
   const workflowIdAtStart = props.context?.workflowId
   const projectIdAtStart = props.context?.projectId
   const scopeKeyAtStart = conversationSessionKey(props.context)
+  // 记录加载开始时的本地消息，用于判断迟到的历史能否与"本次新增消息"合并。
+  const baselineMessageIds = messages.value.map((message) => message.id)
+  const modeChoiceAtStart = explicitModeChoiceSequence
   const selection = readConversationSelection(scopeKeyAtStart)
   if (selection === 'new') return
   if (selection === UNCONFIRMED_CONVERSATION) {
@@ -177,6 +187,8 @@ async function loadConversationHistory() {
   // 选择已按用户、项目和工作流（含草稿名称）隔离，临时加载失败不能把续聊变成新会话。
   if (selection) {
     conversationId.value = selection
+    // 已确认的会话必须等历史恢复完成才允许续发：提前解锁会让发送按默认画布编辑模式写入错误会话，
+    // 代次递增还会让迟到的历史失效，历史里确定的规划模式再也恢复不了。
     conversationSelectionPending.value = true
   }
   const stillCurrent = () => loadSequence === conversationLoadSequence
@@ -197,7 +209,6 @@ async function loadConversationHistory() {
     if (!selection && workflowIdAtStart === 'new') return
     const conversations = await copilotApi.listConversations()
     if (!stillCurrent()) return
-    conversationSelectionPending.value = false
     const selectedSummary = selection ? conversations.find((item) => item.id === selection) : undefined
     if (selectedSummary && !matchesScope(selectedSummary)) {
       unavailable()
@@ -208,22 +219,17 @@ async function loadConversationHistory() {
     // 列表只有全局最近若干条；缺席不代表已删除，按当前作用域的已选 ID 读取历史。
     historyRequested = true
     const history = await copilotApi.listMessages(historyConversationId)
-    if (!stillCurrent()) return
-    rememberConversation(historyConversationId)
-    if (history.length > 0) {
-      messages.value = history
-      const planMessage = [...history].reverse().find((message) => message.role === 'assistant' && message.plan)
-      if (planMessage) enterPlannerMode()
-      else plannerMode.value = false
-      if (planMessage?.plan?.status === 'READY') {
-        void preparePlanPreview(planMessage)
-      } else {
-        planPreview.value = null
-      }
+    if (!stillCurrent()) {
+      // 历史迟到（发送等交互已推进会话）：不能直接丢弃，按补偿分支尽量恢复历史与规划模式。
+      adoptLateConversationHistory(history, historyConversationId, {
+        workflowIdAtStart, scopeKeyAtStart, baselineMessageIds, modeChoiceAtStart,
+      })
+      return
     }
+    rememberConversation(historyConversationId)
+    applyConversationHistory(history)
   } catch (error) {
     if (!stillCurrent()) return
-    conversationSelectionPending.value = false
     const apiError = toApiError(error, 'ai')
     if (historyRequested && (apiError.status === 404 || String(apiError.code) === '404')) {
       unavailable()
@@ -232,7 +238,68 @@ async function loadConversationHistory() {
       if (historyConversationId) rememberConversation(historyConversationId)
       historyNotice.value = t('copilot.historyLoadFailed')
     }
+  } finally {
+    // 成功、失败和作用域失效都统一在这里解锁，避免恢复异常时发送被永久锁死。
+    if (stillCurrent()) conversationSelectionPending.value = false
   }
+}
+
+/** 历史恢复成功后整体接管消息列表，并按历史里最后一条计划决定发送模式。 */
+function applyConversationHistory(history: CopilotMessage[]) {
+  if (history.length === 0) return
+  messages.value = history
+  applyConversationHistoryMode(history)
+}
+
+function applyConversationHistoryMode(history: CopilotMessage[]) {
+  const planMessage = [...history].reverse().find((message) => message.role === 'assistant' && message.plan)
+  if (planMessage) enterPlannerMode()
+  else plannerMode.value = false
+  if (planMessage?.plan?.status === 'READY') {
+    void preparePlanPreview(planMessage)
+  } else {
+    planPreview.value = null
+  }
+}
+
+interface LateHistoryLoad {
+  workflowIdAtStart: string | undefined
+  scopeKeyAtStart: string
+  baselineMessageIds: string[]
+  modeChoiceAtStart: number
+}
+
+/**
+ * 迟到历史的补偿：历史结果迟到时不能一丢了之。
+ * 只有当前作用域没变、本地仍只有"加载前快照 + 本次新增消息"、用户也没有切走会话或主动改模式时，
+ * 才把历史前插并恢复其规划模式；用户刚发出的消息原样保留，不覆盖。
+ */
+function adoptLateConversationHistory(
+  history: CopilotMessage[],
+  historyConversationId: string,
+  load: LateHistoryLoad,
+) {
+  if (panelDisposed || history.length === 0) return
+  if (load.workflowIdAtStart !== props.context?.workflowId
+    || load.scopeKeyAtStart !== conversationSessionKey(props.context)) return
+  // 在途请求自己负责收尾，此时回放旧历史会打断流式回复。
+  if (loading.value) return
+  const currentSelection = readConversationSelection(conversationSessionKey(props.context))
+  // 用户点了"新对话"或切到别的会话时，不能把旧会话抢回来。
+  if (currentSelection === 'new') return
+  if (currentSelection && currentSelection !== UNCONFIRMED_CONVERSATION
+    && currentSelection !== historyConversationId) return
+  // 本地已经持有另一个会话身份，说明用户已经开始新会话，保持用户选择的上下文。
+  if (conversationId.value && conversationId.value !== historyConversationId) return
+  // 用户在恢复期间主动选了模式，尊重其选择，不用历史覆盖。
+  if (explicitModeChoiceSequence !== load.modeChoiceAtStart) return
+  // 本地消息必须仍是加载前快照加本次新增，说明从未并入过其它历史，前插才不会串味。
+  if (!load.baselineMessageIds.every((id, index) => messages.value[index]?.id === id)) return
+  const localOnly = messages.value.slice(load.baselineMessageIds.length)
+  messages.value = [...history, ...localOnly]
+  rememberConversation(historyConversationId)
+  historyNotice.value = ''
+  applyConversationHistoryMode(history)
 }
 
 function beginConversationInteraction() {
@@ -310,6 +377,58 @@ function planBaseIsCurrent(message: CopilotMessage) {
       ? message.planBaseFingerprint === current.graphFingerprint
       : typeof message.planBaseRevision === 'number' && message.planBaseRevision === current.editRevision)
     && (message.planBaseVersion ?? null) === current.backendVersion)
+}
+
+function pendingPlannerDraftContext() {
+  const preview = planPreview.value
+  if (!preview || preview.applied || cancelledPlanMessageId.value === preview.messageId) return undefined
+  const message = messages.value.find((item) => item.id === preview.messageId)
+  if (!message?.plan || message.plan.status !== 'READY' || !message.plan.recipe) return undefined
+  return {
+    messageId: preview.messageId,
+    stale: preview.stale,
+    definition: {
+      id: preview.workflow.id,
+      name: preview.workflow.name,
+      nodes: preview.workflow.nodes.map((node) => ({
+        id: node.id, kind: node.data.kind, label: node.data.label,
+        config: redactCopilotValue(node.data.config),
+      })),
+      edges: preview.workflow.edges.map((edge) => ({
+        id: edge.id, source: edge.source, target: edge.target, label: edge.label ?? '',
+      })),
+    },
+    operations: [
+      ...preview.workflow.nodes.map((node) => ({ type: 'add_node', nodeId: node.id, kind: node.data.kind, label: node.data.label })),
+      ...preview.workflow.edges.map((edge) => ({ type: 'connect', source: edge.source, target: edge.target, label: edge.label ?? '' })),
+    ],
+    validation: {
+      structurallyValid: preview.structurallyValid,
+      runtimeReady: preview.runtimeReady,
+      issues: [...preview.issues],
+    },
+  }
+}
+
+function pendingCustomNodeDraftContext() {
+  const entry = [...customNodePreviews.value.entries()].reverse()
+    .find(([, draft]) => draft.status === 'pending' || draft.status === 'applying')
+  if (!entry) return undefined
+  const [messageId, draft] = entry
+  return {
+    messageId,
+    baseWorkflowId: draft.base.workflowId,
+    baseEditRevision: draft.base.editRevision,
+    // 待确认草稿要保留到字段层级，否则模型续改时看不到 inputs/fields/outputs 与 request.headers 的精确结构；
+    // 400 字符截断与密钥脱敏仍然生效。
+    definition: redactCopilotValue(draft.definitions, '', 0, PENDING_DRAFT_REDACT_DEPTH),
+    operations: redactCopilotValue((draft.canvasEdit?.operations ?? []).map((operation) =>
+      operation.type === 'create_custom_node'
+        ? { type: operation.type, draftId: operation.draftId }
+        : operation), '', 0, PENDING_DRAFT_REDACT_DEPTH),
+    validation: draft.validation,
+    saved: draft.saved,
+  }
 }
 
 function candidateWorkflow(
@@ -518,6 +637,8 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
 
 function setDirectEditMode(enabled: boolean) {
   if (interactionPending.value) return
+  // 用户主动选模式后，迟到的历史不允许再覆盖这次选择。
+  explicitModeChoiceSequence += 1
   beginConversationInteraction()
   directEditMode.value = enabled
   leavePlannerMode()
@@ -530,6 +651,7 @@ async function sendCanvasEdit(value = prompt.value) {
   if (snapshot.nodes.length > 100) return
   const base = currentPlannerBase()
   if (!base) return
+  const pendingDraft = pendingCustomNodeDraftContext()
   beginConversationInteraction()
   const session = plannerSessionSequence
   const controller = new AbortController()
@@ -553,6 +675,7 @@ async function sendCanvasEdit(value = prompt.value) {
       context: {
         ...buildCanvasEditContext(snapshot, locale.value),
         capabilities: { customNodeDrafts: Boolean(props.saveCustomNodeDrafts) },
+        ...(pendingDraft ? { pendingDraft } : {}),
         selectedModel: { provider: providerTypeOf(model?.providerId), model: model?.name },
         availableModels: availableModels.value.map((item) => ({ provider: providerTypeOf(item.providerId), model: item.name })),
       }, signal: controller.signal,
@@ -571,7 +694,7 @@ async function sendCanvasEdit(value = prompt.value) {
       if (!prepared.ok) throw new Error(prepared.error)
       customNodePreviews.value.set(responseMessageId, {
         definitions: prepared.definitions, canvasEdit: prepared.canvasEdit, snapshot, base,
-        status: 'pending', saved: false, error: '',
+        status: 'pending', saved: false, error: '', validation: null,
       })
       return
     }
@@ -673,6 +796,9 @@ async function confirmCustomNodeDraft(messageId: string) {
       backendDefinitionId: snapshot.backendDefinitionId ?? undefined, backendVersion: snapshot.backendVersion ?? undefined,
       projectId: snapshot.projectId ?? undefined, nodes: candidate.nodes, edges: candidate.edges,
     }, controller.signal) : null
+    preview.validation = validation
+      ? { structurallyValid: validation.structurallyValid, runtimeReady: validation.runtimeReady, issues: [...validation.issues] }
+      : null
     ensureCurrent()
     if (validation && !validation.structurallyValid) throw new Error(validation.issues.join('；') || t('copilot.editor.invalid'))
     if (!preview.saved) {
@@ -701,6 +827,9 @@ async function confirmCustomNodeDraft(messageId: string) {
     if (stillCurrent()) {
       preview.status = 'pending'
       preview.error = `${preview.saved ? '模板已保存，画布尚未应用。' : ''}${toApiError(error, 'ai').message}`
+      if (!preview.validation) {
+        preview.validation = { structurallyValid: false, runtimeReady: false, issues: [preview.error] }
+      }
     }
   } finally {
     if (customNodeController === controller) {
@@ -715,6 +844,7 @@ async function sendWorkflowPlan(value = prompt.value) {
   if (!text || interactionPending.value || !props.context) return
   const base = currentPlannerBase()
   if (!base) return
+  const pendingDraft = pendingPlannerDraftContext()
   beginConversationInteraction()
   enterPlannerMode()
   cancelledPlanMessageId.value = null
@@ -747,7 +877,10 @@ async function sendWorkflowPlan(value = prompt.value) {
       projectId: base.projectId ? String(base.projectId) : undefined,
       provider: providerTypeOf(model?.providerId),
       model: model?.name,
-      context: buildWorkflowPlannerContext(props.context, locale.value),
+      context: {
+        ...buildWorkflowPlannerContext(props.context, locale.value),
+        ...(pendingDraft ? { pendingDraft } : {}),
+      },
       signal: controller.signal,
     })
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)
@@ -970,6 +1103,7 @@ watch(() => [
 
 onBeforeUnmount(() => {
   customNodeController?.abort()
+  panelDisposed = true
   conversationLoadSequence += 1
   plannerSessionSequence += 1
   planValidationSequence += 1

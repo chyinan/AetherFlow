@@ -22,7 +22,7 @@ final class ImageExecutionFailure {
     enum Provider { COMFYUI, SD_WEBUI }
     enum Stage { INPUT, UPLOAD, QUEUE, POLL, GENERATION, DOWNLOAD, REQUEST, OUTPUT }
     enum Field { sourceImage, workflow, checkpoint, sampler, scheduler, vae, lora, upscaler,
-        timeoutSeconds, connectionId, seed, mode }
+        timeoutSeconds, connectionId, seed, mode, batchSize }
     enum Reason { VALIDATION, HTTP, UNREACHABLE, TIMEOUT, INTERRUPTED, REJECTED, FAILED, EMPTY, INVALID_RESPONSE }
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -72,6 +72,7 @@ final class ImageExecutionFailure {
             case connectionId -> "请检查所选连接、服务状态和连接配置。";
             case seed -> "种子必须为 -1 或非负整数，请修改种子后重试。";
             case mode -> "请选择当前图像服务支持的生成模式。";
+            case batchSize -> "每次请求必须生成 1 至 16 张图像，请调整数量后重试。";
             case workflow -> stage == Stage.OUTPUT || stage == Stage.DOWNLOAD
                     ? "请检查工作流的图像输出节点，并在服务端确认结果是否可用。"
                     : "请检查工作流节点、参数和模型配置，并在服务端查看任务状态。";

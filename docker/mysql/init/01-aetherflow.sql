@@ -137,6 +137,23 @@ CREATE TABLE IF NOT EXISTS af_workflow_instance (
     UNIQUE KEY uk_af_workflow_instance_user_idempotency (user_id, idempotency_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS af_workflow_cancellation_cleanup (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    workflow_instance_id BIGINT NOT NULL,
+    user_id BIGINT,
+    status VARCHAR(32) NOT NULL,
+    lease_token VARCHAR(64),
+    attempt_count INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME(6),
+    completed_at DATETIME(6),
+    last_error VARCHAR(1000),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    UNIQUE KEY uk_af_workflow_cancellation_cleanup_instance (workflow_instance_id),
+    KEY idx_af_workflow_cancellation_cleanup_due (status, next_attempt_at, updated_at),
+    KEY idx_af_workflow_cancellation_cleanup_retention (status, updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS af_workspace (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(128) NOT NULL,

@@ -11,6 +11,7 @@ import com.aetherflow.workflow.runtime.logging.RuntimeLogContext;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 
@@ -78,7 +79,7 @@ public abstract class BaseNodeExecutor implements NodeExecutor {
         }
         Map<String, Object> safeConfig = new LinkedHashMap<>();
         currentConfigMap.forEach((key, value) -> safeConfig.put(String.valueOf(key), value));
-        return Map.copyOf(safeConfig);
+        return Collections.unmodifiableMap(safeConfig);
     }
 
     @SuppressWarnings("unchecked")

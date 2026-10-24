@@ -11,7 +11,8 @@ const { t } = useI18n({ useScope: 'local', messages: upstreamVariableMessages })
 const choices = computed(() => upstreamVariables(props.nodeId, props.nodes, props.edges, props.templates))
 const selected = computed(() => choices.value.find((item) => item.name === props.modelValue.trim()))
 const invalid = computed(() => props.modelValue.trim() && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(props.modelValue.trim()))
-const mismatch = computed(() => selected.value && props.expectedType && selected.value.type !== 'UNKNOWN' && props.expectedType !== selected.value.type)
+const mismatch = computed(() => selected.value && props.expectedType && selected.value.type !== 'UNKNOWN'
+  && selected.value.type !== 'JSON' && props.expectedType !== selected.value.type)
 function choose(event: Event) {
   const value = (event.target as HTMLSelectElement).value
   if (choices.value.some((item) => item.name === value)) emit('update:modelValue', value)

@@ -322,12 +322,23 @@ function normalizeHttpRequestConfig(config: Record<string, unknown>, nextNodes: 
   }, nextNodes, branchRouting)
 }
 
+/** LLM 提示词变量的统一默认值：与执行器回落的第一顺位一致。 */
+export const LLM_PROMPT_VARIABLE_DEFAULT = 'question'
+
+/**
+ * 运行表单与保存共用同一个规范化：清空 promptVariable 时两边都认 question，
+ * 否则保存落库 question、运行却按别的变量名采集，服务端取不到提示词。
+ */
+export function normalizeLlmPromptVariable(value: unknown): string {
+  return stringValue(value, LLM_PROMPT_VARIABLE_DEFAULT)
+}
+
 function normalizeLlmConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const model = optionalModel(config.model)
   const fixedContext = optionalString(config.context ?? config.contextText)
   return withNextNodes({
     ...(optionalString(config.prompt) ? { prompt: optionalString(config.prompt) } : {}),
-    promptVariable: stringValue(config.promptVariable, 'question'),
+    promptVariable: normalizeLlmPromptVariable(config.promptVariable),
     ...(fixedContext ? { context: fixedContext } : {}),
     ...(optionalString(config.contextVariable) ? { contextVariable: optionalString(config.contextVariable) } : {}),
     ...(optionalString(config.provider) ? { provider: optionalString(config.provider) } : {}),
@@ -429,6 +440,16 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
 
 function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const workflowJson = normalizeWorkflowJson(config.workflowJson)
+  let options = isRecord(config.options)
+    ? cloneConfigValue(config.options) as Record<string, unknown>
+    : undefined
+  // 新格式以顶层 workflowBindings 为准；旧保存格式可从 options 中恢复。
+  const workflowBindings = config.workflowBindings !== undefined
+    ? config.workflowBindings
+    : options?.workflowBindings
+  if (workflowBindings !== undefined) {
+    (options ??= {}).workflowBindings = cloneConfigValue(workflowBindings)
+  }
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'COMFYUI'),
@@ -438,8 +459,9 @@ function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: stri
     ...(optionalString(config.upscaler) ? { upscaler: optionalString(config.upscaler) } : {}),
     ...(isRecord(config.workflow) ? { workflow: config.workflow } : {}),
     ...(workflowJson === undefined ? {} : { workflowJson }),
+    ...(workflowBindings === undefined ? {} : { workflowBindings: cloneConfigValue(workflowBindings) }),
     ...(optionalNumber(config.timeoutSeconds) ? { timeoutSeconds: optionalNumber(config.timeoutSeconds) } : {}),
-    ...(isRecord(config.options) ? { options: config.options } : {}),
+    ...(options === undefined ? {} : { options }),
   }, nextNodes)
 }
 
@@ -662,10 +684,36 @@ function normalizeVariableAggregateConfig(config: Record<string, unknown>, nextN
   }, nextNodes)
 }
 
+/**
+ * VARIABLE_ASSIGNER 的保存值。JSON 模式以编辑器里的最新原始文本为准：
+ * 保存值必须是这段文本的解析结果；解析失败就阻止保存，绝不回落到内存里的
+ * 旧 config.value，否则界面上写坏的 JSON 会被静默替换成上一次的合法值。
+ * 没有原始文本的旧配置与导入数据继续沿用 config.value。
+ */
+function normalizeVariableAssignerValue(config: Record<string, unknown>) {
+  const isJsonMode = typeof config.valueType === 'string' && config.valueType.trim().toUpperCase() === 'JSON'
+  if (!isJsonMode || typeof config.valueJsonText !== 'string') {
+    return config.value === undefined ? undefined : cloneConfigValue(config.value)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(config.valueJsonText)
+  } catch {
+    throw new Error('VARIABLE_ASSIGNER value must be valid JSON')
+  }
+  return cloneConfigValue(parsed)
+}
+
 function normalizeVariableAssignerConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  if (optionalString(config.valueValidationError)) {
+    throw new Error('VARIABLE_ASSIGNER value must be valid JSON')
+  }
+  const value = normalizeVariableAssignerValue(config)
   return withNextNodes({
     variable: stringValue(config.variable, 'result'),
-    ...(config.value === undefined ? {} : { value: config.value }),
+    ...(config.valueMode === undefined ? {} : { valueMode: stringValue(config.valueMode, '') }),
+    ...(config.valueType === undefined ? {} : { valueType: stringValue(config.valueType, '') }),
+    ...(value === undefined ? {} : { value }),
     ...(optionalString(config.sourceVariable) ? { sourceVariable: optionalString(config.sourceVariable) } : {}),
   }, nextNodes)
 }

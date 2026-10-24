@@ -48,7 +48,13 @@ function normalizeProvider(value: unknown): ImageConnectionProvider {
   return normalized === 'COMFYUI' ? 'COMFYUI' : 'STABLE_DIFFUSION_WEBUI'
 }
 const provider = computed(() => normalizeProvider(props.config.provider))
-const importedApi = computed(() => props.nodeType === 'IMAGE_GENERATION' && provider.value === 'COMFYUI' && describeComfyGraph(props.config.workflowJson ?? props.config.workflow).format === 'API')
+const importedComfyApi = computed(() => describeComfyGraph(props.config.workflowJson ?? props.config.workflow).format === 'API')
+const importedComfyApiNodeTypes = computed(() => {
+  if (!importedComfyApi.value) return []
+  const graph = describeComfyGraph(props.config.workflowJson ?? props.config.workflow)
+  return [...new Set(graph.nodes.map(node => node.type))].sort()
+})
+const importedApi = computed(() => provider.value === 'COMFYUI' && importedComfyApi.value)
 const workflowNodeTypes = computed(() => importedApi.value ? [...new Set(describeComfyGraph(props.config.workflowJson ?? props.config.workflow).nodes.map(node => node.type))].sort() : [])
 const connectionId = computed(() => String(props.config.connectionId ?? '').trim())
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
@@ -56,7 +62,7 @@ const selectedConnection = computed(() => connections.value.find((connection) =>
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
 const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode, workflowNodeTypes.value]))
 const modelFields = computed<Array<{ key: string; catalog: ImageCatalog }>>(() => props.nodeType === 'UPSCALE'
-  ? [{ key: 'upscaler', catalog: 'upscalers' }]
+  ? (importedApi.value ? [] : [{ key: 'upscaler', catalog: 'upscalers' }])
   : [{ key: 'checkpoint', catalog: 'checkpoints' }, { key: 'vae', catalog: 'vaes' }, { key: 'sampler', catalog: 'samplers' }, { key: 'scheduler', catalog: 'schedulers' }])
 const checkpointRequired = computed(() => props.nodeType === 'IMAGE_GENERATION' && Boolean(connectionId.value)
   && provider.value === 'COMFYUI' && !importedApi.value && !String(props.config.checkpoint ?? '').trim())
@@ -190,7 +196,7 @@ async function testForm() {
   const nodeId = props.nodeId
   testing.value = true
   try {
-    const graphTypes = form.provider === 'COMFYUI' ? workflowNodeTypes.value : []
+    const graphTypes = form.provider === 'COMFYUI' ? importedComfyApiNodeTypes.value : []
     const result = await probeNodeConnection({ provider: form.provider, baseUrl: form.baseUrl.trim(), ...(graphTypes.length ? { workflowNodeTypes: graphTypes } : { nodeType: props.nodeType }) })
     if (alive && open.value && sequence === formSequence && nodeId === props.nodeId) formProbe.value = result
   } catch (cause) {
@@ -205,7 +211,7 @@ async function save() {
   if (error) { formError.value = error; return }
   const sequence = formSequence
   const nodeId = props.nodeId
-  const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim(), ...(form.provider === 'COMFYUI' && workflowNodeTypes.value.length ? { workflowNodeTypes: workflowNodeTypes.value } : {}) }
+  const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim(), ...(form.provider === 'COMFYUI' && importedComfyApiNodeTypes.value.length ? { workflowNodeTypes: importedComfyApiNodeTypes.value } : {}) }
   const id = editingId.value
   formError.value = ''
   try {

@@ -779,7 +779,9 @@ public class WorkflowServiceImpl implements WorkflowService {
         }
         for (WorkflowNodeDTO node : definition.getNodes()) {
             if (node.getNodeId() != null && !node.getNodeId().isBlank()) {
-                configs.put(node.getNodeId(), node.getConfig() == null ? Map.of() : Map.copyOf(node.getConfig()));
+                configs.put(node.getNodeId(), node.getConfig() == null
+                        ? Map.of()
+                        : java.util.Collections.unmodifiableMap(new LinkedHashMap<>(node.getConfig())));
             }
         }
         return configs;

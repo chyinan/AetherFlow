@@ -102,9 +102,7 @@ public class WorkflowAiCapabilityPreflightService {
                             text(config.get("connectionId")), text(config.get("provider")),
                             text(config.get("checkpoint")), text(config.get("upscaler")),
                             text(config.get("vae")), text(config.get("sampler")), text(config.get("scheduler")), loras,
-                            "IMAGE_GENERATION".equalsIgnoreCase(node.getNodeType()) && "COMFYUI".equalsIgnoreCase(text(config.get("provider")))
-                                    && !ComfyUiWorkflow.executionGraph(config).isEmpty()
-                                    ? ComfyUiWorkflow.apiNodeTypes(ComfyUiWorkflow.executionGraph(config)) : List.of());
+                            workflowNodeTypes(config));
                 }).toList();
         if (nodes.isEmpty()) return Set.of();
         try {
@@ -119,6 +117,22 @@ public class WorkflowAiCapabilityPreflightService {
             throw exception;
         } catch (RuntimeException exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image connection preflight is unavailable");
+        }
+    }
+
+    /** 生成与放大节点共用：有实际 Comfy API 执行图时按图上的节点类型预检，UI 图按无执行图处理。 */
+    private static List<String> workflowNodeTypes(Map<String, Object> config) {
+        if (!"COMFYUI".equalsIgnoreCase(text(config.get("provider")))) {
+            return List.of();
+        }
+        Map<String, Object> graph = ComfyUiWorkflow.executionGraph(config);
+        if (graph.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return ComfyUiWorkflow.apiNodeTypes(graph);
+        } catch (IllegalArgumentException exception) {
+            return List.of();
         }
     }
 

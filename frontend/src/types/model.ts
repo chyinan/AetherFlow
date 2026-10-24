@@ -16,6 +16,7 @@ export interface ModelProvider {
   capabilities: string[]
   lastCheckedAt: string
   healthStatus?: string
+  healthObservationSource?: string
   circuitState?: string
   statusMessage?: string
 }

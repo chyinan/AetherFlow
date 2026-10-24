@@ -5,6 +5,7 @@ import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,7 +18,7 @@ public class DefaultWorkflowContext implements WorkflowContext {
     private final String workflowId;
     private final String traceId;
     private final String taskId;
-    private final ConcurrentMap<String, Object> variables = new ConcurrentHashMap<>();
+    private final Map<String, Object> variables = Collections.synchronizedMap(new LinkedHashMap<>());
     private final ConcurrentMap<String, NodeResult> nodeOutputs = new ConcurrentHashMap<>();
     private final AtomicReference<RuntimeState> runtimeState = new AtomicReference<>(RuntimeState.PENDING);
     private final ThreadLocal<String> currentNodeId = new ThreadLocal<>();
@@ -32,7 +33,7 @@ public class DefaultWorkflowContext implements WorkflowContext {
         this.taskId = requireText(taskId, "taskId");
         if (initialVariables != null) {
             initialVariables.forEach((key, value) -> {
-                if (key != null && value != null) {
+                if (key != null) {
                     variables.put(key, value);
                 }
             });
@@ -57,6 +58,12 @@ public class DefaultWorkflowContext implements WorkflowContext {
     @Override
     public Map<String, Object> variables() {
         return variables;
+    }
+
+    public Map<String, Object> snapshotVariables() {
+        synchronized (variables) {
+            return Collections.unmodifiableMap(new LinkedHashMap<>(variables));
+        }
     }
 
     @Override

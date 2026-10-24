@@ -17,7 +17,6 @@ export const nodeConnectionMessages = {
     checklistReason: {
       ignoredWorkflowAlias: '原图配置不是 JSON 对象，无法执行。请重新载入 API 格式执行图；原配置已保留。',
       ignoredWorkflowJson: 'workflowJson 不是 JSON 对象，不能运行。请重新载入 API 格式执行图；原配置已保留。',
-      ignoredUpscaleWorkflow: 'ComfyUI 图像放大使用内置 ImageScaleBy 工作流，不执行 {field} 的导入内容。原配置已保留。',
       providerMismatch: '节点 Provider 与连接不一致。点击“同步此连接 Provider”修正；原模型参数会保留。',
       unconfigured: '连接未配置或未提供此节点所需的能力。请检查上方检测结果，调整连接后重新测试。',
       unreachable: '无法连接服务。请检查连接地址与服务运行状态，再重新测试。',
@@ -70,7 +69,6 @@ export const nodeConnectionMessages = {
     checklistReason: {
       ignoredWorkflowAlias: 'The source is not a JSON object and cannot run. Load an API execution graph. Your configuration is retained.',
       ignoredWorkflowJson: 'workflowJson is not a JSON object and cannot run. Load an API execution graph. Your configuration is retained.',
-      ignoredUpscaleWorkflow: 'ComfyUI upscaling uses the built-in ImageScaleBy workflow and does not execute the import in {field}. Your configuration is retained.',
       providerMismatch: 'The node provider differs from the saved connection. Use the sync button to correct it; model settings will be retained.',
       unconfigured: 'The connection is unconfigured or does not provide this node’s capabilities. Review the result above, adjust the connection and test again.',
       unreachable: 'The service cannot be reached. Check the URL and running service, then retry.',
@@ -123,7 +121,6 @@ export const nodeConnectionMessages = {
     checklistReason: {
       ignoredWorkflowAlias: '原図は JSON オブジェクトではないため実行できません。API 実行グラフを読み込んでください。既存設定は保持されます。',
       ignoredWorkflowJson: 'workflowJson は JSON オブジェクトではないため実行できません。API 実行グラフを読み込んでください。既存設定は保持されます。',
-      ignoredUpscaleWorkflow: 'ComfyUI の画像拡大は内蔵の ImageScaleBy ワークフローを使用し、{field} のインポート内容は実行しません。既存設定は保持されます。',
       providerMismatch: 'ノードと接続の Provider が一致しません。同期ボタンで修正してください。モデル設定は保持されます。',
       unconfigured: '接続が未設定か、必要な機能を提供していません。上の結果を確認し、接続を調整して再テストしてください。',
       unreachable: 'サービスに接続できません。接続先と稼働状態を確認して再テストしてください。',

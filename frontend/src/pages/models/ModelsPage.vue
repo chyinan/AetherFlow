@@ -409,6 +409,10 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                       <p class="mt-1 font-medium text-text-primary">{{ selectedProvider.circuitState || '--' }}</p>
                     </div>
                   </div>
+                  <div class="rounded bg-app-bg2 p-2 text-xs">
+                    <p class="text-text-muted">{{ t('models.healthSource') }}</p>
+                    <p class="mt-1 break-words font-medium text-text-primary">{{ selectedProvider.healthObservationSource || '--' }}</p>
+                  </div>
                   <div class="rounded-lg bg-app-bg2 p-3">
                     <p class="text-xs text-text-muted">{{ t('models.capabilities') }}</p>
                     <p class="mt-2 flex flex-wrap gap-2">
