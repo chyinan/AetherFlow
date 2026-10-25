@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent, RuntimeExecutionSnapshot, RuntimeState } from '@/api/modules/runtime'
 import type { RunNodeState, WorkflowRun } from '@/types/run'
+import { mapRuntimeEventToNodePatch } from '@/api/mappers/runtimeMapper'
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), subscribe: vi.fn((_options: unknown, _handlers: unknown) => vi.fn()) }))
 vi.mock('@/api/client/apiClient', async original => ({ ...await original<typeof import('@/api/client/apiClient')>(), apiClient: { get: mocks.get, post: mocks.post } }))
@@ -30,7 +31,19 @@ function event(nodeId: string, completed = false, instanceId = 101): RuntimeEven
   return {
     eventId: `${instanceId}-${nodeId}-${completed ? 'done' : 'waiting'}`, workflowId: String(instanceId), traceId: 'trace', nodeId,
     eventType: completed ? 'NODE_COMPLETED' : 'NODE_WAITING', runtimeState: completed ? 'RUNNING' : 'WAITING',
-    attributes: completed ? {} : { approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+    attributes: completed ? {} : { nodeType: 'HUMAN', approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp' },
+  }
+}
+function workflowWaiting(nodeId: string): RuntimeEvent {
+  return {
+    eventId: `workflow-wait-${nodeId}`, eventType: 'WORKFLOW_WAITING', workflowId: '101', traceId: 'trace',
+    nodeId, runtimeState: 'WAITING', attributes: {},
+  }
+}
+function externalWait(nodeId: string): RuntimeEvent {
+  return {
+    eventId: `external-${nodeId}`, eventType: 'NODE_WAITING', workflowId: '101', traceId: 'trace',
+    nodeId, runtimeState: 'WAITING', attributes: { nodeType: 'LLM', externalTaskId: 712 },
   }
 }
 function action(name: string) { return document.body.querySelector<HTMLButtonElement>(`[data-action="${name}"]`)! }
@@ -58,10 +71,13 @@ beforeEach(() => {
   events = [event('approval-a')]
   runtimeState = 'WAITING'; currentNodeId = 'approval-a'
   mocks.get.mockImplementation(async (url: string) => {
+    const latestApprovalA = [...events].reverse().find(item => item.nodeId === 'approval-a')
     const record = (id: number) => ({ id, workflowId: `wf-${id}`, definitionId: id, workflowName: `审批流程${id}`, status: id === 101 ? runtimeState : 'WAITING', nodes: [
-      { nodeId: 'approval-a', status: 'WAITING' }, { nodeId: 'approval-b', status: 'PENDING' },
+      { nodeId: 'approval-a', status: 'WAITING', latestEventType: latestApprovalA?.eventType, attributes: latestApprovalA?.attributes },
+      { nodeId: 'approval-b', status: 'PENDING' },
     ] })
     if (url === '/workflow-instances') return { total: 2, items: [record(101), record(202)] }
+    if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 1, retryable: false }
     if (url.endsWith('/logs')) return []
     if (url.startsWith('/workflow-instances/')) return record(Number(url.split('/').at(-1)))
     if (url.startsWith('/workflow/runtime/observability/')) return { workflowId: url.split('/').at(-1), runtimeState, currentNodeId, progress: 0.5 }
@@ -88,6 +104,36 @@ async function setup() {
 }
 
 describe('人工审批请求的归属与中断恢复', () => {
+  it('冷打开时 HTTP 回放的 NODE_WAITING→WORKFLOW_WAITING 保留 HUMAN 审批入口', async () => {
+    events = [event('approval-a'), workflowWaiting('approval-a')]
+
+    const { store } = await setup()
+
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({
+      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+    })
+    expect(dialog()?.textContent).toContain('approval-a')
+    expect(action('approve').disabled).toBe(false)
+    expect(approvalPosts()).toHaveLength(0)
+  })
+
+  it('普通 AI 等待经实时事件和 HTTP 回放后保持 WAITING 且不显示审批动作', async () => {
+    const { store } = await setup()
+    await close()
+    const external = externalWait('approval-a')
+
+    handlers().onNodePatch(mapRuntimeEventToNodePatch(external)!)
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')?.approval).toBeUndefined()
+    expect(dialog()).toBeNull()
+
+    events = [external]
+    await refresh()
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({ status: 'paused' })
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')?.approval).toBeUndefined()
+    expect(dialog()).toBeNull()
+    expect(approvalPosts()).toHaveLength(0)
+  })
+
   it('刷新恢复进入下一审批后，前一回执不能把下一节点错误标为已批准', async () => {
     const pending = deferred<RuntimeExecutionSnapshot>(); mocks.post.mockReturnValue(pending.promise)
     const { store } = await setup()

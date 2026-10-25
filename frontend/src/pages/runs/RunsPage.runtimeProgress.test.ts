@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks(); vi.stubGlobal('fetch', fetchMock); fetchMock.mockImplementation(async () => ({ ok: true, body: new ReadableStream<Uint8Array>({ start(c) { stream = c } }) })); failDetail = false; failLogs = false; listChild = false
   mocks.get.mockImplementation(async (url: string) => {
     if (url === '/workflow-instances') return { items: listChild ? [parent, child] : [parent], total: listChild ? 2 : 1 }
+    if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 1, status: 'PENDING', attemptCount: 0, retryable: true }
     if (url === '/workflow-instances/2') { if (failDetail) throw new Error('子运行详情临时不可用'); return child }
     if (url.endsWith('/logs')) { if (url === '/workflow-instances/2/logs' && failLogs) throw new Error('子运行日志临时不可用'); return [{ id: url, message: `日志 ${url}` }] }
     if (url === '/workflows/instances/1/children') return [{ parentNodeId: 'parent-call', childInstanceId: 2, definitionId: 8, definitionVersion: 1, status: 'WAITING' }]

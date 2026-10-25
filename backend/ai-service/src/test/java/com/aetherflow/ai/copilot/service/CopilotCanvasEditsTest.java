@@ -44,4 +44,19 @@ class CopilotCanvasEditsTest {
         String prompt = CopilotCanvasEdits.prompt(Map.of("nodes", java.util.List.of(Map.of("config", Map.of("apiKey", "private-key")))), "", "创建流程");
         assertThat(prompt).contains("创建流程", "[redacted]").doesNotContain("private-key");
     }
+
+    @Test
+    void revisionPromptIdentifiesAnUnconfirmedDraftAsTheCurrentTarget() {
+        Map<String, Object> pendingDraft = Map.of(
+                "definition", Map.of("id", "draft-workflow", "nodes", java.util.List.of(Map.of("id", "summary-1", "kind", "summary"))),
+                "operations", java.util.List.of(Map.of("type", "update_node", "nodeId", "summary-1", "label", "Summary")),
+                "validation", Map.of("structurallyValid", false, "issues", java.util.List.of("A required field is missing")));
+
+        String prompt = CopilotCanvasEdits.prompt(Map.of("pendingDraft", pendingDraft), "", "Only change its name");
+
+        assertThat(prompt)
+                .contains("pendingDraft", "尚未确认的自定义节点草稿", "definition", "operations", "validation issues",
+                        "A required field is missing", "Only change its name")
+                .doesNotContain("must-not-apply");
+    }
 }

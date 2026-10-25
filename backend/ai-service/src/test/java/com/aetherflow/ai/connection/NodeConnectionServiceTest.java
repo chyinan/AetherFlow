@@ -1,11 +1,16 @@
 package com.aetherflow.ai.connection;
 
 import com.aetherflow.ai.config.ImageProviderProperties;
+import com.aetherflow.ai.image.ImageGenerationProvider;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest.NodeSelection;
 import com.aetherflow.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +23,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.HttpMethod.GET;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class NodeConnectionServiceTest {
     @Test
@@ -146,8 +155,76 @@ class NodeConnectionServiceTest {
         verify(repository).find(7L, "saved");
     }
 
+    @Test
+    void customComfyUpscaleWorkflowIsJudgedByItsGraphNotTheBuiltInUpscalerCatalog() {
+        // 自定义 Comfy 放大执行图里由插件节点决定插值，内置 ImageScaleBy/SD 的 upscalers 目录不适用
+        when(repository.find(7L, "saved")).thenReturn(saved);
+        when(discovery.probeWorkflow(saved, List.of("LoadImage", "PluginUpscale", "SaveImage")))
+                .thenReturn(workflowProbe(List.of("nearest-exact", "bilinear")));
+        NodeSelection selection = new NodeSelection("upscale", "UPSCALE", "saved", "COMFYUI", null, "Lanczos",
+                null, null, null, List.of(), List.of("LoadImage", "PluginUpscale", "SaveImage"));
+
+        assertThat(service.validate(new NodeConnectionValidationRequest(7L, List.of(selection))).violations()).isEmpty();
+        verify(discovery).probeWorkflow(saved, List.of("LoadImage", "PluginUpscale", "SaveImage"));
+        verify(discovery, never()).probe(any(), any(), any());
+    }
+
+    @Test
+    void realDiscoveryAndConnectionValidationAcceptUnknownPluginUpscaleGraph() {
+        when(repository.find(7L, "saved")).thenReturn(saved);
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.ExpectedCount.times(3), requestTo("http://fake-comfy/object_info"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {
+                          "LoadImage": {"input": {"required": {"image": ["source.png"]}}},
+                          "AcmeSuperResolution": {"input": {"required": {"image": ["IMAGE"]}}},
+                          "SaveImage": {"input": {"required": {"images": ["IMAGE"]}}}
+                        }
+                        """, MediaType.APPLICATION_JSON));
+        ImageConnectionDiscovery realDiscovery = new ImageConnectionDiscovery(
+                (baseUrl, timeout) -> builder.baseUrl(baseUrl).build(), Duration.ofSeconds(2));
+        NodeConnectionService serviceWithDiscovery = new NodeConnectionService(repository, realDiscovery, factory, properties);
+        ImageGenerationProvider provider = mock(ImageGenerationProvider.class);
+        when(factory.create(saved)).thenReturn(provider);
+        List<String> graphTypes = List.of("LoadImage", "AcmeSuperResolution", "SaveImage");
+
+        NodeConnectionProbe probe = realDiscovery.probeWorkflow(saved, graphTypes);
+        assertThat(probe.status()).isEqualTo("usable");
+        assertThat(probe.capabilities()).doesNotContain("UPSCALE");
+        NodeSelection selection = new NodeSelection("upscale", "UPSCALE", "saved", "COMFYUI", null, "Lanczos",
+                null, null, null, List.of(), graphTypes);
+
+        assertThat(serviceWithDiscovery.validate(new NodeConnectionValidationRequest(7L, List.of(selection))).violations())
+                .isEmpty();
+        assertThat(serviceWithDiscovery.resolveForExecution(7L, selection)).isSameAs(provider);
+        verify(factory).create(saved);
+        server.verify();
+    }
+
+    @Test
+    void builtInUpscaleWithoutWorkflowGraphStillValidatesTheUpscalerCatalog() {
+        when(repository.find(7L, "saved")).thenReturn(saved);
+        when(discovery.probe(saved, null, null)).thenReturn(usable());
+        NodeSelection rejected = new NodeSelection("upscale", "UPSCALE", "saved", "COMFYUI", null, "Lanczos",
+                null, null, null, List.of(), List.of());
+        NodeSelection accepted = new NodeSelection("upscale", "UPSCALE", "saved", "COMFYUI", null, "bilinear",
+                null, null, null, List.of(), List.of());
+
+        assertThat(service.validate(new NodeConnectionValidationRequest(7L, List.of(rejected))).violations())
+                .singleElement().asString().contains("upscalers").contains("Lanczos");
+        assertThat(service.validate(new NodeConnectionValidationRequest(7L, List.of(accepted))).violations()).isEmpty();
+    }
+
     private NodeSelection selection(String id) {
         return new NodeSelection("node", "IMAGE_GENERATION", id, "COMFYUI", "base.safetensors", null);
+    }
+
+    private NodeConnectionProbe workflowProbe(List<String> upscalers) {
+        return new NodeConnectionProbe("usable", "执行图节点类型已在服务目录中发现", "backend",
+                new NodeConnectionProbe.Models(List.of(), List.of(), List.of(), List.of(), List.of(), upscalers),
+                List.of("IMAGE_GENERATION", "UPSCALE"), List.of(), List.of());
     }
 
     private NodeConnectionProbe usable() {

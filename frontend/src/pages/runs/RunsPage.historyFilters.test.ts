@@ -39,6 +39,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.get.mockImplementation(async (url: string, options?: { params?: RunPageQuery }) => {
     if (url === '/workflow-instances') return list(options?.params)
+    if (url.endsWith('/cancellation-cleanup')) return { workflowInstanceId: 81, status: 'COMPLETE', attemptCount: 1, retryable: false }
     if (url.endsWith('/logs')) return [{ id: `${url}-log`, message: url }]
     if (url.startsWith('/workflow-instances/')) {
       const record = records.find(run => run.id === Number(url.split('/').at(-1)))

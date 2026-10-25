@@ -4,6 +4,8 @@ import com.aetherflow.workflow.runtime.api.NodeResult;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public record WorkflowExecutionSnapshot(
@@ -21,7 +23,9 @@ public record WorkflowExecutionSnapshot(
 
     public WorkflowExecutionSnapshot {
         currentNodeIds = currentNodeIds == null ? List.of() : List.copyOf(currentNodeIds);
-        variables = variables == null ? Map.of() : Map.copyOf(variables);
+        variables = variables == null || variables.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(variables));
         nodeOutputs = nodeOutputs == null ? Map.of() : Map.copyOf(nodeOutputs);
         completedNodeIds = completedNodeIds == null ? List.of() : List.copyOf(completedNodeIds);
         failedNodeIds = failedNodeIds == null ? List.of() : List.copyOf(failedNodeIds);

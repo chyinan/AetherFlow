@@ -117,6 +117,35 @@ describe('节点连接运行前清单', () => {
     expect(checklist({ workflow: { custom: {} } }, { nodeType: 'UPSCALE', probe: probe({ models: { ...probe().models, upscalers: ['nearest-exact'] } }) }).find((issue) => issue.field === 'upscaler'))
       .toMatchObject({ field: 'upscaler', reason: 'defaultUnsupported', value: 'bilinear' })
   })
+  it('导入 Comfy API 放大执行图后按执行图校验，不再按内置 upscaler 目录报缺失', () => {
+    const importedGraph = {
+      '1': { class_type: 'LoadImage', inputs: { image: 'source.png' } },
+      '2': { class_type: 'PluginUpscale', inputs: { image: ['1', 0] } },
+      '3': { class_type: 'SaveImage', inputs: { images: ['2', 0] } },
+    }
+    const config = { mode: 'workflow', workflowJson: importedGraph }
+    // 内置目录里没有插件图自己的插值方法，也不该再要求 upscaler
+    expect(checklist({ upscaler: 'Lanczos' }, { nodeType: 'UPSCALE', config, probe: probe({ models: { ...probe().models, upscalers: [] } }) })).toEqual([])
+    // 没有执行图的内置放大仍按目录校验
+    expect(checklist({}, { nodeType: 'UPSCALE', config: { mode: 'workflow', upscaler: 'Lanczos' } }))
+      .toMatchObject([{ field: 'upscaler', reason: 'unsupported', value: 'Lanczos' }])
+  })
+  it('未知插件放大节点由请求用途和可执行 API 图决定，不要求预置 UPSCALE 能力名', () => {
+    const config = { mode: 'workflow', workflowJson: {
+      '1': { class_type: 'LoadImage', inputs: { image: 'source.png' } },
+      '2': { class_type: 'AcmeSuperResolution', inputs: { image: ['1', 0] } },
+      '3': { class_type: 'SaveImage', inputs: { images: ['2', 0] } },
+    } }
+
+    expect(checklist({ upscaler: 'Lanczos' }, {
+      nodeType: 'UPSCALE', config,
+      probe: probe({ capabilities: ['IMAGE_GENERATION'], models: { ...probe().models, upscalers: [] } }),
+    })).toEqual([])
+  })
+  it('导入 Comfy API 放大执行图不再被标记为"放大工作流无效"', () => {
+    const config = { mode: 'workflow', workflowJson: { '1': { class_type: 'LoadImage', inputs: {} }, '2': { class_type: 'SaveImage', inputs: {} } } }
+    expect(checklist({}, { nodeType: 'UPSCALE', config }).filter((issue) => issue.field === 'workflow' || issue.field === 'workflowJson')).toEqual([])
+  })
   it('显式连接的 Provider 与节点配置不匹配时提示同步，不提供错误 Provider 的建议', () => {
     expect(checklist({ sampler: 'old' }, { connectionProvider: 'STABLE_DIFFUSION_WEBUI' })).toEqual([
       { id: 'connectionId-field-providerMismatch', field: 'connectionId', reason: 'providerMismatch' },

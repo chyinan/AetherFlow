@@ -39,7 +39,8 @@ describe('独立复核：执行图编辑及 UI→API 恢复',()=>{
     const w=panel(config)
     Object.defineProperty(w.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element,'files',{value:[{text:async()=>JSON.stringify(api)}],configurable:true})
     await w.get('[data-testid="comfy-api-file"]').trigger('change');await flushPromises()
-    for(const [key,value] of w.emitted('update')??[]) config[String(key)]=value
+    const replacement = w.emitted('replace-workflow')?.[0]?.[0] as Record<string, unknown> | undefined
+    Object.assign(config, replacement)
     const graph:WorkflowDefinition={id:'w',name:'review',nodes:[node('prompt','prompt',{prompt:'',negativePrompt:'synthetic negative',stylePreset:'comfyui-import'}),node('image-generation','image-generation',config)],edges:[{id:'p-i',source:'prompt',target:'image-generation'}]}
     const prompt:NodeTemplate={...nodeTemplates.find(n=>n.kind==='prompt')!,configSchema:[{name:'prompt',type:'STRING',required:true}]}
     const issues=buildWorkflowPreflight(graph,[prompt],{catalogLoaded:true,capabilitiesLoaded:true})

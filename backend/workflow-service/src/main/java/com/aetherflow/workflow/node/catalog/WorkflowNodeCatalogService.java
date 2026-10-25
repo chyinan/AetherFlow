@@ -688,11 +688,13 @@ public class WorkflowNodeCatalogService {
                         field("variable", "STRING", true, "Workflow variable to evaluate.", "summary"),
                         field("operator", "STRING", false, "Comparison operator.", "EXISTS",
                                 List.of("EQUALS", "NOT_EQUALS", "EXISTS", "NOT_EXISTS", "CONTAINS", "GREATER_THAN", "LESS_THAN")),
-                        field("value", "OBJECT", false, "Expected value for comparison.", "approved"),
+                        // 运行时用 String.valueOf 比较，前端写入的是字符串/数字/布尔标量；
+                        // OBJECT 契约会把这些标量判成类型错误，JSON 同时接受标量与结构。
+                        field("value", "JSON", false, "Expected value for comparison.", "approved"),
                         field("trueBranch", "STRING", false, "Branch key when condition is true.", "true"),
                         field("falseBranch", "STRING", false, "Branch key when condition is false.", "false")
                 ),
-                List.of(variable("variable", "OBJECT", "Workflow variable selected by config.variable.", "approved")),
+                List.of(variable("variable", "JSON", "Workflow variable selected by config.variable.", "approved")),
                 List.of(
                         variable("matched", "BOOLEAN", "Condition result.", true),
                         variable("branchKey", "STRING", "Selected branch key.", "true")
@@ -888,12 +890,16 @@ public class WorkflowNodeCatalogService {
                 "Writes a configured value or source variable value into a workflow variable.",
                 List.of(
                         field("variable", "STRING", true, "Target workflow variable name.", "result"),
-                        field("value", "OBJECT", false, "Fixed value.", "ready"),
+                        field("valueMode", "STRING", false, "Choose a fixed JSON value or a source variable.",
+                                "LITERAL", List.of("LITERAL", "SOURCE_VARIABLE")),
+                        field("valueType", "STRING", false, "Interpret a fixed value as text or JSON.",
+                                "STRING", List.of("STRING", "JSON")),
+                        field("value", "JSON", false, "Fixed string or JSON value.", "ready"),
                         field("sourceVariable", "STRING", false, "Source variable used when value is empty.", "draft")
                 ),
                 List.of(variable("draft", "OBJECT", "Source value.", "ready")),
-                List.of(variable("result", "OBJECT", "Assigned value.", "ready")),
-                mapOf("variable", "result", "value", "")
+                List.of(variable("result", "JSON", "Assigned JSON scalar, array, or object.", "ready")),
+                mapOf("variable", "result", "valueMode", "LITERAL", "valueType", "STRING", "value", "")
         );
     }
 

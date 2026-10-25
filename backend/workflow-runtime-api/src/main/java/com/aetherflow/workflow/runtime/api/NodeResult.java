@@ -1,5 +1,7 @@
 package com.aetherflow.workflow.runtime.api;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public record NodeResult(
@@ -12,8 +14,8 @@ public record NodeResult(
 ) {
 
     public NodeResult {
-        output = output == null ? Map.of() : Map.copyOf(output);
-        variables = variables == null ? Map.of() : Map.copyOf(variables);
+        output = immutableMap(output);
+        variables = immutableMap(variables);
     }
 
     public NodeResult(boolean successful,
@@ -42,5 +44,11 @@ public record NodeResult(
 
     public NodeResult withBranchKey(String branchKey) {
         return new NodeResult(successful, waiting, output, variables, nextNodeId, branchKey);
+    }
+
+    private static Map<String, Object> immutableMap(Map<String, Object> values) {
+        return values == null || values.isEmpty()
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(values));
     }
 }

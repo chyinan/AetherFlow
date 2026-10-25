@@ -368,6 +368,8 @@ defineExpose({
         fit-view-on-init
         @connect="workflowStore.addConnection"
         @node-click="onNodeClick"
+        @node-drag-start="workflowStore.beginNodeDrag"
+        @node-drag-stop="workflowStore.endNodeDrag"
         @nodes-initialized="focusRequestedNode"
       >
         <Background pattern-color="#94A3B8" :gap="24" :size="1" />

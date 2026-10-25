@@ -327,7 +327,12 @@ function normalizePlanOutputFormat(value: string) {
   throw new Error(`Unsupported output format: ${value}`)
 }
 
-export function redactCopilotValue(value: unknown, key = '', depth = 0): unknown {
+/**
+ * 裁掉超长内容和秘密字段后再交给模型。
+ * maxDepth 默认保持原有的 3 层：调用点需要更深的 schema（例如待确认的自定义节点草稿）时显式放宽，
+ * 400 字符截断、20 项/键上限和密钥脱敏在任何深度都不放宽。
+ */
+export function redactCopilotValue(value: unknown, key = '', depth = 0, maxDepth = 3): unknown {
   if (/secret|password|token|api.?key|credential|authorization|private.?key|access.?key/i.test(key)) {
     return '[redacted]'
   }
@@ -335,13 +340,13 @@ export function redactCopilotValue(value: unknown, key = '', depth = 0): unknown
     return value.length <= 400 ? value : `${value.slice(0, 400)}...`
   }
   if (Array.isArray(value)) {
-    return depth >= 3 ? '[nested data omitted]' : value.slice(0, 20).map((item) => redactCopilotValue(item, '', depth + 1))
+    return depth >= maxDepth ? '[nested data omitted]' : value.slice(0, 20).map((item) => redactCopilotValue(item, '', depth + 1, maxDepth))
   }
   if (typeof value === 'object' && value !== null) {
-    if (depth >= 3) return '[nested data omitted]'
+    if (depth >= maxDepth) return '[nested data omitted]'
     return Object.fromEntries(Object.entries(value).slice(0, 20).map(([childKey, childValue]) => [
       childKey,
-      redactCopilotValue(childValue, childKey, depth + 1),
+      redactCopilotValue(childValue, childKey, depth + 1, maxDepth),
     ]))
   }
   return value

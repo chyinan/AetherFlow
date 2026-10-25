@@ -13,8 +13,18 @@ import com.aetherflow.workflow.runtime.api.RuntimeEventType;
 import com.aetherflow.workflow.runtime.api.RuntimeState;
 import com.aetherflow.workflow.runtime.api.WorkflowContext;
 import com.aetherflow.workflow.runtime.core.RuntimeStateMachine;
+import com.aetherflow.workflow.runtime.config.WorkflowRuntimeProperties;
+import com.aetherflow.workflow.node.executor.AiWorkflowNodeResultAdapter;
+import com.aetherflow.workflow.node.executor.ConditionNodeExecutor;
+import com.aetherflow.workflow.node.executor.CodeExecutionNodeExecutor;
+import com.aetherflow.workflow.node.WorkflowNodeContextKeys;
+import com.aetherflow.workflow.node.WorkflowNodeProperties;
+import com.aetherflow.workflow.node.code.CodeExecutionRuntime;
+import com.aetherflow.workflow.node.metrics.WorkflowNodeMetrics;
+import com.aetherflow.workflow.runtime.recovery.WorkflowRuntimeRecoveryService;
 import com.aetherflow.workflow.runtime.persistence.InMemoryRuntimeSnapshotRepository;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
+import com.aetherflow.workflow.runtime.persistence.WorkflowRuntimeSnapshot;
 import com.aetherflow.workflow.runtime.lock.WorkflowRuntimeLock;
 import org.junit.jupiter.api.Test;
 
@@ -664,6 +674,626 @@ class WorkflowRuntimeEngineTest {
                 .extracting(RuntimeEvent::eventType)
                 .contains(RuntimeEventType.NODE_RETRYING, RuntimeEventType.WORKFLOW_FAILED)
                 .doesNotContain(RuntimeEventType.WORKFLOW_COMPLETED);
+    }
+
+    /**
+     * A14：HTTP 节点按分支成功后，成功分支与未被选中的错误分支共享同一个 END。
+     * 未选中的边必须释放 END 的入度，否则 END 永远差一个前驱而报"incomplete expected nodes"。
+     */
+    @Test
+    void releasesUnselectedEdgeOfSharedEndAndRunsItOnlyOnceWhenBranchSucceeds() {
+        AtomicInteger endExecutions = new AtomicInteger();
+        List<String> executed = new ArrayList<>();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", executed, context -> NodeResult.success(Map.of())),
+                executor("HTTP_REQUEST", executed, context -> NodeResult.success(Map.of("status", 200))
+                        .withBranchKey("success")),
+                executor("ACCEPT", executed, context -> NodeResult.success(Map.of("accepted", true))),
+                executor("END", executed, context -> {
+                    endExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("done", true));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-http-branch-shared-end",
+                "trace-http-branch-shared-end",
+                "task-http-branch-shared-end",
+                definition(
+                        node("start", "START", Map.of("next", "http")),
+                        node("http", "HTTP_REQUEST", Map.of("branches", Map.of("success", "accept", "error", "end"))),
+                        node("accept", "ACCEPT", Map.of("next", "end")),
+                        node("end", "END", Map.of())
+                ),
+                Map.of(),
+                RetryPolicy.none()
+        ));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.completedNodeIds()).containsExactlyInAnyOrder("start", "http", "accept", "end");
+        assertThat(endExecutions).hasValue(1);
+        assertThat(executed).containsExactly("START", "HTTP_REQUEST", "ACCEPT", "END");
+    }
+
+    @Test
+    void routesAsyncClassifierCompletionOnlyThroughTheSelectedBranchAfterColdRecovery() {
+        AtomicInteger billingExecutions = new AtomicInteger();
+        AtomicInteger supportExecutions = new AtomicInteger();
+        AtomicInteger endExecutions = new AtomicInteger();
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        WorkflowDefinitionDTO workflow = definition(
+                node("start", "START", Map.of("next", "assign")),
+                node("assign", "VARIABLE_ASSIGNER", Map.of("next", "classifier")),
+                node("classifier", "QUESTION_CLASSIFIER", Map.of("branches", Map.of(
+                        "billing", "billing", "support", "support"))),
+                node("billing", "BILLING_MARK", Map.of("next", "end")),
+                node("support", "SUPPORT_MARK", Map.of("next", "end")),
+                node("end", "END", Map.of())
+        );
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("VARIABLE_ASSIGNER", context -> NodeResult.success(
+                        Map.of("question", "Where is my invoice?"), Map.of("question", "Where is my invoice?"))),
+                executor("QUESTION_CLASSIFIER", context -> {
+                    assertThat(context.variables()).containsEntry("question", "Where is my invoice?");
+                    return NodeResult.waiting(Map.of("externalTaskId", 73L));
+                }),
+                executor("BILLING_MARK", context -> {
+                    billingExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("SUPPORT_MARK", context -> {
+                    supportExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("END", context -> {
+                    endExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("done", true));
+                })
+        ));
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async-classifier", "trace-async-classifier", "task-async-classifier",
+                workflow, Map.of(), RetryPolicy.none());
+        WorkflowRuntimeEngine initialEngine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), event -> {}, RuntimeSleeper.noop(), snapshots);
+
+        WorkflowExecutionSnapshot waiting = initialEngine.execute(request);
+        assertThat(waiting.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        assertThat(waiting.currentNodeIds()).containsExactly("classifier");
+
+        // 冷恢复后提交与真实 adapter 相同形状的结构化模型回执。
+        WorkflowRuntimeEngine recoveredEngine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), event -> {}, RuntimeSleeper.noop(), snapshots);
+        NodeResult supportReceipt = AiWorkflowNodeResultAdapter.adapt(
+                "QUESTION_CLASSIFIER",
+                Map.of("completionText", "{\"route\":\"support\",\"confidence\":0.91}"));
+        WorkflowExecutionSnapshot completed = recoveredEngine.completeWaitingNode(
+                request, waiting, "classifier", supportReceipt);
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).contains("support", "end").doesNotContain("billing");
+        assertThat(supportExecutions).hasValue(1);
+        assertThat(billingExecutions).hasValue(0);
+        assertThat(endExecutions).hasValue(1);
+
+        // 重复回执必须幂等，不得再次执行选中分支或共享 END。
+        WorkflowExecutionSnapshot duplicate = recoveredEngine.completeWaitingNode(
+                request, completed, "classifier", supportReceipt);
+        assertThat(duplicate.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(supportExecutions).hasValue(1);
+        assertThat(endExecutions).hasValue(1);
+    }
+
+    @Test
+    void routesSynchronousClassifierThroughOnlyTheConfiguredBillingBranch() {
+        AtomicInteger billingExecutions = new AtomicInteger();
+        AtomicInteger supportExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("QUESTION_CLASSIFIER", context -> AiWorkflowNodeResultAdapter.adapt(
+                        "QUESTION_CLASSIFIER", Map.of("completionText", "{\"route\":\"billing\"}"))),
+                executor("BILLING_MARK", context -> {
+                    billingExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("SUPPORT_MARK", context -> {
+                    supportExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                })
+        ));
+
+        WorkflowExecutionSnapshot completed = new WorkflowRuntimeEngine(registry).execute(new WorkflowRuntimeRequest(
+                "workflow-sync-classifier", "trace-sync-classifier", "task-sync-classifier",
+                definition(
+                        node("start", "START", Map.of("next", "classifier")),
+                        node("classifier", "QUESTION_CLASSIFIER", Map.of("branches", Map.of(
+                                "billing", "billing", "support", "support"))),
+                        node("billing", "BILLING_MARK", Map.of()),
+                        node("support", "SUPPORT_MARK", Map.of())
+                ), Map.of(), RetryPolicy.none()));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).contains("billing").doesNotContain("support");
+        assertThat(billingExecutions).hasValue(1);
+        assertThat(supportExecutions).hasValue(0);
+    }
+
+    @Test
+    void routesExplicitEmptyStringConditionToTrueBranchAfterDefinitionRoundtripShape() {
+        AtomicInteger trueExecutions = new AtomicInteger();
+        AtomicInteger falseExecutions = new AtomicInteger();
+        AtomicInteger endExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("VARIABLE_ASSIGNER", context -> NodeResult.success(
+                        Map.of("result", ""), Map.of("result", ""))),
+                new ConditionNodeExecutor(new WorkflowNodeMetrics()),
+                executor("TRUE_MARK", context -> {
+                    trueExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("FALSE_MARK", context -> {
+                    falseExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("END", context -> {
+                    endExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                })
+        ));
+
+        WorkflowExecutionSnapshot completed = new WorkflowRuntimeEngine(registry).execute(new WorkflowRuntimeRequest(
+                "workflow-condition-empty-string", "trace-condition-empty-string", "task-condition-empty-string",
+                definition(
+                        node("start", "START", Map.of("next", "assign")),
+                        node("assign", "VARIABLE_ASSIGNER", Map.of("next", "condition")),
+                        node("condition", "CONDITION", Map.of(
+                                "variable", "result", "operator", "EQUALS", "value", "",
+                                "trueBranch", "true", "falseBranch", "false",
+                                "branches", Map.of("true", "true-mark", "false", "false-mark"))),
+                        node("true-mark", "TRUE_MARK", Map.of("next", "end")),
+                        node("false-mark", "FALSE_MARK", Map.of("next", "end")),
+                        node("end", "END", Map.of())
+                ), Map.of(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("condition", Map.of(
+                        "variable", "result", "operator", "EQUALS", "value", "",
+                        "trueBranch", "true", "falseBranch", "false"))), RetryPolicy.none()));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).contains("true-mark", "end").doesNotContain("false-mark");
+        assertThat(trueExecutions).hasValue(1);
+        assertThat(falseExecutions).hasValue(0);
+        assertThat(endExecutions).hasValue(1);
+    }
+
+    @Test
+    void routesExplicitEmptyStringNotEqualsThroughFalseBranch() {
+        AtomicInteger trueExecutions = new AtomicInteger();
+        AtomicInteger falseExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("VARIABLE_ASSIGNER", context -> NodeResult.success(
+                        Map.of("result", ""), Map.of("result", ""))),
+                new ConditionNodeExecutor(new WorkflowNodeMetrics()),
+                executor("TRUE_MARK", context -> {
+                    trueExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                }),
+                executor("FALSE_MARK", context -> {
+                    falseExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of());
+                })
+        ));
+        Map<String, Object> conditionConfig = Map.of(
+                "variable", "result", "operator", "NOT_EQUALS", "value", "",
+                "trueBranch", "true", "falseBranch", "false");
+
+        WorkflowExecutionSnapshot completed = new WorkflowRuntimeEngine(registry).execute(new WorkflowRuntimeRequest(
+                "workflow-condition-empty-not-equals", "trace-condition-empty-not-equals", "task-condition-empty-not-equals",
+                definition(
+                        node("start", "START", Map.of("next", "assign")),
+                        node("assign", "VARIABLE_ASSIGNER", Map.of("next", "condition")),
+                        node("condition", "CONDITION", Map.of("branches", Map.of(
+                                "true", "true-mark", "false", "false-mark"))),
+                        node("true-mark", "TRUE_MARK", Map.of()),
+                        node("false-mark", "FALSE_MARK", Map.of())
+                ), Map.of(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("condition", conditionConfig)), RetryPolicy.none()));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).contains("false-mark").doesNotContain("true-mark");
+        assertThat(trueExecutions).hasValue(0);
+        assertThat(falseExecutions).hasValue(1);
+    }
+
+    @Test
+    void defaultCodeMayReturnNullAndDownstreamCanReadThePresentNullVariable() {
+        AtomicBoolean downstreamSawNull = new AtomicBoolean();
+        WorkflowNodeProperties properties = new WorkflowNodeProperties();
+        properties.setCodeExecutionEnabled(true);
+        properties.setCodeRuntimeIsolationConfirmed(true);
+        CodeExecutionRuntime runtime = (language, code, input, timeoutMs, maxOutputBytes) -> {
+            assertThat(language).isEqualTo("python3");
+            assertThat(code).isEqualTo("def main(payload): return payload");
+            assertThat(input).isNull();
+            return new CodeExecutionRuntime.CodeExecutionResult(null, "", 1, false);
+        };
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                new CodeExecutionNodeExecutor(new WorkflowNodeMetrics(), properties, runtime),
+                executor("CHECK_NULL", context -> {
+                    downstreamSawNull.set(context.variables().containsKey("codeResult")
+                            && context.variables().get("codeResult") == null);
+                    return NodeResult.success(Map.of("sawNull", downstreamSawNull.get()));
+                }),
+                executor("END", context -> NodeResult.success(Map.of()))
+        ));
+
+        WorkflowExecutionSnapshot completed = new WorkflowRuntimeEngine(registry).execute(new WorkflowRuntimeRequest(
+                "workflow-code-null-result", "trace-code-null-result", "task-code-null-result",
+                definition(
+                        node("start", "START", Map.of("next", "code")),
+                        node("code", "CODE", Map.of(
+                                "code", "def main(payload): return payload", "outputVariable", "codeResult",
+                                "language", "python3", "next", "check")),
+                        node("check", "CHECK_NULL", Map.of("next", "end")),
+                        node("end", "END", Map.of())
+                ), Map.of(WorkflowNodeContextKeys.NODE_CONFIGS, Map.of("code", Map.of(
+                        "code", "def main(payload): return payload", "outputVariable", "codeResult",
+                        "language", "python3"))), RetryPolicy.none()));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(downstreamSawNull).isTrue();
+        assertThat(completed.variables()).containsKey("codeResult");
+        assertThat(completed.variables().get("codeResult")).isNull();
+    }
+
+    /** A14：错误分支直接汇入共享 END 时，未选中的成功分支被跳过且 END 仍然只执行一次。 */
+    @Test
+    void completesSharedEndOnErrorBranchAndSkipsUnselectedSuccessBranch() {
+        AtomicInteger endExecutions = new AtomicInteger();
+        List<String> executed = new ArrayList<>();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", executed, context -> NodeResult.success(Map.of())),
+                executor("HTTP_REQUEST", executed, context -> NodeResult.success(Map.of("status", 500))
+                        .withBranchKey("error")),
+                executor("ACCEPT", executed, context -> NodeResult.success(Map.of("accepted", true))),
+                executor("END", executed, context -> {
+                    endExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("done", true));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-http-branch-error-edge",
+                "trace-http-branch-error-edge",
+                "task-http-branch-error-edge",
+                definition(
+                        node("start", "START", Map.of("next", "http")),
+                        node("http", "HTTP_REQUEST", Map.of("branches", Map.of("success", "accept", "error", "end"))),
+                        node("accept", "ACCEPT", Map.of("next", "end")),
+                        node("end", "END", Map.of())
+                ),
+                Map.of(),
+                RetryPolicy.none()
+        ));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.completedNodeIds()).containsExactlyInAnyOrder("start", "http", "end");
+        assertThat(snapshot.nodeOutputs()).doesNotContainKey("accept");
+        assertThat(executed).containsExactly("START", "HTTP_REQUEST", "END");
+        assertThat(endExecutions).hasValue(1);
+    }
+
+    /** A14 回归：普通菱形（无条件分支动态选边）的汇合点仍只执行一次。 */
+    @Test
+    void runsOrdinaryDiamondJoinOnlyOnce() {
+        AtomicInteger joinExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("LEFT", context -> NodeResult.success(Map.of("left", true))),
+                executor("RIGHT", context -> NodeResult.success(Map.of("right", true))),
+                executor("JOIN", context -> {
+                    joinExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("joined", true));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-plain-diamond",
+                "trace-plain-diamond",
+                "task-plain-diamond",
+                definition(
+                        node("start", "START", Map.of("nextNodes", List.of("left", "right"))),
+                        node("left", "LEFT", Map.of("next", "join")),
+                        node("right", "RIGHT", Map.of("next", "join")),
+                        node("join", "JOIN", Map.of())
+                ),
+                Map.of(),
+                RetryPolicy.none()
+        ));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.completedNodeIds()).contains("start", "left", "right", "join");
+        assertThat(joinExecutions).hasValue(1);
+    }
+
+    /** A14：两层汇合（先动态选边跳过一条边，再静态汇聚）时中间与末端汇合点都只执行一次。 */
+    @Test
+    void releasesUnselectedEdgesAtMultiLevelMerges() {
+        AtomicInteger firstMergeExecutions = new AtomicInteger();
+        AtomicInteger secondMergeExecutions = new AtomicInteger();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("BRANCH", context -> NodeResult.success(Map.of()).withBranchKey("left")),
+                executor("LEFT", context -> NodeResult.success(Map.of("left", true))),
+                executor("RIGHT", context -> NodeResult.success(Map.of("right", true))),
+                executor("MERGE", context -> {
+                    firstMergeExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("merged", true)).withBranchKey("go");
+                }),
+                executor("FAN", context -> NodeResult.success(Map.of("fan", true))),
+                executor("OTHER", context -> NodeResult.success(Map.of("other", true))),
+                executor("TAIL", context -> {
+                    secondMergeExecutions.incrementAndGet();
+                    return NodeResult.success(Map.of("tail", true));
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(registry);
+
+        WorkflowExecutionSnapshot snapshot = engine.execute(new WorkflowRuntimeRequest(
+                "workflow-multi-level-merge",
+                "trace-multi-level-merge",
+                "task-multi-level-merge",
+                definition(
+                        node("start", "START", Map.of("next", "branch")),
+                        node("branch", "BRANCH", Map.of("branches", Map.of("left", "left", "right", "right"))),
+                        node("left", "LEFT", Map.of("next", "merge")),
+                        node("right", "RIGHT", Map.of("next", "merge")),
+                        node("merge", "MERGE", Map.of("branches", Map.of("go", "fan", "stop", "tail"))),
+                        node("fan", "FAN", Map.of("nextNodes", List.of("other", "tail"))),
+                        node("other", "OTHER", Map.of("next", "tail")),
+                        node("tail", "TAIL", Map.of())
+                ),
+                Map.of(),
+                RetryPolicy.none()
+        ));
+
+        assertThat(snapshot.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(snapshot.completedNodeIds()).contains("start", "branch", "left", "merge", "fan", "other", "tail");
+        assertThat(snapshot.nodeOutputs()).doesNotContainKey("right");
+        assertThat(firstMergeExecutions).hasValue(1);
+        assertThat(secondMergeExecutions).hasValue(1);
+    }
+
+    /** A14：冷恢复时已完成分支节点未选中的边同样要吃掉入度，否则共享 END 会被静默丢弃。 */
+    @Test
+    void resumesSharedEndAfterBranchNodeWasAlreadyCompleted() {
+        AtomicInteger endExecutions = new AtomicInteger();
+        InMemoryRuntimeSnapshotRepository repository = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                new NodeRegistry(List.of(
+                        executor("START", context -> NodeResult.success(Map.of())),
+                        executor("HTTP_REQUEST", context -> NodeResult.success(Map.of()).withBranchKey("success")),
+                        executor("ACCEPT", context -> NodeResult.success(Map.of("accepted", true))),
+                        executor("END", context -> {
+                            endExecutions.incrementAndGet();
+                            return NodeResult.success(Map.of("done", true));
+                        }))),
+                new RuntimeStateMachine(), event -> {}, RuntimeSleeper.noop(), repository);
+        WorkflowDefinitionDTO definition = definition(
+                node("start", "START", Map.of("next", "http")),
+                node("http", "HTTP_REQUEST", Map.of("branches", Map.of("success", "accept", "error", "end"))),
+                node("accept", "ACCEPT", Map.of("next", "end")),
+                node("end", "END", Map.of())
+        );
+        WorkflowRuntimeSnapshot crashSnapshot = new WorkflowRuntimeSnapshot(
+                "workflow-resume-shared-end", "trace-resume-shared-end", "task-resume-shared-end",
+                null, definition, RuntimeState.RUNNING,
+                List.of("end"), List.of("start", "http", "accept"), List.of(),
+                Map.of(),
+                Map.of(
+                        "start", NodeResult.success(Map.of()),
+                        "http", NodeResult.success(Map.of("status", 200)).withBranchKey("success"),
+                        "accept", NodeResult.success(Map.of("accepted", true))
+                ),
+                java.time.Instant.now());
+        repository.save(crashSnapshot);
+
+        WorkflowExecutionSnapshot recovered = engine.resume(
+                new WorkflowRuntimeRequest("workflow-resume-shared-end", "trace-resume-shared-end",
+                        "task-resume-shared-end", definition, Map.of(), RetryPolicy.none()),
+                crashSnapshot.toExecutionSnapshot());
+
+        assertThat(recovered.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(recovered.completedNodeIds()).contains("end");
+        assertThat(endExecutions).hasValue(1);
+    }
+
+    /**
+     * A09：异步完成的变量写入必须与正常并行路径使用同一优先级（深度大者优先）。
+     * 完成顺序与深度顺序相反时，深层节点写入的值不能被浅层回调覆盖。
+     */
+    @Test
+    void keepsDeeperVariableWriterWhenAsyncCompletionsArriveOutOfOrder() {
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_SHALLOW", context -> NodeResult.waiting(Map.of("externalTaskId", 1L))),
+                executor("MID", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_DEEP", context -> NodeResult.waiting(Map.of("externalTaskId", 2L)))
+        ));
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), event -> {}, RuntimeSleeper.noop(), snapshots);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async-depth", "trace-async-depth", "task-async-depth",
+                definition(
+                        node("start", "START", Map.of("nextNodes", List.of("shallow", "mid"))),
+                        node("shallow", "ASYNC_SHALLOW", Map.of()),
+                        node("mid", "MID", Map.of("next", "deep")),
+                        node("deep", "ASYNC_DEEP", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+        assertThat(waiting.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        assertThat(waiting.currentNodeIds()).containsExactly("deep", "shallow");
+
+        // 深层节点先完成，浅层节点后完成。
+        WorkflowExecutionSnapshot afterDeep = engine.completeWaitingNode(
+                request, waiting, "deep", NodeResult.success(Map.of(), Map.of("winner", "DEEP")));
+        assertThat(afterDeep.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        WorkflowExecutionSnapshot completed = engine.completeWaitingNode(
+                request, afterDeep, "shallow", NodeResult.success(Map.of(), Map.of("winner", "SHALLOW")));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.variables()).containsEntry("winner", "DEEP");
+    }
+
+    /** A09：同深度异步完成时按节点 ID 升序仲裁，ID 小的先完成也不会被 ID 大的回调覆盖。 */
+    @Test
+    void keepsSmallerNodeIdVariableWriterWhenAsyncCompletionsArriveOutOfOrder() {
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_A", context -> NodeResult.waiting(Map.of("externalTaskId", 1L))),
+                executor("ASYNC_Z", context -> NodeResult.waiting(Map.of("externalTaskId", 2L)))
+        ));
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), event -> {}, RuntimeSleeper.noop(), snapshots);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async-node-id", "trace-async-node-id", "task-async-node-id",
+                definition(
+                        node("start", "START", Map.of("nextNodes", List.of("a", "z"))),
+                        node("a", "ASYNC_A", Map.of()),
+                        node("z", "ASYNC_Z", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+        WorkflowExecutionSnapshot afterA = engine.completeWaitingNode(
+                request, waiting, "a", NodeResult.success(Map.of(), Map.of("winner", "A")));
+        WorkflowExecutionSnapshot completed = engine.completeWaitingNode(
+                request, afterA, "z", NodeResult.success(Map.of(), Map.of("winner", "Z")));
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.variables()).containsEntry("winner", "A");
+    }
+
+    /**
+     * A17：顶层异步节点完成后，下游节点确定失败时必须立即落 FAILED 终态。
+     * 否则快照停在 RUNNING，恢复任务会把它重新捞起来再多花一轮重试预算。
+     */
+    @Test
+    void marksWorkflowFailedImmediatelyWhenDownstreamNodeFailsAfterAsyncCompletion() {
+        AtomicInteger mapperExecutions = new AtomicInteger();
+        List<RuntimeEvent> events = new ArrayList<>();
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_AI", context -> NodeResult.waiting(Map.of("externalTaskId", 7L))),
+                executor("MAPPER", context -> {
+                    mapperExecutions.incrementAndGet();
+                    throw new IllegalStateException("结构化映射缺少字段: title");
+                })
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), events::add, RuntimeSleeper.noop(), snapshots);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "7001", "trace-async-downstream-fail", "task-async-downstream-fail",
+                definition(
+                        node("start", "START", Map.of("next", "ai")),
+                        node("ai", "ASYNC_AI", Map.of("next", "mapper")),
+                        node("mapper", "MAPPER", Map.of())
+                ),
+                Map.of("userId", 7L), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+        assertThat(waiting.runtimeState()).isEqualTo(RuntimeState.WAITING);
+
+        assertThatThrownBy(() -> engine.completeWaitingNode(
+                request, waiting, "ai", NodeResult.success(Map.of("text", "hello"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("结构化映射缺少字段");
+
+        WorkflowRuntimeSnapshot stored = snapshots.findByWorkflowId("7001").orElseThrow();
+        assertThat(stored.runtimeState()).isEqualTo(RuntimeState.FAILED);
+        assertThat(stored.failedNodeIds()).containsExactly("mapper");
+        assertThat(stored.recoverable()).isFalse();
+        assertThat(events)
+                .anyMatch(event -> event.eventType() == RuntimeEventType.WORKFLOW_FAILED
+                        && "mapper".equals(event.nodeId()));
+
+        WorkflowRuntimeRecoveryService recovery = new WorkflowRuntimeRecoveryService(
+                snapshots, engine, new WorkflowRuntimeProperties());
+        assertThat(recovery.recoverRunnableWorkflows()).isEmpty();
+        assertThat(mapperExecutions).hasValue(1);
+    }
+
+    /** A17：异步完成期间收到取消信号仍走取消收尾，不落 FAILED。 */
+    @Test
+    void keepsCancellationPathWhenProbeReportsCancelledDuringAsyncCompletion() {
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        List<RuntimeEvent> events = new ArrayList<>();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_AI", context -> NodeResult.waiting(Map.of("externalTaskId", 8L))),
+                executor("EXPORT", context -> NodeResult.success(Map.of("exported", true)))
+        ));
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), events::add, RuntimeSleeper.noop(),
+                RuntimeSnapshotRepository.noop(), WorkflowRuntimeLock.noop(), workflowId -> cancelled.get());
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async-cancel", "trace-async-cancel", "task-async-cancel",
+                definition(
+                        node("start", "START", Map.of("next", "ai")),
+                        node("ai", "ASYNC_AI", Map.of("next", "export")),
+                        node("export", "EXPORT", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+        assertThat(waiting.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        cancelled.set(true);
+
+        WorkflowExecutionSnapshot cancelledSnapshot = engine.completeWaitingNode(
+                request, waiting, "ai", NodeResult.success(Map.of()));
+
+        assertThat(cancelledSnapshot.runtimeState()).isEqualTo(RuntimeState.CANCELLED);
+        assertThat(events).anyMatch(event -> event.eventType() == RuntimeEventType.WORKFLOW_CANCELLED);
+        assertThat(events).noneMatch(event -> event.eventType() == RuntimeEventType.WORKFLOW_FAILED);
+    }
+
+    /** A17：异步完成后下游继续等待时保持 WAITING，不误判为失败。 */
+    @Test
+    void keepsWorkflowWaitingWhenAsyncCompletionLeadsToAnotherWaitingNode() {
+        List<RuntimeEvent> events = new ArrayList<>();
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("ASYNC_FIRST", context -> NodeResult.waiting(Map.of("externalTaskId", 11L))),
+                executor("ASYNC_SECOND", context -> NodeResult.waiting(Map.of("externalTaskId", 12L)))
+        ));
+        InMemoryRuntimeSnapshotRepository snapshots = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), events::add, RuntimeSleeper.noop(), snapshots);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-async-chain", "trace-async-chain", "task-async-chain",
+                definition(
+                        node("start", "START", Map.of("next", "first")),
+                        node("first", "ASYNC_FIRST", Map.of("next", "second")),
+                        node("second", "ASYNC_SECOND", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot waiting = engine.execute(request);
+        WorkflowExecutionSnapshot afterFirst = engine.completeWaitingNode(
+                request, waiting, "first", NodeResult.success(Map.of()));
+
+        assertThat(afterFirst.runtimeState()).isEqualTo(RuntimeState.WAITING);
+        assertThat(afterFirst.currentNodeIds()).containsExactly("second");
+        assertThat(afterFirst.completedNodeIds()).contains("first");
+        assertThat(events).noneMatch(event -> event.eventType() == RuntimeEventType.WORKFLOW_FAILED);
     }
 
     private static NodeExecutor executor(String type,

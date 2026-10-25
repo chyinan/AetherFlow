@@ -354,6 +354,26 @@ class PythonAiServiceApiTest(unittest.TestCase):
         self.assertEqual("working", response.json()["stdout"])
         self.assertFalse(response.json()["truncated"])
 
+    def test_code_execution_default_main_payload_preserves_null_and_json_result_shapes(self):
+        cases = [
+            (False, None),
+            (True, None),
+            (True, {"answer": 42}),
+            (True, ["a", 2]),
+            (True, 0),
+            (True, False),
+            (True, ""),
+        ]
+        for include_input, expected in cases:
+            with self.subTest(include_input=include_input, expected=expected):
+                body = {"code": "def main(payload): return payload"}
+                if include_input:
+                    body["input"] = expected
+                response = self.client.post("/v1/code/execute", json=body)
+
+                self.assertEqual(200, response.status_code, response.text)
+                self.assertEqual(expected, response.json()["result"])
+
     def test_code_execution_rejects_imports_before_subprocess(self):
         response = self.client.post(
             "/v1/code/execute",

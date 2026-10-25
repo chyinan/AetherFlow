@@ -24,7 +24,35 @@ class ImageConnectionDiscoveryTest {
         var profile = new NodeConnectionProfile("saved", "test", "COMFYUI", "http://fake-comfy", false);
         var probe = discovery.probeWorkflow(profile, java.util.List.of("ExamplePlugin"));
         org.assertj.core.api.Assertions.assertThat(probe.status()).isEqualTo("usable");
+        org.assertj.core.api.Assertions.assertThat(probe.unavailableCatalogs()).contains("checkpoints", "vaes", "samplers");
         org.assertj.core.api.Assertions.assertThat(probe.warnings()).anyMatch(message -> message.contains("不代表"));
+        server.verify();
+    }
+
+    @Test
+    void apiGraphProbeAlsoReturnsModelDirectoriesAndPreservesKnownEmptyCatalogs() {
+        var builder = RestClient.builder();
+        var server = MockRestServiceServer.bindTo(builder).build();
+        var discovery = new ImageConnectionDiscovery((url, timeout) -> builder.clone().baseUrl(url).build(), Duration.ofSeconds(1));
+        server.expect(requestTo("http://fake-comfy/object_info")).andRespond(withSuccess("""
+                {
+                  "ExamplePlugin":{},
+                  "CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["model-a.safetensors","model-b.safetensors"]]}}},
+                  "VAELoader":{"input":{"required":{"vae_name":[[]]}}},
+                  "LoraLoader":{"input":{"required":{"lora_name":[[]]}}},
+                  "KSampler":{"input":{"required":{"sampler_name":[["euler"]],"scheduler":[["normal"]]}}},
+                  "ImageScaleBy":{"input":{"required":{"upscale_method":[["bilinear"]]}}}
+                }
+                """, MediaType.APPLICATION_JSON));
+
+        NodeConnectionProbe probe = discovery.probeWorkflow(
+                new NodeConnectionProfile("saved", "test", "COMFYUI", "http://fake-comfy", false),
+                java.util.List.of("ExamplePlugin"));
+
+        assertThat(probe.status()).isEqualTo("usable");
+        assertThat(probe.models().checkpoints()).containsExactly("model-a.safetensors", "model-b.safetensors");
+        assertThat(probe.models().vaes()).isEmpty();
+        assertThat(probe.unavailableCatalogs()).isEmpty();
         server.verify();
     }
 

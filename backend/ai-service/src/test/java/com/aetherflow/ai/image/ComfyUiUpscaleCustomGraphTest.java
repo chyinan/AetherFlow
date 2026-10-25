@@ -36,6 +36,11 @@ class ComfyUiUpscaleCustomGraphTest {
     private static final Map<String, Object> SOURCE_IMAGE_BINDING = Map.of(
             "nodeId", "1", "inputName", "image", "parameter", "sourceImage");
 
+    private static final Map<String, Object> PLUGIN_GRAPH = Map.of(
+            "1", Map.of("class_type", "LoadImage", "inputs", Map.of("image", "placeholder.png")),
+            "2", Map.of("class_type", "AcmeSuperResolution", "inputs", Map.of("image", List.of("1", 0))),
+            "3", Map.of("class_type", "SaveImage", "inputs", Map.of("images", List.of("2", 0))));
+
     @Test
     void customExecutionGraphIsSubmittedInsteadOfTheDefaultGraph() {
         RestClient.Builder builder = RestClient.builder();
@@ -61,6 +66,37 @@ class ComfyUiUpscaleCustomGraphTest {
                 .andRespond(withSuccess("aW1hZ2U=", MediaType.IMAGE_PNG));
 
         ImageGenerationResponse response = provider.upscale(request(CUSTOM_GRAPH, Map.of(
+                "workflowBindings", List.of(SOURCE_IMAGE_BINDING))));
+
+        assertThat(response.images()).hasSize(1);
+        server.verify();
+    }
+
+    @Test
+    void unknownPluginUpscaleGraphWithSourceBindingExecutesWithoutBuiltInUpscalerName() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ComfyUiProvider provider = provider(builder);
+
+        server.expect(once(), requestTo("http://comfy/upload/image"))
+                .andExpect(method(POST))
+                .andRespond(withSuccess("""
+                        {"name":"uploaded-source.png","subfolder":"","type":"input"}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(content().string(containsString("AcmeSuperResolution")))
+                .andExpect(content().string(containsString("uploaded-source.png")))
+                .andRespond(withSuccess("{\"prompt_id\":\"plugin\"}", MediaType.APPLICATION_JSON));
+        expectQueue(server);
+        server.expect(once(), requestTo("http://comfy/history/plugin"))
+                .andRespond(withSuccess("""
+                        {"plugin":{"outputs":{"3":{"images":[{"filename":"plugin-upscaled.png","subfolder":"","type":"output"}]}}}}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("http://comfy/view?filename=plugin-upscaled.png&subfolder=&type=output"))
+                .andRespond(withSuccess("aW1hZ2U=", MediaType.IMAGE_PNG));
+
+        ImageGenerationResponse response = provider.upscale(request(PLUGIN_GRAPH, Map.of(
                 "workflowBindings", List.of(SOURCE_IMAGE_BINDING))));
 
         assertThat(response.images()).hasSize(1);

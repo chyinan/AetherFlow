@@ -40,7 +40,14 @@ public class QuestionClassifierNodeExecutor extends AbstractAiWorkflowNodeExecut
         NodeValueSupport.putIfPresent(payload, "model", config.get("model"));
 
         AiWorkflowNodeResponseDTO response = executeAi(context, "LLM", payload);
-        return aiResult(response);
+        NodeResult result = aiResult(response);
+        // 分支键必须是已配置路由之一，否则 DAG 边匹配不上会静默走默认/空边。
+        String route = NodeValueSupport.stringValue(result.variables().get("route"), "");
+        if (routes.stream().noneMatch(candidate -> candidate.equals(route))) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "question classifier node route '" + route + "' is not configured, expected one of " + routes);
+        }
+        return result;
     }
 
     private List<String> routes(Map<String, Object> config) {

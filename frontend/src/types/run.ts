@@ -20,7 +20,7 @@ export interface RunNodeState {
   output?: string
   retryCount?: number
   reused?: boolean
-  approval?: HumanApprovalDetails
+  approval?: HumanApprovalDetails | null
 }
 
 export interface RunLogEntry {
@@ -42,6 +42,7 @@ export interface WorkflowRun {
   definitionId?: number
   currentNodeId?: string
   backendStatus?: string
+  cancellationCleanup?: WorkflowCancellationCleanupStatus
   status: RunStatus
   startedAt: string
   durationMs: number
@@ -53,4 +54,14 @@ export interface WorkflowRun {
   nodeStates: RunNodeState[]
   artifactCount: number
   artifactNames: string[]
+}
+
+export interface WorkflowCancellationCleanupStatus {
+  workflowInstanceId: number
+  status: 'PENDING' | 'PROCESSING' | 'FAILED' | 'COMPLETE' | 'NOT_REQUIRED' | string
+  attemptCount: number
+  lastError?: string | null
+  nextAttemptAt?: string | null
+  completedAt?: string | null
+  retryable: boolean
 }

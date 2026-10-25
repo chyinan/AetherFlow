@@ -20,7 +20,7 @@ const showNotifications = ref(false)
 const notificationTrigger = ref<HTMLButtonElement | null>(null)
 const notificationPanel = ref<HTMLElement | null>(null)
 
-const notificationItems = computed(() => uiStore.notifications.slice(0, 10))
+const notificationItems = computed(() => uiStore.notifications.slice(0, 20))
 const unreadNotificationCount = computed(() => uiStore.unreadNotificationCount)
 const streamUserId = computed(() => authStore.user?.userId ?? 1)
 
@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
                     <span v-if="!item.read" class="h-2 w-2 shrink-0 rounded-full bg-primary" />
                     <p class="truncate text-sm font-semibold text-text-primary">{{ item.title }}</p>
                   </div>
-                  <StatusDot :tone="item.tone" :label="item.tone" />
+                    <StatusDot v-if="item.tone" :tone="item.tone" :label="item.tone" />
                 </div>
                 <p class="mt-2 text-xs leading-5 text-text-secondary [overflow-wrap:anywhere]">{{ notificationMessage(item) }}</p>
                 <div class="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-3 text-[11px] text-text-muted [overflow-wrap:anywhere]">

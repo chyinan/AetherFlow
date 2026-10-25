@@ -1,5 +1,6 @@
 // pattern: Functional Core
 import type { WorkflowDefinitionDTO, WorkflowDefinitionNodeDTO } from '@/api/modules/workflow'
+import type { WorkflowDefinition } from '@/types/workflow'
 
 /** 一次保存提交的不可变快照：工作流归属、期望版本与实际发出的业务内容。 */
 export interface SaveSubmissionSnapshot {
@@ -9,6 +10,8 @@ export interface SaveSubmissionSnapshot {
   /** 提交时的编辑版本，用于判断核对期间是否出现了较新的本地编辑。 */
   editRevision: number
   payload: WorkflowDefinitionDTO
+  /** 重试同一版本更新时使用的不可变画布快照。 */
+  workflow?: WorkflowDefinition
 }
 
 /** 远端定义的只读快照：版本与服务端存储的业务内容。 */
@@ -20,7 +23,7 @@ export interface RemoteDefinitionSnapshot {
 /**
  * 远端相对本次提交的状态：
  * - committed：远端版本正好是期望版本 +1，且业务内容与本次提交完全一致
- * - notSubmitted：远端版本仍是期望版本，本次提交没有落库
+ * - notSubmitted：这次读回看到远端仍是期望版本；不能据此证明在途提交之后不会落库
  * - conflict：远端版本或内容与预期不符（他人已改动或落库了别的内容）
  * - unknown：缺少版本或内容，无法给出可靠结论
  */

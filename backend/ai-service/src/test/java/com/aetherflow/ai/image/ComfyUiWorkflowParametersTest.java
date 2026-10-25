@@ -52,7 +52,7 @@ class ComfyUiWorkflowParametersTest {
     @ParameterizedTest
     @ValueSource(strings = {"txt2img", "img2img"})
     void resolvesRandomSentinelForDefaultWorkflows(String mode) {
-        expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "6" : "5")
+        expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "7" : "5")
                 .path("seed").longValue()).isNotNegative());
 
         generate(request(mode, -1L, null, Map.of(), List.of()));
@@ -62,7 +62,7 @@ class ComfyUiWorkflowParametersTest {
     @CsvSource({"txt2img,0", "img2img,0", "txt2img,7", "img2img,7",
             "txt2img,9223372036854775807", "img2img,9223372036854775807"})
     void preservesExplicitNonNegativeSeeds(String mode, long seed) {
-        expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "6" : "5")
+        expectGeneration(mode, graph -> assertThat(inputs(graph, "img2img".equals(mode) ? "7" : "5")
                 .path("seed").longValue()).isEqualTo(seed));
 
         generate(request(mode, seed, null, Map.of(), List.of()));
@@ -71,10 +71,10 @@ class ComfyUiWorkflowParametersTest {
     @Test
     void selectedImg2imgVaeFeedsBothEncodeAndDecode() {
         expectGeneration("img2img", graph -> {
-            assertThat(inputs(graph, "9").path("vae_name").textValue()).isEqualTo("selected.safetensors");
-            assertThat(inputs(graph, "5").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("9", 0)));
-            assertThat(inputs(graph, "7").path("vae")).isEqualTo(inputs(graph, "5").path("vae"));
-            assertThat(inputs(graph, "6").path("latent_image")).isEqualTo(objectMapper.valueToTree(List.of("5", 0)));
+            assertThat(inputs(graph, "10").path("vae_name").textValue()).isEqualTo("selected.safetensors");
+            assertThat(inputs(graph, "6").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("10", 0)));
+            assertThat(inputs(graph, "8").path("vae")).isEqualTo(inputs(graph, "6").path("vae"));
+            assertThat(inputs(graph, "7").path("latent_image")).isEqualTo(objectMapper.valueToTree(List.of("6", 0)));
         });
 
         generate(request("img2img", 7L, "selected.safetensors", Map.of(), List.of()));
@@ -83,11 +83,11 @@ class ComfyUiWorkflowParametersTest {
     @Test
     void selectedImg2imgVaeStillFeedsBothNodesAfterLoraLoaders() {
         expectGeneration("img2img", graph -> {
-            assertThat(graph.path("9").path("class_type").textValue()).isEqualTo("LoraLoader");
-            assertThat(inputs(graph, "10").path("vae_name").textValue()).isEqualTo("selected.safetensors");
-            assertThat(inputs(graph, "5").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("10", 0)));
-            assertThat(inputs(graph, "7").path("vae")).isEqualTo(inputs(graph, "5").path("vae"));
-            assertThat(inputs(graph, "6").path("model")).isEqualTo(objectMapper.valueToTree(List.of("9", 0)));
+            assertThat(graph.path("10").path("class_type").textValue()).isEqualTo("LoraLoader");
+            assertThat(inputs(graph, "11").path("vae_name").textValue()).isEqualTo("selected.safetensors");
+            assertThat(inputs(graph, "6").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("11", 0)));
+            assertThat(inputs(graph, "8").path("vae")).isEqualTo(inputs(graph, "6").path("vae"));
+            assertThat(inputs(graph, "7").path("model")).isEqualTo(objectMapper.valueToTree(List.of("10", 0)));
         });
 
         generate(request("img2img", 7L, "selected.safetensors", Map.of(),
@@ -99,9 +99,9 @@ class ComfyUiWorkflowParametersTest {
     @ValueSource(strings = {"   "})
     void absentImg2imgVaeKeepsCheckpointEncodeAndDecode(String vae) {
         expectGeneration("img2img", graph -> {
-            assertThat(graph.has("9")).isFalse();
-            assertThat(inputs(graph, "5").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("1", 2)));
-            assertThat(inputs(graph, "7").path("vae")).isEqualTo(inputs(graph, "5").path("vae"));
+            assertThat(graph.has("10")).isFalse();
+            assertThat(inputs(graph, "6").path("vae")).isEqualTo(objectMapper.valueToTree(List.of("1", 2)));
+            assertThat(inputs(graph, "8").path("vae")).isEqualTo(inputs(graph, "6").path("vae"));
         });
 
         generate(request("img2img", 7L, vae, Map.of(), List.of()));
@@ -117,6 +117,30 @@ class ComfyUiWorkflowParametersTest {
         });
 
         generate(request("txt2img", 7L, "selected.safetensors", Map.of(), List.of()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "checkpoint,CheckpointLoaderSimple,ckpt_name",
+            "vae,VAELoader,vae_name",
+            "sampler,KSampler,sampler_name",
+            "scheduler,KSampler,scheduler"
+    })
+    void blankExplicitModelBindingFailsInsteadOfClearingTheImportedDefault(
+            String parameter, String nodeType, String inputName) {
+        Map<String, Object> graph = Map.of("selected", Map.of(
+                "class_type", nodeType, "inputs", Map.of(inputName, "graph-default")));
+        ImageGenerationRequest request = new ImageGenerationRequest(
+                ImageProviderType.COMFYUI, "workflow", "cat", "", null, null, null,
+                "", "", null, null, null, null, "", "", List.of(), null, null,
+                graph, Map.of("workflowBindings", List.of(Map.of(
+                        "nodeId", "selected", "inputName", inputName, "parameter", parameter))), Duration.ofSeconds(1));
+
+        assertThatThrownBy(() -> provider.generate(request))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST))
+                .hasMessageContaining("ComfyUI 绑定参数未提供", parameter);
+        server.verify();
     }
 
     @ParameterizedTest

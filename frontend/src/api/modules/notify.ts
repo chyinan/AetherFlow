@@ -7,6 +7,7 @@ export interface NotifyMessageDTO {
   eventType?: string
   payload: Record<string, unknown>
   occurredAt?: string
+  status?: string
   /** 服务端持久化身份：落库后的通知记录 ID，与历史列表中的同一条通知一致。 */
   eventId?: string
 }
@@ -125,9 +126,12 @@ export function safeParseNotifyMessage(value: unknown): NotifyMessageDTO | null 
   }
 
   const payload = isRecord(parsed.payload) ? parsed.payload : {}
-  const occurredAt = typeof parsed.occurredAt === 'string' ? parsed.occurredAt : undefined
-  const eventId = typeof parsed.eventId === 'string' || typeof parsed.eventId === 'number'
-    ? String(parsed.eventId)
+  const occurredAt = typeof parsed.occurredAt === 'string'
+    ? parsed.occurredAt
+    : typeof parsed.createdAt === 'string' ? parsed.createdAt : undefined
+  const rawEventId = parsed.eventId ?? parsed.id
+  const eventId = typeof rawEventId === 'string' || typeof rawEventId === 'number'
+    ? String(rawEventId)
     : undefined
 
   return {
@@ -140,6 +144,7 @@ export function safeParseNotifyMessage(value: unknown): NotifyMessageDTO | null 
     payload,
     occurredAt,
     eventId: eventId?.trim() || undefined,
+    status: typeof parsed.status === 'string' ? parsed.status : undefined,
   }
 }
 

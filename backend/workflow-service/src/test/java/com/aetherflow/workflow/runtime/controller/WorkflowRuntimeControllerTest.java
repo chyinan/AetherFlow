@@ -14,13 +14,15 @@ import com.aetherflow.workflow.runtime.observability.InMemoryRuntimeObservationS
 import com.aetherflow.workflow.runtime.stream.RuntimeEventStreamService;
 import com.aetherflow.workflow.runtime.stream.WorkflowRuntimeStreamTokenService;
 import com.aetherflow.workflow.runtime.stream.WorkflowStreamTokenResponse;
-import com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService;
 import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanup;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupMapper;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupService;
+import com.aetherflow.workflow.runtime.cancellation.WorkflowCancellationCleanupStatus;
 import com.aetherflow.workflow.mapper.WorkflowRuntimeSnapshotMapper;
 import com.aetherflow.workflow.runtime.persistence.RuntimeSnapshotRepository;
 import com.aetherflow.workflow.client.TaskClient;
 import com.aetherflow.workflow.config.TaskClientProperties;
-import com.aetherflow.common.core.Result;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -240,19 +242,24 @@ class WorkflowRuntimeControllerTest {
         when(instanceMapper.cancelIfActive(eq(1001L), eq(7L), any())).thenReturn(1);
         WorkflowRuntimeController controller = new WorkflowRuntimeController(
                 metrics, store, eventStore, mock(RuntimeEventStreamService.class), instanceMapper, null);
-        WorkflowTerminalNotificationOutboxService notificationOutbox =
-                mock(WorkflowTerminalNotificationOutboxService.class);
+        WorkflowCancellationCleanupMapper cleanups = mock(WorkflowCancellationCleanupMapper.class);
+        WorkflowCancellationCleanup cleanup = new WorkflowCancellationCleanup();
+        cleanup.setId(9L); cleanup.setWorkflowInstanceId(1001L); cleanup.setUserId(7L);
+        cleanup.setStatus(WorkflowCancellationCleanup.PENDING); cleanup.setAttemptCount(0);
+        when(cleanups.findByWorkflowInstanceId(1001L)).thenReturn(cleanup);
+        when(cleanups.ensurePending(eq(1001L), eq(7L), any())).thenReturn(1);
         TaskClient tasks = mock(TaskClient.class);
         TaskClientProperties taskProperties = mock(TaskClientProperties.class);
         when(taskProperties.issueInternalToken()).thenReturn("test-token");
-        when(tasks.cancelWorkflowTasks("test-token", 1001L)).thenReturn(Result.success(0));
         controller.cancellationService = new WorkflowCancellationService(instanceMapper,
-                mock(WorkflowRuntimeSnapshotMapper.class), mock(RuntimeSnapshotRepository.class),
-                tasks, taskProperties, notificationOutbox);
+                mock(WorkflowRuntimeSnapshotMapper.class), mock(RuntimeSnapshotRepository.class), cleanups,
+                mock(com.aetherflow.workflow.runtime.notification.WorkflowTerminalNotificationOutboxService.class));
+        controller.cancellationCleanupService = new WorkflowCancellationCleanupService(cleanups, instanceMapper, tasks, taskProperties);
 
-        controller.cancel(1001L, 7L);
+        var result = controller.cancel(1001L, 7L);
 
-        verify(notificationOutbox).enqueue(1001L, 7L, null, RuntimeState.CANCELLED, null);
+        assertThat(result.getData().status()).isEqualTo("PENDING");
+        verify(cleanups).ensurePending(eq(1001L), eq(7L), any());
     }
 
     @Test
@@ -260,12 +267,20 @@ class WorkflowRuntimeControllerTest {
         WorkflowRuntimeController controller = new WorkflowRuntimeController(
                 new WorkflowRuntimeMetrics(), new InMemoryRuntimeObservationStore());
         WorkflowCancellationService cancellations = mock(WorkflowCancellationService.class);
+        WorkflowCancellationCleanupService cleanup = mock(WorkflowCancellationCleanupService.class);
         controller.cancellationService = cancellations;
-        when(cancellations.cancel(1001L, 7L)).thenThrow(new IllegalStateException("任务服务暂不可用"))
-                .thenReturn(true);
-        assertThatThrownBy(() -> controller.cancel(1001L, 7L)).isInstanceOf(IllegalStateException.class);
-        assertThat(controller.cancel(1001L, 7L).isSuccess()).isTrue();
-        verify(cancellations, org.mockito.Mockito.times(2)).cancel(1001L, 7L);
+        controller.cancellationCleanupService = cleanup;
+        when(cancellations.cancel(1001L, 7L)).thenReturn(true);
+        when(cleanup.status(1001L, 7L)).thenReturn(new WorkflowCancellationCleanupStatus(
+                1001L, "FAILED", 1, "Task Service unavailable", null, null, true));
+        when(cleanup.retry(1001L, 7L)).thenReturn(new WorkflowCancellationCleanupStatus(
+                1001L, "COMPLETE", 2, null, null, java.time.LocalDateTime.now(), false));
+
+        var cancelled = controller.cancel(1001L, 7L);
+        assertThat(cancelled.getData()).matches(status -> "FAILED".equals(status.status()) && status.retryable());
+        var retried = controller.retryCancellationCleanup(1001L, 7L);
+        assertThat(retried.getData().status()).isEqualTo("COMPLETE");
+        verify(cancellations).cancel(1001L, 7L);
     }
 
     @Test
@@ -278,6 +293,35 @@ class WorkflowRuntimeControllerTest {
         assertThatThrownBy(() -> controller.cancel(1001L, 7L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.CONFLICT));
+    }
+
+    @Test
+    void cancellationCleanupStatusCanBeReadAndRetriedAfterRunIsTerminal() throws Exception {
+        WorkflowInstanceMapper instances = mock(WorkflowInstanceMapper.class);
+        WorkflowInstance instance = new WorkflowInstance();
+        instance.setId(1001L);
+        instance.setUserId(7L);
+        instance.setStatus("CANCELLED");
+        when(instances.selectById(1001L)).thenReturn(instance);
+        WorkflowCancellationCleanupService cleanups = mock(WorkflowCancellationCleanupService.class);
+        when(cleanups.status(1001L, 7L)).thenReturn(new WorkflowCancellationCleanupStatus(
+                1001L, "FAILED", 1, "Task Service unavailable", null, null, true));
+        when(cleanups.retry(1001L, 7L)).thenReturn(new WorkflowCancellationCleanupStatus(
+                1001L, "COMPLETE", 2, null, null, java.time.LocalDateTime.now(), false));
+        WorkflowRuntimeController controller = new WorkflowRuntimeController(
+                new WorkflowRuntimeMetrics(), new InMemoryRuntimeObservationStore(), emptyEventStore(),
+                mock(RuntimeEventStreamService.class), instances);
+        controller.cancellationCleanupService = cleanups;
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(get("/workflow/runtime/instances/1001/cancellation-cleanup").header("X-User-Id", 7L))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("FAILED"))
+                .andExpect(jsonPath("$.data.retryable").value(true));
+        mvc.perform(post("/workflow/runtime/instances/1001/cancellation-cleanup/retry").header("X-User-Id", 7L))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("COMPLETE"))
+                .andExpect(jsonPath("$.data.retryable").value(false));
+        verify(cleanups).status(1001L, 7L);
+        verify(cleanups).retry(1001L, 7L);
     }
 
     private static RuntimeEvent event(RuntimeEventType eventType,

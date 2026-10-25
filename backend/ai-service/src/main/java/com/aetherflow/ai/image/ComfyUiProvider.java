@@ -28,6 +28,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -42,6 +44,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     private static final String DEFAULT_CHECKPOINT = "model.safetensors";
     private static final String DEFAULT_SAMPLER = "euler";
     private static final String DEFAULT_SCHEDULER = "normal";
+    private static final int MAX_BATCH_SIZE = 16;
 
     private final RestClient restClient;
     private final RestClient healthRestClient;
@@ -94,6 +97,7 @@ public class ComfyUiProvider implements ImageGenerationProvider {
 
     @Override
     public ImageGenerationResponse generate(ImageGenerationRequest request) {
+        imageBatchSize(request);
         String mode = normalizeMode(request.mode());
         validateImportedWorkflow(request);
         RestClient client = restClient(request);
@@ -196,9 +200,17 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 case "vae" -> request.vae(); case "sourceImage" -> sourceImageName(request, upload);
                 default -> throw new IllegalArgumentException("未知绑定参数");
             };
-            if (value == null) throw new BusinessException(ResultCode.BAD_REQUEST, "ComfyUI 绑定参数未提供：" + binding.parameter());
+            if (missingBindingValue(binding.parameter(), value)) {
+                throw new BusinessException(ResultCode.BAD_REQUEST, "ComfyUI 绑定参数未提供：" + binding.parameter());
+            }
             inputs((Map<?, ?>)graph.get(binding.nodeId())).put(binding.inputName(), value);
         }
+    }
+
+    private boolean missingBindingValue(String parameter, Object value) {
+        if (value == null) return true;
+        return value instanceof String text && text.isBlank()
+                && Set.of("prompt", "sourceImage", "checkpoint", "vae", "sampler", "scheduler").contains(parameter);
     }
 
     private Long resolveSeed(Long seed) {
@@ -220,6 +232,14 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         throw input(COMFYUI, Field.mode);
     }
 
+    private int imageBatchSize(ImageGenerationRequest request) {
+        int batchSize = request.batchSize() == null ? 1 : request.batchSize();
+        if (batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
+            throw input(COMFYUI, Field.batchSize);
+        }
+        return batchSize;
+    }
+
     private Map<String, Object> defaultWorkflow(ImageGenerationRequest request, String mode, ComfyUploadResponse upload,
                                                 Long seed) {
         Map<String, Object> workflow = new LinkedHashMap<>();
@@ -237,17 +257,39 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         List<Object> latentRef;
         String samplerNodeId;
         String encodeNodeId = null;
+        String decodeNodeId;
+        String saveNodeId;
         if ("img2img".equals(mode)) {
             workflow.put("4", node("LoadImage", Map.of(
                     "image", sourceImageName(request, upload)
             )));
-            encodeNodeId = "5";
+            // 固定将源图拉伸到请求尺寸，不裁切；保留完整画面并明确尺寸语义。
+            workflow.put("5", node("ImageScale", Map.of(
+                    "image", List.of("4", 0),
+                    "upscale_method", "lanczos",
+                    "width", valueOrDefault(request.width(), 512),
+                    "height", valueOrDefault(request.height(), 512),
+                    "crop", "disabled"
+            )));
+            encodeNodeId = "6";
             workflow.put(encodeNodeId, node("VAEEncode", Map.of(
-                    "pixels", List.of("4", 0),
+                    "pixels", List.of("5", 0),
                     "vae", List.of("1", 2)
             )));
-            latentRef = List.of("5", 0);
-            samplerNodeId = "6";
+            latentRef = List.of(encodeNodeId, 0);
+            int batchSize = imageBatchSize(request);
+            int nextNodeId = 7;
+            if (batchSize > 1) {
+                String repeatNodeId = String.valueOf(nextNodeId++);
+                workflow.put(repeatNodeId, node("RepeatLatentBatch", Map.of(
+                        "samples", latentRef,
+                        "amount", batchSize
+                )));
+                latentRef = List.of(repeatNodeId, 0);
+            }
+            samplerNodeId = String.valueOf(nextNodeId++);
+            decodeNodeId = String.valueOf(nextNodeId++);
+            saveNodeId = String.valueOf(nextNodeId);
         } else {
             workflow.put("4", node("EmptyLatentImage", Map.of(
                     "width", valueOrDefault(request.width(), 512),
@@ -256,6 +298,8 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             )));
             latentRef = List.of("4", 0);
             samplerNodeId = "5";
+            decodeNodeId = "6";
+            saveNodeId = "7";
         }
         workflow.put(samplerNodeId, node("KSampler", Map.of(
                 "seed", valueOrDefault(seed, 1L),
@@ -269,8 +313,6 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "negative", List.of("3", 0),
                 "latent_image", latentRef
         )));
-        String decodeNodeId = "img2img".equals(mode) ? "7" : "6";
-        String saveNodeId = "img2img".equals(mode) ? "8" : "7";
         workflow.put(decodeNodeId, node("VAEDecode", Map.of(
                 "samples", List.of(samplerNodeId, 0),
                 "vae", List.of("1", 2)
@@ -325,6 +367,31 @@ public class ComfyUiProvider implements ImageGenerationProvider {
                 "images", List.of("2", 0)
         )));
         return workflow;
+    }
+
+    /**
+     * 上传文件名按执行生成唯一标识，只保留扩展名语义（仍由 sourceImageName/content-type 决定）。
+     * 工作流节点引用的是上传接口返回的 name，因此唯一化不会改变 LoadImage 的引用契约。
+     */
+    private String uniqueSourceImageFileName(ImageGenerationRequest request) {
+        return "aetherflow-src-" + UUID.randomUUID() + sourceImageExtension(request);
+    }
+
+    private String sourceImageExtension(ImageGenerationRequest request) {
+        Object configured = request.options() == null ? null : request.options().get("sourceImageName");
+        String name = configured == null ? "" : String.valueOf(configured).trim();
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0 && dot < name.length() - 1) {
+            String extension = name.substring(dot + 1).toLowerCase(Locale.ROOT);
+            if (extension.matches("[a-z0-9]{1,5}")) {
+                return "." + extension;
+            }
+        }
+        return switch (sourceImageContentType(request).toString()) {
+            case "image/jpeg" -> ".jpg";
+            case "image/webp" -> ".webp";
+            default -> ".png";
+        };
     }
 
     private String sourceImageName(ImageGenerationRequest request, ComfyUploadResponse upload) {
@@ -453,10 +520,12 @@ public class ComfyUiProvider implements ImageGenerationProvider {
             throw input(COMFYUI, Field.sourceImage);
         }
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        // 每次执行使用唯一上传文件名：并发/交错的两次执行不会在 ComfyUI input 目录里互相覆盖
+        String uploadFileName = uniqueSourceImageFileName(request);
         ByteArrayResource source = new ByteArrayResource(bytes) {
             @Override
             public String getFilename() {
-                return sourceImageName(request, null);
+                return uploadFileName;
             }
         };
         HttpHeaders imageHeaders = new HttpHeaders();

@@ -33,6 +33,7 @@ import { nodeTemplates } from '@/services/mock/workflowMock'
 import { conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import type { CopilotMessage } from '@/types/copilot'
 import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
+import type { WorkflowGraphNode } from '@/types/workflow'
 
 function panelContext(workflowId = 'workflow-current', editRevision = 3) {
   return {
@@ -448,6 +449,110 @@ describe('AICopilotPanel', () => {
     expect(wrapper.text()).toContain(i18n.global.t('copilot.planner.stale'))
     expect(validateCopilotDraft).not.toHaveBeenCalled()
     expect(wrapper.findAll('button').some((button) => button.text().includes(i18n.global.t('copilot.planner.apply')))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('sends an un-applied planner definition, operations, and validation findings with a revision request', async () => {
+    const context = panelContext('workflow-current', 5)
+    planWorkflow.mockResolvedValueOnce(planMessage(context, readyMediaPlan(), 'draft-original'))
+      .mockResolvedValueOnce(planMessage(context, readyMediaPlan(), 'draft-revised'))
+    validateCopilotDraft.mockResolvedValueOnce({
+      structurallyValid: false, runtimeReady: false, issues: ['Summary configuration is invalid'],
+    })
+    const applyWorkflowDraft = vi.fn().mockReturnValue(true)
+    const wrapper = mount(AICopilotPanel, { props: { context, applyWorkflowDraft }, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text().includes(i18n.global.t('copilot.quickDraftWorkflow')))?.trigger('click')
+    await flushPromises()
+    expect(planWorkflow.mock.calls[0][1].context).not.toHaveProperty('pendingDraft')
+
+    await wrapper.find('form input').setValue('只修改当前草稿名称')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const revisionDraft = planWorkflow.mock.calls[1][1].context.pendingDraft
+    expect(revisionDraft.messageId).toBe('draft-original')
+    expect(revisionDraft.definition.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'summary', config: expect.objectContaining({ prompt: 'Highlight decisions and owners' }) }),
+    ]))
+    expect(revisionDraft.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'add_node', kind: 'summary' }),
+      expect.objectContaining({ type: 'connect', source: expect.any(String), target: expect.any(String) }),
+    ]))
+    expect(revisionDraft.validation).toEqual({
+      structurallyValid: false, runtimeReady: false, issues: ['Summary configuration is invalid'],
+    })
+    expect(applyWorkflowDraft).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('sends the failed custom node definition and its canvas operations when revising an unconfirmed draft', async () => {
+    const startNode: WorkflowGraphNode = {
+      id: 'start-1', type: 'workflow', position: { x: 0, y: 0 },
+      data: { kind: 'start', label: 'Start', description: '', config: { variables: {}, output: {} }, inputs: [], outputs: [], status: 'idle' },
+    }
+    const context = { ...panelContext(), nodes: [startNode] }
+    // A04：深度字段（inputs/outputs/request.headers）与超长描述都必须保留足够信息，密钥仍要脱敏。
+    const longDescription = 'fetch weather '.repeat(40)
+    const customDefinition = {
+      formatVersion: 1, id: 'weather-api', version: '1.0.0', name: 'Weather API', description: longDescription,
+      kind: 'API', inputs: [{ name: 'city', type: 'STRING', required: true }], fields: [],
+      outputs: [{ name: 'result', type: 'STRING' }],
+      request: { url: 'https://example.test/weather', method: 'GET', headers: { Authorization: 'Bearer SECRET-VALUE', 'X-Trace': 'trace-1' } },
+    }
+    editCanvas.mockResolvedValueOnce({
+      message: { id: 'custom-draft-1', conversationId: 'conv-1', role: 'assistant', content: '草稿已生成', createdAt: '' },
+      edit: { status: 'READY', explanation: '草稿已生成', operations: [
+        { type: 'create_custom_node', draftId: 'weather-draft', definition: customDefinition },
+        { type: 'add_node', nodeId: 'weather-node', kind: 'http-request', customNodeId: 'weather-api', customNodeVersion: '1.0.0' },
+      ] },
+    }).mockResolvedValueOnce({
+      message: { id: 'custom-draft-2', conversationId: 'conv-1', role: 'assistant', content: '请确认名称', createdAt: '' },
+      edit: { status: 'NEEDS_CLARIFICATION', explanation: '请确认名称', operations: [] },
+    })
+    validateCanvasEdit.mockResolvedValueOnce({
+      structurallyValid: false, runtimeReady: false, issues: ['Custom node output is not connected'],
+    })
+    const saveCustomNodeDrafts = vi.fn().mockResolvedValue(undefined)
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    const wrapper = mount(AICopilotPanel, {
+      props: { context, saveCustomNodeDrafts, applyCanvasEdit }, global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.find('form input').setValue('生成天气 API 模板')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="custom-node-preview"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="custom-node-confirm"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Custom node output is not connected')
+    expect(saveCustomNodeDrafts).not.toHaveBeenCalled()
+
+    await wrapper.find('form input').setValue('只修改当前草稿名称')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const revisionDraft = editCanvas.mock.calls[1][1].context.pendingDraft
+    expect(revisionDraft.messageId).toBe('custom-draft-1')
+    expect(revisionDraft.definition[0]).toMatchObject({ id: 'weather-api', version: '1.0.0', name: 'Weather API' })
+    // A04：待确认草稿的深度字段不能整体被占位符替换，否则模型续改时看不到精确 schema。
+    expect(revisionDraft.definition[0].inputs[0]).toEqual({ name: 'city', type: 'STRING', required: true })
+    expect(revisionDraft.definition[0].outputs[0]).toEqual({ name: 'result', type: 'STRING' })
+    expect(revisionDraft.definition[0].request.headers).toEqual({ Authorization: '[redacted]', 'X-Trace': 'trace-1' })
+    expect(revisionDraft.definition[0].request.url).toBe('https://example.test/weather')
+    // 秘密键仍要脱敏，超长字符串仍要截断。
+    expect(JSON.stringify(revisionDraft.definition)).not.toContain('SECRET-VALUE')
+    expect(revisionDraft.definition[0].description).toBe(`${longDescription.slice(0, 400)}...`)
+    expect(revisionDraft.operations).toEqual([
+      { type: 'add_node', nodeId: 'weather-node', kind: 'http-request', customNodeId: 'weather-api', customNodeVersion: '1.0.0' },
+    ])
+    expect(revisionDraft.validation).toEqual({
+      structurallyValid: false, runtimeReady: false, issues: ['Custom node output is not connected'],
+    })
+    expect(saveCustomNodeDrafts).not.toHaveBeenCalled()
+    expect(applyCanvasEdit).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -897,6 +1002,13 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(listMessages).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain(i18n.global.t('copilot.historyUnavailable'))
+    if (mode === 'canvas') {
+      // 历史不存在时编辑页必须显式确认模式，不能按默认 canvas-edit 自动发送。
+      const editMode = wrapper.findAll('button')
+        .find((button) => button.text() === i18n.global.t('copilot.editor.editMode'))
+      expect(editMode).toBeDefined()
+      await editMode!.trigger('click')
+    }
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -904,7 +1016,7 @@ describe('AICopilotPanel', () => {
     wrapper.unmount()
   })
 
-  it('allows a selected conversation to continue while its messages are still loading', async () => {
+  it('waits for the selected conversation history before continuing it', async () => {
     const context = panelContext()
     writeConversationSelection(conversationSessionKey(context), 'conv-1')
     const history = deferred<CopilotMessage[]>()
@@ -916,11 +1028,15 @@ describe('AICopilotPanel', () => {
     await wrapper.find('form input').setValue('Continue')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
-    history.resolve([assistantMessage('OLD_HISTORY', 'conv-1')])
+    // 历史未恢复完成前不允许续发：否则会按默认模式写到错误会话，迟到的规划历史也会失效。
+    expect(stream).not.toHaveBeenCalled()
+    history.resolve([assistantMessage('RESTORED_HISTORY', 'conv-1')])
     await flushPromises()
+    expect(wrapper.text()).toContain('RESTORED_HISTORY')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
     expect(wrapper.text()).toContain('CONTINUED')
-    expect(wrapper.text()).not.toContain('OLD_HISTORY')
     wrapper.unmount()
   })
 

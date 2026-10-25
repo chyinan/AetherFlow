@@ -66,6 +66,16 @@ class DefaultWorkflowContextTest {
     }
 
     @Test
+    void variablesKeepExplicitJsonNullValues() {
+        DefaultWorkflowContext context = new DefaultWorkflowContext(
+                "workflow-1", "trace-1", "task-1", Map.of());
+
+        context.variables().put("explicitNull", null);
+
+        assertThat(context.variables()).containsKey("explicitNull").containsEntry("explicitNull", null);
+    }
+
+    @Test
     void runtimeInternalsCanAdvanceStateAndCurrentNode() {
         DefaultWorkflowContext context = new DefaultWorkflowContext(
                 "workflow-1",
