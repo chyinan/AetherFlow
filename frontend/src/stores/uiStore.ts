@@ -59,6 +59,156 @@ const initialTheme = readTheme()
 applyTheme(initialTheme)
 let stopNotifications: (() => void) | null = null
 let activeNotificationUserId: string | null = null
+let notificationStreamGeneration = 0
+let notificationRecoveryGeneration = 0
+let notificationRecoveryInFlight = false
+type NotificationRecoveryStore = {
+  notificationMutation: NotificationMutation | null
+  notificationLoadRequest: number
+  loadNotificationMessages: (limit?: number, isRecovery?: boolean) => Promise<void>
+}
+type NotificationRecoveryTarget = {
+  store: NotificationRecoveryStore
+  streamGeneration: number
+  recoveryGeneration: number
+}
+type NotificationRecoveryRead = {
+  target: NotificationRecoveryTarget
+  promise: Promise<void>
+}
+type NotificationActivity = {
+  historyReads: number
+  historyWaiters: Set<() => void>
+  mutationWaiters: Set<() => void>
+}
+let activeNotificationRecovery: NotificationRecoveryTarget | null = null
+let activeNotificationRecoveryRead: NotificationRecoveryRead | null = null
+let pendingNotificationRecovery: NotificationRecoveryTarget | null = null
+const notificationActivityByStore = new WeakMap<object, NotificationActivity>()
+
+function notificationActivity(store: object) {
+  let activity = notificationActivityByStore.get(store)
+  if (!activity) {
+    activity = { historyReads: 0, historyWaiters: new Set(), mutationWaiters: new Set() }
+    notificationActivityByStore.set(store, activity)
+  }
+  return activity
+}
+
+function beginNotificationHistoryRead(store: object) {
+  notificationActivity(store).historyReads += 1
+}
+
+function finishNotificationHistoryRead(store: object) {
+  const activity = notificationActivity(store)
+  activity.historyReads = Math.max(0, activity.historyReads - 1)
+  if (activity.historyReads === 0) {
+    for (const resolve of activity.historyWaiters) resolve()
+    activity.historyWaiters.clear()
+  }
+}
+
+function waitForNotificationHistoryIdle(store: object) {
+  const activity = notificationActivity(store)
+  if (activity.historyReads === 0) return Promise.resolve()
+  return new Promise<void>((resolve) => activity.historyWaiters.add(resolve))
+}
+
+function waitForNotificationMutationIdle(store: NotificationRecoveryStore) {
+  if (!store.notificationMutation) return Promise.resolve()
+  return new Promise<void>((resolve) => notificationActivity(store).mutationWaiters.add(resolve))
+}
+
+function notifyNotificationMutationIdle(store: object) {
+  const activity = notificationActivity(store)
+  for (const resolve of activity.mutationWaiters) resolve()
+  activity.mutationWaiters.clear()
+}
+
+function invalidateNotificationRecoveryCycle() {
+  notificationRecoveryGeneration += 1
+  pendingNotificationRecovery = null
+  activeNotificationRecovery = null
+  notificationRecoveryInFlight = false
+}
+
+function invalidateNotificationRecovery() {
+  notificationStreamGeneration += 1
+  invalidateNotificationRecoveryCycle()
+}
+
+function recoverNotificationHistory(
+  store: NotificationRecoveryStore,
+  streamGeneration: number,
+  recoveryGeneration: number,
+) {
+  const target = { store, streamGeneration, recoveryGeneration }
+  const isCurrent = (candidate: NotificationRecoveryTarget) => candidate.streamGeneration === notificationStreamGeneration
+    && candidate.recoveryGeneration === notificationRecoveryGeneration
+    && activeNotificationUserId !== null
+
+  if (!isCurrent(target)) {
+    return
+  }
+
+  if (notificationRecoveryInFlight) {
+    const active = activeNotificationRecovery
+    const sameActiveGeneration = active?.streamGeneration === streamGeneration
+      && active.recoveryGeneration === recoveryGeneration
+    const readMatchesGeneration = activeNotificationRecoveryRead?.target.streamGeneration === streamGeneration
+      && activeNotificationRecoveryRead.target.recoveryGeneration === recoveryGeneration
+    // An open while waiting for an unrelated read or mutation is covered by the
+    // recovery GET that is about to start. An open during that GET needs one rerun.
+    if (!sameActiveGeneration || readMatchesGeneration) {
+      pendingNotificationRecovery = target
+    }
+    return
+  }
+
+  notificationRecoveryInFlight = true
+  activeNotificationRecovery = target
+  void (async () => {
+    try {
+      while (isCurrent(target)) {
+        if (store.notificationMutation) {
+          await waitForNotificationMutationIdle(store)
+          continue
+        }
+        if (notificationActivity(store).historyReads > 0) {
+          await waitForNotificationHistoryIdle(store)
+        }
+        if (!isCurrent(target)) return
+        if (store.notificationMutation || notificationActivity(store).historyReads > 0) continue
+
+        const recoveryPromise = store.loadNotificationMessages(20, true)
+        const recoveryRequest = store.notificationLoadRequest
+        const recoveryRead = { target, promise: recoveryPromise }
+        activeNotificationRecoveryRead = recoveryRead
+        try {
+          await recoveryPromise
+        } finally {
+          if (activeNotificationRecoveryRead === recoveryRead) {
+            activeNotificationRecoveryRead = null
+          }
+        }
+        if (isCurrent(target) && recoveryRequest !== store.notificationLoadRequest) {
+          continue
+        }
+        return
+      }
+    } finally {
+      if (activeNotificationRecovery === target) {
+        notificationRecoveryInFlight = false
+        activeNotificationRecovery = null
+        const pending = pendingNotificationRecovery
+        pendingNotificationRecovery = null
+        if (pending) {
+          recoverNotificationHistory(pending.store, pending.streamGeneration, pending.recoveryGeneration)
+        }
+      }
+    }
+  })()
+}
 
 function notificationTitle(message: NotifyMessageDTO) {
   const title = typeof message.payload.title === 'string' ? message.payload.title.trim() : ''
@@ -329,7 +479,11 @@ export const useUiStore = defineStore('ui', {
       this.notifications = this.notifications.slice(0, 20)
       writeStoredNotifications(this.notifications)
     },
-    async loadNotificationMessages(limit = 20) {
+    async loadNotificationMessages(limit = 20, isRecovery = false) {
+      const recoveryRead = activeNotificationRecoveryRead
+      if (!isRecovery && recoveryRead?.target.store === this) {
+        return recoveryRead.promise
+      }
       // 写入期间保留当前列表；完成后下一次显式读取继续以后端快照为准。
       if (this.notificationMutation) {
         return
@@ -339,6 +493,7 @@ export const useUiStore = defineStore('ui', {
       const idsAtRequestStart = new Set(this.notifications.map((item) => item.id))
       this.notificationsLoading = true
       this.notificationLoadError = false
+      beginNotificationHistoryRead(this)
       try {
         const records = await listNotificationMessages(limit)
         if (request !== this.notificationLoadRequest) {
@@ -358,6 +513,7 @@ export const useUiStore = defineStore('ui', {
         if (request === this.notificationLoadRequest) {
           this.notificationsLoading = false
         }
+        finishNotificationHistoryRead(this)
       }
     },
     async markAllNotificationsRead() {
@@ -395,6 +551,7 @@ export const useUiStore = defineStore('ui', {
         this.notificationMutationError = action
       } finally {
         this.notificationMutation = null
+        notifyNotificationMutationIdle(this)
       }
     },
     startNotificationStream(userId: number | string) {
@@ -403,15 +560,28 @@ export const useUiStore = defineStore('ui', {
         return
       }
 
+      invalidateNotificationRecovery()
+      const streamGeneration = notificationStreamGeneration
       stopNotifications?.()
       activeNotificationUserId = normalizedUserId
       this.notifications = readStoredNotifications(normalizedUserId)
       stopNotifications = realtimeClient.subscribeNotifications(normalizedUserId, {
         onMessage: (message) => this.addNotifyMessage(message),
+        onOpen: (transport) => {
+          if (streamGeneration !== notificationStreamGeneration || activeNotificationUserId !== normalizedUserId) {
+            return
+          }
+          if (transport === 'sse') {
+            invalidateNotificationRecoveryCycle()
+            return
+          }
+          recoverNotificationHistory(this, streamGeneration, notificationRecoveryGeneration)
+        },
         onConnectionChange: (state) => this.setNotifyRealtimeState(state),
       })
     },
     stopNotificationStream() {
+      invalidateNotificationRecovery()
       stopNotifications?.()
       stopNotifications = null
       activeNotificationUserId = null

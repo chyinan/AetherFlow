@@ -20,7 +20,7 @@ import { useUiStore } from '@/stores/uiStore'
 import TopStatusBar from '@/components/layout/TopStatusBar.vue'
 
 type RecordItem = { id: number; channel: string; eventType: string; payload: { title: string; message: string }; status: string; createdAt: string }
-type LiveMessage = { channel: string; eventType: string; payload: { title: string; message: string }; occurredAt: string }
+type LiveMessage = { eventId?: string; channel: string; eventType: string; payload: { title: string; message: string }; occurredAt: string }
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const record = (id: number, status = 'UNREAD'): RecordItem => ({ id, channel: 'workflow', eventType: 'completed', payload: { title: `合成历史通知${id}`, message: `合成正常消息${id}` }, status, createdAt: `2026-10-16T10:0${id}:00.000Z` })
 let releases: (() => void)[] = []
@@ -33,7 +33,7 @@ function deferred<T>() {
 function gate() { const d = deferred<void>(); releases.push(() => d.resolve()); return d }
 let wrapper: VueWrapper | undefined
 let server: RecordItem[]
-let live: { onMessage: (message: LiveMessage) => void; onConnectionChange: (state: 'online' | 'offline' | 'reconnecting') => void }
+let live: { onOpen?: (transport: 'sse' | 'websocket') => void; onMessage: (message: LiveMessage) => void; onConnectionChange: (state: 'online' | 'offline' | 'reconnecting') => void }
 let errors: string[]
 let markFailure: boolean
 let clearFailure: boolean
@@ -46,7 +46,7 @@ const titles = () => [...(panel()?.querySelectorAll('article p.truncate') ?? [])
 function action(key: 'markAllRead' | 'clear') { return [...(panel()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(button => button.textContent?.trim() === text(key)) }
 async function clickAction(key: 'markAllRead' | 'clear') { const button = action(key); if (!button) throw new Error(`缺少操作 ${key}`); button.click(); await flushPromises() }
 async function toggle() { await wrapper!.get('[aria-controls="notification-panel"]').trigger('click'); await flushPromises() }
-function emitLive(title = '写入确认后到达的新通知') { live.onMessage({ channel: 'workflow', eventType: 'completed', payload: { title, message: '合成实时正常消息' }, occurredAt: '2026-10-16T10:20:00.000Z' }) }
+function emitLive(title = '写入确认后到达的新通知', eventId?: string) { live.onMessage({ eventId, channel: 'workflow', eventType: 'completed', payload: { title, message: '合成实时正常消息' }, occurredAt: '2026-10-16T10:20:00.000Z' }) }
 function observe(name: string, extra: Record<string, unknown> = {}) {
   const store = useUiStore()
   const entry = { name, server: copy(server), notifications: copy(store.notifications), unread: store.unreadNotificationCount,
@@ -290,5 +290,272 @@ describe('恢复入口与请求边界', () => {
     expect(renewed.messageKey).toBe('notifications.realtimeRestored')
     waiting.resolve(); await writing; expect(renewed.read).toBe(false)
     expect(store.notifications.find(item => item.id === original.id)?.read).toBe(false)
+  })
+})
+
+describe('备用 WebSocket 重连历史恢复', () => {
+  it('连接重新打开后从持久历史补回断线期间的通知', async () => {
+    const store = await setup()
+    server = [record(3), record(2), record(1, 'READ')]
+
+    // 断线期间的服务端事件已持久化，但客户端没有收到实时推送。
+    expect(store.notifications.map(item => item.id)).toEqual(['record-2', 'record-1'])
+    expect(store.unreadNotificationCount).toBe(1)
+    expect(live.onOpen).toBeTypeOf('function')
+
+    live.onOpen?.('websocket')
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications.map(item => item.id)).toEqual(['record-3', 'record-2', 'record-1'])
+    expect(store.unreadNotificationCount).toBe(2)
+  })
+
+  it('普通加载在 WS 恢复 GET 进行时等待并复用该结果', async () => {
+    const store = await setup()
+    const waiting = deferred<RecordItem[]>()
+    const recovered = [record(3), record(2), record(1, 'READ')]
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    server = recovered
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    const panelOpenRead = store.loadNotificationMessages()
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    waiting.resolve(copy(recovered))
+    await panelOpenRead
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications.map(item => item.id)).toContain('record-3')
+  })
+
+  it('WS 恢复会等待已在进行的普通历史 GET，保持普通读取并发胜者语义', async () => {
+    const store = await setup()
+    const waiting = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    const oldHistory = [record(2), record(1, 'READ')]
+    server = [record(3), record(2), record(1, 'READ')]
+
+    const ordinaryRead = store.loadNotificationMessages()
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    waiting.resolve(copy(oldHistory))
+    await ordinaryRead
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+    expect(store.notifications.map(item => item.id)).toContain('record-3')
+  })
+
+  it('WS 恢复在通知 mutation 期间排队，mutation 完成后再读历史', async () => {
+    const store = await setup()
+    server = [record(3), record(2), record(1, 'READ')]
+    const waiting = gate()
+    markGate = waiting
+
+    const mutation = store.markAllNotificationsRead()
+    await Promise.resolve()
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(1)
+
+    waiting.resolve()
+    await mutation
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications.map(item => item.id)).toContain('record-3')
+  })
+
+  it.each(['markAllRead', 'clear'] as const)('%s 会让在途恢复 GET 过期，mutation 完成后当前代次会补读', async action => {
+    const store = await setup()
+    server = [record(3), record(2), record(1, 'READ')]
+    const staleSnapshot = copy(server)
+    const recovery = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => recovery.promise)
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    const waiting = gate()
+    if (action === 'markAllRead') markGate = waiting
+    else clearGate = waiting
+    const mutation = action === 'markAllRead'
+      ? store.markAllNotificationsRead()
+      : store.clearNotifications()
+    await Promise.resolve()
+
+    recovery.resolve(staleSnapshot)
+    await flushPromises()
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications.map(item => item.id)).not.toContain('record-3')
+
+    waiting.resolve()
+    await mutation
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+    if (action === 'markAllRead') {
+      expect(store.notifications.map(item => item.id)).toContain('record-3')
+      expect(store.notifications.every(item => item.read)).toBe(true)
+    } else {
+      expect(server).toEqual([])
+      expect(store.notifications).toEqual([])
+    }
+  })
+
+  it.each(['SSE 接管', '通知流停止'] as const)('%s 会取消 mutation 使恢复 GET 过期后的重读', async outcome => {
+    const store = await setup()
+    server = [record(3), record(2), record(1, 'READ')]
+    const staleSnapshot = copy(server)
+    const recovery = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => recovery.promise)
+
+    live.onOpen?.('websocket')
+    const waiting = gate()
+    clearGate = waiting
+    const mutation = store.clearNotifications()
+    await Promise.resolve()
+    recovery.resolve(staleSnapshot)
+    await flushPromises()
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    if (outcome === 'SSE 接管') live.onOpen?.('sse')
+    else store.stopNotificationStream()
+    waiting.resolve()
+    await mutation
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications).toEqual([])
+  })
+
+  it.each(['SSE 接管', '通知流停止'] as const)('%s 会取消 mutation 期间排队的过期恢复读取', async outcome => {
+    const store = await setup()
+    const waiting = gate()
+    markGate = waiting
+    const mutation = store.markAllNotificationsRead()
+    await Promise.resolve()
+    live.onOpen?.('websocket')
+
+    if (outcome === 'SSE 接管') live.onOpen?.('sse')
+    else store.stopNotificationStream()
+
+    waiting.resolve()
+    await mutation
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('重连读取失败后下一次打开可重试，实时/历史交错仍按稳定 ID 合并', async () => {
+    const store = await setup()
+    const waiting = deferred<RecordItem[]>()
+    releases.push(() => waiting.resolve(copy(server)))
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    server = [{ ...record(3), payload: { title: '断线补回后与历史共享身份', message: '合成实时正常消息' } }, record(2), record(1, 'READ')]
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(live.onOpen).toBeTypeOf('function')
+    emitLive('断线补回后与历史共享身份', '3')
+    waiting.resolve(copy(server))
+    await flushPromises()
+
+    expect(store.notifications.filter(item => item.title === '断线补回后与历史共享身份')).toHaveLength(1)
+    expect(store.notifications.map(item => item.id)).toContain('record-3')
+    expect(store.notifications.filter(item => item.id === 'record-3')).toHaveLength(1)
+
+    doubles.list.mockRejectedValueOnce(new Error('合成重连历史暂不可用'))
+    live.onOpen?.('websocket')
+    await flushPromises()
+    expect(store.notificationLoadError).toBe(true)
+
+    server = [record(4), record(3), record(2), record(1, 'READ')]
+    live.onOpen?.('websocket')
+    await flushPromises()
+    expect(store.notificationLoadError).toBe(false)
+    expect(store.notifications.map(item => item.id)).toEqual(['record-4', 'record-3', 'record-2', 'record-1'])
+  })
+
+  it('打开期间再次连上只串行补读一次，SSE 接管后取消待执行的补读', async () => {
+    const store = await setup()
+    const waiting = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    server = [record(3), record(2), record(1, 'READ')]
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    live.onOpen?.('sse')
+    waiting.resolve(copy(server))
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    expect(store.notifications.map(item => item.id)).toContain('record-3')
+  })
+
+  it('读取期间再次打开会在当前请求结束后串行补读', async () => {
+    await setup()
+    const waiting = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    server = [record(3), record(2), record(1, 'READ')]
+
+    live.onOpen?.('websocket')
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    waiting.resolve(copy(server))
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+  })
+
+  it('通知流停止后使尚未启动的补读失效', async () => {
+    const store = await setup()
+    const waiting = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => waiting.promise)
+    server = [record(3), record(2), record(1, 'READ')]
+
+    live.onOpen?.('websocket')
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    store.stopNotificationStream()
+    waiting.resolve(copy(server))
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+  })
+
+  it('旧代次恢复结束不清除新代次恢复的在途标记', async () => {
+    const store = await setup()
+    const recoveryA = deferred<RecordItem[]>()
+    const recoveryB = deferred<RecordItem[]>()
+    doubles.list.mockImplementationOnce(() => recoveryA.promise).mockImplementationOnce(() => recoveryB.promise)
+    server = [record(3), record(2), record(1, 'READ')]
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+    live.onOpen?.('sse')
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(2)
+
+    recoveryA.resolve(copy(server))
+    await flushPromises()
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+
+    live.onOpen?.('websocket')
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+    server = [record(4), record(3), record(2), record(1, 'READ')]
+    recoveryB.resolve(copy(server))
+    await flushPromises()
+
+    expect(doubles.list).toHaveBeenCalledTimes(4)
+    expect(store.notifications.map(item => item.id)).toContain('record-4')
   })
 })

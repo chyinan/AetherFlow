@@ -94,14 +94,21 @@ export function createNotificationSocket(options: NotificationSocketOptions): No
         streamToken.queryParam || 'streamToken',
       ))
       socket = nextSocket
+      const isCurrentSocket = () => !closedManually && socket === nextSocket
 
       nextSocket.onopen = () => {
+        if (!isCurrentSocket()) {
+          return
+        }
         reconnectAttempt = 0
         options.onConnectionChange?.('online')
         options.onOpen?.()
       }
 
       nextSocket.onmessage = (event) => {
+        if (!isCurrentSocket()) {
+          return
+        }
         const message = parseSocketData(event.data)
         if (message) {
           options.onMessage?.(message)
@@ -109,10 +116,15 @@ export function createNotificationSocket(options: NotificationSocketOptions): No
       }
 
       nextSocket.onerror = (event) => {
-        options.onError?.(event)
+        if (isCurrentSocket()) {
+          options.onError?.(event)
+        }
       }
 
       nextSocket.onclose = (event) => {
+        if (socket !== nextSocket) {
+          return
+        }
         options.onClose?.(event)
         if (!closedManually) {
           scheduleReconnect()
