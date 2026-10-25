@@ -6,6 +6,7 @@ import com.aetherflow.common.core.Result;
 import com.aetherflow.common.core.ResultCode;
 import com.aetherflow.common.dto.AiWorkflowCapabilitiesDTO;
 import com.aetherflow.common.dto.WorkflowDefinitionDTO;
+import com.aetherflow.common.dto.WorkflowNodeDTO;
 import com.aetherflow.workflow.node.validation.NestedWorkflowDefinition;
 import com.aetherflow.common.dto.NodeConnectionValidationRequest;
 import com.aetherflow.common.dto.NodeConnectionValidationResponse;
@@ -64,6 +65,13 @@ public class WorkflowAiCapabilityPreflightService {
             } catch (IllegalArgumentException exception) {
                 throw new BusinessException(ResultCode.BAD_REQUEST, "节点 " + node.getNodeId() + "：" + exception.getMessage());
             }
+        }
+        for (WorkflowNodeDTO node : NestedWorkflowDefinition.flatten(definition == null ? List.of() : definition.getNodes())) {
+            if (node == null || !"UPSCALE".equalsIgnoreCase(node.getNodeType()) || node.getConfig() == null
+                    || !"COMFYUI".equalsIgnoreCase(text(node.getConfig().get("provider")))) {
+                continue;
+            }
+            validateComfyUpscaleGraph(node, node.getConfig());
         }
         List<String> localViolations = validateLocalCapabilities(definition);
         if (!WorkflowAiCapabilityPolicy.requiresRemoteCapabilities(definition)) {
@@ -134,6 +142,54 @@ public class WorkflowAiCapabilityPreflightService {
         } catch (IllegalArgumentException exception) {
             return List.of();
         }
+    }
+
+    private static void validateComfyUpscaleGraph(WorkflowNodeDTO node, Map<String, Object> config) {
+        Object raw = config.get("workflowJson") != null ? config.get("workflowJson") : config.get("workflow");
+        if (raw == null || raw instanceof Map<?, ?> map && map.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> graph;
+        try {
+            graph = ComfyUiWorkflow.decodeGraph(raw);
+        } catch (IllegalArgumentException exception) {
+            throw comfyUpscaleFailure(node, "workflow", exception.getMessage());
+        }
+        if (graph.isEmpty() || ComfyUiWorkflow.format(graph) == ComfyUiWorkflow.Format.UI) {
+            return;
+        }
+        try {
+            ComfyUiWorkflow.requireApi(graph);
+        } catch (IllegalArgumentException exception) {
+            throw comfyUpscaleFailure(node, "workflow", exception.getMessage());
+        }
+
+        List<ComfyUiWorkflow.Binding> bindings;
+        try {
+            bindings = ComfyUiWorkflow.bindings(upscaleWorkflowBindings(config), graph);
+        } catch (IllegalArgumentException exception) {
+            throw comfyUpscaleFailure(node, "workflow", "workflowBindings: " + exception.getMessage());
+        }
+        if (bindings.stream().noneMatch(binding -> "sourceImage".equals(binding.parameter()))) {
+            throw comfyUpscaleFailure(node, "sourceImage",
+                    "ComfyUI UPSCALE API execution graph must bind the source image using sourceImage.");
+        }
+    }
+
+    private static Object upscaleWorkflowBindings(Map<String, Object> config) {
+        Object bindings = config.get("workflowBindings");
+        if (bindings != null) {
+            return bindings;
+        }
+        Object options = config.get("options");
+        return options instanceof Map<?, ?> map ? map.get("workflowBindings") : null;
+    }
+
+    private static BusinessException comfyUpscaleFailure(WorkflowNodeDTO node, String field, String message) {
+        String nodeId = node.getNodeId() == null || node.getNodeId().isBlank() ? "unknown" : node.getNodeId().trim();
+        return new BusinessException(ResultCode.BAD_REQUEST,
+                "node " + nodeId + " (UPSCALE): [IMAGE_EXECUTION:COMFYUI:INPUT:" + field + ":VALIDATION] " + message);
     }
 
     private static String text(Object value) {
