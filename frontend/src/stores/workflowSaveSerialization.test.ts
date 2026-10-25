@@ -138,6 +138,37 @@ describe('保存入口的串行化与版本基线前进', () => {
     expect(store.saving).toBe(false)
   })
 
+  it('串行队列固定排队时的项目保存意图', async () => {
+    const store = loadedStore()
+    let releaseFirst: (() => void) | null = null
+    http.put.mockImplementation((url: string, payload: any) => {
+      putCalls.push({ url, payload })
+      if (putCalls.length === 1) {
+        return new Promise<RemoteDefinition>((resolve) => {
+          releaseFirst = () => {
+            remote = remoteOf(remote.version + 1, payload)
+            resolve(remote)
+          }
+        })
+      }
+      remote = remoteOf(remote.version + 1, payload)
+      return Promise.resolve(remote)
+    })
+
+    const first = store.saveCurrentWorkflow({ projectId: 11 })
+    await waitFor(() => putCalls.length === 1, '首个项目保存发出')
+    const queuedOptions = { projectId: 11 }
+    const second = store.saveCurrentWorkflow(queuedOptions)
+    queuedOptions.projectId = 22
+
+    releaseFirst!()
+    await first
+    await second
+
+    expect(putCalls).toHaveLength(2)
+    expect(putCalls.map((call) => call.payload.projectId)).toEqual([11, 11])
+  })
+
   it('迟到的成功回执仍推进版本基线，但不覆盖当前草稿', async () => {
     const store = loadedStore()
     let release: (() => void) | null = null

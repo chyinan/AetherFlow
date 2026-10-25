@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Component } from 'vue'
 
 import { i18n } from '@/i18n'
 import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
@@ -10,10 +11,18 @@ import { mockProjects } from '@/services/mock/projectMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import { conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
+import AICopilotPanel from '@/components/copilot/AICopilotPanel.vue'
+import type { CopilotMessage } from '@/types/copilot'
+import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
 import type { WorkflowDefinition, WorkflowGraphNode } from '@/types/workflow'
 import WorkflowPage from './WorkflowPage.vue'
 
 const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn(), startRun: vi.fn() }))
+const copilotApi = vi.hoisted(() => ({
+  listConversations: vi.fn(), listMessages: vi.fn(), stream: vi.fn(), planWorkflow: vi.fn(), editCanvas: vi.fn(),
+}))
+const modelApi = vi.hoisted(() => ({ refreshSnapshot: vi.fn() }))
 const files = vi.hoisted(() => ({
   loadFiles: vi.fn(), addArtifactsFromRun: vi.fn(), latestBackendInputFileId: undefined as string | undefined,
 }))
@@ -26,6 +35,13 @@ vi.mock('@/services/api/runApi', async (original) => ({
 }))
 vi.mock('@/services/realtime/realtimeClient', () => ({ realtimeClient: { subscribeRun: vi.fn(() => vi.fn()) } }))
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => files }))
+vi.mock('@/services/api/copilotApi', () => ({ copilotApi }))
+vi.mock('@/services/api/modelApi', () => ({ modelApi }))
+
+const NodeInspectorCopilotLauncher = {
+  template: '<button type="button" data-testid="open-copilot" @click="$emit(\'open-copilot\')">打开 Copilot</button>',
+  emits: ['open-copilot'],
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -69,14 +85,21 @@ let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
   vi.resetAllMocks()
   localStorage.clear()
+  window.sessionStorage.clear()
   api.getWorkflow.mockImplementation(async (id: string) => definition(id))
   api.saveWorkflow.mockImplementation(async (workflow: WorkflowDefinition) => ({ ...workflow, backendVersion: 2 }))
+  copilotApi.listConversations.mockResolvedValue([])
+  copilotApi.listMessages.mockResolvedValue([])
+  copilotApi.stream.mockResolvedValue({ id: 'chat-reply', role: 'assistant', content: '回复', createdAt: '' })
+  copilotApi.planWorkflow.mockResolvedValue({ id: 'plan-reply', role: 'assistant', content: '计划已更新', createdAt: '' })
+  copilotApi.editCanvas.mockRejectedValue(new Error('canvas edit should not be dispatched'))
+  modelApi.refreshSnapshot.mockResolvedValue({ providers: [], models: [] })
   files.latestBackendInputFileId = undefined
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
 
-async function setup(path = '/workflows/101?projectId=11') {
+async function setup(path = '/workflows/101?projectId=11', withRealCopilot = false) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useWorkflowStore()
@@ -95,9 +118,17 @@ async function setup(path = '/workflows/101?projectId=11') {
   ] })
   await router.push(path)
   await router.isReady()
+  const stubs: Record<string, boolean | Component> = {
+    teleport: true,
+    WorkflowCanvas: true,
+    NodeInspector: withRealCopilot ? NodeInspectorCopilotLauncher : true,
+    RunConsole: true,
+    RunNodeRecoveryBanner: true,
+  }
+  if (!withRealCopilot) stubs.AICopilotPanel = true
   wrapper = mount(RouterView, { global: {
     plugins: [pinia, router, i18n],
-    stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
+    stubs,
   } })
   await flushPromises()
   return { store, runs, projects, status, link, router }
@@ -109,6 +140,23 @@ function runButton() {
   ].includes(button.text()))!
 }
 async function clickRun() { await runButton().trigger('click'); await flushPromises() }
+
+function plannerHistoryMessage(): CopilotMessage {
+  const plan: CopilotWorkflowPlan = {
+    status: 'NEEDS_CLARIFICATION',
+    requirements: {
+      goal: 'Summarize a meeting recording', inputKind: 'MEDIA_FILE',
+      inputDescription: 'Audio supplied at run time', outputFormat: 'Markdown',
+      language: 'English', audience: 'Project team', instruction: 'Summarize decisions', constraints: [],
+    },
+    recipe: 'MEDIA_SUMMARY', steps: [], explanation: 'Existing structured plan',
+    clarifyingQuestion: 'Which language should the summary use?', assumptions: [],
+  }
+  return {
+    id: 'history-plan', conversationId: 'conv-1', role: 'assistant',
+    content: plan.explanation, createdAt: '', plan,
+  }
+}
 
 describe('Run 启动操作的工作流与导航所有权', () => {
   it('保存重开后为未绑定的 promptVariable 提供文本输入并随运行请求发送', async () => {
@@ -497,6 +545,124 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     expect(store.workflowId).toBe('102')
   })
 
+  it.each(['success', 'failure'] as const)(
+    'Run 排队保存跨 Discard 导航后不保存 B，也不启动旧 Run（A 首个 PUT %s）',
+    async (firstPutOutcome) => {
+      const { store, runs, router } = await setup()
+      const history = deferred<unknown>()
+      vi.spyOn(runs, 'loadRuns').mockImplementationOnce(async () => { await history.promise })
+      store.updateNodeConfig('node-101', 'description', 'A 的未保存编辑')
+
+      const firstPut = deferred<WorkflowDefinition>()
+      api.saveWorkflow.mockReturnValueOnce(firstPut.promise)
+      api.saveWorkflow.mockImplementationOnce(async (workflow: WorkflowDefinition) => ({
+        ...workflow,
+        backendVersion: 2,
+      }))
+
+      await clickRun()
+      expect(runs.loadRuns).toHaveBeenCalledWith({ selectDefault: false, workflowId: '101' })
+
+      const saveButton = wrapper!.findAll('button')
+        .find((button) => button.text().includes(i18n.global.t('workflow.saveWorkflow')))
+      expect(saveButton).toBeDefined()
+      await saveButton!.trigger('click')
+      await vi.waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+
+      // 历史 GET 返回后，Run 发出第二次保存；同画布上它必须排在首个 PUT 后。
+      history.resolve([])
+      await flushPromises()
+      expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+      expect(api.startRun).not.toHaveBeenCalled()
+
+      const navigation = router.push('/workflows/102?projectId=22')
+      expect(await resolveWorkflowNavigation(wrapper!, navigation, 'discard')).toBe(true)
+      expect(store.workflowId).toBe('102')
+
+      if (firstPutOutcome === 'success') {
+        firstPut.resolve({
+          ...(api.saveWorkflow.mock.calls[0]![0] as WorkflowDefinition),
+          backendVersion: 2,
+        })
+      } else {
+        firstPut.reject({
+          isAxiosError: true,
+          message: 'A 的保存被拒绝',
+          response: { status: 422, data: { message: 'A 的保存被拒绝' }, headers: {} },
+        })
+      }
+      await flushPromises()
+
+      // 旧队列任务不得在 B 上重新取画布/definitionId，也不能沿用 projectId=11。
+      expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+      expect(api.saveWorkflow.mock.calls[0]![0]).toMatchObject({ id: '101', projectId: 11 })
+      expect(store.workflowId).toBe('102')
+      expect(api.startRun).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(['success', 'failure'] as const)(
+    'Discard 后 B 可主动保存自己的画布/项目，A 的迟到%s不阻塞或改写它',
+    async (firstPutOutcome) => {
+      const { store, runs, router } = await setup()
+      const history = deferred<unknown>()
+      vi.spyOn(runs, 'loadRuns').mockImplementationOnce(async () => { await history.promise })
+      store.updateNodeConfig('node-101', 'description', 'A edit')
+
+      const firstPut = deferred<WorkflowDefinition>()
+      const secondPut = deferred<WorkflowDefinition>()
+      api.saveWorkflow.mockReturnValueOnce(firstPut.promise).mockReturnValueOnce(secondPut.promise)
+      await clickRun()
+      const saveA = wrapper!.findAll('button')
+        .find((button) => button.text().includes(i18n.global.t('workflow.saveWorkflow')))
+      await saveA!.trigger('click')
+      await vi.waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(1))
+      history.resolve([])
+      await flushPromises()
+
+      const navigation = router.push('/workflows/102?projectId=22')
+      await resolveWorkflowNavigation(wrapper!, navigation, 'discard')
+      expect(store.workflowId).toBe('102')
+      expect(store.saving).toBe(false)
+      store.updateNodeConfig('node-102', 'description', 'B edit')
+      expect(store.nodes.map((item) => item.id)).toContain('node-102')
+      expect(store.dirty).toBe(true)
+      const saveB = wrapper!.findAll('button')
+        .find((button) => [i18n.global.t('workflow.saveWorkflow'), i18n.global.t('workflow.saved')]
+          .some((label) => button.text().includes(label)))
+      await saveB!.trigger('click')
+      await vi.waitFor(() => expect(api.saveWorkflow).toHaveBeenCalledTimes(2))
+      expect(api.saveWorkflow.mock.calls[1]![0]).toMatchObject({
+        id: '102', projectId: 22, nodes: [expect.objectContaining({
+          id: 'node-102', data: expect.objectContaining({ config: expect.objectContaining({ description: 'B edit' }) }),
+        })],
+      })
+
+      if (firstPutOutcome === 'success') {
+        firstPut.resolve({ ...(api.saveWorkflow.mock.calls[0]![0] as WorkflowDefinition), backendVersion: 2 })
+      } else {
+        firstPut.reject({
+          isAxiosError: true, message: 'stale A failure',
+          response: { status: 422, data: { message: 'stale A failure' }, headers: {} },
+        })
+      }
+      await flushPromises()
+      expect(store.workflowId).toBe('102')
+      expect(store.saving).toBe(true)
+      expect(store.nodes.find((item) => item.id === 'node-102')?.data.config.description).toBe('B edit')
+      expect(store.savingError).toBeNull()
+      expect(api.startRun).not.toHaveBeenCalled()
+
+      secondPut.resolve({ ...(api.saveWorkflow.mock.calls[1]![0] as WorkflowDefinition), backendVersion: 2 })
+      await flushPromises()
+      expect(store.saving).toBe(false)
+      expect(store.dirty).toBe(false)
+      expect(store.projectId).toBe(22)
+      expect(api.saveWorkflow).toHaveBeenCalledTimes(2)
+      expect(api.startRun).not.toHaveBeenCalled()
+    },
+  )
+
   it('离开又返回同一 A 后的旧失败不能给新页面写入错误', async () => {
     const { store, router } = await setup()
     const pending = deferred<typeof result>()
@@ -530,5 +696,96 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     expect(api.startRun.mock.calls[0]![0]).toBe('101')
     start.resolve(result)
     await flushPromises()
+  })
+
+  it.each(['list', 'messages'] as const)(
+    '真实 WorkflowPage 的 Copilot 在%s历史失败后保留澄清输入，重试恢复规划模式',
+    async (failedStage) => {
+      await setup('/workflows/101?projectId=11', true)
+      writeConversationSelection(conversationSessionKey({ workflowId: '101', projectId: null }), 'conv-1')
+      if (failedStage === 'list') {
+        copilotApi.listConversations.mockRejectedValueOnce({ status: 503, message: 'history list unavailable' })
+          .mockResolvedValue([{ id: 'conv-1', workflowId: '101' }])
+      } else {
+        copilotApi.listConversations.mockResolvedValue([{ id: 'conv-1', workflowId: '101' }])
+        copilotApi.listMessages.mockRejectedValueOnce({ status: 503, message: 'history messages unavailable' })
+          .mockResolvedValue([plannerHistoryMessage()])
+      }
+      if (failedStage === 'list') copilotApi.listMessages.mockResolvedValue([plannerHistoryMessage()])
+      copilotApi.planWorkflow.mockResolvedValue({
+        id: 'plan-followup', conversationId: 'conv-1', role: 'assistant',
+        content: '规划已按澄清修订', createdAt: '',
+      })
+
+      await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+      await flushPromises()
+      const panel = wrapper!.findComponent(AICopilotPanel)
+      expect(panel.exists()).toBe(true)
+      // 由真实 WorkflowPage 传入，避免用缺少画布编辑能力的脱离页面替身。
+      expect(panel.props('applyCanvasEdit')).toBeTypeOf('function')
+      expect(panel.text()).toContain(i18n.global.t('copilot.historyLoadFailed'))
+
+      const input = panel.get<HTMLInputElement>('form input')
+      await input.setValue('继续修订原规划')
+      expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeDefined()
+      await panel.get('form').trigger('submit')
+      await flushPromises()
+      expect(input.element.value).toBe('继续修订原规划')
+      expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+      expect(copilotApi.planWorkflow).not.toHaveBeenCalled()
+      expect(copilotApi.stream).not.toHaveBeenCalled()
+
+      await panel.get('[data-testid="copilot-history-retry"]').trigger('click')
+      await flushPromises()
+      expect(panel.text()).toContain('Existing structured plan')
+      expect(panel.text()).toContain(i18n.global.t('copilot.planner.mode'))
+      expect(input.element.value).toBe('继续修订原规划')
+
+      await panel.get('form').trigger('submit')
+      await flushPromises()
+      expect(copilotApi.planWorkflow).toHaveBeenCalledWith(
+        '继续修订原规划', expect.objectContaining({ conversationId: 'conv-1' }),
+      )
+      expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+      expect(copilotApi.stream).not.toHaveBeenCalled()
+    },
+  )
+
+  it('已删除的规划会话不按默认 canvas-edit 发送，只有明确改模式后才继续', async () => {
+    await setup('/workflows/101?projectId=11', true)
+    writeConversationSelection(conversationSessionKey({ workflowId: '101', projectId: null }), 'conv-1')
+    copilotApi.listConversations.mockResolvedValue([{ id: 'conv-1', workflowId: '101' }])
+    copilotApi.listMessages.mockRejectedValueOnce({ status: 404, message: 'conversation missing' })
+
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    expect(panel.props('applyCanvasEdit')).toBeTypeOf('function')
+    expect(panel.text()).toContain(i18n.global.t('copilot.historyUnavailable'))
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    expect(readConversationSelection(conversationSessionKey({ workflowId: '101', projectId: null }))).toBe('new')
+
+    const input = panel.get<HTMLInputElement>('form input')
+    await input.setValue('继续修订已删除会话的规划')
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeDefined()
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+    expect(copilotApi.planWorkflow).not.toHaveBeenCalled()
+    expect(copilotApi.stream).not.toHaveBeenCalled()
+    expect(input.element.value).toBe('继续修订已删除会话的规划')
+
+    const chatMode = panel.findAll('button')
+      .find((button) => button.text() === i18n.global.t('copilot.editor.chatMode'))
+    expect(chatMode).toBeDefined()
+    await chatMode!.trigger('click')
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.stream).toHaveBeenCalledWith(
+      expect.stringContaining('继续修订已删除会话的规划'), expect.objectContaining({ conversationId: undefined }),
+    )
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+    expect(copilotApi.planWorkflow).not.toHaveBeenCalled()
   })
 })

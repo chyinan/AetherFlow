@@ -58,6 +58,9 @@ const prompt = ref('')
 const loading = ref(false)
 const conversationSelectionPending = ref(false)
 const conversationIdentityUnconfirmed = ref(false)
+// 编辑页不能在已选会话历史失败后，把澄清输入按默认 canvas-edit 模式发出。
+const conversationHistoryModeUnknown = ref(false)
+const historyRetryAvailable = ref(false)
 const interactionPending = computed(() => loading.value || savingCustomNodeDraft.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
 const modelsLoading = ref(false)
 const models = ref<ModelCatalogItem[]>([])
@@ -178,7 +181,11 @@ async function loadConversationHistory() {
   const baselineMessageIds = messages.value.map((message) => message.id)
   const modeChoiceAtStart = explicitModeChoiceSequence
   const selection = readConversationSelection(scopeKeyAtStart)
-  if (selection === 'new') return
+  if (selection === 'new') {
+    conversationHistoryModeUnknown.value = false
+    historyRetryAvailable.value = false
+    return
+  }
   if (selection === UNCONFIRMED_CONVERSATION) {
     conversationIdentityUnconfirmed.value = true
     historyNotice.value = t('copilot.historyIdentityUnconfirmed')
@@ -187,6 +194,7 @@ async function loadConversationHistory() {
   // 选择已按用户、项目和工作流（含草稿名称）隔离，临时加载失败不能把续聊变成新会话。
   if (selection) {
     conversationId.value = selection
+    historyRetryAvailable.value = false
     // 已确认的会话必须等历史恢复完成才允许续发：提前解锁会让发送按默认画布编辑模式写入错误会话，
     // 代次递增还会让迟到的历史失效，历史里确定的规划模式再也恢复不了。
     conversationSelectionPending.value = true
@@ -201,6 +209,8 @@ async function loadConversationHistory() {
     conversationId.value = undefined
     writeConversationSelection(scopeKeyAtStart, 'new')
     historyNotice.value = t('copilot.historyUnavailable')
+    conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && selection)
+    historyRetryAvailable.value = false
   }
   let historyConversationId = selection ?? undefined
   let historyRequested = false
@@ -227,6 +237,9 @@ async function loadConversationHistory() {
       return
     }
     rememberConversation(historyConversationId)
+    conversationHistoryModeUnknown.value = false
+    historyRetryAvailable.value = false
+    historyNotice.value = ''
     applyConversationHistory(history)
   } catch (error) {
     if (!stillCurrent()) return
@@ -237,11 +250,18 @@ async function loadConversationHistory() {
       // 保留已确认的会话选择，重新打开时可重试；不回退到其他会话。
       if (historyConversationId) rememberConversation(historyConversationId)
       historyNotice.value = t('copilot.historyLoadFailed')
+      conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && selection)
+      historyRetryAvailable.value = Boolean(historyConversationId && selection)
     }
   } finally {
     // 成功、失败和作用域失效都统一在这里解锁，避免恢复异常时发送被永久锁死。
     if (stillCurrent()) conversationSelectionPending.value = false
   }
+}
+
+function retryConversationHistory() {
+  if (!historyRetryAvailable.value || interactionPending.value) return
+  void loadConversationHistory()
 }
 
 /** 历史恢复成功后整体接管消息列表，并按历史里最后一条计划决定发送模式。 */
@@ -528,6 +548,10 @@ interface SendPromptOptions {
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
   if (conversationSelectionPending.value || conversationIdentityUnconfirmed.value) return
+  if (conversationHistoryModeUnknown.value) {
+    historyNotice.value = t('copilot.historyLoadFailed')
+    return
+  }
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
     await sendCanvasEdit(value)
     return
@@ -639,6 +663,8 @@ function setDirectEditMode(enabled: boolean) {
   if (interactionPending.value) return
   // 用户主动选模式后，迟到的历史不允许再覆盖这次选择。
   explicitModeChoiceSequence += 1
+  conversationHistoryModeUnknown.value = false
+  historyRetryAvailable.value = false
   beginConversationInteraction()
   directEditMode.value = enabled
   leavePlannerMode()
@@ -646,6 +672,7 @@ function setDirectEditMode(enabled: boolean) {
 
 async function sendCanvasEdit(value = prompt.value) {
   const text = value.trim()
+  if (conversationHistoryModeUnknown.value) return
   if (!text || interactionPending.value || !props.context || !props.applyCanvasEdit) return
   const snapshot: WorkflowCopilotSnapshot = JSON.parse(JSON.stringify(props.context))
   if (snapshot.nodes.length > 100) return
@@ -841,6 +868,7 @@ async function confirmCustomNodeDraft(messageId: string) {
 
 async function sendWorkflowPlan(value = prompt.value) {
   const text = value.trim()
+  if (conversationHistoryModeUnknown.value) return
   if (!text || interactionPending.value || !props.context) return
   const base = currentPlannerBase()
   if (!base) return
@@ -1164,9 +1192,17 @@ onMounted(() => {
       </div>
 
       <div class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
-        <p v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
+        <div v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
           {{ historyNotice }}
-        </p>
+          <button
+            v-if="historyRetryAvailable"
+            type="button"
+            data-testid="copilot-history-retry"
+            class="ml-2 font-semibold underline"
+            :disabled="interactionPending"
+            @click="retryConversationHistory"
+          >{{ t('common.retry') }}</button>
+        </div>
         <article
           v-for="message in messages"
           :key="message.id"
@@ -1349,7 +1385,7 @@ onMounted(() => {
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
             :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
           />
-          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending" :aria-label="presentationText('send')" :title="presentationText('send')">
+          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown" :aria-label="presentationText('send')" :title="presentationText('send')">
             <Send class="h-4 w-4" />
           </button>
         </div>

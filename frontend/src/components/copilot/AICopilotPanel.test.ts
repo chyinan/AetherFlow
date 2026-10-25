@@ -1002,6 +1002,13 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(listMessages).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain(i18n.global.t('copilot.historyUnavailable'))
+    if (mode === 'canvas') {
+      // 历史不存在时编辑页必须显式确认模式，不能按默认 canvas-edit 自动发送。
+      const editMode = wrapper.findAll('button')
+        .find((button) => button.text() === i18n.global.t('copilot.editor.editMode'))
+      expect(editMode).toBeDefined()
+      await editMode!.trigger('click')
+    }
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
     await wrapper.find('form').trigger('submit')
     await flushPromises()

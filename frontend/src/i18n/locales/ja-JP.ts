@@ -1590,9 +1590,9 @@ export const jaJP = {
   },
   copilot: {
     newConversation: '新しいチャット',
-    historyUnavailable: '選択した会話はこのワークフローでは利用できません。次のメッセージで新しいチャットを開始します。',
+    historyUnavailable: '選択した会話は存在しません。誤ったモードで送信しないよう、チャットまたは編集モードを明示的に選択してください。',
     historyIdentityUnconfirmed: '会話 ID の確認前に接続が途切れたため、安全に再開できません。別の会話への誤接続を防ぐため送信を停止しました。「新しいチャット」を選び、質問全体を再入力してください。',
-    historyLoadFailed: '履歴を読み込めませんでした。会話の選択は保持されています。パネルを開き直すと再試行できます。',
+    historyLoadFailed: '会話履歴または計画モードを読み込めませんでした。会話と入力は保持されています。再試行するか、送信前にチャット/編集モードを明示的に選択してください。',
     newConversationHint: 'キャンバスと履歴を保持して、新しい会話を開始します',
     editor: {
       modeLabel: 'Copilot モード', chatMode: 'チャット', editMode: 'キャンバスを編集',

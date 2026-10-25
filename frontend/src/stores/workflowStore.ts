@@ -503,6 +503,9 @@ export const useWorkflowStore = defineStore('workflow', {
         edges: workflow.edges,
       })) as WorkflowGraphHistoryEntry
       workflowLoadRequestCounter += 1
+      // 替换画布会使旧代次中尚未发出的保存失效；在途 PUT 不可撤回，
+      // 但它完成后不能再从旧队列读取这张新画布。
+      saveQueues.delete(this)
       this.workflowId = workflow.id
       this.workflowName = workflow.name
       this.workflowDescription = workflow.description ?? ''
@@ -735,6 +738,7 @@ export const useWorkflowStore = defineStore('workflow', {
     },
     resetToEmptyWorkflow() {
       workflowLoadRequestCounter += 1
+      saveQueues.delete(this)
       this.nodeDragSnapshot = null
       this.workflowId = 'new'
       this.workflowName = 'Untitled Workflow'
@@ -795,6 +799,7 @@ export const useWorkflowStore = defineStore('workflow', {
     },
     async loadWorkflow(workflowId: string, options: { initialName?: string } = {}): Promise<boolean> {
       const requestId = ++workflowLoadRequestCounter
+      saveQueues.delete(this)
       this.nodeDragSnapshot = null
       this.loading = true
       this.loadingError = null
@@ -856,6 +861,7 @@ export const useWorkflowStore = defineStore('workflow', {
     discardCurrentWorkflowSave() {
       // 丢弃离开会使尚未重放的旧提交失效；已发出的网络请求无法撤回。
       this.workflowSaveRequestSequence += 1
+      saveQueues.delete(this)
       this.saving = false
       this.savingError = null
       this.saveRecovery = null
@@ -866,18 +872,26 @@ export const useWorkflowStore = defineStore('workflow', {
      * 排队期间保持 saving 反馈，队列排空后才解除。
      */
     async saveCurrentWorkflow(options: SaveWorkflowOptions = {}) {
+      const generationAtEnqueue = workflowLoadRequestCounter
       const queue = currentSaveQueue(this)
+      // 保存意图（尤其显式 projectId）属于本次调用，不能让调用方后续修改影响队列任务。
+      const saveOptions = { ...options }
       queue.pending += 1
       this.saving = true
       this.savingError = null
+      const stillOwnsQueuedCanvas = () => saveQueues.get(this) === queue
+        && queue.generation === generationAtEnqueue
+        && workflowLoadRequestCounter === generationAtEnqueue
       // 队列空闲时同步开始：调用瞬间的工作流身份、画布与编辑代次必须被立刻固定，
       // 不能被推后一拍让出给后续的替换/重置。
       const task = queue.pending === 1
-        ? this.performSaveCurrentWorkflow(queue, options)
+        ? stillOwnsQueuedCanvas()
+          ? this.performSaveCurrentWorkflow(queue, saveOptions)
+          : Promise.resolve(undefined)
         : queue.tail.catch(() => undefined).then(() => (
-          // 排队期间换了工作流：这次保存的目标画布已经不存在，不能再落库。
-          saveQueues.get(this) === queue
-            ? this.performSaveCurrentWorkflow(queue, options)
+          // 排队期间画布代次或队列所有权变化：不得在新画布上重读 definition/project。
+          stillOwnsQueuedCanvas()
+            ? this.performSaveCurrentWorkflow(queue, saveOptions)
             : undefined
         ))
       queue.tail = task.then(() => undefined, () => undefined)
