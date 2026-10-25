@@ -130,6 +130,18 @@ describe('节点连接运行前清单', () => {
     expect(checklist({}, { nodeType: 'UPSCALE', config: { mode: 'workflow', upscaler: 'Lanczos' } }))
       .toMatchObject([{ field: 'upscaler', reason: 'unsupported', value: 'Lanczos' }])
   })
+  it('未知插件放大节点由请求用途和可执行 API 图决定，不要求预置 UPSCALE 能力名', () => {
+    const config = { mode: 'workflow', workflowJson: {
+      '1': { class_type: 'LoadImage', inputs: { image: 'source.png' } },
+      '2': { class_type: 'AcmeSuperResolution', inputs: { image: ['1', 0] } },
+      '3': { class_type: 'SaveImage', inputs: { images: ['2', 0] } },
+    } }
+
+    expect(checklist({ upscaler: 'Lanczos' }, {
+      nodeType: 'UPSCALE', config,
+      probe: probe({ capabilities: ['IMAGE_GENERATION'], models: { ...probe().models, upscalers: [] } }),
+    })).toEqual([])
+  })
   it('导入 Comfy API 放大执行图不再被标记为"放大工作流无效"', () => {
     const config = { mode: 'workflow', workflowJson: { '1': { class_type: 'LoadImage', inputs: {} }, '2': { class_type: 'SaveImage', inputs: {} } } }
     expect(checklist({}, { nodeType: 'UPSCALE', config }).filter((issue) => issue.field === 'workflow' || issue.field === 'workflowJson')).toEqual([])

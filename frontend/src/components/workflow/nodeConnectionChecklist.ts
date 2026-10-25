@@ -61,15 +61,17 @@ export function buildNodeConnectionChecklist({ provider, nodeType, config, probe
   if (probe.status === 'unreachable') { add('connectionId', 'unreachable'); return issues }
   if (probe.status === 'unconfigured') { add('connectionId', 'unconfigured'); return issues }
   if (connectionProvider && connectionProvider !== provider) { add('connectionId', 'providerMismatch'); return issues }
-  if (!probe.capabilities?.includes(nodeType)) { add('connectionId', 'capability'); return issues }
+  const comfy = provider === 'COMFYUI'
+  const importedApiGraph = comfy && describeComfyGraph(config.workflowJson ?? config.workflow).format === 'API'
+  // API 图能力由用户请求的节点用途与服务端对实际图类型的探测共同决定；
+  // 插件 UPSCALE 不必命中内置 ImageScaleBy 分类名。
+  if (!probe.capabilities?.includes(nodeType) && !importedApiGraph) { add('connectionId', 'capability'); return issues }
 
   const mode = String(config.mode ?? 'txt2img').trim().toLowerCase() || 'txt2img'
   if (nodeType === 'IMAGE_GENERATION' && (!['txt2img', 'img2img', 'workflow'].includes(mode)
     || (provider === 'STABLE_DIFFUSION_WEBUI' && mode === 'workflow'))) {
     add('mode', 'unsupportedMode', { value: mode })
   }
-  const comfy = provider === 'COMFYUI'
-  const importedApiGraph = comfy && describeComfyGraph(config.workflowJson ?? config.workflow).format === 'API'
   if (comfy) {
     for (const field of ['workflow', 'workflowJson'] as const) {
       if (!hasConfiguredWorkflow(config[field])) continue

@@ -172,12 +172,16 @@ public class NodeConnectionService {
         if (!"usable".equals(probe.status())) {
             throw invalid(probe.message());
         }
-        if (!probe.capabilities().contains(nodeType)) {
+        boolean executableComfyWorkflow = ImageProviderType.COMFYUI.name().equals(profile.provider())
+                && !selection.workflowNodeTypes().isEmpty();
+        // 对有实际 Comfy API 图的选择，nodeType 是用户请求用途；probeWorkflow 已逐项确认
+        // 图内节点均由该服务提供。不能再要求插件图恰好包含内置 UPSCALE 分类节点名。
+        if (!probe.capabilities().contains(nodeType) && !executableComfyWorkflow) {
             throw invalid("连接不支持所选节点类型");
         }
         // 有实际 Comfy 执行图的节点按图判定：内置 ImageScaleBy/SD 目录与节点顶层模型选项都不适用，
         // 否则自定义 UPSCALE 图会被无关的 SD upscaler 目录拦截。
-        if (ImageProviderType.COMFYUI.name().equals(profile.provider()) && !selection.workflowNodeTypes().isEmpty()) {
+        if (executableComfyWorkflow) {
             return;
         }
         if ("IMAGE_GENERATION".equals(nodeType)) {
