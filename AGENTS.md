@@ -1,6 +1,6 @@
 # 项目开发约定
 
-Last verified: 2026-08-31
+Last verified: 2026-10-25
 
 ## 工业级加固契约
 
@@ -31,10 +31,16 @@ Last verified: 2026-08-31
 - parent-child 分片中 parent 只用于上下文，检索结果返回 child 关联的 parent 上下文；元数据过滤必须是合法 JSON 对象。
 - 工作流编辑器中的知识检索节点必须保留数据集选择、`topK`、输出变量和元数据过滤配置，并与后端节点契约一致。
 - AI 节点可执行性以 AI Service 的运行时能力快照为准；Workflow Service 在实例落库前执行预检，前端只做提前反馈，不得绕过服务端 fail-closed 门禁。
-- 图像 Provider 默认关闭；只有真实注册且运行时可用的 Stable Diffusion WebUI/ComfyUI Provider 才能出现在可执行能力中。
+- 图像 Provider 默认关闭；只有真实注册且运行时可用的 Stable Diffusion WebUI/ComfyUI Provider 才能出现在可执行能力中。Comfy API 图按请求节点用途与服务端实际节点目录判断，自定义 UPSCALE 图不依赖内置 upscaler 名称，源图绑定仍必须有效。
 - 文档提取默认使用 `auto`：Office、邮件、EPUB、PDF 文本层和文本格式走 Tika，图片及扫描 PDF 走 Tesseract 回退；格式目录、25 MiB 输入限制和 100 万字符输出限制必须前后端一致。
 - Embedding 节点当前只承诺 Ollama。目录不能列出尚无执行实现的 OpenAI 或 HuggingFace Provider。
 - 工作流运行事件以 SSE 为主、WebSocket 为备用；WebSocket 使用绑定单一工作流的 60 秒流令牌、实例归属校验和持久事件游标续传。
+- 知识检索的复杂 metadata 条件必须在语义候选进入最终 Top-K 前完整过滤；Qdrant 单次候选窗口不足时使用语义保持的分页/扫描，不得静默返回空结果。
+- 工作流保存队列属于当前画布加载代次；导航丢弃或替换画布会使尚未发出的旧任务失效，保存意图（包括 projectId）按调用时固定。
+- CONDITION 比较配置区分缺省、null、空串和空白；`EXISTS`/`NOT_EXISTS` 不依赖比较值，`EQUALS`/`NOT_EQUALS` 保留显式标量语义。
+- Copilot 已选会话的历史或规划模式未恢复时，编辑页保留输入并阻止默认模式发送；重试成功或用户显式选择模式后才能继续。
+- CODE 沙箱的 `main(payload)` 可合法返回 JSON null；缺少 payload 时按 null 传入，结果变量仍存在并保留 null。
+- FFMPEG 媒体产物提交后保留类型/序号映射并提供 `mediaUrl`；Workflow Service 将其作为 `fileUrl` 兼容别名，MP4 与音频扩展名均适用。
 
 ## 投产验证
 
