@@ -25,12 +25,14 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -157,6 +159,30 @@ class EmbeddingNodeExecutorTest {
         } finally {
             executorService.shutdownNow();
         }
+    }
+
+    @Test
+    void cancelsAQueuedEmbeddingBatchBeforeAnyProviderCallOrVectorWrite() throws Exception {
+        EmbeddingProvider provider = provider("ollama");
+        EmbeddingProperties properties = embeddingProperties();
+        properties.setTimeout(Duration.ofMillis(20));
+        EmbeddingMetrics embeddingMetrics = new EmbeddingMetrics();
+        InMemoryVectorStore vectorStore = new InMemoryVectorStore();
+        AtomicReference<Runnable> queuedTask = new AtomicReference<>();
+        Executor queuedExecutor = queuedTask::set;
+        EmbeddingNodeExecutor executor = executor(provider, properties, embeddingMetrics, vectorStore, queuedExecutor);
+
+        assertThatThrownBy(() -> executor.execute(context(Map.of("chunkSize", 3, "overlap", 1),
+                Map.of("ocrText", "abcdefg"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("embedding execution timed out");
+
+        assertThat(queuedTask.get()).isNotNull();
+        // Release the executor's queued Runnable after the outer deadline has cancelled its future.
+        queuedTask.get().run();
+        verify(provider, never()).embed(any());
+        assertThat(vectorStore.count()).isZero();
+        assertThat(embeddingMetrics.orphanBatchCount()).isEqualTo(1);
     }
 
     @Test
