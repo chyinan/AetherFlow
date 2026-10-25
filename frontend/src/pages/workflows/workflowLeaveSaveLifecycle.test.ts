@@ -93,6 +93,53 @@ async function choose(action: 'save' | 'stay' | 'discard') {
 }
 
 describe('离开保存请求跨工作流恢复', () => {
+  it.each(['成功', '失败'] as const)('A 的 409 基线刷新期间 Discard 切到 B，旧 GET %s不污染 B 保存状态', async (outcome) => {
+    const { store, router } = await setup()
+    const pendingRead = deferred<{ id: number; version: number; definitionJson: string }>()
+    api.saveWorkflow.mockRejectedValueOnce({
+      isAxiosError: true,
+      message: 'A 的版本冲突',
+      config: { url: '/workflows/definitions/101' },
+      response: { status: 409, data: { message: 'A 的版本冲突' }, headers: {} },
+    })
+    api.readWorkflowDefinition.mockReturnValueOnce(pendingRead.promise)
+    api.getWorkflow.mockResolvedValueOnce({ ...definition('102'), projectId: 22 })
+
+    const navigation = router.push('/workflows/102?projectId=22')
+    await flushPromises()
+    await choose('save')
+    await vi.waitFor(() => expect(api.readWorkflowDefinition).toHaveBeenCalledExactlyOnceWith(101))
+    expect(store.saving).toBe(true)
+
+    // 从真实离开弹窗丢弃：A 的 PUT 已确定失败，基线 GET 仍在途中。
+    await choose('discard')
+    expect(await navigation).toBeUndefined()
+    expect(router.currentRoute.value.fullPath).toBe('/workflows/102?projectId=22')
+    expect(store.workflowId).toBe('102')
+    expect(store.savingError).toBeNull()
+    expect(hasDialog()).toBe(false)
+    const startB = store.addNodeFromTemplate(nodeTemplates.find(template => template.kind === 'start')!, { x: 0, y: 0 })!
+    store.updateNodeConfig(startB.id, 'variables', { prompt: '保留 B 的本地编辑' })
+    const graph = JSON.stringify({ nodes: store.nodes, edges: store.edges, history: store.historyPast })
+
+    if (outcome === '成功') pendingRead.resolve({ id: 101, version: 9, definitionJson: '{}' })
+    else pendingRead.reject(new Error('A 的基线刷新失败'))
+    await flushPromises()
+
+    expect(store.workflowId).toBe('102')
+    expect(store.projectId).toBe(22)
+    expect(store.backendVersion).toBe(1)
+    expect(store.dirty).toBe(true)
+    expect(store.saving).toBe(false)
+    expect(store.savingError).toBeNull()
+    expect(wrapper!.text()).not.toContain('A 的版本冲突')
+    expect(JSON.stringify({ nodes: store.nodes, edges: store.edges, history: store.historyPast })).toBe(graph)
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+    expect(api.readWorkflowDefinition).toHaveBeenCalledTimes(1)
+    expect(projects.linkWorkflowToProject).not.toHaveBeenCalled()
+    expect(projects.updateWorkflowStatus).not.toHaveBeenCalled()
+  })
+
   it('核对等待期间丢弃离开后，迟到的核对失败不会重放旧工作流', async () => {
     const { store, router } = await setup()
     const pendingRead = deferred<{ id: number; version: number; definitionJson: string }>()

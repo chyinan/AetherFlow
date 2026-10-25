@@ -987,6 +987,10 @@ export const useWorkflowStore = defineStore('workflow', {
           // 版本冲突是确定失败，但基线可以只读刷新：否则之后每次保存都会带着旧版本继续 409。
           if (apiError.status === 409) {
             await this.refreshSaveBaselineAfterConflict(ownsSaveState)
+            // 刷新期间可能已丢弃、重载或开始新保存；旧请求不能再写入当前保存反馈。
+            if (!ownsSaveState()) {
+              throw error
+            }
           }
           const details = apiError.message || i18n.global.t('workflow.saveFailedUnknown')
           this.savingError = `${i18n.global.t('workflow.saveFailed')}: ${details}`

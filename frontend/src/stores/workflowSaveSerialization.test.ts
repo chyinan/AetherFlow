@@ -42,9 +42,9 @@ function rejected(status: number, message: string) {
   }
 }
 
-function remoteOf(version: number, payload: unknown): RemoteDefinition {
+function remoteOf(version: number, payload: unknown, id = 201): RemoteDefinition {
   return {
-    id: 201,
+    id,
     name: (payload as { name?: string })?.name ?? '已有工作流',
     description: (payload as { description?: string })?.description ?? '',
     projectId: (payload as { projectId?: number })?.projectId ?? 11,
@@ -52,6 +52,16 @@ function remoteOf(version: number, payload: unknown): RemoteDefinition {
     definitionJson: JSON.stringify(payload),
     status: 'ready',
   }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 
 /** 等待条件成立，避免依赖固定微任务数量。 */
@@ -244,5 +254,160 @@ describe('保存入口的串行化与版本基线前进', () => {
     await expect(store.saveCurrentWorkflow()).resolves.toEqual({ workflowId: '201' })
     expect(putCalls.at(-1)!.payload.version).toBe(9)
     expect(store.backendVersion).toBe(10)
+  })
+
+  async function beginConflictRefresh(store: ReturnType<typeof useWorkflowStore>) {
+    const refresh = deferred<RemoteDefinition>()
+    const conflict = rejected(409, 'version conflict')
+    http.put.mockRejectedValueOnce(conflict)
+    http.get.mockReturnValueOnce(refresh.promise)
+    const saving = store.saveCurrentWorkflow()
+    // 立即接住原保存的拒绝，之后仍需保留这次 409 的失败语义。
+    const completed = expect(saving).rejects.toBe(conflict)
+    await waitFor(() => http.get.mock.calls.length === 1, '409 基线刷新 GET 发出')
+    expect(http.get).toHaveBeenLastCalledWith('/workflows/definitions/201', { source: 'workflow' })
+    expect(store.saving).toBe(true)
+    return { refresh, completed }
+  }
+
+  function settleRefresh(refresh: ReturnType<typeof deferred<RemoteDefinition>>, outcome: string) {
+    if (outcome === '成功') refresh.resolve(remoteOf(99, remote.definitionJson))
+    else refresh.reject(new Error('旧工作流基线刷新失败'))
+  }
+
+  it('同 A 的后续保存排队时，当前冲突仍刷新基线并让队列用新版本保存最新编辑', async () => {
+    const store = loadedStore()
+    const first = await beginConflictRefresh(store)
+    store.updateNodeConfig('start-1', 'description', '冲突刷新期间的新编辑')
+    http.put.mockImplementationOnce(async (_url: string, payload: any) => remoteOf(payload.version + 1, payload))
+    const queued = store.saveCurrentWorkflow()
+    expect(http.put).toHaveBeenCalledTimes(1)
+    expect(store.saving).toBe(true)
+
+    first.refresh.resolve(remoteOf(7, remote.definitionJson))
+    await first.completed
+    await expect(queued).resolves.toEqual({ workflowId: '201' })
+
+    expect(http.get).toHaveBeenCalledTimes(1)
+    expect(http.put).toHaveBeenCalledTimes(2)
+    expect(http.put.mock.calls[1]![1]).toMatchObject({ version: 7, projectId: 11 })
+    expect(store.nodes[0]!.data.config.description).toBe('冲突刷新期间的新编辑')
+    expect(store).toMatchObject({ backendVersion: 8, dirty: false, saving: false, savingError: null })
+  })
+
+  it('同 A 的冲突基线刷新失败时仍报告原保存错误并保留草稿', async () => {
+    const store = loadedStore()
+    store.updateNodeConfig('start-1', 'description', '刷新失败后保留的草稿')
+    const first = await beginConflictRefresh(store)
+    first.refresh.reject(new Error('只读刷新失败'))
+    await first.completed
+
+    expect(store.savingError).toContain('version conflict')
+    expect(store).toMatchObject({ backendVersion: 5, dirty: true, saving: false, pendingSaveSubmission: null })
+    expect(store.nodes[0]!.data.config.description).toBe('刷新失败后保留的草稿')
+    expect(http.get).toHaveBeenCalledTimes(1)
+    expect(http.put).toHaveBeenCalledTimes(1)
+  })
+
+  const refreshOutcomes = ['成功', '失败'] as const
+  const nextSaveStates = ['未保存', '保存中', '保存失败', '保存成功'] as const
+  it.each(refreshOutcomes.flatMap(refreshOutcome => nextSaveStates.map(saveState => ({ refreshOutcome, saveState }))))(
+    'Discard 切换到 B 且 B $saveState 后，A 的冲突刷新$refreshOutcome不修改 B',
+    async ({ refreshOutcome, saveState }) => {
+      const store = loadedStore()
+      const oldSave = await beginConflictRefresh(store)
+      store.discardCurrentWorkflowSave()
+      const nextPayload = {
+        name: '工作流 B', description: 'B 的说明', projectId: 22, version: 17,
+        nodes: [{ nodeId: 'start-b', nodeType: 'START', displayName: 'B 的开始', config: {} }],
+      }
+      http.get.mockResolvedValueOnce(remoteOf(17, nextPayload, 202))
+      expect(await store.loadWorkflow('202')).toBe(true)
+      store.updateNodeConfig('start-b', 'description', 'B 的独立编辑')
+
+      const pendingB = deferred<RemoteDefinition>()
+      let savingB: ReturnType<typeof store.saveCurrentWorkflow> | undefined
+      if (saveState === '保存中') {
+        http.put.mockReturnValueOnce(pendingB.promise)
+        savingB = store.saveCurrentWorkflow()
+        await waitFor(() => http.put.mock.calls.length === 2, 'B 的保存独立发出')
+      } else if (saveState === '保存失败') {
+        http.put.mockRejectedValueOnce(rejected(422, 'B 的独有保存错误'))
+        await expect(store.saveCurrentWorkflow()).rejects.toThrow('B 的独有保存错误')
+      } else if (saveState === '保存成功') {
+        http.put.mockImplementationOnce(async (_url: string, payload: unknown) => remoteOf(18, payload, 202))
+        await expect(store.saveCurrentWorkflow()).resolves.toEqual({ workflowId: '202' })
+      }
+
+      expect(store).toMatchObject({
+        workflowId: '202', workflowName: '工作流 B', projectId: 22,
+        backendDefinitionId: 202, backendVersion: saveState === '保存成功' ? 18 : 17,
+        dirty: saveState !== '保存成功', saving: saveState === '保存中',
+      })
+      if (saveState === '保存失败') expect(store.savingError).toContain('B 的独有保存错误')
+      else expect(store.savingError).toBeNull()
+      const stateBeforeOldRefresh = JSON.parse(JSON.stringify(store.$state))
+
+      settleRefresh(oldSave.refresh, refreshOutcome)
+      await oldSave.completed
+
+      expect(JSON.parse(JSON.stringify(store.$state))).toEqual(stateBeforeOldRefresh)
+      expect(http.put).toHaveBeenCalledTimes(saveState === '未保存' ? 1 : 2)
+      expect(http.get).toHaveBeenCalledTimes(2)
+      if (savingB) {
+        pendingB.resolve(remoteOf(18, http.put.mock.calls[1]![1], 202))
+        await expect(savingB).resolves.toEqual({ workflowId: '202' })
+        expect(store).toMatchObject({ saving: false, savingError: null, backendVersion: 18, dirty: false })
+      }
+    },
+  )
+
+  it.each(refreshOutcomes)('Discard 仍在 A 上重新保存时，旧冲突刷新%s不干扰新的在途保存', async (refreshOutcome) => {
+    const store = loadedStore()
+    const oldSave = await beginConflictRefresh(store)
+    store.discardCurrentWorkflowSave()
+    store.updateNodeConfig('start-1', 'description', '同一画布上的新保存')
+    const newPut = deferred<RemoteDefinition>()
+    http.put.mockReturnValueOnce(newPut.promise)
+    const saving = store.saveCurrentWorkflow()
+    await waitFor(() => http.put.mock.calls.length === 2, 'Discard 后同 A 的新保存发出')
+    expect(store.saving).toBe(true)
+    const stateBeforeOldRefresh = JSON.parse(JSON.stringify(store.$state))
+
+    settleRefresh(oldSave.refresh, refreshOutcome)
+    await oldSave.completed
+
+    expect(JSON.parse(JSON.stringify(store.$state))).toEqual(stateBeforeOldRefresh)
+    expect(http.put).toHaveBeenCalledTimes(2)
+    newPut.resolve(remoteOf(6, http.put.mock.calls[1]![1]))
+    await expect(saving).resolves.toEqual({ workflowId: '201' })
+    expect(store).toMatchObject({ backendVersion: 6, saving: false, savingError: null, dirty: false })
+  })
+
+  it.each(refreshOutcomes)('A 切到 B 再重载相同 ID 的 A 后，旧冲突刷新%s不修改新的加载代次', async (refreshOutcome) => {
+    const store = loadedStore()
+    const oldSave = await beginConflictRefresh(store)
+    const nextPayload = {
+      name: '工作流 B', projectId: 22,
+      nodes: [{ nodeId: 'start-b', nodeType: 'START', displayName: '开始', config: {} }],
+    }
+    // 不调用 Discard，单独验证加载代次会使旧刷新失效。
+    http.get.mockResolvedValueOnce(remoteOf(17, nextPayload, 202))
+    expect(await store.loadWorkflow('202')).toBe(true)
+    http.get.mockResolvedValueOnce(remoteOf(8, {
+      name: '重新加载的 A', projectId: 11,
+      nodes: [{ nodeId: 'start-1', nodeType: 'START', displayName: '开始', config: { description: '远端新内容' } }],
+    }))
+    expect(await store.loadWorkflow('201')).toBe(true)
+    store.updateNodeConfig('start-1', 'description', '重新加载后的编辑')
+    expect(store).toMatchObject({ workflowId: '201', backendVersion: 8, dirty: true, savingError: null })
+    const stateBeforeOldRefresh = JSON.parse(JSON.stringify(store.$state))
+
+    settleRefresh(oldSave.refresh, refreshOutcome)
+    await oldSave.completed
+
+    expect(JSON.parse(JSON.stringify(store.$state))).toEqual(stateBeforeOldRefresh)
+    expect(http.put).toHaveBeenCalledTimes(1)
+    expect(http.get).toHaveBeenCalledTimes(3)
   })
 })
