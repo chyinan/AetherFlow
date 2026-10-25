@@ -374,6 +374,7 @@ export const enUS = {
     importComfyUiInvalid: 'The ComfyUI file must be a JSON object.',
     importComfyUiDefaultName: 'Imported ComfyUI workflow',
     importComfyUiDescription: 'Imported from ComfyUI workflow.json.',
+    importComfyUiEdited: 'This import was not applied because the workflow changed. Your edits were kept. Choose the file again to retry.',
     loading: 'Loading workflow...',
     loadFailed: 'Failed to load workflow',
     loadFailedUnknown: 'Unknown error',

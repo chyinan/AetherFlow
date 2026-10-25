@@ -263,6 +263,7 @@ describe('首次保存回执与较新 ComfyUI 导入的交错', () => {
     await flushPromises()
 
     expect(store.workflowName).not.toBe('Imported')
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').exists()).toBe(false)
   })
 
   it('导入失败时给出错误反馈且不改动画布', async () => {
@@ -289,5 +290,107 @@ describe('首次保存回执与较新 ComfyUI 导入的交错', () => {
 
     expect(api.importComfyUi).not.toHaveBeenCalled()
     expect(JSON.stringify(store.$state)).toBe(before)
+  })
+
+  it('keeps edits and explains that the import was skipped when the canvas changes during file reading', async () => {
+    const { store, start } = await setup()
+    const reading = deferred<string>()
+    await importFile(reading.promise)
+
+    const editedNode = store.duplicateNode(start.id)!
+    reading.resolve('{}')
+    await flushPromises()
+
+    expect(api.importComfyUi).not.toHaveBeenCalled()
+    expect(store.nodes.map((node) => node.id)).toContain(editedNode.id)
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').attributes('role')).toBe('status')
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').text()).toBe(i18n.global.t('workflow.importComfyUiEdited'))
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('keeps edits when conversion finishes after an edit and lets the same file be retried', async () => {
+    const { store, start } = await setup()
+    const importing = deferred<WorkflowDefinitionDTO>()
+    api.importComfyUi.mockReturnValueOnce(importing.promise).mockResolvedValueOnce({ ...imported(), name: 'Retried import' })
+    await importFile()
+
+    const editedNode = store.duplicateNode(start.id)!
+    importing.resolve(imported())
+    await flushPromises()
+
+    expect(store.nodes.map((node) => node.id)).toContain(editedNode.id)
+    expect(store.nodes.map((node) => node.id)).not.toContain('prompt')
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').text()).toBe(i18n.global.t('workflow.importComfyUiEdited'))
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+
+    await importFile()
+
+    expect(api.importComfyUi).toHaveBeenCalledTimes(2)
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').exists()).toBe(false)
+    expect(store.workflowName).toBe('Retried import')
+  })
+
+  it('shows the edit notice instead of an import error when a stale conversion fails', async () => {
+    const { store, start } = await setup()
+    const importing = deferred<WorkflowDefinitionDTO>()
+    api.importComfyUi.mockReturnValueOnce(importing.promise)
+    await importFile()
+
+    const editedNode = store.duplicateNode(start.id)!
+    importing.reject(new Error('outdated conversion failed'))
+    await flushPromises()
+
+    expect(store.nodes.map((node) => node.id)).toContain(editedNode.id)
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').text()).toBe(i18n.global.t('workflow.importComfyUiEdited'))
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('shows file reading errors and allows another selection', async () => {
+    const { store } = await setup()
+    await importFile(Promise.reject(new Error('file read failed')))
+
+    expect(api.importComfyUi).not.toHaveBeenCalled()
+    expect(wrapper!.find('[role="alert"]').text()).toContain('file read failed')
+    expect(store.nodes).toHaveLength(1)
+
+    api.importComfyUi.mockResolvedValueOnce(imported())
+    await importFile()
+
+    expect(store.workflowName).toBe('Imported')
+  })
+
+  it('does not start or report an import when the discard confirmation is declined', async () => {
+    const { store } = await setup()
+    const before = JSON.stringify(store.$state)
+    vi.mocked(window.confirm).mockReturnValueOnce(false)
+    await importFile()
+
+    expect(api.importComfyUi).not.toHaveBeenCalled()
+    expect(JSON.stringify(store.$state)).toBe(before)
+    expect(wrapper!.find('[data-testid="comfyui-import-notice"]').exists()).toBe(false)
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  })
+})
+describe('ComfyUI import notice ownership', () => {
+  it('does not show an older import notice after a newer import takes ownership', async () => {
+    const { store, start } = await setup()
+    const first = deferred<WorkflowDefinitionDTO>()
+    const second = deferred<WorkflowDefinitionDTO>()
+    api.importComfyUi.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    await importFile()
+    const editedNode = store.duplicateNode(start.id)!
+    await importFile()
+
+    first.reject(new Error('older import failed'))
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid=comfyui-import-notice]').exists()).toBe(false)
+    expect(store.nodes.map((node) => node.id)).toContain(editedNode.id)
+
+    second.resolve({ ...imported(), name: 'Newer import' })
+    await flushPromises()
+
+    expect(store.workflowName).toBe('Newer import')
+    expect(wrapper!.find('[data-testid=comfyui-import-notice]').exists()).toBe(false)
   })
 })
