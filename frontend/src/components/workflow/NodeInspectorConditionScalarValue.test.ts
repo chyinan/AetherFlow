@@ -59,6 +59,38 @@ describe('CONDITION 标量比较值往返', () => {
     expect(typeof reopenedConfig.value).toBe('string')
   })
 
+  it.each(['EQUALS', 'NOT_EQUALS'] as const)('%s 显式空串经过保存与重开仍是空串', async (operator) => {
+    const { workflow, node } = await render({ variable: 'result', operator, value: '' })
+    const definition = mapWorkflowToDefinitionDTO({
+      id: workflow.workflowId, name: workflow.workflowName, nodes: workflow.nodes, edges: workflow.edges,
+    })
+
+    expect(definition.nodes?.[0]?.config).toHaveProperty('value', '')
+    const reopened = mapBackendDefinitionGraph(JSON.parse(JSON.stringify(definition.nodes ?? [])))
+    const reopenedConfig = reopened.nodes.find((item) => item.id === node.id)?.data.config ?? {}
+    expect(reopenedConfig).toMatchObject({ operator, value: '' })
+    const resaved = mapWorkflowToDefinitionDTO({
+      id: reopened.nodes[0]!.id, name: workflow.workflowName, nodes: reopened.nodes, edges: reopened.edges,
+    })
+    expect(resaved.nodes?.[0]?.config).toHaveProperty('value', '')
+  })
+
+  it('切换操作符并 Undo/Redo 时仍保留显式空串比较值', async () => {
+    const { workflow, node, configOf } = await render({ variable: 'result', operator: 'EQUALS', value: '' })
+    workflow.updateNodeConfig(node.id, 'operator', 'NOT_EQUALS')
+    expect(configOf()).toMatchObject({ operator: 'NOT_EQUALS', value: '' })
+
+    expect(workflow.undo()).toBe(true)
+    expect(configOf()).toMatchObject({ operator: 'EQUALS', value: '' })
+    const afterUndo = mapWorkflowToDefinitionDTO({ id: workflow.workflowId, name: workflow.workflowName, nodes: workflow.nodes, edges: workflow.edges })
+    expect(afterUndo.nodes?.[0]?.config).toMatchObject({ operator: 'EQUALS', value: '' })
+
+    expect(workflow.redo()).toBe(true)
+    expect(configOf()).toMatchObject({ operator: 'NOT_EQUALS', value: '' })
+    const afterRedo = mapWorkflowToDefinitionDTO({ id: workflow.workflowId, name: workflow.workflowName, nodes: workflow.nodes, edges: workflow.edges })
+    expect(afterRedo.nodes?.[0]?.config).toMatchObject({ operator: 'NOT_EQUALS', value: '' })
+  })
+
   it('已保存的标量值在检查器中原样回显，不会被序列化或取对象标签', async () => {
     const { wrapper } = await render({ variable: 'score', operator: 'GREATER_THAN', value: 'abc-def' })
 

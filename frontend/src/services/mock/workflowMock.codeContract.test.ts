@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 
+import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
+import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
+import type { WorkflowGraphNode } from '@/types/workflow'
 import { nodeTemplates } from './workflowMock'
 
 describe('CODE 节点默认示例契约', () => {
@@ -17,5 +20,19 @@ describe('CODE 节点默认示例契约', () => {
     const code = String(nodeTemplates.find((item) => item.kind === 'code')!.config.code ?? '')
 
     expect(code.split('\n').filter((line) => line.trim()).every((line) => !line.includes('arg'))).toBe(true)
+  })
+
+  it('默认单参数示例经过保存与重开仍与隔离运行时契约一致', () => {
+    const template = nodeTemplates.find((item) => item.kind === 'code')!
+    const codeNode = {
+      id: 'code-1', type: 'workflow', position: { x: 0, y: 0 },
+      data: { ...template, status: 'idle' },
+    } as WorkflowGraphNode
+    const saved = mapWorkflowToDefinitionDTO({ id: 'new', name: 'CODE null contract', nodes: [codeNode], edges: [] })
+    const reopened = mapBackendDefinitionGraph(JSON.parse(JSON.stringify(saved.nodes ?? [])))
+
+    expect(reopened.nodes[0]?.data.config).toMatchObject({
+      code: 'def main(payload):\n    return payload', outputVariable: 'codeResult',
+    })
   })
 })

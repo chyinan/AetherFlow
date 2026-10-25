@@ -30,6 +30,16 @@ it.each(['image-generation', 'upscale'] as const)('%s 明确清空执行图保�
     expect(mapConfig(kind, { workflowJson: value })).toHaveProperty('workflowJson', '')
   }
 })
+describe('CONDITION 比较值缺省与显式空值', () => {
+  it('缺省省略；null、空串、空白、零和 false 均保留原值', () => {
+    expect(mapConfig('condition', { variable: 'result', operator: 'EQUALS' }))
+      .not.toHaveProperty('value')
+    for (const value of [null, '', '  ', 0, false]) {
+      expect(mapConfig('condition', { variable: 'result', operator: 'EQUALS', value }))
+        .toHaveProperty('value', value)
+    }
+  })
+})
 describe('UPSCALE ComfyUI 源图绑定保存兼容', () => {
   const topLevel = [{ nodeId: '4', inputName: 'image', parameter: 'sourceImage' }]
   const nested = [{ nodeId: '9', inputName: 'pixels', parameter: 'sourceImage' }]

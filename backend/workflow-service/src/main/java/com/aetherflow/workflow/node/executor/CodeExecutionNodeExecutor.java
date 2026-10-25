@@ -63,7 +63,11 @@ public class CodeExecutionNodeExecutor extends BaseNodeExecutor {
         output.put("durationMs", execution.durationMs());
         output.put("truncated", execution.truncated());
         output.put("executed", true);
-        return buildResult(output, Map.of(outputVariable, execution.result()));
+        // Python 函数可以合法返回 None（包括默认无输入示例）。输出变量映射必须允许 null；
+        // Map.of 会拒绝 null，把合法沙箱结果误变成偶发 NPE。
+        Map<String, Object> variables = new LinkedHashMap<>();
+        variables.put(outputVariable, execution.result());
+        return buildResult(output, variables);
     }
 
     private NodeResult executeCustom(WorkflowContext context, Map<String, Object> config) {

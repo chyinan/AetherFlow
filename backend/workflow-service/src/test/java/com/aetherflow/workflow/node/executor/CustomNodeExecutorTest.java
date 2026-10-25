@@ -24,10 +24,11 @@ class CustomNodeExecutorTest {
     }
     static final class FakeRuntime implements CodeExecutionRuntime {
         int calls, timeout, bytes; Object input;
+        Object result = Map.of("total", 8);
         @Override public CodeExecutionResult execute(String language, String code, Object input, int timeout, int bytes) {
             assertThat(language).isEqualTo("python3"); assertThat(code).contains("def main");
             calls++; this.input = input; this.timeout = timeout; this.bytes = bytes;
-            return new CodeExecutionResult(Map.of("total", 8), "debug", 4, false);
+            return new CodeExecutionResult(result, "debug", 4, false);
         }
     }
     private Map<String, Object> definition(String kind) {
@@ -84,6 +85,36 @@ class CustomNodeExecutorTest {
         var runtime = new FakeRuntime(); var code = new CodeExecutionNodeExecutor(new WorkflowNodeMetrics(), properties, runtime);
         assertThat(code.execute(withConfig(Map.of("code", "def main(payload): return payload", "input", Map.of("old", true)))).variables()).containsKey("codeResult");
         assertThat(runtime.input).isEqualTo(Map.of("old", true));
+    }
+
+    @Test void builtinCodePreservesNullAndOtherJsonResultValuesWithNoPayload() throws Exception {
+        var properties = new WorkflowNodeProperties();
+        properties.setCodeExecutionEnabled(true);
+        properties.setCodeRuntimeIsolationConfirmed(true);
+        var runtime = new FakeRuntime();
+        var executor = new CodeExecutionNodeExecutor(new WorkflowNodeMetrics(), properties, runtime);
+        var config = new LinkedHashMap<String, Object>();
+        config.put("code", "def main(payload): return payload");
+        config.put("outputVariable", "codeResult");
+
+        for (Object value : Arrays.asList(null, Map.of("answer", 42), List.of("a", 2), 0, false, "")) {
+            runtime.result = value;
+            var result = executor.execute(withConfig(config));
+
+            assertThat(runtime.input).isNull();
+            assertThat(result.output()).containsKey("result");
+            assertThat(result.output().get("result")).isEqualTo(value);
+            assertThat(result.variables()).containsKey("codeResult");
+            assertThat(result.variables().get("codeResult")).isEqualTo(value);
+        }
+
+        var explicitNull = new LinkedHashMap<String, Object>(config);
+        explicitNull.put("input", null);
+        runtime.result = null;
+        var nullResult = executor.execute(withConfig(explicitNull));
+        assertThat(runtime.input).isNull();
+        assertThat(nullResult.variables()).containsKey("codeResult");
+        assertThat(nullResult.variables().get("codeResult")).isNull();
     }
 
     @Test void optionalEnumNullSurvivesSaveValidationAndIsOmittedFromRuntimePayload() throws Exception {
