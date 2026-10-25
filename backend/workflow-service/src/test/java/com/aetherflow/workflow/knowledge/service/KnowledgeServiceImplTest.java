@@ -842,10 +842,9 @@ class KnowledgeServiceImplTest {
         indexedChunks.add(deepMatch);
         indexedChunks.forEach(entry -> entry.setVectorJson("[1.0,0.0]"));
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
-        when(chunkMapper.selectBatchIds(any())).thenAnswer(invocation ->
-                selectedChunks(invocation.getArgument(0), indexedChunks));
-        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(readyDocument(21L)));
-        KnowledgeVectorIndex index = candidateWindowIndex(11L, filter, indexedChunks);
+        stubSemanticPages(indexedChunks);
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
         KnowledgeServiceImpl indexedService = semanticRetrievalService();
         ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
         RetrievalTestRequest request = new RetrievalTestRequest();
@@ -856,7 +855,86 @@ class KnowledgeServiceImplTest {
         RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
 
         assertThat(response.results()).extracting(result -> result.source()).containsExactly("deep-match.md");
-        verify(index, atLeastOnce()).search(eq(11L), any(), eq(1000), eq(filter));
+        verify(index, never()).search(eq(11L), any(), anyInt(), eq(filter));
+    }
+
+    @Test
+    void scansComplexMetadataBeforeTopKWhenQdrantWindowEndsAtOneThousand() {
+        Map<String, Object> nested = Map.of("team", "search");
+        List<String> labels = List.of("priority", "docs");
+        Map<String, Object> filter = new java.util.LinkedHashMap<>();
+        filter.put("tag", nested);
+        filter.put("labels", labels);
+        filter.put("nullable", null);
+        filter.put("phase", "final");
+
+        List<KnowledgeChunkEntity> candidates = new ArrayList<>();
+        for (int index = 0; index < 1_001; index++) {
+            KnowledgeChunkEntity candidate = chunk("candidate-" + index + ".md", "indexed semantic facts", 0.0D);
+            candidate.setId(810_000L + index);
+            candidate.setVectorJson(index == 50 ? "[1.0,0.0]" : index == 999 ? "[0.8,0.6]" : "[0.0,1.0]");
+            boolean matches = index == 50 || index == 999 || index == 1_000;
+            candidate.setMetadataJson(matches
+                    ? "{\"tag\":{\"team\":\"search\"},\"labels\":[\"priority\",\"docs\"],\"nullable\":null,\"phase\":\"final\"}"
+                    : "{\"tag\":{\"team\":\"docs\"},\"labels\":[\"priority\",\"docs\"],\"nullable\":null,\"phase\":\"final\"}");
+            candidates.add(candidate);
+        }
+
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        when(chunkMapper.selectPage(any(IPage.class), any())).thenAnswer(invocation -> {
+            IPage<?> requested = invocation.getArgument(0);
+            int offset = Math.toIntExact((requested.getCurrent() - 1) * requested.getSize());
+            List<KnowledgeChunkEntity> records = candidates.stream()
+                    .skip(offset).limit(requested.getSize()).toList();
+            Page<KnowledgeChunkEntity> page = new Page<>(requested.getCurrent(), requested.getSize(), false);
+            page.setTotal(candidates.size());
+            page.setRecords(records);
+            return page;
+        });
+
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
+        KnowledgeServiceImpl indexedService = semanticRetrievalService();
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(3);
+        request.setMetadataFilter("{\"tag\":{\"team\":\"search\"},\"labels\":[\"priority\",\"docs\"],\"nullable\":null,\"phase\":\"final\"}");
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source())
+                .containsExactly("candidate-50.md", "candidate-999.md", "candidate-1000.md");
+        // 复杂条件不被 Qdrant 的前 1000 项截断：完整扫描后本地精确过滤，再做排序与 topK。
+        verify(index, never()).search(eq(11L), any(), anyInt(), eq(filter));
+        verify(chunkMapper, atLeastOnce()).selectPage(any(IPage.class), any());
+    }
+
+    @Test
+    void fallsBackToPagedSqlWhenQdrantSearchFails() {
+        Map<String, Object> filter = Map.of("stage", "final");
+        KnowledgeChunkEntity candidate = chunk("sql-fallback.md", "semantic policy facts", 0.0D);
+        candidate.setVectorJson("[1.0,0.0]");
+        candidate.setMetadataJson("{\"stage\":\"final\"}");
+        when(datasetMapper.selectById(11L)).thenReturn(dataset());
+        stubSemanticPages(List.of(candidate));
+
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
+        when(index.search(eq(11L), any(), eq(50), eq(filter)))
+                .thenThrow(new IllegalStateException("Qdrant is temporarily unavailable"));
+        KnowledgeServiceImpl indexedService = semanticRetrievalService();
+        ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
+        RetrievalTestRequest request = new RetrievalTestRequest();
+        request.setQuery("semantic");
+        request.setTopK(1);
+        request.setMetadataFilter("{\"stage\":\"final\"}");
+
+        RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
+
+        assertThat(response.results()).extracting(result -> result.source()).containsExactly("sql-fallback.md");
+        verify(index).search(eq(11L), any(), eq(50), eq(filter));
+        verify(chunkMapper).selectPage(any(IPage.class), any());
     }
 
     @Test
@@ -890,10 +968,9 @@ class KnowledgeServiceImplTest {
         List<KnowledgeChunkEntity> indexedChunks = complexMetadataCandidates(51);
         indexedChunks.forEach(entry -> entry.setVectorJson("[1.0,0.0]"));
         when(datasetMapper.selectById(11L)).thenReturn(dataset());
-        when(chunkMapper.selectBatchIds(any())).thenAnswer(invocation ->
-                selectedChunks(invocation.getArgument(0), indexedChunks));
-        when(documentMapper.selectBatchIds(any())).thenReturn(List.of(readyDocument(21L)));
-        KnowledgeVectorIndex index = candidateWindowIndex(11L, filter, indexedChunks);
+        stubSemanticPages(indexedChunks);
+        KnowledgeVectorIndex index = org.mockito.Mockito.mock(KnowledgeVectorIndex.class);
+        when(index.isAvailable()).thenReturn(true);
         KnowledgeServiceImpl indexedService = semanticRetrievalService();
         ReflectionTestUtils.setField(indexedService, "knowledgeVectorIndex", index);
         RetrievalTestRequest request = new RetrievalTestRequest();
@@ -904,7 +981,7 @@ class KnowledgeServiceImplTest {
         RetrievalTestResponse response = asUser(7L, () -> indexedService.runRetrievalTest(11L, request));
 
         assertThat(response.results()).isEmpty();
-        verify(index, atLeastOnce()).search(eq(11L), any(), eq(1000), eq(filter));
+        verify(index, never()).search(eq(11L), any(), anyInt(), eq(filter));
     }
 
     @Test
@@ -1135,6 +1212,19 @@ class KnowledgeServiceImplTest {
                 documentContentExtractionService,
                 new DocumentExtractionProperties()
         );
+    }
+
+    private void stubSemanticPages(List<KnowledgeChunkEntity> candidates) {
+        when(chunkMapper.selectPage(any(IPage.class), any())).thenAnswer(invocation -> {
+            IPage<?> requested = invocation.getArgument(0);
+            long offset = (requested.getCurrent() - 1) * requested.getSize();
+            List<KnowledgeChunkEntity> records = candidates.stream()
+                    .skip(offset).limit(requested.getSize()).toList();
+            Page<KnowledgeChunkEntity> page = new Page<>(requested.getCurrent(), requested.getSize(), false);
+            page.setTotal(candidates.size());
+            page.setRecords(records);
+            return page;
+        });
     }
 
     private static KnowledgeVectorIndex candidateWindowIndex(Long datasetId,

@@ -882,6 +882,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (knowledgeVectorIndex != null) {
             boolean indexAvailable = isKnowledgeVectorIndexAvailable();
             if (indexAvailable) {
+                if (metadataFilterRequiresLocalFiltering(metadataFilter)) {
+                    // 当前 Qdrant 适配层只完整表达标量 match；对对象、数组、null，
+                    // 不能先取有限向量窗口再过滤。扫描 ready SQL 候选并先做完整 JSON 比较，
+                    // 再按语义分数维护 Top-N，避免第 1001 个匹配项被单次 Qdrant limit 截断。
+                    return loadPagedSemanticCandidates(datasetId, queryTokens, queryVector, metadataFilter, topK);
+                }
                 try {
                     int candidateLimit = semanticCandidateLimit(topK, metadataFilter);
                     List<Long> indexedIds = knowledgeVectorIndex.search(
@@ -911,6 +917,14 @@ public class KnowledgeServiceImpl implements KnowledgeService {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "knowledge semantic vector index is not configured");
         }
+        return loadPagedSemanticCandidates(datasetId, queryTokens, queryVector, metadataFilter, topK);
+    }
+
+    private List<KnowledgeChunkEntity> loadPagedSemanticCandidates(Long datasetId,
+                                                                    Set<String> queryTokens,
+                                                                    List<Double> queryVector,
+                                                                    Map<String, Object> metadataFilter,
+                                                                    int topK) {
         LambdaQueryWrapper<KnowledgeChunkEntity> wrapper = retrievalBaseWrapper(datasetId)
                 .orderByAsc(KnowledgeChunkEntity::getId);
         int bufferSize = Math.min(MAX_SEMANTIC_BUFFER, Math.max(50, topK * 20));
