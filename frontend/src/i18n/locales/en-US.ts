@@ -459,6 +459,8 @@ export const enUS = {
       lastRunDetailHint: 'Open runtime logs for complete node logs and input/output snapshots.',
       model: 'Model',
       configureModel: 'Configure model',
+      modelCatalogLoading: 'Loading model catalog…',
+      modelCatalogRetry: 'Retry loading models',
       context: 'Context',
       contextVariable: 'Context variable',
       contextVariableHint: 'Optional. Enter a workflow variable name to pass its value as model context.',

@@ -461,6 +461,8 @@ export const jaJP = {
       lastRunDetailHint: 'ランタイムログで詳細なログや入出力スナップショットを確認できます。',
       model: 'モデル',
       configureModel: 'モデルを設定',
+      modelCatalogLoading: 'モデル一覧を読み込み中…',
+      modelCatalogRetry: 'モデル一覧を再読み込み',
       context: 'コンテキスト',
       contextVariable: 'コンテキスト変数',
       contextVariableHint: '任意。モデルのコンテキストとして渡すワークフロー変数名を入力します。',
