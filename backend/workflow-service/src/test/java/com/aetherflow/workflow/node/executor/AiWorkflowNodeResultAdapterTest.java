@@ -4,6 +4,8 @@ package com.aetherflow.workflow.node.executor;
 
 import com.aetherflow.common.exception.BusinessException;
 import com.aetherflow.workflow.runtime.api.NodeResult;
+import com.aetherflow.common.dto.AiWorkflowNodeResponseDTO;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -95,6 +97,29 @@ class AiWorkflowNodeResultAdapterTest {
                 .containsEntry("fileId", 9001L)
                 .containsEntry("fileUrl", "https://minio.test/transformed.wav")
                 .containsEntry("fileObjectKey", "tenant-7/transformed.wav");
+    }
+
+    @Test
+    void routesCommittedMediaAliasesToDownstreamFileUrlAcrossSerializedResponseFormats() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        for (String extension : new String[]{"mp4", "wav", "mp3", "m4a", "aac"}) {
+            String transformedUrl = "https://files.test/transformed/converted." + extension;
+            AiWorkflowNodeResponseDTO stagedResponse = new AiWorkflowNodeResponseDTO(
+                    "FFMPEG", "SUCCEEDED", Map.of(
+                    "mediaUrl", transformedUrl,
+                    "mediaFileId", 9001L,
+                    "artifactFiles", java.util.List.of(Map.of("originalName", "converted." + extension, "url", transformedUrl))));
+            AiWorkflowNodeResponseDTO callbackResponse = objectMapper.readValue(
+                    objectMapper.writeValueAsString(stagedResponse), AiWorkflowNodeResponseDTO.class);
+
+            NodeResult result = AiWorkflowNodeResultAdapter.adapt(callbackResponse.getNodeType(), callbackResponse.getOutput());
+
+            assertThat(result.variables())
+                    .containsEntry("mediaUrl", transformedUrl)
+                    .containsEntry("fileUrl", transformedUrl)
+                    .containsEntry("mediaFileId", 9001)
+                    .containsEntry("fileId", 9001);
+        }
     }
 
     @Test

@@ -1,8 +1,15 @@
 package com.aetherflow.ai.outbox;
 
 import com.aetherflow.ai.callback.AiTaskCallbackService;
+import com.aetherflow.ai.service.PythonMediaClient;
 import com.aetherflow.ai.file.AiArtifactBatchCoordinator;
+import com.aetherflow.ai.file.ArtifactRegistrationResult;
+import com.aetherflow.ai.workflow.AiNodeExecutionContext;
+import com.aetherflow.ai.workflow.AiArtifact;
 import com.aetherflow.ai.workflow.AiNodeResult;
+import com.aetherflow.ai.workflow.executor.FfmpegNodeExecutor;
+import com.aetherflow.common.dto.AiMediaTransformResponseDTO;
+import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -10,6 +17,9 @@ import org.junit.jupiter.api.Test;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -103,6 +113,115 @@ class AiTaskEventOutboxPublisherTest {
         var ordered = inOrder(coordinator, callbackService);
         ordered.verify(coordinator).commit(event, new AiTaskEventPayload(message, result, null));
         ordered.verify(callbackService).notifySuccess(eq(message), eq(result));
+    }
+
+    @Test
+    void restoresMp4MediaUrlAfterOutboxRoundTripAndRetry() throws Exception {
+        AiTaskEventOutboxMapper mapper = mock(AiTaskEventOutboxMapper.class);
+        AiTaskCallbackService callbackService = mock(AiTaskCallbackService.class);
+        AiArtifactBatchCoordinator coordinator = mock(AiArtifactBatchCoordinator.class);
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        AiTaskEventOutboxPublisher publisher = new AiTaskEventOutboxPublisher(
+                mapper, callbackService, objectMapper, coordinator);
+        TaskMessageDTO message = taskMessage();
+        message.setUserId(1001L);
+        message.setNodeType("FFMPEG");
+        message.setPayload(Map.of("fileUrl", "https://files.test/source/input.mp4",
+                "operation", "convert", "outputFormat", "mp4"));
+        PythonMediaClient mediaClient = mock(PythonMediaClient.class);
+        AiMediaTransformResponseDTO transform = new AiMediaTransformResponseDTO();
+        transform.setFileName("converted.mp4");
+        transform.setContentType("video/mp4");
+        transform.setContentBase64(Base64.getEncoder().encodeToString(new byte[]{1, 2, 3}));
+        when(mediaClient.transform(any())).thenReturn(transform);
+        AiNodeResult executed = new FfmpegNodeExecutor(mediaClient).execute(
+                new AiNodeExecutionContext(message, message.getPayload()));
+        AiNodeResult staged = executed.withStoredArtifactFiles(new ArtifactRegistrationResult(
+                "batch-mp4", 1, List.of(metadata(81L, "converted.mp4", "video/mp4", null))));
+        assertThat(staged.output()).doesNotContainKey("mediaUrl");
+        assertThat(staged.output()).containsKey("artifactTypeBindings");
+        AiTaskEventPayload payload = new AiTaskEventPayload(message, staged, null);
+        String serialized = objectMapper.writeValueAsString(payload);
+        AiTaskEventPayload restored = objectMapper.readValue(serialized, AiTaskEventPayload.class);
+        assertThat(restored.result().artifacts()).isEmpty();
+        assertThat(restored.result().output()).containsKey("artifactTypeBindings");
+
+        AiTaskEventOutbox event = event(serialized);
+        List<FileMetadataDTO> committed = List.of(metadata(
+                82L, "converted.mp4", "video/mp4", "https://files.test/transformed/converted.mp4"));
+        when(mapper.claimForPublishing(eq(501L), anyString(), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(1);
+        when(mapper.markPublishedOwned(eq(501L), anyString(), any(LocalDateTime.class))).thenReturn(1);
+        when(coordinator.commit(eq(event), any(AiTaskEventPayload.class))).thenReturn(committed);
+        AtomicInteger callbackAttempts = new AtomicInteger();
+        List<AiNodeResult> callbacks = new ArrayList<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            AiNodeResult callback = invocation.getArgument(1);
+            callbacks.add(callback);
+            if (callbackAttempts.getAndIncrement() == 0) throw new IllegalStateException("delayed callback retry");
+            return null;
+        }).when(callbackService).notifySuccess(eq(message), any(AiNodeResult.class));
+
+        assertThat(publisher.publish(event)).isFalse();
+        assertThat(event.getStatus()).isEqualTo(AiTaskEventOutbox.PENDING);
+        assertThat(publisher.publish(event)).isTrue();
+        assertThat(event.getStatus()).isEqualTo(AiTaskEventOutbox.PUBLISHED);
+        assertThat(callbacks).hasSize(2);
+        for (AiNodeResult callback : callbacks) {
+            assertThat(callback.output()).containsEntry("mediaUrl", "https://files.test/transformed/converted.mp4");
+            assertThat(callback.output().get("artifactFiles")).isInstanceOf(List.class);
+        }
+    }
+
+    @Test
+    void keepsMediaFormatsSubtitleAndImageAliasesAfterStagedSerialization() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        for (String extension : List.of("wav", "mp3", "m4a", "aac", "mp4")) {
+            String fileName = "transformed." + extension;
+            AiNodeResult staged = new AiNodeResult("FFMPEG", "SUCCEEDED", Map.of(),
+                    List.of(new AiArtifact("MEDIA", fileName, "video/mp4", new byte[]{1})))
+                    .withStoredArtifactFiles(new ArtifactRegistrationResult(
+                            "batch-" + extension, 1, List.of(metadata(90L, fileName, "video/mp4", null))));
+            AiNodeResult restored = objectMapper.readValue(objectMapper.writeValueAsString(staged), AiNodeResult.class);
+            AiNodeResult committed = restored.withStoredArtifactFiles(new ArtifactRegistrationResult(
+                    "batch-" + extension, 1, List.of(metadata(91L, fileName, "video/mp4",
+                    "https://files.test/transformed/" + fileName))));
+
+            assertThat(committed.output()).containsEntry("mediaUrl", "https://files.test/transformed/" + fileName);
+        }
+
+        // Backward compatibility for outbox payloads created before typed artifact
+        // bindings were retained: the committed original filename still restores MP4.
+        AiNodeResult oldPayload = new AiNodeResult("FFMPEG", "SUCCEEDED",
+                Map.of("mediaContentType", "video/mp4"), List.of(), "legacy-batch", 1);
+        AiNodeResult restoredLegacy = objectMapper.readValue(
+                objectMapper.writeValueAsString(oldPayload), AiNodeResult.class);
+        AiNodeResult committedLegacy = restoredLegacy.withStoredArtifactFiles(new ArtifactRegistrationResult(
+                "legacy-batch", 1, List.of(metadata(96L, "legacy.mp4", "video/mp4", "https://files.test/legacy.mp4"))));
+        assertThat(committedLegacy.output()).containsEntry("mediaUrl", "https://files.test/legacy.mp4");
+
+        AiNodeResult stagedArtifacts = new AiNodeResult("WHISPER", "SUCCEEDED", Map.of(), List.of(
+                new AiArtifact("SUBTITLE", "captions.srt", "text/plain", new byte[]{1}),
+                new AiArtifact("SUBTITLE", "captions.vtt", "text/vtt", new byte[]{3}),
+                new AiArtifact("IMAGE", "frame.png", "image/png", new byte[]{2})))
+                .withStoredArtifactFiles(new ArtifactRegistrationResult("batch-mixed", 3, List.of(
+                        metadata(92L, "captions.srt", "text/plain", null),
+                        metadata(93L, "captions.vtt", "text/vtt", null),
+                        metadata(94L, "frame.png", "image/png", null))));
+        AiNodeResult committedArtifacts = objectMapper.readValue(
+                objectMapper.writeValueAsString(stagedArtifacts), AiNodeResult.class)
+                .withStoredArtifactFiles(new ArtifactRegistrationResult("batch-mixed", 3, List.of(
+                        metadata(95L, "captions.srt", "text/plain", "https://files.test/captions.srt"),
+                        metadata(96L, "captions.vtt", "text/vtt", "https://files.test/captions.vtt"),
+                        metadata(97L, "frame.png", "image/png", "https://files.test/frame.png"))));
+
+        assertThat(committedArtifacts.output()).containsEntry("srtUrl", "https://files.test/captions.srt")
+                .containsEntry("vttUrl", "https://files.test/captions.vtt")
+                .containsEntry("imageUrls", List.of("https://files.test/frame.png"));
+    }
+
+    private FileMetadataDTO metadata(Long id, String name, String contentType, String url) {
+        return new FileMetadataDTO(id, "aetherflow", "generated/" + name, name, contentType, 3L, url);
     }
 
     private AiTaskEventOutbox event(String payloadJson) {
