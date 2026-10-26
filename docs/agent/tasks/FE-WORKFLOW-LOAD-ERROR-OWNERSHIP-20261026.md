@@ -4,11 +4,11 @@
 任务名称：隔离工作流打开与项目目录加载错误  
 负责人：陈胤安  
 Agent ID：AGENT-CODEX-FE-20261026  
-Session ID：SESSION-CODEX-AETHERFLOW-20261026  
+Session ID：隔离云工作区未提供单独的执行会话 ID
 分支：feature/FE-WORKFLOW-LOAD-ERROR-OWNERSHIP-20261026  
 目标分支：graduation/chyinan-maintenance  
 基线：7d6ffe688bdfe6ce5fd1e70096643e2cef81ea3f  
-状态：IN_PROGRESS
+状态：REVIEW
 
 ## 任务目标
 
@@ -43,9 +43,9 @@ Session ID：SESSION-CODEX-AETHERFLOW-20261026
 - 工作流读取独立决定工作流加载状态；项目目录读取失败不能写入 `workflowStore.loadingError` 或遮挡画布。
 - 工作流加载失败继续显示原错误页和工作流 GET 重试。
 - 项目目录失败时，在正常工作流编辑器保留画布并显示项目专属、可访问的提示和单独重试按钮。
-- 项目重试仅调用 `projectStore.loadProjects`，不重新加载工作流、不重置画布或撤销/重放编辑。
+- 项目重试仅调用 `projectStore.loadProjects`，重试期间保留提示并禁用按钮；不重新加载工作流、不重置画布或撤销/重放编辑。
 - 对并发项目重试进行去重；使用请求代次和既有项目 store 请求代次，阻止旧请求覆盖新提示或项目上下文。页面卸载后不写页面反馈。
-- 保持 `projectId` 查询解析、现有 `selectProject` / `selectProjectByWorkflow` 路径和服务端授权不变。
+- 保持 `projectId` 查询解析和服务端授权不变；详情返回的项目 ID 直接保留，详情缺少项目 ID 时才在目录可用后重用 `selectProjectByWorkflow`。
 
 ## Agent 编码计划
 
@@ -84,7 +84,26 @@ Session ID：SESSION-CODEX-AETHERFLOW-20261026
 - `.agents/skills` 在仓库中不存在；仓库 `AGENTS.md` 与 `docs/COMMON_CONTRACTS.md` 已读取。
 - 当前仅静态核实调用路径，尚未宣称在真实页面复现。
 
-## 当前风险
+## 实施结果
 
-1. #91 也修改了 `WorkflowPage.vue`，但只涉及 ComfyUI 导入取消反馈。本任务保持独立基线和独立 PR，合并次序可能需要常规代码合并。
-2. 浏览器、真实后端、CI 和独立复核结果尚未验证。
+1. `loadRouteWorkflow` 只等待工作流 GET；项目目录读取在独立 helper 中捕获，不会写入 `workflowStore.loadingError`。
+2. 项目目录失败时保留画布并显示项目专属重试。重试保留提示直到请求结束，去重并且只调用 `projectStore.loadProjects`。
+3. 路由查询 `projectId` 仍优先；没有查询参数时直接保留详情响应中明确返回的项目 ID。若详情也没有，延迟到当前路由的项目目录读取成功后才调用既有关联选择；迟到结果以路由、工作流代次和卸载状态隔离。
+4. 新增真实 `WorkflowPage`/Pinia store 与受控 API 回归，覆盖原错误归属、项目重试、工作流 GET 错误兼容、画布脏状态、无详情项目 ID 的归属回退、切换工作流、离开重进和卸载。
+5. 更新中英日三种语言和前端加载恢复说明。未改 `projectStore`、后端、API、权限、依赖或锁文件。
+
+## 验证结果
+
+- 新回归和既有 `workflowProjectOwnership`、保存/离开、旧响应以及全前端 Vitest：**未执行**。`npm test -- src/pages/workflows/workflowLoadErrorOwnership.test.ts` 退出 127，`vitest` 缺失；测试断言未运行。原版红测也因同一依赖阻塞未能得到运行证据。
+- `npm ci --no-audit --no-fund`：**未完成**。registry 多个 tarball 报 integrity/corruption 并持续重试；为避免继续卡住，我中断了安装。未修改 `package.json` 或 lockfile。
+- `npm run build`：**未执行到编译**，退出 127，`vue-tsc` 缺失。
+- `npm run check:workflow-mapping`：通过，覆盖 31 种节点类型。
+- `npm run check:workflow-branch-routing` 与 `npm run check:workflow-editor-p0`：启动后因 `vue` / `pinia` 依赖缺失而退出，检查断言未执行。
+- Node 对 `WorkflowPage.vue` 的 `<script setup>`、新回归 TypeScript 和三份 locale 文件语法检查：通过；`git diff --check`：通过。
+- 系统存在 Chromium 二进制，但当前缺 Vite/依赖，无法启动页面；无真实浏览器交互或截图。新增 jsdom/mock API 回归也未运行。未访问真实后端、身份或模型。
+- Luna xhigh 独立复核发现两处项目选择/重试提示问题，已按其建议修复；最终复核未发现新的实质问题。独立复核同样未运行测试。
+
+## 当前限制
+
+1. #91 也修改 `WorkflowPage.vue` 和三语言文件，但仅为 ComfyUI 导入取消反馈；已逐文件刷新确认其行为与本改动分开，合并次序可能需要常规代码合并。
+2. 远端 draft PR、精确 head 与 CI 状态待创建后读取确认；没有运行中的本地测试结果可供声称。
