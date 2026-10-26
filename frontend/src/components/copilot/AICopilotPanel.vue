@@ -180,6 +180,7 @@ async function loadConversationHistory() {
   // 记录加载开始时的本地消息，用于判断迟到的历史能否与"本次新增消息"合并。
   const baselineMessageIds = messages.value.map((message) => message.id)
   const modeChoiceAtStart = explicitModeChoiceSequence
+  const sessionAtStart = plannerSessionSequence
   const selection = readConversationSelection(scopeKeyAtStart)
   if (selection === 'new') {
     conversationHistoryModeUnknown.value = false
@@ -232,7 +233,7 @@ async function loadConversationHistory() {
     if (!stillCurrent()) {
       // 历史迟到（发送等交互已推进会话）：不能直接丢弃，按补偿分支尽量恢复历史与规划模式。
       adoptLateConversationHistory(history, historyConversationId, {
-        workflowIdAtStart, scopeKeyAtStart, baselineMessageIds, modeChoiceAtStart,
+        workflowIdAtStart, scopeKeyAtStart, baselineMessageIds, modeChoiceAtStart, sessionAtStart,
       })
       return
     }
@@ -247,11 +248,11 @@ async function loadConversationHistory() {
     if (historyRequested && (apiError.status === 404 || String(apiError.code) === '404')) {
       unavailable()
     } else {
-      // 保留已确认的会话选择，重新打开时可重试；不回退到其他会话。
+      // 自动发现的会话也已确定为续聊目标；历史失败后保留选择并等待重试或显式选模式。
       if (historyConversationId) rememberConversation(historyConversationId)
       historyNotice.value = t('copilot.historyLoadFailed')
-      conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && selection)
-      historyRetryAvailable.value = Boolean(historyConversationId && selection)
+      conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && historyConversationId)
+      historyRetryAvailable.value = Boolean(historyConversationId)
     }
   } finally {
     // 成功、失败和作用域失效都统一在这里解锁，避免恢复异常时发送被永久锁死。
@@ -287,6 +288,7 @@ interface LateHistoryLoad {
   scopeKeyAtStart: string
   baselineMessageIds: string[]
   modeChoiceAtStart: number
+  sessionAtStart: number
 }
 
 /**
@@ -300,6 +302,8 @@ function adoptLateConversationHistory(
   load: LateHistoryLoad,
 ) {
   if (panelDisposed || history.length === 0) return
+  // 新对话首轮失败后可能再次处于未确认状态，但不能接纳上一会话的历史。
+  if (load.sessionAtStart !== plannerSessionSequence) return
   if (load.workflowIdAtStart !== props.context?.workflowId
     || load.scopeKeyAtStart !== conversationSessionKey(props.context)) return
   // 在途请求自己负责收尾，此时回放旧历史会打断流式回复。
@@ -360,6 +364,8 @@ function resetConversationState() {
   loading.value = false
   conversationSelectionPending.value = false
   conversationIdentityUnconfirmed.value = false
+  conversationHistoryModeUnknown.value = false
+  historyRetryAvailable.value = false
   applyingPlan.value = false
   conversationId.value = undefined
   historyNotice.value = ''
