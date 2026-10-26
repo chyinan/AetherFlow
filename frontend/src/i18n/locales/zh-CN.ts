@@ -469,6 +469,8 @@ export const zhCN = {
       lastRunDetailHint: '更完整的节点日志和输入输出快照可在运行日志中查看。',
       model: '模型',
       configureModel: '请配置模型',
+      modelCatalogLoading: '正在加载模型目录…',
+      modelCatalogRetry: '重试加载模型',
       context: '上下文',
       contextVariable: '上下文变量',
       contextVariableHint: '可选；填写工作流中的变量名，将其作为模型上下文传入。',

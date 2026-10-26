@@ -103,6 +103,8 @@ const retrievalSettingsExpanded = ref(false)
 const nodeCatalog = ref<WorkflowNodeCatalogItem[]>([])
 const structuredConfigDraft = ref<Record<string, string>>({})
 const structuredConfigErrors = ref<Record<string, string>>({})
+const modelCatalogRetryPending = ref(false)
+const modelCatalogSelect = ref<HTMLSelectElement | null>(null)
 const emit = defineEmits<{
   openCopilot: []
   openLogs: []
@@ -330,6 +332,29 @@ const conditionNeedsValue = computed(() =>
 const availableChatModels = computed(() =>
   modelStore.models.filter((model) => model.kind === 'chat' && model.status !== 'disabled'),
 )
+
+async function retryModelCatalog() {
+  if (modelCatalogRetryPending.value || modelStore.loading) return
+
+  const retryNodeId = selectedNode.value?.id
+  const retryButton = typeof document !== 'undefined' ? document.activeElement : null
+  const restoreFocus = retryButton instanceof HTMLButtonElement
+    && retryButton.dataset.action === 'retry-model-catalog'
+  modelCatalogRetryPending.value = true
+  try {
+    // loadModels skips a populated snapshot; refreshStatus deliberately fetches a fresh catalog.
+    await modelStore.refreshStatus()
+  } finally {
+    const shouldRestoreFocus = restoreFocus
+      && selectedNode.value?.id === retryNodeId
+      && !modelStore.error
+      && !modelStore.loading
+      && (document.activeElement === retryButton || document.activeElement === document.body)
+    modelCatalogRetryPending.value = false
+    await nextTick()
+    if (shouldRestoreFocus) modelCatalogSelect.value?.focus()
+  }
+}
 
 function modelOptionLabel(model: { name: string; providerId: string }) {
   const provider = modelStore.providers.find((item) => item.id === model.providerId)
@@ -1159,13 +1184,20 @@ onMounted(() => {
               </select>
             </label>
           </div>
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="selectedTranslateModelId()" @change="handleTranslateModelSelection">
-              <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
-            </select>
-          </label>
+          <div class="block">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
+              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedTranslateModelId()" @change="handleTranslateModelSelection">
+                <option value="">{{ t('workflow.inspector.configureModel') }}</option>
+                <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
+              </select>
+            </label>
+            <div v-if="modelStore.loading || modelStore.error || modelCatalogRetryPending" data-testid="node-model-catalog-status" :aria-busy="modelStore.loading || modelCatalogRetryPending" class="mt-2 space-y-2">
+              <p v-if="modelStore.loading || modelCatalogRetryPending" id="node-model-catalog-status-message" role="status" aria-live="polite" class="text-xs leading-5 text-text-secondary">{{ t('workflow.inspector.modelCatalogLoading') }}</p>
+              <p v-else id="node-model-catalog-status-message" role="alert" class="text-xs leading-5 text-status-error">{{ modelStore.error }}</p>
+              <button v-if="modelStore.error || modelCatalogRetryPending" type="button" data-action="retry-model-catalog" :aria-disabled="modelStore.loading || modelCatalogRetryPending" class="rounded-lg border border-app-border px-3 py-2 text-xs text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="retryModelCatalog">{{ t('workflow.inspector.modelCatalogRetry') }}</button>
+            </div>
+          </div>
         </section>
 
         <section v-else-if="selectedKind === 'summary'" class="space-y-5 p-5">
@@ -1218,13 +1250,20 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'llm'" class="space-y-5 p-5">
-          <label class="block">
-            <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :value="selectedLlmModelId()" @change="handleLlmModelSelection">
-              <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
-            </select>
-          </label>
+          <div class="block">
+            <label class="block">
+              <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
+              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedLlmModelId()" @change="handleLlmModelSelection">
+                <option value="">{{ t('workflow.inspector.configureModel') }}</option>
+                <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
+              </select>
+            </label>
+            <div v-if="modelStore.loading || modelStore.error || modelCatalogRetryPending" data-testid="node-model-catalog-status" :aria-busy="modelStore.loading || modelCatalogRetryPending" class="mt-2 space-y-2">
+              <p v-if="modelStore.loading || modelCatalogRetryPending" id="node-model-catalog-status-message" role="status" aria-live="polite" class="text-xs leading-5 text-text-secondary">{{ t('workflow.inspector.modelCatalogLoading') }}</p>
+              <p v-else id="node-model-catalog-status-message" role="alert" class="text-xs leading-5 text-status-error">{{ modelStore.error }}</p>
+              <button v-if="modelStore.error || modelCatalogRetryPending" type="button" data-action="retry-model-catalog" :aria-disabled="modelStore.loading || modelCatalogRetryPending" class="rounded-lg border border-app-border px-3 py-2 text-xs text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="retryModelCatalog">{{ t('workflow.inspector.modelCatalogRetry') }}</button>
+            </div>
+          </div>
           <UpstreamVariableSelector :key="`${selectedNode.id}-promptVariable`" :node-id="selectedNode.id" field="promptVariable" :label="t('workflow.inspector.inputVariable')" :model-value="textConfig('promptVariable', 'question')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('prompt', ''))" @update:model-value="updateConfig('promptVariable', $event)" />
           <UpstreamVariableSelector :key="`${selectedNode.id}-contextVariable`" :node-id="selectedNode.id" field="contextVariable" :label="t('workflow.inspector.contextVariable')" :model-value="textConfig('contextVariable', '')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('context', ''))" @update:model-value="updateConfig('contextVariable', $event)" />
           <label class="block">
