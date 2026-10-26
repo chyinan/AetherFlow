@@ -36,7 +36,7 @@ Last verified: 2026-10-25
 - Embedding 节点当前只承诺 Ollama。目录不能列出尚无执行实现的 OpenAI 或 HuggingFace Provider。
 - 工作流运行事件以 SSE 为主、WebSocket 为备用；WebSocket 使用绑定单一工作流的 60 秒流令牌、实例归属校验和持久事件游标续传。
 - 知识检索的复杂 metadata 条件必须在语义候选进入最终 Top-K 前完整过滤；Qdrant 单次候选窗口不足时使用语义保持的分页/扫描，不得静默返回空结果。
-- 工作流保存队列属于当前画布加载代次；导航丢弃或替换画布会使尚未发出的旧任务失效，保存意图（包括 projectId）按调用时固定。
+- 工作流保存队列属于当前画布加载代次；导航丢弃或替换画布会使尚未发出的旧任务失效，保存意图（包括 projectId）按调用时固定。409 冲突基线刷新结束后必须重新校验加载代次与保存请求归属，失效请求不得写回当前保存反馈。
 - CONDITION 比较配置区分缺省、null、空串和空白；`EXISTS`/`NOT_EXISTS` 不依赖比较值，`EQUALS`/`NOT_EQUALS` 保留显式标量语义。
 - Copilot 已选会话的历史或规划模式未恢复时，编辑页保留输入并阻止默认模式发送；重试成功或用户显式选择模式后才能继续。
 - CODE 沙箱的 `main(payload)` 可合法返回 JSON null；缺少 payload 时按 null 传入，结果变量仍存在并保留 null。
