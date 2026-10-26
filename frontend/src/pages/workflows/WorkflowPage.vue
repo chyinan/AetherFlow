@@ -90,12 +90,17 @@ const startingRun = ref(false)
 const runPromptValues = ref<Record<string, string>>({})
 const runPromptInputError = ref('')
 const importingComfyUi = ref(false)
+const projectListLoadError = ref<string | null>(null)
+const projectListLoading = ref(false)
 let pageActive = true
 let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
 let pageSaveSequence = 0
 let pageCopySequence = 0
 let workflowLoadSequence = 0
+let projectListLoadSequence = 0
+let projectListLoadPromise: Promise<boolean> | null = null
+let pendingWorkflowProjectSelection: { routeId: string; workflowId: string; loadSequence: number } | null = null
 let copyNavigation: { fromPath: string; fullPath: string; ownsRequest: () => boolean } | null = null
 let saveNavigation: {
   fromPath: string
@@ -316,37 +321,90 @@ function ownsWorkflowLoad(loadSequence: number, workflowId: string) {
     && String(route.params.id || 'new') === workflowId
 }
 
-async function loadRouteWorkflow(workflowId: string, projectReady: Promise<unknown> = Promise.resolve()) {
+async function loadProjectList() {
+  if (projectListLoadPromise) return projectListLoadPromise
+
+  const loadSequence = ++projectListLoadSequence
+  const projectRequestId = projectStore.loadRequestId + 1
+  projectListLoading.value = true
+  const request = (async () => {
+    try {
+      await projectStore.loadProjects()
+      if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
+        return false
+      }
+      projectListLoadError.value = null
+      applyPendingWorkflowProjectSelection()
+      return true
+    } catch (error) {
+      if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
+        return false
+      }
+      const details = projectStore.loadError
+        || (error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown'))
+      projectListLoadError.value = `${t('workflow.projectListLoadFailed')}: ${details}`
+      return false
+    } finally {
+      if (loadSequence === projectListLoadSequence) projectListLoading.value = false
+      if (projectListLoadPromise === request) projectListLoadPromise = null
+    }
+  })()
+  projectListLoadPromise = request
+  return request
+}
+
+function retryProjectList() {
+  return loadProjectList()
+}
+
+function applyPendingWorkflowProjectSelection() {
+  const pending = pendingWorkflowProjectSelection
+  if (!pending) return
+
+  const routeId = String(route.params.id || 'new')
+  if (!pageActive
+    || pending.loadSequence !== workflowLoadSequence
+    || pending.routeId !== routeId
+    || routeQueryString(route.query.projectId)
+    || workflowStore.loading
+    || workflowStore.workflowId !== pending.workflowId
+    || workflowStore.projectId !== null) {
+    pendingWorkflowProjectSelection = null
+    return
+  }
+
+  projectStore.selectProjectByWorkflow(pending.workflowId)
+  pendingWorkflowProjectSelection = null
+}
+
+async function loadRouteWorkflow(workflowId: string) {
   const loadSequence = ++workflowLoadSequence
+  pendingWorkflowProjectSelection = null
   const projectId = routeQueryString(route.query.projectId)
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
   })
-  try {
-    await projectReady
-  } catch (error) {
-    // A rejected project request must not escape the mounted hook and become
-    // an unhandled Vue promise rejection. Keep the workflow load settled too.
-    await workflowLoad.catch(() => false)
-    // 旧页面的失败信息不能覆盖新页面的加载状态。
-    if (!ownsWorkflowLoad(loadSequence, workflowId)) {
-      return false
-    }
-    const details = error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown')
-    workflowStore.loadingError = `${t('workflow.loadFailed')}: ${details}`
-    return false
-  }
+  const loaded = await workflowLoad
   if (!ownsWorkflowLoad(loadSequence, workflowId)) {
     return false
   }
-  const loaded = await workflowLoad
-  if (!loaded || !ownsWorkflowLoad(loadSequence, workflowId)) {
+  if (!loaded) {
     return false
   }
   if (projectId) {
     projectStore.selectProject(projectId)
+  } else if (workflowStore.projectId !== null) {
+    // 详情接口给出的项目归属可在列表仍加载或暂不可用时直接保留。
+    projectStore.selectProject(String(workflowStore.projectId))
   } else {
     projectStore.selectProjectByWorkflow(workflowId)
+    if (projectStore.loading || projectStore.loadError) {
+      pendingWorkflowProjectSelection = {
+        routeId: workflowId,
+        workflowId: workflowStore.workflowId,
+        loadSequence,
+      }
+    }
   }
   await runStore.selectRunForWorkflow(workflowStore.workflowId, workflowStore.backendDefinitionId)
   if (!ownsWorkflowLoad(loadSequence, workflowId)) {
@@ -545,7 +603,7 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleEditorKeydown)
-  const projectReady = projectStore.loadProjects()
+  void loadProjectList()
   const auxiliaryLoads = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
     runStore.loadRuns({ selectDefault: false }),
@@ -556,11 +614,11 @@ onMounted(async () => {
     workflowStore.resetToEmptyWorkflow()
     runStore.clearCurrentRun()
     initializingWorkflow.value = false
-    await Promise.allSettled([projectReady, auxiliaryLoads])
+    await auxiliaryLoads
     return
   }
   try {
-    const routeWorkflowLoad = loadRouteWorkflow(String(route.params.id || 'new'), projectReady)
+    const routeWorkflowLoad = loadRouteWorkflow(String(route.params.id || 'new'))
     const [loaded] = await Promise.all([routeWorkflowLoad, auxiliaryLoads])
     if (loaded) {
       runStore.subscribeCurrentRun()
@@ -572,6 +630,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   pageActive = false
+  projectListLoadSequence += 1
+  pendingWorkflowProjectSelection = null
   settleNavigation(false)
   saveNavigation = null
   stopGuardingSaveNavigation()
@@ -589,6 +649,7 @@ watch(
     if (!hasWorkflowContext.value) {
       // 清空画布同样代表旧加载失去归属，待完成的旧请求不能再写入项目或错误信息。
       workflowLoadSequence += 1
+      pendingWorkflowProjectSelection = null
       workflowStore.resetToEmptyWorkflow()
       showCopilot.value = false
       showRunConsole.value = false
@@ -935,7 +996,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         {{ workflowStore.loadingError }}
       </p>
       <div class="mt-5 flex flex-wrap gap-3">
-        <button type="button" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark" @click="retryLoadWorkflow">
+        <button type="button" data-testid="retry-workflow-load" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark" @click="retryLoadWorkflow">
           <RotateCcw class="h-4 w-4" />
           {{ t('workflow.retryLoad') }}
         </button>
@@ -1015,7 +1076,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     </div>
   </section>
 
-  <section v-else class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
+  <section v-else data-testid="workflow-editor" class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
     <header class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
@@ -1031,6 +1092,25 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         >
           {{ workflowStore.saveRecovery.message }}
         </p>
+        <div
+          v-if="projectListLoadError"
+          class="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary"
+          role="status"
+          data-testid="project-list-load-error"
+        >
+          <span>{{ projectListLoadError }}</span>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded border border-primary/30 bg-white px-2 py-1 font-semibold hover:bg-primary-soft/40 disabled:cursor-wait disabled:opacity-60"
+            data-testid="retry-project-list"
+            :disabled="projectListLoading"
+            @click="retryProjectList"
+          >
+            <LoaderCircle v-if="projectListLoading" class="h-3.5 w-3.5 animate-spin" />
+            <RotateCcw v-else class="h-3.5 w-3.5" />
+            {{ projectListLoading ? t('workflow.retryingProjectList') : t('workflow.retryProjectList') }}
+          </button>
+        </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button
