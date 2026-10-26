@@ -30,6 +30,7 @@ type RunSubscriptionTarget = string | {
 }
 
 type NotificationHandlers = {
+  onOpen?: (transport: 'sse' | 'websocket') => void
   onMessage?: (message: NotifyMessageDTO) => void
   onConnectionChange?: (state: 'online' | 'reconnecting' | 'offline') => void
   onError?: (error: unknown) => void
@@ -336,14 +337,31 @@ export const realtimeClient = {
       socket = createNotificationSocket({
         userId,
         maxReconnectAttempts: 5,
-        onMessage: (message) => handlers.onMessage?.(message),
+        onOpen: () => {
+          if (!closed && !sseOnline) {
+            handlers.onOpen?.('websocket')
+          }
+        },
+        onMessage: (message) => {
+          if (!closed && !sseOnline) {
+            handlers.onMessage?.(message)
+          }
+        },
         onConnectionChange: (state) => {
-          if (!sseOnline) {
+          if (!closed && !sseOnline) {
             handlers.onConnectionChange?.(state)
           }
         },
-        onError: (error) => handlers.onError?.(error),
-        onReconnect: (attempt, delayMs) => handlers.onReconnect?.('websocket', attempt, delayMs),
+        onError: (error) => {
+          if (!closed && !sseOnline) {
+            handlers.onError?.(error)
+          }
+        },
+        onReconnect: (attempt, delayMs) => {
+          if (!closed && !sseOnline) {
+            handlers.onReconnect?.('websocket', attempt, delayMs)
+          }
+        },
       })
       socket.connect()
     }
@@ -363,13 +381,17 @@ export const realtimeClient = {
           refreshOnUnauthorized: true,
           idleTimeoutMs: 30_000,
           onOpen: () => {
+            if (closed) {
+              return
+            }
             sseOnline = true
             sseRefreshingToken = false
+            handlers.onOpen?.('sse')
             socket?.close()
             socket = null
           },
           onMessage: (message) => {
-            if (message.event === 'heartbeat') {
+            if (closed || message.event === 'heartbeat') {
               return
             }
 
@@ -379,10 +401,16 @@ export const realtimeClient = {
             }
           },
           onConnectionChange: (state) => {
+            if (closed) {
+              return
+            }
             sseOnline = state === 'online'
             handlers.onConnectionChange?.(state)
           },
           onError: (error) => {
+            if (closed) {
+              return
+            }
             handlers.onError?.(error)
             const shouldRefreshToken = error instanceof SseHttpError
               && (error.status === 401 || error.status === 403)
@@ -395,6 +423,9 @@ export const realtimeClient = {
             }
           },
           onReconnect: (attempt, delayMs) => {
+            if (closed) {
+              return
+            }
             handlers.onReconnect?.('sse', attempt, delayMs)
             if (attempt >= 2 && !sseRefreshingToken) {
               startSocket()
