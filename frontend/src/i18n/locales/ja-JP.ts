@@ -376,6 +376,7 @@ export const jaJP = {
     importComfyUiInvalid: 'ComfyUI ファイルは JSON オブジェクトである必要があります。',
     importComfyUiDefaultName: 'インポートした ComfyUI ワークフロー',
     importComfyUiDescription: 'ComfyUI workflow.json からインポートしました。',
+    importComfyUiEdited: 'インポート中にワークフローが変更されたため、今回の結果は適用されませんでした。編集内容は保持されています。再度インポートするには、ファイルを選び直してください。',
     loading: 'ワークフローを読み込んでいます...',
     loadFailed: 'ワークフローの読み込みに失敗しました',
     loadFailedUnknown: '不明なエラー',

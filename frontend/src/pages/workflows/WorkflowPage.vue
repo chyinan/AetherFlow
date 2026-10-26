@@ -136,6 +136,7 @@ watch(() => route.fullPath, (to, from) => {
     comfyUiImportSequence += 1
     importingComfyUi.value = false
     comfyUiImportError.value = null
+    comfyUiImportNotice.value = null
   }
   showingWorkflowTemplates.value = false
   workflowStore.invalidateWorkflowTemplatesLoad()
@@ -143,6 +144,7 @@ watch(() => route.fullPath, (to, from) => {
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
 const comfyUiImportError = ref<string | null>(null)
+const comfyUiImportNotice = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
 const currentWorkflowRun = computed(() =>
   runStore.currentRun && workflowRunBelongsToWorkflow(
@@ -249,6 +251,7 @@ function resolveWorkflowProjectId() {
 
 function openComfyUiFilePicker() {
   comfyUiImportError.value = null
+  comfyUiImportNotice.value = null
   comfyUiFileInput.value?.click()
 }
 
@@ -278,11 +281,19 @@ async function handleComfyUiFileChange(event: Event) {
   // 保存回执引起的地址规范化属于同一张画布，不能让较新的导入失效。
   const ownsRequest = () => pageActive && requestId === comfyUiImportSequence
   const canApply = () => ownsRequest() && workflowStore.editRevision === editRevision
+  const reportEditConflict = () => {
+    if (!ownsRequest() || workflowStore.editRevision === editRevision) return
+    comfyUiImportNotice.value = t('workflow.importComfyUiEdited')
+  }
   importingComfyUi.value = true
   comfyUiImportError.value = null
+  comfyUiImportNotice.value = null
   try {
     const text = await file.text()
-    if (!canApply()) return
+    if (!canApply()) {
+      reportEditConflict()
+      return
+    }
     const parsed = JSON.parse(text) as unknown
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(t('workflow.importComfyUiInvalid'))
@@ -294,7 +305,10 @@ async function handleComfyUiFileChange(event: Event) {
       projectId,
       workflowJson: parsed as Record<string, unknown>,
     })
-    if (!canApply()) return
+    if (!canApply()) {
+      reportEditConflict()
+      return
+    }
     const graph = mapBackendDefinitionGraph(imported.nodes)
 
     workflowStore.resetToEmptyWorkflow()
@@ -305,6 +319,7 @@ async function handleComfyUiFileChange(event: Event) {
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
   } catch (error) {
     if (canApply()) comfyUiImportError.value = importErrorMessage(error)
+    else reportEditConflict()
   } finally {
     if (ownsRequest()) importingComfyUi.value = false
     if (requestId === comfyUiImportSequence && input instanceof HTMLInputElement) {
@@ -1073,6 +1088,9 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       <p v-if="comfyUiImportError" class="mx-6 mb-6 rounded-lg border border-status-error/30 bg-red-50 px-4 py-3 text-sm text-status-error" role="alert">
         {{ comfyUiImportError }}
       </p>
+      <p v-if="comfyUiImportNotice" class="mx-6 mb-6 rounded-lg border border-primary/30 bg-primary-soft/40 px-4 py-3 text-sm text-primary" role="status" data-testid="comfyui-import-notice">
+        {{ comfyUiImportNotice }}
+      </p>
     </div>
   </section>
 
@@ -1083,6 +1101,9 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
         <p v-if="workflowStore.savingError || workflowStore.runError || comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ workflowStore.savingError || workflowStore.runError || comfyUiImportError }}
+        </p>
+        <p v-if="comfyUiImportNotice" class="mt-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary" role="status" data-testid="comfyui-import-notice">
+          {{ comfyUiImportNotice }}
         </p>
         <p
           v-if="workflowStore.saveRecovery && ['reconciling', 'committed', 'committedWithNewerEdits'].includes(workflowStore.saveRecovery.status)"
