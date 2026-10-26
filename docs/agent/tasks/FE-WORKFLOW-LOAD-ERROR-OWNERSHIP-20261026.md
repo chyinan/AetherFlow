@@ -8,7 +8,7 @@ Session ID：隔离云工作区未提供单独的执行会话 ID
 分支：feature/FE-WORKFLOW-LOAD-ERROR-OWNERSHIP-20261026  
 目标分支：graduation/chyinan-maintenance  
 基线：7d6ffe688bdfe6ce5fd1e70096643e2cef81ea3f  
-状态：REVIEW
+状态：PR_REVIEW
 
 ## 任务目标
 
@@ -106,4 +106,5 @@ Session ID：隔离云工作区未提供单独的执行会话 ID
 ## 当前限制
 
 1. #91 也修改 `WorkflowPage.vue` 和三语言文件，但仅为 ComfyUI 导入取消反馈；已逐文件刷新确认其行为与本改动分开，合并次序可能需要常规代码合并。
-2. 远端 draft PR、精确 head 与 CI 状态待创建后读取确认；没有运行中的本地测试结果可供声称。
+2. 已创建 draft PR #92：<https://github.com/chyinan/AetherFlow/pull/92>，目标 `graduation/chyinan-maintenance`，初始提 PR 时 head 为 `fb2d024510ff52496d548392b1e2f1f0e1d0f66f`。
+3. 已读取该 head 的 combined status 与 PR workflow runs：两者均为空（没有 checks/runs），因此 CI 状态不是绿灯。没有运行中的本地测试结果可供声称。
