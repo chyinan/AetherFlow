@@ -58,6 +58,18 @@ describe('UPSCALE ComfyUI 源图绑定保存兼容', () => {
     expect(result.options).toEqual({ workflowBindings: nested, keep: true })
   })
 
+  it('顶层绑定为 null 时保存往返回退到有效的旧 options 绑定', () => {
+    const result = mapConfig('upscale', {
+      workflowJson: graph,
+      workflowBindings: null,
+      options: { workflowBindings: nested, keep: true },
+    })
+    const persisted = JSON.parse(JSON.stringify(result)) as Record<string, unknown>
+
+    expect(persisted.workflowBindings).toEqual(nested)
+    expect(persisted.options).toEqual({ workflowBindings: nested, keep: true })
+  })
+
   it('新顶层绑定优先于冲突的旧嵌套绑定', () => {
     const result = mapConfig('upscale', {
       workflowJson: graph,
