@@ -86,6 +86,9 @@ const workspaceDraft = reactive<WorkspaceSettings>({
   defaultTimeoutMin: 45,
   retentionDays: 30,
 })
+const MAX_WORKSPACE_PROFILE_INTEGER = 2_147_483_647
+const isValidWorkspaceProfileInteger = (value: number) =>
+  Number.isInteger(value) && value >= 1 && value <= MAX_WORKSPACE_PROFILE_INTEGER
 const showDefaultModelSettings = ref(false)
 const showProviderConfigDialog = ref(false)
 const selectedProvider = ref<SettingsModelProvider | null>(null)
@@ -560,6 +563,11 @@ async function saveSettings() {
   const session = sessionGeneration
   if (!requireAdminAction() || workspaceSaving.value || settingsStore.loading || !settingsStore.workspace) return
   workspaceSaveError.value = ''
+  if (!isValidWorkspaceProfileInteger(workspaceDraft.defaultTimeoutMin)
+    || !isValidWorkspaceProfileInteger(workspaceDraft.retentionDays)) {
+    workspaceSaveError.value = t('settings.workspacePositiveIntegerRequired')
+    return
+  }
   workspaceSaving.value = true
   try {
     await settingsStore.saveWorkspace({ ...workspaceDraft })
@@ -1970,11 +1978,11 @@ watch(
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.defaultTimeout') }}</span>
-                <input v-model.number="workspaceDraft.defaultTimeoutMin" name="workspace-timeout" type="number" min="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
+                <input v-model.number="workspaceDraft.defaultTimeoutMin" name="workspace-timeout" type="number" min="1" max="2147483647" step="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('settings.artifactRetention') }}</span>
-                <input v-model.number="workspaceDraft.retentionDays" name="workspace-retention" type="number" min="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
+                <input v-model.number="workspaceDraft.retentionDays" name="workspace-retention" type="number" min="1" max="2147483647" step="1" inputmode="numeric" autocomplete="off" class="h-10 w-full rounded-md border border-app-border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
               </label>
             </fieldset>
           </section>

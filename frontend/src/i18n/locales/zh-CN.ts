@@ -1575,6 +1575,7 @@ export const zhCN = {
     environmentLabel: '环境',
     defaultTimeout: '默认超时',
     artifactRetention: '产物保留',
+    workspacePositiveIntegerRequired: '默认超时和产物保留天数都必须是 1 至 2,147,483,647 的整数。',
     inviteMockUser: '邀请用户',
     name: '姓名',
     email: '邮箱',
