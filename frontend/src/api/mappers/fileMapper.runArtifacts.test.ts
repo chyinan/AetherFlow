@@ -20,8 +20,26 @@ describe('后端运行产物关联', () => {
     expect(second.backendFileId).toBe('102')
   })
 
-  it('历史导出使用后端回填的 workflowId，同样支持运行筛选', () => {
-    expect(mapFileAssetViewToAsset(artifact({ source: undefined, workflowId: '43', objectKey: 'workflow/exports/43/export/result.md' })).linkedRunId).toBe('run-43')
+  it('显式改为输入的生成文件保留输入分类和原始运行链接', () => {
+    const mapped = mapFileAssetViewToAsset(artifact({
+      source: 'input', type: 'document', artifactKind: 'input', workflowId: '43',
+      objectKey: 'workflow/exports/43/export/result.md',
+    }))
+    expect(mapped.source).toBe('input')
+    expect(mapped.type).toBe('document')
+    expect(mapped.artifactKind).toBe('input')
+    expect(mapped.linkedRunId).toBe('run-43')
+  })
+
+  it('旧生成文件缺少分类时继续按导出目录回退为成品', () => {
+    const mapped = mapFileAssetViewToAsset(artifact({
+      source: undefined, type: undefined, artifactKind: undefined, workflowId: '43',
+      objectKey: 'workflow/exports/43/export/result.md',
+    }))
+    expect(mapped.source).toBe('artifact')
+    expect(mapped.type).toBe('artifact')
+    expect(mapped.artifactKind).toBe('summary')
+    expect(mapped.linkedRunId).toBe('run-43')
   })
 
   it('字符串实例 ID 保持原始精度，不转为 JavaScript 数字', () => {
@@ -29,7 +47,9 @@ describe('后端运行产物关联', () => {
   })
 
   it('普通输入即使关联了 workflowId，也不能冒充该运行的成品', () => {
-    expect(mapFileAssetViewToAsset(artifact({ source: 'input', workflowId: '42' })).linkedRunId).toBeUndefined()
+    expect(mapFileAssetViewToAsset(artifact({
+      source: 'input', workflowId: '42', objectKey: 'users/7/uploads/meeting-summary.md',
+    })).linkedRunId).toBeUndefined()
   })
 
   it.each([undefined, '', '0', '-1', '1.5', 'run-42', 'wf-42', '42/foo'])('缺失或无效实例 ID %s 不从文件名和存储键猜运行', workflowId => {

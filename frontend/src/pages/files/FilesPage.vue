@@ -20,8 +20,12 @@ const runFilterId = computed(() => {
   const value = route.query.runId
   return (Array.isArray(value) ? value[0] : value)?.trim() || ''
 })
+// 运行筛选依据来源运行而非当前分类，改为输入的生成文件仍可从原运行找回。
 const visibleArtifacts = computed(() => runFilterId.value
-  ? fileStore.artifactFiles.filter(file => file.linkedRunId === runFilterId.value)
+  ? fileStore.files.filter(file =>
+      file.linkedRunId === runFilterId.value
+      && (file.source === 'artifact' || String(file.objectKey ?? '').trim().toLowerCase().startsWith('workflow/exports/')),
+    )
   : fileStore.artifactFiles)
 const sourceRunLocation = computed(() => runReturnLocation(runFilterId.value, route.query.runReturnLocation))
 

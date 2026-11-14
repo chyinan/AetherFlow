@@ -22,7 +22,8 @@ function assets(): FileAsset[] {
   }
   return [base, { ...base, id: 'file-2', backendFileId: '102', linkedRunId: 'run-2' },
     { ...base, id: 'unlinked', backendFileId: '103', linkedRunId: undefined },
-    { ...base, id: 'input', backendFileId: '104', name: '会议录音.wav', type: 'audio', source: 'input' }]
+    { ...base, id: 'input', backendFileId: '104', name: '会议录音.wav', type: 'audio', source: 'input',
+      linkedRunId: undefined, workflowId: undefined, objectKey: 'users/7/uploads/meeting-recording.wav' }]
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -213,4 +214,17 @@ it.each([
   expect(wrapper!.get('[data-testid="clear-run-filter"]').text()).toBe(clear)
   expect(wrapper!.get('[data-testid="run-artifact-empty"]').text()).toContain(empty)
   expect(wrapper!.get('[data-testid="return-source-run"]').text()).toBe(returnText)
+})
+it('运行成品筛选仍显示已重新分类为输入的生成文件及其来源运行链接', async () => {
+  const generatedInput = {
+    ...assets()[0]!, id: 'reclassified', backendFileId: '105', source: 'input' as const,
+    type: 'document' as const, artifactKind: 'input' as const, linkedRunId: 'run-1',
+    objectKey: 'workflow/exports/1/export/hash-meeting-summary.md',
+  }
+  mocks.listFiles.mockResolvedValue([...assets(), generatedInput])
+  await setup('/files?runId=run-1')
+
+  expect(shownRunLinks()).toEqual(['/runs/run-1', '/runs/run-1'])
+  expect(wrapper!.findAll('[title="meeting-summary.md"]')).toHaveLength(2)
+  expect(downloadButtons()).toHaveLength(2)
 })
