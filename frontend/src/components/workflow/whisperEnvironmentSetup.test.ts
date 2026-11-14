@@ -21,6 +21,14 @@ describe('Whisper 部署建议', () => {
   it('Compose 输出待手工启用的 .env 配置', () => {
     expect(buildWhisperSuggestedSnippet(draft, 'compose')).toBe('ENABLE_WHISPER=true\nWHISPER_MODEL=small\nWHISPER_DEVICE=cpu\nWHISPER_COMPUTE_TYPE=int8')
   })
+  it.each([
+    ['尾随反斜杠', '/models/trailing\\', String.raw`WHISPER_MODEL="/models/trailing\\"`],
+    ['反斜杠紧邻撇号', String.raw`/models/a\'b`, String.raw`WHISPER_MODEL="/models/a\\'b"`],
+    ['美元与花括号保持字面值', '/models/${WHISPER_ROOT}/$CACHE', 'WHISPER_MODEL="/models/$${WHISPER_ROOT}/$$CACHE"'],
+    ['反斜杠和双引号', String.raw`/models/a\folder "quoted"`, String.raw`WHISPER_MODEL="/models/a\\folder \"quoted\""`],
+  ] as const)('Compose .env 建议正确编码 %s', (_name, model, expected) => {
+    expect(buildWhisperSuggestedSnippet({ ...draft, model }, 'compose')).toContain(expected)
+  })
   it('宿主进程提供 PowerShell 格式，并保留路径与特殊字符的字面值', () => {
     expect(buildWhisperSuggestedSnippet({ ...draft, model: "C:\\Models\\I'm $local; #model" }, 'host')).toBe(
       "$env:ENABLE_WHISPER='true'\n$env:WHISPER_MODEL='C:\\Models\\I''m $local; #model'\n$env:WHISPER_DEVICE='cpu'\n$env:WHISPER_COMPUTE_TYPE='int8'",
