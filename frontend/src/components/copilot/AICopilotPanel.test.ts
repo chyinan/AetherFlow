@@ -395,6 +395,59 @@ describe('AICopilotPanel', () => {
     wrapper.unmount()
   })
 
+  it('uses the same-request server conversation ID after a failed first planner turn', async () => {
+    const context = panelContext()
+    planWorkflow.mockRejectedValueOnce({
+      name: 'ApiError', message: 'provider unavailable', status: 503, code: 503,
+      source: 'ai', retryable: true, workflowPlanConversationId: 'conv-plan-failed',
+    }).mockResolvedValueOnce({
+      ...planMessage(context, readyMediaPlan(), 'msg-plan-retry'), conversationId: 'conv-plan-failed',
+    })
+    const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes(i18n.global.t('copilot.quickDraftWorkflow')))?.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('provider unavailable')
+    expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-plan-failed')
+    expect(planWorkflow.mock.calls[0][1].conversationId).toBeUndefined()
+
+    await wrapper.find('form input').setValue('Keep the first request and add an audience')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(planWorkflow).toHaveBeenCalledTimes(2)
+    expect(planWorkflow.mock.calls[1][1].conversationId).toBe('conv-plan-failed')
+    expect(wrapper.text()).toContain(readyMediaPlan().explanation)
+    wrapper.unmount()
+  })
+
+  it('does not adopt a late planner failure ID after switching workflow sessions', async () => {
+    const contextA = panelContext('workflow-a')
+    const contextB = panelContext('workflow-b')
+    let rejectPlanner: (error: unknown) => void = () => undefined
+    planWorkflow.mockImplementationOnce(() => new Promise((_, reject) => { rejectPlanner = reject }))
+    const wrapper = mount(AICopilotPanel, { props: { context: contextA }, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes(i18n.global.t('copilot.quickDraftWorkflow')))?.trigger('click')
+    await vi.waitFor(() => expect(planWorkflow).toHaveBeenCalledTimes(1))
+    await wrapper.setProps({ context: contextB })
+    rejectPlanner({
+      name: 'ApiError', message: 'late provider failure', status: 503, code: 503,
+      source: 'ai', retryable: true, workflowPlanConversationId: 'conv-stale',
+    })
+    await flushPromises()
+
+    expect(readConversationSelection(conversationSessionKey(contextA))).toBe('new')
+    expect(readConversationSelection(conversationSessionKey(contextB))).toBeNull()
+    expect(wrapper.text()).not.toContain('late provider failure')
+    wrapper.unmount()
+  })
+
   it('routes planner follow-ups to clarification and blocks a stale plan', async () => {
     const context = {
       workflowId: 'workflow-current',

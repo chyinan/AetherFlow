@@ -1,4 +1,5 @@
 import { apiClient } from '@/api/client/apiClient'
+import { isApiError, toApiError } from '@/api/client/apiError'
 import { runtimeEnv } from '@/config/runtimeEnv'
 import type { CopilotMessage } from '@/types/copilot'
 import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
@@ -66,6 +67,22 @@ function numericConversationId(conversationId: string) {
   return normalized
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function readWorkflowPlanFailureConversationId(error: unknown) {
+  const raw = isApiError(error) ? error.raw : toApiError(error, 'ai').raw
+  const payload = isRecord(raw) && isRecord(raw.response)
+    ? raw.response.data
+    : raw
+  const data = isRecord(payload) && isRecord(payload.data) ? payload.data : undefined
+  const conversationId = data?.type === 'workflow-plan-failure' ? data.conversationId : undefined
+  return typeof conversationId === 'string' && /^(?:conv-)?\d+$/.test(conversationId)
+    ? conversationId
+    : undefined
+}
+
 function requestPayload(prompt: string, options: CopilotAskOptions) {
   return {
     conversationId: options.conversationId,
@@ -124,12 +141,18 @@ export const copilotApi = {
     return toAssistantMessage(response)
   },
   async planWorkflow(prompt: string, options: CopilotAskOptions & { signal?: AbortSignal } = {}) {
-    const response = await apiClient.post<CopilotChatResponse>('/copilot/workflow-plan', requestPayload(prompt, options), {
-      source: 'ai',
-      timeout: 65_000,
-      signal: options.signal,
-    })
-    return toAssistantMessage(response)
+    try {
+      const response = await apiClient.post<CopilotChatResponse>('/copilot/workflow-plan', requestPayload(prompt, options), {
+        source: 'ai',
+        timeout: 65_000,
+        signal: options.signal,
+      })
+      return toAssistantMessage(response)
+    } catch (error) {
+      const conversationId = readWorkflowPlanFailureConversationId(error)
+      if (!conversationId) throw error
+      throw { ...toApiError(error, 'ai'), workflowPlanConversationId: conversationId }
+    }
   },
   async stream(prompt: string, options: CopilotStreamOptions = {}) {
     const token = tokenManager.getAccessToken()
