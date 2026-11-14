@@ -3,6 +3,8 @@ package com.aetherflow.ai.task;
 // pattern: Imperative Shell
 
 import com.aetherflow.ai.cache.AiTaskCacheService;
+import com.aetherflow.ai.client.TaskStatusClient;
+import com.aetherflow.ai.config.TaskClientProperties;
 import com.aetherflow.ai.entity.AiJob;
 import com.aetherflow.ai.file.AiFileRegistrationService;
 import com.aetherflow.ai.file.ArtifactRegistrationResult;
@@ -14,6 +16,7 @@ import com.aetherflow.ai.workflow.AiNodeExecutionContext;
 import com.aetherflow.ai.workflow.AiNodeResult;
 import com.aetherflow.ai.workflow.executor.AiNodeExecutor;
 import com.aetherflow.ai.workflow.executor.DefaultAiNodeExecutorRegistry;
+import com.aetherflow.common.core.Result;
 import com.aetherflow.common.dto.FileMetadataDTO;
 import com.aetherflow.common.dto.TaskMessageDTO;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.retry.support.RetrySynchronizationManager;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +43,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -192,6 +197,100 @@ class AiTaskProcessingServiceImplTest {
         verify(terminalCoordinator, never()).recordSuccess(any(), any(), any(), any());
         verify(terminalCoordinator).recordFailure(
                 any(AiJob.class), any(AiJobLease.class), eq(message), eq("file-service unavailable"));
+    }
+
+    @Test
+    void cancellationObservedAfterAiExecutionSkipsArtifactRegistration() {
+        AiJobMapper aiJobMapper = mock(AiJobMapper.class);
+        DefaultAiNodeExecutorRegistry executorRegistry = mock(DefaultAiNodeExecutorRegistry.class);
+        AiTaskCacheService cacheService = mock(AiTaskCacheService.class);
+        AiFileRegistrationService fileRegistrationService = mock(AiFileRegistrationService.class);
+        AiTaskTerminalCoordinator terminalCoordinator = mock(AiTaskTerminalCoordinator.class);
+        SentinelAiGuard sentinelAiGuard = mock(SentinelAiGuard.class);
+        doAnswer(invocation -> {
+            invocation.getArgument(1, Runnable.class).run();
+            return null;
+        }).when(sentinelAiGuard).run(eq("ai-task-process"), any(Runnable.class));
+        AiNodeExecutor executor = mock(AiNodeExecutor.class);
+        AiNodeResult result = new AiNodeResult(
+                "LLM", "SUCCEEDED", Map.of("text", "done"),
+                List.of(new AiArtifact("TXT", "result.txt", "text/plain", "done".getBytes(StandardCharsets.UTF_8))));
+        when(executorRegistry.getRequired("LLM")).thenReturn(executor);
+        when(executor.execute(any(AiNodeExecutionContext.class))).thenReturn(result);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null);
+        stubInsertAndAuthoritativeRead(aiJobMapper);
+        TaskStatusClient taskStatusClient = mock(TaskStatusClient.class);
+        when(taskStatusClient.status(anyString(), eq(59L)))
+                .thenReturn(Result.success("RUNNING"), Result.success("CANCELLED"));
+        AiTaskProcessingServiceImpl service = new AiTaskProcessingServiceImpl(
+                aiJobMapper, new AiJobLeaseService(aiJobMapper),
+                new AiJobLeaseHeartbeat(new AiJobLeaseService(aiJobMapper)),
+                executorRegistry, cacheService, fileRegistrationService,
+                terminalCoordinator, sentinelAiGuard, new ObjectMapper());
+        setCancellationLookup(service, taskStatusClient);
+        TaskMessageDTO message = taskMessage();
+
+        service.process(message);
+
+        verify(taskStatusClient, times(2)).status(anyString(), eq(59L));
+        verify(executor).execute(any(AiNodeExecutionContext.class));
+        verify(fileRegistrationService, never()).registerArtifacts(any(), any(), any());
+        verify(terminalCoordinator).recordFailure(
+                any(AiJob.class), any(AiJobLease.class), eq(message), eq("task cancelled during AI execution"));
+        verify(terminalCoordinator, never()).recordSuccess(any(), any(), any(), any());
+        verify(cacheService).markStatus(59L, AiTaskStatus.FAILED);
+    }
+
+    @Test
+    void cancellationObservedDuringArtifactRegistrationAbortsTheStagedBatch() {
+        AiJobMapper aiJobMapper = mock(AiJobMapper.class);
+        DefaultAiNodeExecutorRegistry executorRegistry = mock(DefaultAiNodeExecutorRegistry.class);
+        AiTaskCacheService cacheService = mock(AiTaskCacheService.class);
+        AiFileRegistrationService fileRegistrationService = mock(AiFileRegistrationService.class);
+        AiTaskTerminalCoordinator terminalCoordinator = mock(AiTaskTerminalCoordinator.class);
+        SentinelAiGuard sentinelAiGuard = mock(SentinelAiGuard.class);
+        doAnswer(invocation -> {
+            invocation.getArgument(1, Runnable.class).run();
+            return null;
+        }).when(sentinelAiGuard).run(eq("ai-task-process"), any(Runnable.class));
+        AiNodeExecutor executor = mock(AiNodeExecutor.class);
+        AiNodeResult result = new AiNodeResult(
+                "LLM", "SUCCEEDED", Map.of("text", "done"),
+                List.of(new AiArtifact("TXT", "result.txt", "text/plain", "done".getBytes(StandardCharsets.UTF_8))));
+        when(executorRegistry.getRequired("LLM")).thenReturn(executor);
+        when(executor.execute(any(AiNodeExecutionContext.class))).thenReturn(result);
+        when(aiJobMapper.selectByIdempotencyKey(eq(7L), anyString())).thenReturn(null);
+        stubInsertAndAuthoritativeRead(aiJobMapper);
+        TaskMessageDTO message = taskMessage();
+        FileMetadataDTO stagedFile = new FileMetadataDTO(
+                901L, "aetherflow", "generated/result.txt", "result.txt", "text/plain", 4L,
+                "https://files.example/result.txt");
+        ArtifactRegistrationResult registration = new ArtifactRegistrationResult(
+                "ai-task:59:node-1:artifacts", 1, List.of(stagedFile));
+        when(fileRegistrationService.registerArtifacts(eq(message), any(AiJobLease.class), eq(result.artifacts())))
+                .thenReturn(registration);
+        TaskStatusClient taskStatusClient = mock(TaskStatusClient.class);
+        when(taskStatusClient.status(anyString(), eq(59L)))
+                .thenReturn(Result.success("RUNNING"), Result.success("RUNNING"), Result.success("CANCELLED"));
+        AiTaskProcessingServiceImpl service = new AiTaskProcessingServiceImpl(
+                aiJobMapper, new AiJobLeaseService(aiJobMapper),
+                new AiJobLeaseHeartbeat(new AiJobLeaseService(aiJobMapper)),
+                executorRegistry, cacheService, fileRegistrationService,
+                terminalCoordinator, sentinelAiGuard, new ObjectMapper());
+        setCancellationLookup(service, taskStatusClient);
+
+        service.process(message);
+
+        verify(taskStatusClient, times(3)).status(anyString(), eq(59L));
+        verify(fileRegistrationService).registerArtifacts(eq(message), any(AiJobLease.class), eq(result.artifacts()));
+        var failureResult = org.mockito.ArgumentCaptor.forClass(AiNodeResult.class);
+        verify(terminalCoordinator).recordFailure(
+                any(AiJob.class), any(AiJobLease.class), eq(message), failureResult.capture(),
+                eq("task cancelled during artifact registration"));
+        assertThat(failureResult.getValue().artifactBatchId()).isEqualTo(registration.batchId());
+        assertThat(failureResult.getValue().artifactCount()).isEqualTo(registration.expectedCount());
+        verify(terminalCoordinator, never()).recordSuccess(any(), any(), any(), any());
+        verify(cacheService).markStatus(59L, AiTaskStatus.FAILED);
     }
 
     @Test
@@ -404,6 +503,12 @@ class AiTaskProcessingServiceImplTest {
         message.setNodeType("LLM");
         message.setPayload(Map.of("prompt", "summarize"));
         return message;
+    }
+
+    private static void setCancellationLookup(AiTaskProcessingServiceImpl service,
+                                              TaskStatusClient taskStatusClient) {
+        ReflectionTestUtils.setField(service, "taskStatusClient", taskStatusClient);
+        ReflectionTestUtils.setField(service, "taskClientProperties", new TaskClientProperties());
     }
 
     private static AtomicReference<AiJob> stubInsertAndAuthoritativeRead(AiJobMapper mapper) {
