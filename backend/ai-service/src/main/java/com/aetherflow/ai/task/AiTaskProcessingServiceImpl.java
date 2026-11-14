@@ -114,6 +114,12 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
                 AiNodeExecutor executor = executorRegistry.getRequired(taskMessage.getNodeType());
                 AiNodeResult result = executor.execute(new AiNodeExecutionContext(taskMessage, payload));
                 guard.assertOwned();
+                if (isTaskCancelled(taskMessage.getTaskId())) {
+                    terminalCoordinator.recordFailure(
+                            job, lease, taskMessage, "task cancelled during AI execution");
+                    cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.FAILED);
+                    return;
+                }
                 com.aetherflow.ai.file.ArtifactRegistrationResult registration =
                         fileRegistrationService.registerArtifacts(taskMessage, lease, result.artifacts());
                 artifactRegistration = registration;
@@ -151,6 +157,17 @@ public class AiTaskProcessingServiceImpl implements AiTaskProcessingService {
                 throw exception;
             }
             guard.assertOwned();
+            if (isTaskCancelled(taskMessage.getTaskId())) {
+                String error = "task cancelled during artifact registration";
+                AiNodeResult cancelledResult = new AiNodeResult(
+                        taskMessage.getNodeType(), AiTaskStatus.FAILED,
+                        Map.of("error", error), List.of(),
+                        artifactRegistration == null ? null : artifactRegistration.batchId(),
+                        artifactRegistration == null ? null : artifactRegistration.expectedCount());
+                terminalCoordinator.recordFailure(job, lease, taskMessage, cancelledResult, error);
+                cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.FAILED);
+                return;
+            }
             terminalCoordinator.recordSuccess(job, lease, taskMessage, durableResult);
             cacheService.markStatus(taskMessage.getTaskId(), AiTaskStatus.SUCCEEDED);
             cacheService.cacheResult(taskMessage.getTaskId(), durableResult.output());
