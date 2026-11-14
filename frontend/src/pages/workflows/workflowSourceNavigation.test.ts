@@ -14,7 +14,7 @@ vi.mock('@/services/api/workflowApi', async original => ({ ...await original<typ
 vi.mock('@/services/api/runApi', () => ({ runApi: api }))
 vi.mock('@/stores/runStore', () => ({ useRunStore: () => ({ currentRun: null, logs: [], loadRuns: vi.fn(), selectRunForWorkflow: vi.fn(), subscribeCurrentRun: vi.fn(), clearCurrentRun: vi.fn() }) }))
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ loadFiles: vi.fn() }) }))
-vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
+vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ projects: [], currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
 const Canvas = defineComponent({ setup(_, { expose }) { expose({ focusNode: api.focus }); return {} }, template: '<div data-testid="canvas" />' })
 const sourceNode: WorkflowGraphNode = { id: 'node-summary-4', type: 'workflow', position: { x: 1600, y: 800 }, data: { kind: 'summary', label: '摘要', description: '', inputs: [], outputs: [], status: 'idle', config: { prompt: '会议总结' } } }
 function definition(id: string): WorkflowDefinition { return { id, name: '会议总结', backendDefinitionId: 201, backendVersion: 3, nodes: [structuredClone(sourceNode)], edges: [] } }
