@@ -33,6 +33,7 @@ cd ai-runtime
 ```
 
 The script creates `.venv`, installs `requirements.txt`, downloads the Whisper model into `models/whisper`, and pulls the Ollama summary model.
+Setup stops with a non-zero exit code if a required command or model preparation fails; resolve the reported issue and rerun the setup command.
 
 ## Run A Video
 

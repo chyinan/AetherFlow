@@ -28,7 +28,8 @@ def main() -> int:
 
         ollama.Client(host=summary.host).pull(summary.model)
     except Exception as exc:
-        logging.getLogger(__name__).warning("ollama pull failed: %s", exc)
+        logging.getLogger(__name__).error("ollama pull failed for model %s: %s", summary.model, exc)
+        return 1
 
     return 0
 
