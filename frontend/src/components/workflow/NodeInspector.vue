@@ -100,7 +100,8 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
 const dynamicMode = ref<'basic' | 'advanced'>('basic')
 const retrievalSettingsExpanded = ref(false)
-const nodeCatalog = ref<WorkflowNodeCatalogItem[]>([])
+const privateNodeCatalog = ref<WorkflowNodeCatalogItem[] | null>(null)
+const nodeCatalog = computed(() => workflowStore.nodeCatalog ?? privateNodeCatalog.value ?? [])
 const structuredConfigDraft = ref<Record<string, string>>({})
 const structuredConfigErrors = ref<Record<string, string>>({})
 const modelCatalogRetryPending = ref(false)
@@ -933,10 +934,10 @@ onMounted(() => {
   void difyStore.refreshDatasets()
   void getNodeCatalog()
     .then((items) => {
-      nodeCatalog.value = items
+      privateNodeCatalog.value = items
     })
     .catch(() => {
-      nodeCatalog.value = []
+      // 保留最近一次有效目录；后续能力重查可从工作流目录恢复。
     })
 })
 </script>

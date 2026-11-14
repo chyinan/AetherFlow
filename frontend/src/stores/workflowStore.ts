@@ -333,6 +333,7 @@ export const useWorkflowStore = defineStore('workflow', {
     customLibrarySnapshot: null as string | null,
     customLibraryConflict: null as string | null,
     nodeTemplatesRequestSequence: 0,
+    nodeCatalog: null as WorkflowNodeCatalogItem[] | null,
     nodeCatalogLoaded: false,
     capabilitiesLoaded: false,
     workflowTemplates: [] as WorkflowDefinition[],
@@ -459,6 +460,8 @@ export const useWorkflowStore = defineStore('workflow', {
           templates = mergeTemplates(nodeTemplates, catalogResult.value
             .map(templateFromCatalogItem)
             .filter((template): template is NodeTemplate => template !== null))
+          // 后续刷新失败时保留最近一次校验通过的目录快照。
+          this.nodeCatalog = catalogResult.value
         } catch {
           // 损坏的目录不能阻止能力失败关闭，也不能保留“目录已确认”的旧标记。
           catalogLoaded = false
