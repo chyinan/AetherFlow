@@ -114,6 +114,39 @@ describe('copilotApi', () => {
     }), expect.objectContaining({ source: 'ai', signal }))
   })
 
+  it('retains the exact conversation ID from a typed workflow-plan failure', async () => {
+    post.mockRejectedValueOnce({
+      name: 'ApiError', message: 'provider unavailable', status: 503, code: 503,
+      source: 'ai', retryable: true,
+      raw: { response: { data: {
+        code: 503, message: 'provider unavailable',
+        data: { type: 'workflow-plan-failure', conversationId: 'conv-11' },
+      } } },
+    })
+
+    await expect(copilotApi.planWorkflow('Create a summary flow')).rejects.toMatchObject({
+      name: 'ApiError', message: 'provider unavailable', status: 503, code: 503,
+      workflowPlanConversationId: 'conv-11',
+    })
+  })
+
+  it.each([
+    { type: 'other-error', conversationId: 'conv-99' },
+    { type: 'workflow-plan-failure', conversationId: '../conv-99' },
+  ])('does not expose an untyped or invalid plan error ID: %j', async ({ type, conversationId }) => {
+    const failure = {
+      name: 'ApiError', message: 'provider unavailable', status: 503, code: 503,
+      source: 'ai', retryable: true,
+      raw: { response: { data: {
+        code: 503, message: 'provider unavailable',
+        data: { type, conversationId },
+      } } },
+    }
+    post.mockRejectedValueOnce(failure)
+
+    await expect(copilotApi.planWorkflow('Create a summary flow')).rejects.toBe(failure)
+  })
+
   it('restores structured requirements and base guards from conversation history', async () => {
     const plan = {
       status: 'UNSUPPORTED',

@@ -43,6 +43,12 @@ public final class CopilotDtos {
         }
     }
 
+    public record CopilotWorkflowPlanFailureMetadata(String type, String conversationId) {
+        public CopilotWorkflowPlanFailureMetadata(String conversationId) {
+            this("workflow-plan-failure", conversationId);
+        }
+    }
+
     public record CopilotCanvasEditResponse(
             CopilotChatResponse message,
             com.aetherflow.ai.copilot.service.CopilotCanvasEdits.Edit edit

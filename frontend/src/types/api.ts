@@ -32,6 +32,7 @@ export interface NormalizedApiError {
   message: string
   status?: number
   code?: number | string
+  workflowPlanConversationId?: string
   traceId?: string
   path?: string
   source: ApiErrorSource

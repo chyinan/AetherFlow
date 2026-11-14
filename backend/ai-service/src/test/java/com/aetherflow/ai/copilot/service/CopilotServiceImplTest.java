@@ -8,12 +8,14 @@ import com.aetherflow.ai.copilot.entity.CopilotConversationEntity;
 import com.aetherflow.ai.copilot.entity.CopilotMessageEntity;
 import com.aetherflow.ai.copilot.mapper.CopilotConversationMapper;
 import com.aetherflow.ai.copilot.mapper.CopilotMessageMapper;
+import com.aetherflow.ai.copilot.service.CopilotWorkflowPlanFailureException;
 import com.aetherflow.ai.copilot.service.impl.CopilotServiceImpl;
 import com.aetherflow.ai.provider.AiProviderRequest;
 import com.aetherflow.ai.provider.AiProviderResponse;
 import com.aetherflow.ai.provider.AiProviderRouter;
 import com.aetherflow.ai.provider.AiProviderType;
 import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.core.ResultCode;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -475,6 +477,48 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void workflowPlannerFailureCarriesThePreparedServerConversationIdAndOriginalBusinessError() {
+        stubNewConversationAndMessages();
+        when(aiProviderRouter.complete(any(AiProviderRequest.class)))
+                .thenThrow(new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "provider unavailable"));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("Create a media summary flow");
+
+        assertThatThrownBy(() -> service.planWorkflow(7L, request))
+                .isInstanceOfSatisfying(CopilotWorkflowPlanFailureException.class, failure -> {
+                    assertThat(failure.getConversationId()).isEqualTo("conv-11");
+                    assertThat(failure.getErrorCode()).isEqualTo(ResultCode.SERVICE_UNAVAILABLE);
+                    assertThat(failure.getMessage()).isEqualTo("provider unavailable");
+                    assertThat(failure.isUnexpectedFailure()).isFalse();
+                });
+
+        ArgumentCaptor<CopilotMessageEntity> persistedUser = ArgumentCaptor.forClass(CopilotMessageEntity.class);
+        verify(messageMapper, org.mockito.Mockito.times(1)).insert(persistedUser.capture());
+        assertThat(persistedUser.getValue().getRole()).isEqualTo("user");
+        assertThat(persistedUser.getValue().getConversationId()).isEqualTo(11L);
+        assertThat(persistedUser.getValue().getContent()).isEqualTo(request.getPrompt());
+        verify(messageMapper, never()).updateById(any(CopilotMessageEntity.class));
+    }
+
+    @Test
+    void unexpectedWorkflowPlannerFailureKeepsTheGenericInternalErrorAndPreparedConversationId() {
+        stubNewConversationAndMessages();
+        when(aiProviderRouter.complete(any(AiProviderRequest.class)))
+                .thenThrow(new IllegalStateException("unexpected provider failure"));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("Create a media summary flow");
+
+        assertThatThrownBy(() -> service.planWorkflow(7L, request))
+                .isInstanceOfSatisfying(CopilotWorkflowPlanFailureException.class, failure -> {
+                    assertThat(failure.getConversationId()).isEqualTo("conv-11");
+                    assertThat(failure.getErrorCode()).isEqualTo(ResultCode.INTERNAL_ERROR);
+                    assertThat(failure.getMessage()).isEqualTo(ResultCode.INTERNAL_ERROR.getMessage());
+                    assertThat(failure.isUnexpectedFailure()).isTrue();
+                    assertThat(failure.getOriginalCause()).isInstanceOf(IllegalStateException.class);
+                });
+    }
+
+    @Test
     void workflowPlannerRejectsMissingSchemaFieldsAndBlankPlanSteps() {
         stubAiReply("{\"status\":\"READY\",\"requirements\":{},\"recipe\":\"MEDIA_SUMMARY\",\"steps\":[\"\",\"\",\"\"],\"explanation\":\"Plan\",\"clarifyingQuestion\":null,\"assumptions\":[]}");
         stubNewConversationAndMessages();
@@ -595,7 +639,7 @@ class CopilotServiceImplTest {
             entity.setId(11L);
             return 1;
         }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
-        when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation(11L));
+        lenient().when(conversationMapper.selectOwnedForUpdate(11L, 7L)).thenReturn(conversation(11L));
         when(messageMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
         AtomicLong ids = new AtomicLong(20);
         doAnswer(invocation -> {

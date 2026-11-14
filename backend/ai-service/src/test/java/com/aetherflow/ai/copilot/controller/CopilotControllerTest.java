@@ -6,6 +6,10 @@ import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationMetadata;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotConversationSummary;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotMessageResponse;
 import com.aetherflow.ai.copilot.service.CopilotService;
+import com.aetherflow.ai.copilot.service.CopilotWorkflowPlanFailureException;
+import com.aetherflow.common.core.ResultCode;
+import com.aetherflow.common.exception.BusinessException;
+import com.aetherflow.common.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -130,6 +134,63 @@ class CopilotControllerTest {
                 .andExpect(jsonPath("$.data.role").value("assistant"));
 
         verify(service).chat(7L, request);
+    }
+
+    @Test
+    void workflowPlanFailureReturnsItsExactConversationIdWithoutChangingErrorStatusOrMessage() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        when(service.planWorkflow(eq(7L), any(CopilotChatRequest.class))).thenThrow(
+                CopilotWorkflowPlanFailureException.from(
+                        new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "provider unavailable"), "conv-11"));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new CopilotController(service))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        mockMvc.perform(post("/copilot/workflow-plan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"Create a media summary flow\"}")
+                        .header("X-User-Id", "7"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value(503))
+                .andExpect(jsonPath("$.message").value("provider unavailable"))
+                .andExpect(jsonPath("$.data.type").value("workflow-plan-failure"))
+                .andExpect(jsonPath("$.data.conversationId").value("conv-11"));
+    }
+
+    @Test
+    void ordinaryBusinessFailuresKeepTheExistingResultEnvelopeWithoutPlanMetadata() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        when(service.planWorkflow(eq(7L), any(CopilotChatRequest.class))).thenThrow(
+                new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "provider unavailable"));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new CopilotController(service))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        mockMvc.perform(post("/copilot/workflow-plan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"Create a media summary flow\"}")
+                        .header("X-User-Id", "7"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value(503))
+                .andExpect(jsonPath("$.message").value("provider unavailable"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void unexpectedWorkflowPlanFailureKeepsTheGenericInternalErrorResponse() throws Exception {
+        CopilotService service = mock(CopilotService.class);
+        when(service.planWorkflow(eq(7L), any(CopilotChatRequest.class))).thenThrow(
+                CopilotWorkflowPlanFailureException.from(new IllegalStateException("provider implementation error"), "conv-11"));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new CopilotController(service))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        mockMvc.perform(post("/copilot/workflow-plan")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"prompt\":\"Create a media summary flow\"}")
+                        .header("X-User-Id", "7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("internal server error"))
+                .andExpect(jsonPath("$.data.type").value("workflow-plan-failure"))
+                .andExpect(jsonPath("$.data.conversationId").value("conv-11"));
     }
 
     @Test

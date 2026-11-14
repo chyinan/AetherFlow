@@ -916,6 +916,11 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
   plannerController.value = controller
   const plannerSessionAtStart = plannerSessionSequence
   const workflowIdAtStart = base.workflowId
+  const scopeKeyAtStart = conversationSessionKey(props.context)
+  const conversationIdAtStart = conversationId.value
+  const sameSession = () => plannerSessionAtStart === plannerSessionSequence
+    && workflowIdAtStart === props.context?.workflowId
+    && scopeKeyAtStart === conversationSessionKey(props.context)
   try {
     const model = selectedModel.value
     const assistantMessage = await copilotApi.planWorkflow(text, {
@@ -940,8 +945,7 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
       }
       return
     }
-    if (plannerSessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId
-        || assistantMessageIndex < 0) return
+    if (!sameSession() || assistantMessageIndex < 0) return
     rememberConversation(assistantMessage.conversationId)
     messages.value[assistantMessageIndex] = assistantMessage
     plannerPendingMessageId.value = null
@@ -951,7 +955,7 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
       planPreview.value = null
     }
   } catch (error) {
-    if (plannerSessionAtStart !== plannerSessionSequence || workflowIdAtStart !== props.context?.workflowId) return
+    if (!sameSession()) return
     const assistantMessageIndex = messages.value.findIndex((message) => message.id === assistantMessageId)
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
     if (controller.signal.aborted) {
@@ -963,6 +967,10 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
       }
     } else if (current) {
       const apiError = toApiError(error, 'ai')
+      if (sameSession() && conversationIdAtStart === undefined
+          && conversationId.value === conversationIdAtStart && apiError.workflowPlanConversationId) {
+        rememberConversation(apiError.workflowPlanConversationId)
+      }
       messages.value[assistantMessageIndex] = {
         ...current,
         content: `${t('copilot.sendFailed', { message: apiError.message })}`,

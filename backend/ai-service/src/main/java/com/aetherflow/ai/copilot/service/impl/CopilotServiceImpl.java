@@ -19,6 +19,7 @@ import com.aetherflow.ai.copilot.mapper.CopilotConversationMapper;
 import com.aetherflow.ai.copilot.mapper.CopilotMessageMapper;
 import com.aetherflow.ai.copilot.service.CopilotService;
 import com.aetherflow.ai.copilot.service.CopilotCanvasEdits;
+import com.aetherflow.ai.copilot.service.CopilotWorkflowPlanFailureException;
 import com.aetherflow.ai.copilot.dto.CopilotDtos.CopilotCanvasEditResponse;
 import com.aetherflow.ai.provider.AiProviderRequest;
 import com.aetherflow.ai.provider.AiProviderResponse;
@@ -136,29 +137,33 @@ public class CopilotServiceImpl implements CopilotService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "workflow planner prompt is too long");
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request, true));
-        AiProviderResponse response = aiProviderRouter.complete(workflowPlanProviderRequest(request, prepared, userId));
-        if (response == null || !hasText(response.text())) {
-            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow planner response is empty");
+        try {
+            AiProviderResponse response = aiProviderRouter.complete(workflowPlanProviderRequest(request, prepared, userId));
+            if (response == null || !hasText(response.text())) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "workflow planner response is empty");
+            }
+            CopilotWorkflowPlan plan = parseWorkflowPlan(response.text());
+            Long baseEditRevision = plannerBaseRevision(request.getContext());
+            Integer baseBackendVersion = plannerBaseVersion(request.getContext());
+            String baseGraphFingerprint = plannerBaseFingerprint(request.getContext());
+            String content = planContent(plan);
+            CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
+                    persistAssistantReply(prepared, content,
+                            writePlanPersistence(plan, baseEditRevision, baseBackendVersion, baseGraphFingerprint)));
+            return new CopilotChatResponse(
+                    messageId(assistantMessage.getId()),
+                    conversationId(prepared.conversation().getId()),
+                    ROLE_ASSISTANT,
+                    assistantMessage.getContent(),
+                    formatMessageTime(assistantMessage.getCreatedAt()),
+                    plan,
+                    baseEditRevision,
+                    baseBackendVersion,
+                    baseGraphFingerprint
+            );
+        } catch (RuntimeException failure) {
+            throw CopilotWorkflowPlanFailureException.from(failure, conversationId(prepared.conversation().getId()));
         }
-        CopilotWorkflowPlan plan = parseWorkflowPlan(response.text());
-        Long baseEditRevision = plannerBaseRevision(request.getContext());
-        Integer baseBackendVersion = plannerBaseVersion(request.getContext());
-        String baseGraphFingerprint = plannerBaseFingerprint(request.getContext());
-        String content = planContent(plan);
-        CopilotMessageEntity assistantMessage = transactionTemplate.execute(status ->
-                persistAssistantReply(prepared, content,
-                        writePlanPersistence(plan, baseEditRevision, baseBackendVersion, baseGraphFingerprint)));
-        return new CopilotChatResponse(
-                messageId(assistantMessage.getId()),
-                conversationId(prepared.conversation().getId()),
-                ROLE_ASSISTANT,
-                assistantMessage.getContent(),
-                formatMessageTime(assistantMessage.getCreatedAt()),
-                plan,
-                baseEditRevision,
-                baseBackendVersion,
-                baseGraphFingerprint
-        );
     }
 
     @Override
