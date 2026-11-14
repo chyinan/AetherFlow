@@ -111,6 +111,15 @@ type WorkflowGraphHistoryEntry = {
   edges: WorkflowGraphEdge[]
 }
 
+type HttpRequestConfigEdit = {
+  nodeId: string
+  key: string
+  snapshot: WorkflowGraphHistoryEntry
+  changed: boolean
+}
+
+const httpRequestTextConfigKeys = new Set(['url', 'urlVariable', 'bodyJson', 'bodyVariable', 'outputVariable'])
+
 function cloneGraph(nodes: WorkflowGraphNode[], edges: WorkflowGraphEdge[]): WorkflowGraphHistoryEntry {
   return {
     nodes: nodes.map((node) => {
@@ -360,6 +369,7 @@ export const useWorkflowStore = defineStore('workflow', {
     historyPast: [] as WorkflowGraphHistoryEntry[],
     historyFuture: [] as WorkflowGraphHistoryEntry[],
     nodeDragSnapshot: null as WorkflowGraphHistoryEntry | null,
+    httpRequestConfigEdit: null as HttpRequestConfigEdit | null,
     historyLimit: 50,
   }),
   getters: {
@@ -414,10 +424,48 @@ export const useWorkflowStore = defineStore('workflow', {
       }, signal)
     },
     recordHistory() {
+      this.finishHttpRequestConfigEdit()
       this.historyPast = [...this.historyPast, cloneGraph(this.nodes, this.edges)].slice(-this.historyLimit)
       this.historyFuture = []
     },
+    beginHttpRequestConfigEdit(nodeId: string, key: string) {
+      const node = this.nodes.find((item) => item.id === nodeId)
+      if (!node || node.data.kind !== 'http-request' || !httpRequestTextConfigKeys.has(key)) return
+      const current = this.httpRequestConfigEdit
+      if (current?.nodeId === nodeId && current.key === key) return
+      this.finishHttpRequestConfigEdit()
+      this.httpRequestConfigEdit = {
+        nodeId,
+        key,
+        snapshot: cloneGraph(this.nodes, this.edges),
+        changed: false,
+      }
+    },
+    finishHttpRequestConfigEdit(nodeId?: string, key?: string) {
+      const edit = this.httpRequestConfigEdit
+      if (!edit || (nodeId && edit.nodeId !== nodeId) || (key && edit.key !== key)) return false
+      this.httpRequestConfigEdit = null
+      if (!edit.changed) return false
+      this.historyPast = [...this.historyPast, edit.snapshot].slice(-this.historyLimit)
+      this.historyFuture = []
+      return true
+    },
+    checkpointHttpRequestConfigEdit() {
+      const edit = this.httpRequestConfigEdit
+      if (!edit) return
+      this.finishHttpRequestConfigEdit(edit.nodeId, edit.key)
+      const node = this.nodes.find((item) => item.id === edit.nodeId)
+      if (node?.data.kind === 'http-request' && httpRequestTextConfigKeys.has(edit.key)) {
+        this.httpRequestConfigEdit = {
+          nodeId: edit.nodeId,
+          key: edit.key,
+          snapshot: cloneGraph(this.nodes, this.edges),
+          changed: false,
+        }
+      }
+    },
     beginNodeDrag() {
+      this.finishHttpRequestConfigEdit()
       if (!this.nodeDragSnapshot) {
         this.nodeDragSnapshot = cloneGraph(this.nodes, this.edges)
       }
@@ -518,6 +566,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.edges = graph.edges
       this.historyPast = []
       this.historyFuture = []
+      this.httpRequestConfigEdit = null
       this.editRevision += 1
       this.dirty = dirty
       this.loadingError = null
@@ -727,7 +776,14 @@ export const useWorkflowStore = defineStore('workflow', {
     updateNodeConfigValues(nodeId: string, values: Record<string, unknown>) {
       const node = this.nodes.find((item) => item.id === nodeId)
       if (node) {
-        this.recordHistory()
+        const edit = this.httpRequestConfigEdit
+        const keys = Object.keys(values)
+        if (node.data.kind === 'http-request' && edit?.nodeId === nodeId
+          && keys.length === 1 && keys[0] === edit.key) {
+          if (!Object.is(node.data.config[edit.key], values[edit.key])) edit.changed = true
+        } else {
+          this.recordHistory()
+        }
         node.data.config = mergeWorkflowNodeConfig(node.data.kind, node.data.config, values)
         node.data.runtime = {
           ...node.data.runtime,
@@ -759,6 +815,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.runError = null
       this.historyPast = []
       this.historyFuture = []
+      this.httpRequestConfigEdit = null
     },
     clearCurrentWorkflow() {
       this.recordHistory()
@@ -772,6 +829,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.runError = null
     },
     undo() {
+      this.finishHttpRequestConfigEdit()
       const previous = this.historyPast.at(-1)
       if (!previous) {
         return false
@@ -785,6 +843,7 @@ export const useWorkflowStore = defineStore('workflow', {
       return true
     },
     redo() {
+      this.finishHttpRequestConfigEdit()
       const next = this.historyFuture.at(-1)
       if (!next) {
         return false
@@ -838,6 +897,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.edges = nextEdges
         this.historyPast = []
         this.historyFuture = []
+        this.httpRequestConfigEdit = null
         this.editRevision += 1
         this.dirty = Boolean(initialName)
         this.savingError = null
@@ -872,6 +932,7 @@ export const useWorkflowStore = defineStore('workflow', {
      * 排队期间保持 saving 反馈，队列排空后才解除。
      */
     async saveCurrentWorkflow(options: SaveWorkflowOptions = {}) {
+      this.checkpointHttpRequestConfigEdit()
       const generationAtEnqueue = workflowLoadRequestCounter
       const queue = currentSaveQueue(this)
       // 保存意图（尤其显式 projectId）属于本次调用，不能让调用方后续修改影响队列任务。

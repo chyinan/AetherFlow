@@ -1,10 +1,33 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 
-const props = defineProps<{ config: Record<string, unknown> }>()
-const emit = defineEmits<{ update: [key: string, value: unknown] }>()
+const props = defineProps<{ config: Record<string, unknown>; nodeId?: string }>()
+const emit = defineEmits<{
+  update: [key: string, value: unknown]
+  editStart: [nodeId: string, key: string]
+  editEnd: [nodeId: string, key: string]
+}>()
 const text = (key: string, fallback = '') => String(props.config[key] ?? fallback)
 const bodyErrorId = `http-body-error-${useId()}`
+const editingField = ref<{ nodeId: string; key: string } | null>(null)
+
+function beginTextEdit(key: string) {
+  finishTextEdit()
+  if (!props.nodeId) return
+  editingField.value = { nodeId: props.nodeId, key }
+  emit('editStart', props.nodeId, key)
+}
+
+function finishTextEdit() {
+  const field = editingField.value
+  if (!field) return
+  editingField.value = null
+  emit('editEnd', field.nodeId, field.key)
+}
+
+watch(() => props.nodeId, finishTextEdit)
+onBeforeUnmount(finishTextEdit)
+
 function update(key: string, event: Event) {
   emit('update', key, (event.target as HTMLInputElement).value)
 }
@@ -47,15 +70,15 @@ function bodyFieldFeedback(key: string) {
       { key: 'urlVariable', label: 'URL 变量', fallback: 'requestUrl' },
     ]" :key="field.key" class="block text-sm font-semibold">
       {{ field.label }}
-      <input :data-config-field="field.key" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text(field.key, field.fallback)" @input="update(field.key, $event)" />
+      <input :data-config-field="field.key" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text(field.key, field.fallback)" @focus="beginTextEdit(field.key)" @blur="finishTextEdit" @input="update(field.key, $event)" />
     </label>
     <label class="block text-sm font-semibold">
       JSON 请求体（对象、数组或标量）
-      <textarea data-config-field="bodyJson" v-bind="bodyFieldFeedback('bodyJson')" class="mt-2 min-h-28 w-full rounded-lg border border-app-border p-3 font-mono" :value="text('bodyJson')" spellcheck="false" @input="update('bodyJson', $event)" />
+      <textarea data-config-field="bodyJson" v-bind="bodyFieldFeedback('bodyJson')" class="mt-2 min-h-28 w-full rounded-lg border border-app-border p-3 font-mono" :value="text('bodyJson')" spellcheck="false" @focus="beginTextEdit('bodyJson')" @blur="finishTextEdit" @input="update('bodyJson', $event)" />
     </label>
     <label class="block text-sm font-semibold">
       请求体变量（与固定 JSON 互斥，字符串变量会序列化为 JSON 字符串）
-      <input data-config-field="bodyVariable" v-bind="bodyFieldFeedback('bodyVariable')" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('bodyVariable')" @input="update('bodyVariable', $event)" />
+      <input data-config-field="bodyVariable" v-bind="bodyFieldFeedback('bodyVariable')" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('bodyVariable')" @focus="beginTextEdit('bodyVariable')" @blur="finishTextEdit" @input="update('bodyVariable', $event)" />
     </label>
     <p v-if="bodyError" :id="bodyErrorId" role="alert" class="text-sm text-status-error">{{ bodyError }}</p>
     <label class="block text-sm font-semibold">
@@ -68,7 +91,7 @@ function bodyFieldFeedback(key: string) {
     <p v-if="text('errorStrategy') === 'BRANCH'" class="text-sm text-text-secondary">请分别连接标记为 success 和 error 的出边。首次连接为 success，第二次为 error；切换策略前已有的出边请删除后重新连接。非 2xx、非 JSON 响应或网络失败走 error；配置错误始终终止</p>
     <label class="block text-sm font-semibold">
       输出变量
-      <input data-config-field="outputVariable" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('outputVariable', 'httpResponse')" @input="update('outputVariable', $event)" />
+      <input data-config-field="outputVariable" class="mt-2 w-full rounded-lg border border-app-border p-3" :value="text('outputVariable', 'httpResponse')" @focus="beginTextEdit('outputVariable')" @blur="finishTextEdit" @input="update('outputVariable', $event)" />
     </label>
     <p class="text-xs leading-5 text-text-muted">响应对象包含 statusCode、body（解析后的 JSON）、bodyText、ok 和 error。HEAD / 空响应的 body 为 null，网络失败状态码为 0。写入类请求应自行设置业务幂等键，工作流重试可能重复调用</p>
   </section>
