@@ -480,6 +480,23 @@ function updateConfig(key: string, value: ConfigValue) {
   workflowStore.updateNodeConfig(selectedNode.value.id, key, value)
 }
 
+function updateHttpConfig(key: string, value: ConfigValue) {
+  const nodeId = selectedNode.value?.id
+  if (!nodeId || selectedNode.value?.data.kind !== 'http-request') return
+  // A workflow replacement can reuse the focused node ID while clearing the store-side edit session.
+  // Reopening is a no-op for the current session and captures a fresh snapshot when it was replaced.
+  workflowStore.beginHttpRequestConfigEdit(nodeId, key)
+  workflowStore.updateNodeConfig(nodeId, key, value)
+}
+
+function beginHttpConfigEdit(nodeId: string, key: string) {
+  workflowStore.beginHttpRequestConfigEdit(nodeId, key)
+}
+
+function finishHttpConfigEdit(nodeId: string, key: string) {
+  workflowStore.finishHttpRequestConfigEdit(nodeId, key)
+}
+
 function replaceComfyWorkflow(values: Record<string, unknown>, nodeId: string) {
   workflowStore.updateNodeConfigValues(nodeId, values)
 }
@@ -1097,7 +1114,7 @@ onMounted(() => {
           </template>
         </section>
 
-        <HttpRequestConfigPanel v-else-if="selectedKind === 'http-request'" :config="selectedNode.data.config" @update="updateConfig" />
+        <HttpRequestConfigPanel v-else-if="selectedKind === 'http-request'" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateHttpConfig" @edit-start="beginHttpConfigEdit" @edit-end="finishHttpConfigEdit" />
 
         <section v-else-if="selectedKind === 'upload'" class="space-y-5 p-5">
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3">

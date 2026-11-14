@@ -4,6 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { isProxy } from 'vue'
 import { i18n } from '@/i18n'
+import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
+import { workflowApi } from '@/services/api/workflowApi'
+import type { WorkflowDefinition } from '@/types/workflow'
 import { useDifyStore } from '@/stores/difyStore'
 import { useModelStore } from '@/stores/modelStore'
 import { useUiStore } from '@/stores/uiStore'
@@ -55,6 +58,21 @@ async function setup(kind: 'loop' | 'subworkflow') {
   await flushPromises()
   const config = () => store.nodes.find(n => n.id === node.id)!.data.config
   return { store, node, errors, config }
+}
+
+async function setupHttpRequest() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  vi.spyOn(useModelStore(), 'loadModels').mockResolvedValue(undefined)
+  vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue(undefined)
+  const store = useWorkflowStore()
+  store.resetToEmptyWorkflow()
+  const node = store.addNodeFromTemplate(nodeTemplates.find(template => template.kind === 'http-request')!, { x: 0, y: 0 })!
+  useUiStore().setSelectedNode(node.id)
+  const errors: unknown[] = []
+  wrapper = mount(NodeInspector, { global: { plugins: [pinia, i18n], config: { errorHandler: error => errors.push(error) } } })
+  await flushPromises()
+  return { store, node, errors }
 }
 
 it('实际检查器的响应式目录可重复添加循环步骤并撤销、重做', async () => {
@@ -161,4 +179,90 @@ it('切换节点与重新打开检查器不继承另一节点的映射草稿', a
   expect(JSON.parse(wrapper!.get<HTMLTextAreaElement>('[data-config-field="inputMappings"]').element.value)).toEqual({ text: 'edited.text' })
   expect(JSON.parse(wrapper!.get<HTMLTextAreaElement>('[data-config-field="outputMappings"]').element.value)).toEqual({ answer: 'original.answer' })
   expect(errors).toEqual([])
+})
+
+it('HTTP 长文本逐字符即时更新，但失焦后只占一个撤销项且保存映射读到最新值', async () => {
+  const { store, node, errors } = await setupHttpRequest()
+  const initialHistoryLength = store.historyPast.length
+  const initialRevision = store.editRevision
+  const initialUrl = node.data.config.url
+  const field = wrapper!.get<HTMLInputElement>('[data-config-field="url"]')
+  await field.trigger('focus')
+
+  for (let index = 1; index <= 60; index += 1) {
+    field.element.value = 'x'.repeat(index)
+    await field.trigger('input')
+  }
+
+  expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe('x'.repeat(60))
+  expect(store.dirty).toBe(true)
+  expect(store.editRevision).toBe(initialRevision + 60)
+  expect(store.historyPast).toHaveLength(initialHistoryLength)
+  expect(mapWorkflowToDefinitionDTO({
+    id: store.workflowId, name: store.workflowName, nodes: store.nodes, edges: store.edges,
+  }).nodes?.find(item => item.nodeId === node.id)?.config?.url).toBe('x'.repeat(60))
+  const submissions: WorkflowDefinition[] = []
+  vi.spyOn(workflowApi, 'saveWorkflow').mockImplementation(async workflow => {
+    submissions.push(structuredClone(workflow))
+    return {
+      ...workflow, id: '201', backendDefinitionId: 201, backendVersion: 1,
+      backendStatus: 'DRAFT', savedAt: '2026-11-14T00:00:00.000Z',
+    }
+  })
+  await store.saveCurrentWorkflow()
+  expect(submissions[0]?.nodes.find(item => item.id === node.id)?.data.config.url).toBe('x'.repeat(60))
+  expect(store.dirty).toBe(false)
+  expect(store.historyPast).toHaveLength(initialHistoryLength + 1)
+
+  await field.trigger('blur')
+  expect(store.historyPast).toHaveLength(initialHistoryLength + 1)
+  expect(store.undo()).toBe(true)
+  await flushPromises()
+  expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe(initialUrl)
+  expect(store.redo()).toBe(true)
+  await flushPromises()
+  expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe('x'.repeat(60))
+  expect(errors).toEqual([])
+})
+
+it('同 ID 工作流替换后仍聚合当前文本，并撤销到新图而非旧快照', async () => {
+  const { store, node } = await setupHttpRequest()
+  const field = wrapper!.get<HTMLInputElement>('[data-config-field="url"]')
+  await field.trigger('focus')
+  field.element.value = 'old workflow draft'
+  await field.trigger('input')
+
+  const replacementUrl = 'new workflow base'
+  store.applyWorkflowDefinition({
+    id: '202', name: '替换后的工作流', edges: [],
+    nodes: [{
+      id: node.id,
+      type: 'workflow',
+      position: { x: 100, y: 40 },
+      data: {
+        kind: 'http-request', label: 'Replacement HTTP', description: '',
+        config: { method: 'POST', url: replacementUrl },
+        inputs: [], outputs: ['httpResponse'], status: 'idle',
+      },
+    }],
+  })
+  await flushPromises()
+  expect(store.workflowId).toBe('202')
+  expect(store.dirty).toBe(false)
+  expect(store.historyPast).toHaveLength(0)
+  expect(field.element.value).toBe(replacementUrl)
+
+  const continuedUrl = `${replacementUrl} with fresh edits`
+  for (let index = 1; index <= continuedUrl.length; index += 1) {
+    field.element.value = continuedUrl.slice(0, index)
+    await field.trigger('input')
+  }
+  expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe(continuedUrl)
+  expect(store.historyPast).toHaveLength(0)
+
+  await field.trigger('blur')
+  expect(store.historyPast).toHaveLength(1)
+  expect(store.undo()).toBe(true)
+  expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe(replacementUrl)
+  expect(store.undo()).toBe(false)
 })
