@@ -619,4 +619,29 @@ describe('取消运行的异步目标与订阅隔离', () => {
     expect(store.currentRun).toMatchObject({ backendStatus, progress: backendStatus === 'SUCCESS' ? 100 : 75, currentNodeId: 'node-b' })
     expect(store.logs.map(entry => entry.id)).toContain('history-a')
   })
+
+  it('旧的清理状态读取不能覆盖同一实例较新的重试结果', async () => {
+    const store = setupStore()
+    const olderRefresh = deferred<{
+      workflowInstanceId: number; status: string; attemptCount: number; lastError?: string; retryable: boolean
+    }>()
+    const newerRetry = deferred<{
+      workflowInstanceId: number; status: string; attemptCount: number; retryable: boolean
+    }>()
+    mocks.getWorkflowCancellationCleanup.mockReturnValue(olderRefresh.promise)
+    mocks.retryWorkflowCancellationCleanup.mockReturnValue(newerRetry.promise)
+
+    const refreshing = store.loadCancellationCleanup(101)
+    const retrying = store.retryCancellationCleanup(101)
+    const complete = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 4, retryable: false }
+    newerRetry.resolve(complete)
+    await retrying
+    olderRefresh.resolve({
+      workflowInstanceId: 101, status: 'FAILED', attemptCount: 3, lastError: 'stale refresh', retryable: true,
+    })
+    await refreshing
+
+    expect(store.currentRun?.cancellationCleanup).toEqual(complete)
+    expect(store.runs[0]?.cancellationCleanup).toEqual(complete)
+  })
 })

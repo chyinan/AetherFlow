@@ -98,8 +98,17 @@ watch(filters, value => {
 const dismissedApprovalKey = ref<string | null>(null)
 const cancellingRunIds = ref(new Set<string>())
 const cancellationErrors = ref<Record<string, string>>({})
-const cancellationCleanupError = ref<string | null>(null)
-const retryingCancellationCleanup = ref(false)
+const cancellationCleanupErrorState = ref<{ runId: string; selectionGeneration: number; message: string } | null>(null)
+const retryingCancellationCleanupRunIds = ref(new Set<string>())
+let cancellationCleanupSelectionGeneration = 0
+const cancellationCleanupError = computed(() => {
+  const error = cancellationCleanupErrorState.value
+  return error && error.runId === runStore.currentRun?.id && error.selectionGeneration === cancellationCleanupSelectionGeneration
+    ? error.message : null
+})
+const retryingCancellationCleanup = computed(() => Boolean(
+  runStore.currentRun && retryingCancellationCleanupRunIds.value.has(runStore.currentRun.id),
+))
 let cancellationCleanupPoll: ReturnType<typeof setInterval> | undefined
 const cancelling = computed(() => Boolean(runStore.currentRun && cancellingRunIds.value.has(runStore.currentRun.id)))
 const cancellationError = computed(() => {
@@ -163,15 +172,24 @@ async function cancelCurrentRun() {
 async function retryCancellationCleanup() {
   const run = runStore.currentRun
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
-  if (!run || !instanceId || retryingCancellationCleanup.value) return
-  retryingCancellationCleanup.value = true
-  cancellationCleanupError.value = null
+  if (!run || !instanceId || retryingCancellationCleanupRunIds.value.has(run.id)) return
+  const selectionGeneration = cancellationCleanupSelectionGeneration
+  retryingCancellationCleanupRunIds.value.add(run.id)
+  if (runStore.currentRun?.id === run.id && selectionGeneration === cancellationCleanupSelectionGeneration) {
+    cancellationCleanupErrorState.value = null
+  }
   try {
     await runStore.retryCancellationCleanup(instanceId)
   } catch (error) {
-    cancellationCleanupError.value = toApiError(error, 'workflow').message
+    if (runStore.currentRun?.id === run.id && selectionGeneration === cancellationCleanupSelectionGeneration) {
+      cancellationCleanupErrorState.value = {
+        runId: run.id,
+        selectionGeneration,
+        message: toApiError(error, 'workflow').message,
+      }
+    }
   } finally {
-    retryingCancellationCleanup.value = false
+    retryingCancellationCleanupRunIds.value.delete(run.id)
   }
 }
 
@@ -179,21 +197,31 @@ async function refreshCancellationCleanup() {
   const run = runStore.currentRun
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || run.backendStatus !== 'CANCELLED' || !instanceId) return
-  cancellationCleanupError.value = null
+  const selectionGeneration = cancellationCleanupSelectionGeneration
+  cancellationCleanupErrorState.value = null
+  const isCurrentSelection = () => runStore.currentRun?.id === run.id
+    && selectionGeneration === cancellationCleanupSelectionGeneration
   try {
-    await runStore.loadCancellationCleanup(instanceId)
+    await runStore.loadCancellationCleanup(instanceId, isCurrentSelection)
   } catch (error) {
-    if (runStore.currentRun?.id === run.id) {
-      cancellationCleanupError.value = toApiError(error, 'workflow').message
+    if (isCurrentSelection()) {
+      cancellationCleanupErrorState.value = {
+        runId: run.id,
+        selectionGeneration,
+        message: toApiError(error, 'workflow').message,
+      }
     }
   }
 }
 
 watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runStore.currentRun?.cancellationCleanup] as const,
   ([runId, backendStatus, cleanup], previous) => {
-    if (!previous || previous[0] !== runId) cancellationCleanupError.value = null
+    if (!previous || previous[0] !== runId) {
+      cancellationCleanupSelectionGeneration += 1
+      cancellationCleanupErrorState.value = null
+    }
     if (!runId || backendStatus !== 'CANCELLED') {
-      cancellationCleanupError.value = null
+      cancellationCleanupErrorState.value = null
       if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
       cancellationCleanupPoll = undefined
       return
@@ -203,7 +231,7 @@ watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runSto
     if (cleanup?.retryable || ['PENDING', 'PROCESSING', 'FAILED'].includes(cleanup?.status ?? '')) {
       cancellationCleanupPoll = setInterval(() => { void refreshCancellationCleanup() }, 5_000)
     }
-  }, { immediate: true })
+  }, { immediate: true, flush: 'sync' })
 
 const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
   if (!selectedDetailReady.value) return null
