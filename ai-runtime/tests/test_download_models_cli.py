@@ -123,6 +123,7 @@ class DownloadModelsCommandTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0, msg=result.stdout)
         self.assertIn("ollama pull failed", result.stderr.lower())
+        self.assertIn("stub-summary", result.stderr)
 
     def test_documented_helper_fails_when_whisper_load_fails(self) -> None:
         result = self.run_download_script(whisper_fails=True)
@@ -194,6 +195,7 @@ class DownloadModelsCommandTests(unittest.TestCase):
                     if ollama_fails:
                         self.assertNotEqual(result.returncode, 0, msg=output)
                         self.assertIn("ollama pull failed", output.lower())
+                        self.assertIn("controlled-summary", output)
                         self.assertIn("exit code 1", output.lower())
                         self.assertNotIn("Runtime ready", output)
                     else:

@@ -16,7 +16,7 @@ function Invoke-CheckedNativeCommand {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    & $FilePath @Arguments 2>&1
+    & $FilePath @Arguments
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "Command '$FilePath' failed with exit code $exitCode."
