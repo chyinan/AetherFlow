@@ -76,8 +76,12 @@ export function mapFileMetadataToAsset(
   }
 }
 
-function normalizeSource(source?: string): FileAsset['source'] {
-  return String(source ?? '').trim().toLowerCase() === 'artifact' ? 'artifact' : 'input'
+function normalizeSource(source?: string, fallback: FileAsset['source'] = 'input'): FileAsset['source'] {
+  const normalized = String(source ?? '').trim().toLowerCase()
+  if (normalized === 'artifact' || normalized === 'input') {
+    return normalized
+  }
+  return fallback
 }
 
 function normalizeArtifactKind(kind?: string): FileAsset['artifactKind'] {
@@ -136,23 +140,28 @@ export function mapFileAssetViewToAsset(view: FileAssetMetadataView): FileAsset 
   const backendFileId = view.backendFileId ?? view.id
   const name = view.name?.trim() || view.originalName?.trim() || view.objectKey?.split('/').pop() || `file-${id}`
   const mime = view.mime?.trim() || 'application/octet-stream'
-  const isExportArtifact = isWorkflowExportObject(view.objectKey)
-  const source: FileAsset['source'] = isExportArtifact ? 'artifact' : normalizeSource(view.source)
+  const isWorkflowExport = isWorkflowExportObject(view.objectKey)
+  // 后端明确分类优先；只有缺失分类的历史导出才回退为成品。
+  const source = normalizeSource(view.source, isWorkflowExport ? 'artifact' : 'input')
+  // 生成文件改为输入后应按内容类型显示，而不是沿用仅成品使用的类型。
+  const viewType = source === 'input' && String(view.type ?? '').trim().toLowerCase() === 'artifact'
+    ? undefined
+    : view.type
 
   return {
     id,
     backendFileId: backendFileId === undefined || backendFileId === null ? undefined : String(backendFileId),
     name,
-    type: isExportArtifact ? 'artifact' : normalizeFileType(view.type, mime, name),
+    type: source === 'artifact' && isWorkflowExport ? 'artifact' : normalizeFileType(viewType, mime, name),
     source,
-    artifactKind: isExportArtifact ? inferExportArtifactKind(name) : source === 'input' ? 'input' : normalizeArtifactKind(view.artifactKind),
+    artifactKind: source === 'input' ? 'input' : isWorkflowExport ? inferExportArtifactKind(name) : normalizeArtifactKind(view.artifactKind),
     size: formatSize(view.size),
     mime,
     status: mapUploadStatus(view.status ?? 'READY') as FileStatus,
     workflowId: view.workflowId,
     // 工作流产物的后端 workflowId 来自运行上下文，即实例 ID，而非定义 ID。
-    linkedRunId: source === 'artifact' ? artifactRunId(view.workflowId) : undefined,
-    result: isExportArtifact ? i18n.global.t('files.mockResults.generatedByRun') : view.result || i18n.global.t('files.mockResults.readyInput'),
+    linkedRunId: isWorkflowExport || source === 'artifact' ? artifactRunId(view.workflowId) : undefined,
+    result: isWorkflowExport ? i18n.global.t('files.mockResults.generatedByRun') : view.result || i18n.global.t('files.mockResults.readyInput'),
     downloadUrl: view.downloadUrl,
     objectKey: view.objectKey,
     updatedAt: formatDateTime(view.updatedAt ?? view.createdAt),
