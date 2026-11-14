@@ -233,7 +233,7 @@ watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runSto
     }
   }, { immediate: true, flush: 'sync' })
 
-const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
+const approvalDialogCandidate = computed<HumanApprovalRequestView | null>(() => {
   if (!selectedDetailReady.value) return null
   const run = runStore.currentRun
   // 运行已结束时，历史节点上的 pending 不能重新变成可执行审批。
@@ -244,16 +244,20 @@ const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
     return null
   }
 
-  const key = `${run.id}:${pendingNode.nodeId}`
-  if (dismissedApprovalKey.value === key) {
-    return null
-  }
   return {
     instanceId,
     nodeId: pendingNode.nodeId,
     nodeLabel: pendingNode.label,
     details: pendingNode.approval,
   }
+})
+const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
+  const candidate = approvalDialogCandidate.value
+  const run = runStore.currentRun
+  if (!candidate || !run || dismissedApprovalKey.value === `${run.id}:${candidate.nodeId}`) {
+    return null
+  }
+  return candidate
 })
 
 const historyStatusCounts = computed(() => runStore.historyRuns.reduce((counts, run) => {
@@ -359,25 +363,30 @@ function refreshRuns() {
 
 function dismissApproval() {
   const run = runStore.currentRun
-  const pendingNode = run?.nodeStates.find((node) => node.approval?.approvalStatus === 'pending')
-  if (run && pendingNode) {
-    dismissedApprovalKey.value = `${run.id}:${pendingNode.nodeId}`
+  const request = approvalDialogCandidate.value
+  if (run && request) {
+    dismissedApprovalKey.value = `${run.id}:${request.nodeId}`
   }
 }
 
 async function completeApproval({ approved, snapshot }: HumanApprovalCompletion, target: HumanApprovalTarget) {
-  const request = approvalDialogRequest.value
-  // 完成回执只能更新本次提交的节点，不能改写后来打开的运行或下一审批。
-  if (!request || String(request.instanceId) !== String(target.instanceId) || request.nodeId !== target.nodeId) {
+  const run = runStore.currentRun
+  const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
+  // 关闭弹窗不会取消已提交的决策。回执可更新当前运行中的原节点，
+  // 但不能写入另一个运行，或覆盖实时事件已经确认的审批决定。
+  if (!run || String(instanceId) !== String(target.instanceId)) {
     return
   }
 
-  runStore.applyHumanApprovalSnapshot({
-    nodeId: target.nodeId,
-    approved,
-    snapshot,
-  })
-  dismissedApprovalKey.value = null
+  const approvalNode = run.nodeStates.find((node) => node.nodeId === target.nodeId)
+  if (!approvalNode) return
+  if (approvalNode.approval?.approvalStatus === 'pending') {
+    runStore.applyHumanApprovalSnapshot({
+      nodeId: target.nodeId,
+      approved,
+      snapshot,
+    })
+  }
   await runStore.recoverCurrentRunRuntime()
 }
 
@@ -400,10 +409,11 @@ watch(
       @completed="completeRerun"
     />
     <HumanApprovalDialog
-      v-if="approvalDialogRequest"
-      :request="approvalDialogRequest"
+      v-if="approvalDialogCandidate"
+      :request="approvalDialogCandidate"
+      :visible="Boolean(approvalDialogRequest)"
+      :on-completed="completeApproval"
       @close="dismissApproval"
-      @completed="completeApproval"
     />
     <header class="flex items-center justify-between border-b border-app-border bg-white px-5">
       <div class="flex items-center gap-2">
