@@ -77,7 +77,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function setup(initialPath = '/workflows/101?projectId=11') {
+async function setup(initialPath = '/workflows/101?projectId=11', initialProjectLoadError?: Error) {
   pinia = createPinia()
   setActivePinia(pinia)
   const store = useWorkflowStore()
@@ -85,7 +85,13 @@ async function setup(initialPath = '/workflows/101?projectId=11') {
   const projects = useProjectStore()
   projects.projects = [project('11', ['101']), project('22', ['202'])]
   projects.workflowSummaries = []
+  let firstProjectLoad = true
   vi.spyOn(projects, 'loadProjects').mockImplementation(() => {
+    if (firstProjectLoad && initialProjectLoadError) {
+      firstProjectLoad = false
+      throw initialProjectLoadError
+    }
+    firstProjectLoad = false
     const request = deferred<void>()
     projectRequests.push(request)
     return request.promise
@@ -218,14 +224,33 @@ describe('工作流初始化的项目归属与迟到请求隔离', () => {
 
   it('页面卸载后旧请求不再写入项目或错误信息', async () => {
     const { store, projects, router } = await setup('/workflows/101?projectId=11')
+    const selectProject = vi.spyOn(projects, 'selectProject')
     await router.push('/')
     await flushPromises()
 
+    // 新页面切换到项目 22 后，旧页面 A 的迟到响应不得把选择改回 11。
+    projects.selectProject('22')
+    selectProject.mockClear()
     projectRequests[0]!.resolve()
     await flushPromises()
 
-    expect(projects.currentProjectId).not.toBe('11')
+    expect(projects.currentProjectId).toBe('22')
+    expect(selectProject).not.toHaveBeenCalled()
     expect(store.loadingError).toBeFalsy()
+  })
+
+  it('项目列表请求同步拒绝后仍可重试', async () => {
+    const { projects } = await setup('/workflows/101?projectId=11', new Error('同步项目列表失败'))
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="project-list-load-error"]').exists()).toBe(true)
+    expect(wrapper!.get('[data-testid="retry-project-list"]').attributes('disabled')).toBeUndefined()
+
+    vi.mocked(projects.loadProjects).mockResolvedValueOnce()
+    await wrapper!.get('[data-testid="retry-project-list"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.find('[data-testid="project-list-load-error"]').exists()).toBe(false)
+    expect(projectRequests).toHaveLength(0)
   })
 
   it('正常首次加载仍按工作流归属选择项目', async () => {

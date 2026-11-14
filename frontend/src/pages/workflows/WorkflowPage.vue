@@ -340,30 +340,41 @@ async function loadProjectList() {
   if (projectListLoadPromise) return projectListLoadPromise
 
   const loadSequence = ++projectListLoadSequence
-  const projectRequestId = projectStore.loadRequestId + 1
+  const previousProjectRequestId = projectStore.loadRequestId
   projectListLoading.value = true
-  const request = (async () => {
-    try {
-      await projectStore.loadProjects()
-      if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
-        return false
-      }
-      projectListLoadError.value = null
-      applyPendingWorkflowProjectSelection()
-      return true
-    } catch (error) {
-      if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
-        return false
-      }
-      const details = projectStore.loadError
-        || (error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown'))
-      projectListLoadError.value = `${t('workflow.projectListLoadFailed')}: ${details}`
+  let projectLoad: Promise<void>
+  try {
+    projectLoad = projectStore.loadProjects()
+  } catch (error) {
+    // Keep synchronous action failures on the same async error path as rejections.
+    projectLoad = Promise.reject(error)
+  }
+  // The store increments this synchronously when it starts a load. If the action
+  // throws before starting one, retain the prior id so the page can report it.
+  const projectRequestId = projectStore.loadRequestId === previousProjectRequestId + 1
+    ? previousProjectRequestId + 1
+    : previousProjectRequestId
+  const requestReference: { current?: Promise<boolean> } = {}
+  const request = Promise.resolve(projectLoad).then(() => {
+    if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
       return false
-    } finally {
-      if (loadSequence === projectListLoadSequence) projectListLoading.value = false
-      if (projectListLoadPromise === request) projectListLoadPromise = null
     }
-  })()
+    projectListLoadError.value = null
+    applyPendingWorkflowProjectSelection()
+    return true
+  }).catch((error: unknown) => {
+    if (!pageActive || loadSequence !== projectListLoadSequence || projectStore.loadRequestId !== projectRequestId) {
+      return false
+    }
+    const details = projectStore.loadError
+      || (error instanceof Error && error.message ? error.message : t('workflow.loadFailedUnknown'))
+    projectListLoadError.value = `${t('workflow.projectListLoadFailed')}: ${details}`
+    return false
+  }).finally(() => {
+    if (loadSequence === projectListLoadSequence) projectListLoading.value = false
+    if (projectListLoadPromise === requestReference.current) projectListLoadPromise = null
+  })
+  requestReference.current = request
   projectListLoadPromise = request
   return request
 }
