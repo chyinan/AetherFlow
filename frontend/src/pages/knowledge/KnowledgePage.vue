@@ -71,6 +71,8 @@ const processingError = ref('')
 const pageLoading = ref(true)
 const pageError = ref('')
 const retrying = ref(false)
+const fileListError = ref('')
+const fileListRetrying = ref(false)
 const lastRetry = ref<(() => Promise<void>) | null>(null)
 const retrievalLoading = ref(false)
 const retrievalError = ref('')
@@ -127,6 +129,29 @@ async function retryLastAction() {
     await retry()
   } finally {
     retrying.value = false
+  }
+}
+
+function selectAvailableFile() {
+  if (!importableFiles.value.some((file) => file.id === selectedFileId.value)) {
+    selectedFileId.value = importableFiles.value[0]?.id ?? ''
+  }
+}
+
+async function retryFileList() {
+  if (fileListRetrying.value) {
+    return
+  }
+
+  fileListRetrying.value = true
+  try {
+    await fileStore.loadFiles()
+    fileListError.value = ''
+    selectAvailableFile()
+  } catch (error) {
+    fileListError.value = errorMessage(error)
+  } finally {
+    fileListRetrying.value = false
   }
 }
 
@@ -464,14 +489,17 @@ async function loadPage() {
   pageError.value = ''
   lastRetry.value = null
   try {
-    const [knowledgeResult] = await Promise.allSettled([
+    const [knowledgeResult, fileListResult] = await Promise.allSettled([
       difyStore.loadSurface({ includeProviderTelemetry: false }),
       fileStore.loadFiles(),
     ])
     if (knowledgeResult.status === 'rejected') {
       throw knowledgeResult.reason
     }
-    selectedFileId.value = importableFiles.value[0]?.id ?? ''
+    fileListError.value = fileListResult.status === 'rejected'
+      ? errorMessage(fileListResult.reason)
+      : ''
+    selectAvailableFile()
   } catch (error) {
     setPageError(error, loadPage)
   } finally {
@@ -681,6 +709,20 @@ onBeforeUnmount(() => {
                 @click="continueFromSource"
               >
                 {{ t('knowledge.flow.nextStep') }}
+              </button>
+            </div>
+
+            <div v-if="fileListError" class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error">
+              <p role="alert">{{ fileListError }}</p>
+              <button
+                data-action="retry-file-list"
+                type="button"
+                class="inline-flex shrink-0 items-center gap-2 rounded border border-status-error/30 bg-white px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="fileListRetrying"
+                @click="retryFileList"
+              >
+                <Loader2 v-if="fileListRetrying" class="h-3 w-3 animate-spin" />
+                {{ fileListRetrying ? t('common.loading') : t('common.retry') }}
               </button>
             </div>
 

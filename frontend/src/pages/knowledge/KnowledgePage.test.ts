@@ -73,6 +73,43 @@ describe('KnowledgePage', () => {
     wrapper.unmount()
   })
 
+  it('shows a retry when the existing-file picker cannot load its file list', async () => {
+    mocks.fileStore.files = [{
+      id: 'cached-file',
+      name: 'cached-source.md',
+      mime: 'text/markdown',
+      source: 'input',
+      status: 'ready',
+      type: 'document',
+      size: '1 KB',
+      result: 'cached source content',
+      updatedAt: '2026-08-11 01:00',
+    }]
+    mocks.fileStore.loadFiles
+      .mockRejectedValueOnce(new Error('file list unavailable'))
+      .mockResolvedValueOnce(undefined)
+
+    const wrapper = mount(KnowledgePage, {
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.find('[data-action="create-knowledge"]').trigger('click')
+
+    expect(wrapper.find('[role="alert"]').text()).toContain('file list unavailable')
+    expect(wrapper.find('[data-action="retry-knowledge"]').exists()).toBe(false)
+    expect(wrapper.get('select').text()).toContain('cached-source.md')
+    expect(mocks.fileStore.files).toHaveLength(1)
+
+    await wrapper.find('[data-action="retry-file-list"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.fileStore.loadFiles).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-action="retry-file-list"]').exists()).toBe(false)
+    expect(wrapper.get('select').text()).toContain('cached-source.md')
+    expect(wrapper.get('button[data-action="next-source"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('keeps processing failure actionable with an explicit retry', async () => {
     mocks.fileStore.files = [{
       id: 'file-1',
