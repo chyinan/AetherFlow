@@ -126,6 +126,54 @@ class CopilotServiceImplTest {
     }
 
     @Test
+    void canvasEditProviderFailureCarriesExactConversationAfterPrepareTurn() {
+        doAnswer(invocation -> {
+            CopilotConversationEntity entity = invocation.getArgument(0);
+            entity.setId(11L);
+            return 1;
+        }).when(conversationMapper).insert(any(CopilotConversationEntity.class));
+        doAnswer(invocation -> {
+            CopilotMessageEntity entity = invocation.getArgument(0);
+            entity.setId(21L);
+            return 1;
+        }).when(messageMapper).insert(any(CopilotMessageEntity.class));
+        when(aiProviderRouter.complete(any(AiProviderRequest.class)))
+                .thenThrow(new BusinessException(com.aetherflow.common.core.ResultCode.SERVICE_UNAVAILABLE, "model unavailable"));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("添加开始节点");
+        request.setContext(Map.of("nodes", List.of()));
+
+        assertThatThrownBy(() -> service.editCanvas(7L, request))
+                .isInstanceOfSatisfying(CopilotCanvasEditFailureException.class, failure -> {
+                    assertThat(failure.getConversationId()).isEqualTo("conv-11");
+                    assertThat(failure.getFailureMetadata().type()).isEqualTo("canvas-edit-failure");
+                    assertThat(failure.getFailureMetadata().conversationId()).isEqualTo("conv-11");
+                    assertThat(failure.getErrorCode()).isEqualTo(com.aetherflow.common.core.ResultCode.SERVICE_UNAVAILABLE);
+                    assertThat(failure.getMessage()).isEqualTo("model unavailable");
+                });
+        ArgumentCaptor<CopilotMessageEntity> persisted = ArgumentCaptor.forClass(CopilotMessageEntity.class);
+        verify(messageMapper).insert(persisted.capture());
+        assertThat(persisted.getValue().getRole()).isEqualTo("user");
+        assertThat(persisted.getValue().getConversationId()).isEqualTo(11L);
+    }
+
+    @Test
+    void canvasEditPrepareFailureDoesNotExposeConversationMetadata() {
+        when(conversationMapper.insert(any(CopilotConversationEntity.class)))
+                .thenThrow(new BusinessException(com.aetherflow.common.core.ResultCode.SERVICE_UNAVAILABLE, "conversation store unavailable"));
+        CopilotChatRequest request = new CopilotChatRequest();
+        request.setPrompt("添加开始节点");
+        request.setContext(Map.of("nodes", List.of()));
+
+        assertThatThrownBy(() -> service.editCanvas(7L, request))
+                .isInstanceOf(BusinessException.class)
+                .isNotInstanceOf(CopilotCanvasEditFailureException.class)
+                .hasMessage("conversation store unavailable");
+        verify(messageMapper, never()).insert(any(CopilotMessageEntity.class));
+        verify(aiProviderRouter, never()).complete(any(AiProviderRequest.class));
+    }
+
+    @Test
     void chatCreatesConversationAndPersistsUserAndAssistantMessages() {
         stubAiReply("Add a Summary node after Whisper.");
         CopilotChatRequest request = new CopilotChatRequest();

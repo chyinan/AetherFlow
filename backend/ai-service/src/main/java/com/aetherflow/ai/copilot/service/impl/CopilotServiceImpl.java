@@ -208,18 +208,23 @@ public class CopilotServiceImpl implements CopilotService {
             throw new BusinessException(ResultCode.BAD_REQUEST, "画布编辑需要有效的用户请求和画布上下文。");
         }
         PreparedTurn prepared = transactionTemplate.execute(status -> prepareTurn(userId, request));
-        String history = prepared.history().stream().skip(Math.max(0, prepared.history().size() - 8))
-                .map(message -> message.getRole() + ": " + truncateHistoryValue(message.getContent()))
-                .collect(java.util.stream.Collectors.joining("\n"));
-        AiProviderResponse response = aiProviderRouter.complete(new AiProviderRequest(
-                parseProvider(request.getProvider()), normalizeOptionalText(request.getModel()),
-                CopilotCanvasEdits.prompt(request.getContext(), history, request.getPrompt().strip()),
-                Map.of("temperature", 0.1, "maxTokens", 6000), COPILOT_TIMEOUT, userId));
-        CopilotCanvasEdits.Edit edit = CopilotCanvasEdits.parse(response == null ? null : response.text(), request.getContext());
-        CopilotMessageEntity assistant = transactionTemplate.execute(status -> persistAssistantReply(prepared, edit.explanation()));
-        return new CopilotCanvasEditResponse(new CopilotChatResponse(messageId(assistant.getId()),
-                conversationId(prepared.conversation().getId()), ROLE_ASSISTANT, assistant.getContent(),
-                formatMessageTime(assistant.getCreatedAt())), edit);
+        try {
+            String history = prepared.history().stream().skip(Math.max(0, prepared.history().size() - 8))
+                    .map(message -> message.getRole() + ": " + truncateHistoryValue(message.getContent()))
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            AiProviderResponse response = aiProviderRouter.complete(new AiProviderRequest(
+                    parseProvider(request.getProvider()), normalizeOptionalText(request.getModel()),
+                    CopilotCanvasEdits.prompt(request.getContext(), history, request.getPrompt().strip()),
+                    Map.of("temperature", 0.1, "maxTokens", 6000), COPILOT_TIMEOUT, userId));
+            CopilotCanvasEdits.Edit edit = CopilotCanvasEdits.parse(response == null ? null : response.text(), request.getContext());
+            CopilotMessageEntity assistant = transactionTemplate.execute(status -> persistAssistantReply(prepared, edit.explanation()));
+            return new CopilotCanvasEditResponse(new CopilotChatResponse(messageId(assistant.getId()),
+                    conversationId(prepared.conversation().getId()), ROLE_ASSISTANT, assistant.getContent(),
+                    formatMessageTime(assistant.getCreatedAt())), edit);
+        } catch (RuntimeException failure) {
+            throw com.aetherflow.ai.copilot.service.CopilotCanvasEditFailureException.from(
+                    failure, conversationId(prepared.conversation().getId()));
+        }
     }
 
     private PreparedTurn prepareTurn(Long userId, CopilotChatRequest request) {
