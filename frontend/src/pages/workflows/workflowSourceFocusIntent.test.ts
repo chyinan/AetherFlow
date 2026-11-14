@@ -19,7 +19,7 @@ vi.mock('@/services/api/runApi', () => ({ runApi: api }))
 vi.mock('@/api/modules/node', () => ({ getNodeCatalog: vi.fn().mockResolvedValue([]) }))
 vi.mock('@/stores/runStore', () => ({ useRunStore: () => ({ currentRun: null, logs: [], loadRuns: vi.fn(), selectRunForWorkflow: vi.fn(), subscribeCurrentRun: vi.fn(), clearCurrentRun: vi.fn() }) }))
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ loadFiles: vi.fn() }) }))
-vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
+vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ projects: [], currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
 
 // 保留实际画布选择的 store 操作；几何定位由受控替身记录。
 const Canvas = defineComponent({

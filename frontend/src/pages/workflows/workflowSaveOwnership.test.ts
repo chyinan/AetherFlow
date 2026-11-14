@@ -26,7 +26,7 @@ vi.mock('@/stores/runStore', () => ({
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ loadFiles: vi.fn() }) }))
 vi.mock('@/stores/projectStore', () => ({
   useProjectStore: () => ({
-    currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(),
+    projects: [], currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(),
     updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn(),
   }),
 }))
