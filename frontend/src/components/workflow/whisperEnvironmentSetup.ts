@@ -18,13 +18,13 @@ export function isValidWhisperSetupDraft(draft: WhisperSetupDraft): boolean {
   )
 }
 
-// 只输出完整的真实配置；单引号用于 .env 值，避免插值和注释改变原值。
+// 双引号适用于 .env；转义反斜杠、引号和美元后保留原值并避免变量插值。
 export function buildWhisperEnvironmentSnippet(environment: EnvironmentValues | null): string | null {
   if (!environment || !['unconfigured', 'unloaded', 'missing_model', 'usable'].includes(environment.status)
     || typeof environment.enabled !== 'boolean' || !isValidWhisperSetupDraft(environment)) return null
   const quote = (value: string) => /^[a-zA-Z0-9_./:+-]+$/.test(value)
     ? value
-    : `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+    : `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, () => '$$')}"`
   return [
     `ENABLE_WHISPER=${environment.enabled ? 'true' : 'false'}`,
     `WHISPER_MODEL=${quote(environment.model)}`,

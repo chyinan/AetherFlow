@@ -318,8 +318,8 @@ describe('Whisper 环境变量片段', () => {
     expect(buildWhisperEnvironmentSnippet({ ...environment, model: 'model\nINJECTED=true' })).toBeNull()
   })
   it('对包含空格、插值符号或引号的模型路径输出带引号的 .env 值', () => {
-    expect(buildWhisperEnvironmentSnippet({ ...environment, model: '/models/large v3 $local' })).toContain("WHISPER_MODEL='/models/large v3 $local'")
-    expect(buildWhisperEnvironmentSnippet({ ...environment, model: "my'model" })).toContain("WHISPER_MODEL='my\\'model'")
+    expect(buildWhisperEnvironmentSnippet({ ...environment, model: '/models/large v3 $local' })).toContain('WHISPER_MODEL="/models/large v3 $$local"')
+    expect(buildWhisperEnvironmentSnippet({ ...environment, model: "my'model" })).toContain('WHISPER_MODEL="my\'model"')
   })
 })
 
@@ -443,7 +443,7 @@ describe('Whisper 部署感知配置向导', () => {
     expect(button('next').disabled).toBe(true)
     button('copy-suggestion').click()
     await flushPromises()
-    expect(writeText).toHaveBeenCalledExactlyOnceWith("ENABLE_WHISPER=true\nWHISPER_MODEL='/models/prepared medium'\nWHISPER_DEVICE=cuda\nWHISPER_COMPUTE_TYPE=float16")
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('ENABLE_WHISPER=true\nWHISPER_MODEL="/models/prepared medium"\nWHISPER_DEVICE=cuda\nWHISPER_COMPUTE_TYPE=float16')
     expect(button('next').disabled).toBe(true)
     expect(api.getWhisperEnvironment).toHaveBeenCalledTimes(1)
     for (const method of [api.createNodeConnection, api.updateNodeConnection, api.probeNodeConnection, api.probeSavedNodeConnection, fetch]) expect(method).not.toHaveBeenCalled()
