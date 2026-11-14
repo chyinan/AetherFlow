@@ -39,6 +39,16 @@ describe('CONDITION 比较值缺省与显式空值', () => {
         .toHaveProperty('value', value)
     }
   })
+
+  it('旧节点缺省 operator 保存为运行时既有的 EQUALS 默认值', () => {
+    expect(mapConfig('condition', { variable: 'result', value: 'ready' }))
+      .toMatchObject({ variable: 'result', operator: 'EQUALS', value: 'ready' })
+  })
+
+  it('新节点的显式 EXISTS 默认值保持不变', () => {
+    expect(mapConfig('condition', { variable: 'summary', operator: 'EXISTS' }))
+      .toMatchObject({ variable: 'summary', operator: 'EXISTS' })
+  })
 })
 describe('UPSCALE ComfyUI 源图绑定保存兼容', () => {
   const topLevel = [{ nodeId: '4', inputName: 'image', parameter: 'sourceImage' }]

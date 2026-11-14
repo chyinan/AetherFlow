@@ -31,6 +31,22 @@ class ConditionNodeExecutorTest {
     }
 
     @Test
+    void missingOperatorDefaultsToEqualsForExistingWorkflowConfigs() throws Exception {
+        ConditionNodeExecutor executor = new ConditionNodeExecutor(new WorkflowNodeMetrics());
+        DefaultWorkflowContext context = context(Map.of("status", "WAITING"), Map.of(
+                "variable", "status",
+                "value", "READY",
+                "trueBranch", "matched",
+                "falseBranch", "unmatched"
+        ));
+
+        NodeResult result = executor.execute(context);
+
+        assertThat(result.branchKey()).isEqualTo("unmatched");
+        assertThat(result.output()).containsEntry("matched", false);
+    }
+
+    @Test
     void returnsFalseBranchWhenConditionDoesNotMatch() throws Exception {
         ConditionNodeExecutor executor = new ConditionNodeExecutor(new WorkflowNodeMetrics());
         DefaultWorkflowContext context = context(Map.of("status", "WAITING"), Map.of(
