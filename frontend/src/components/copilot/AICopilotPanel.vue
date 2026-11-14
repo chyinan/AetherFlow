@@ -551,6 +551,7 @@ interface SendPromptOptions {
   intent?: WorkflowCopilotIntent
   requestText?: string
   action?: WorkflowCopilotActionMessage
+  preserveComposerDraft?: boolean
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
@@ -560,11 +561,11 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     return
   }
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
-    await sendCanvasEdit(value)
+    await sendCanvasEdit(value, options)
     return
   }
   if (plannerMode.value && !options.intent) {
-    await sendWorkflowPlan(value)
+    await sendWorkflowPlan(value, options)
     return
   }
   const text = value.trim()
@@ -584,7 +585,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     content: text,
     createdAt: nowText(),
   })
-  prompt.value = ''
+  if (!options.preserveComposerDraft) prompt.value = ''
   loading.value = true
   const assistantMessageId = `copilot-stream-${Date.now()}`
   messages.value.push({
@@ -677,7 +678,7 @@ function setDirectEditMode(enabled: boolean) {
   leavePlannerMode()
 }
 
-async function sendCanvasEdit(value = prompt.value) {
+async function sendCanvasEdit(value = prompt.value, options: Pick<SendPromptOptions, 'preserveComposerDraft'> = {}) {
   const text = value.trim()
   if (conversationHistoryModeUnknown.value) return
   if (!text || interactionPending.value || !props.context || !props.applyCanvasEdit) return
@@ -693,7 +694,7 @@ async function sendCanvasEdit(value = prompt.value) {
   const controller = new AbortController()
   chatController.value = controller
   loading.value = true
-  prompt.value = ''
+  if (!options.preserveComposerDraft) prompt.value = ''
   plannerMode.value = false
   const pendingId = `canvas-edit-${Date.now()}`
   canvasEditPendingId.value = pendingId
@@ -884,7 +885,7 @@ async function confirmCustomNodeDraft(messageId: string) {
   }
 }
 
-async function sendWorkflowPlan(value = prompt.value) {
+async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOptions, 'preserveComposerDraft'> = {}) {
   const text = value.trim()
   if (conversationHistoryModeUnknown.value) return
   if (!text || interactionPending.value || !props.context) return
@@ -900,7 +901,7 @@ async function sendWorkflowPlan(value = prompt.value) {
     content: text,
     createdAt: nowText(),
   })
-  prompt.value = ''
+  if (!options.preserveComposerDraft) prompt.value = ''
   loading.value = true
   planPreview.value = null
   const assistantMessageId = `copilot-plan-pending-${Date.now()}`
@@ -1009,11 +1010,11 @@ function leavePlannerMode() {
 async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
   if (interactionPending.value) return
   if (directEditMode.value && intent === 'draft-media-summary-workflow' && props.applyCanvasEdit) {
-    await sendCanvasEdit(t('copilot.editor.designRequest'))
+    await sendCanvasEdit(t('copilot.editor.designRequest'), { preserveComposerDraft: true })
     return
   }
   if (intent === 'draft-media-summary-workflow') {
-    await sendWorkflowPlan(label)
+    await sendWorkflowPlan(label, { preserveComposerDraft: true })
     return
   }
   plannerMode.value = false
@@ -1027,6 +1028,7 @@ async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
     intent,
     requestText: `${label}\n\n${workflowCopilotPrompt(intent)}`,
     action,
+    preserveComposerDraft: true,
   })
 }
 

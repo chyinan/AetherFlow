@@ -1082,4 +1082,53 @@ describe('AICopilotPanel', () => {
     expect(wrapper.text()).toContain('NEW_REPLY')
     wrapper.unmount()
   })
+
+  it.each(['chat', 'planner', 'canvas'] as const)('preserves an unsent composer draft while a %s quick action succeeds', async (mode) => {
+    const context = panelContext()
+    const response = deferred<unknown>()
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    stream.mockReturnValue(response.promise)
+    planWorkflow.mockReturnValue(response.promise)
+    editCanvas.mockReturnValue(response.promise)
+    const wrapper = mount(AICopilotPanel, {
+      props: { context, ...(mode === 'canvas' ? { applyCanvasEdit } : {}) },
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.find('form input').setValue('UNSENT_COMPOSER_DRAFT')
+    const quickActionLabel = mode === 'chat' ? i18n.global.t('copilot.quickExplainLatestError') : i18n.global.t('copilot.quickDraftWorkflow')
+    await wrapper.findAll('button').find((button) => button.text() === quickActionLabel)!.trigger('click')
+    await nextTick()
+    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+
+    response.resolve(mode === 'chat'
+      ? assistantMessage('Quick answer')
+      : mode === 'planner'
+        ? planMessage(context, readyMediaPlan())
+        : { message: assistantMessage('Canvas response'), edit: { status: 'NEEDS_CLARIFICATION', explanation: 'Need one detail' } })
+    await flushPromises()
+
+    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+    wrapper.unmount()
+  })
+
+  it.each(['chat', 'planner', 'canvas'] as const)('preserves an unsent composer draft when a %s quick action fails', async (mode) => {
+    const context = panelContext()
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    stream.mockRejectedValue(new Error('offline'))
+    planWorkflow.mockRejectedValue(new Error('offline'))
+    editCanvas.mockRejectedValue(new Error('offline'))
+    const wrapper = mount(AICopilotPanel, {
+      props: { context, ...(mode === 'canvas' ? { applyCanvasEdit } : {}) },
+      global: { plugins: [i18n] },
+    })
+    await flushPromises()
+    await wrapper.find('form input').setValue('UNSENT_COMPOSER_DRAFT')
+    const quickActionLabel = mode === 'chat' ? i18n.global.t('copilot.quickExplainLatestError') : i18n.global.t('copilot.quickDraftWorkflow')
+    await wrapper.findAll('button').find((button) => button.text() === quickActionLabel)!.trigger('click')
+    await flushPromises()
+
+    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+    wrapper.unmount()
+  })
 })
