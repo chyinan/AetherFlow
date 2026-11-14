@@ -485,7 +485,8 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
 
 function handleEditorKeydown(event: KeyboardEvent) {
   // 离开确认弹窗打开时隔离画布快捷键：撤销/重做不得在用户做决定时改动画布。
-  if (pendingNavigation.value) {
+  // 模板选择器同样是模态交互，焦点位于其按钮时不得触发画布历史操作。
+  if (pendingNavigation.value || showingWorkflowTemplates.value) {
     return
   }
   const target = event.target as HTMLElement | null
@@ -813,6 +814,8 @@ function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates
     return
   }
   workflowStore.useWorkflowTemplate(template)
+  runPromptValues.value = {}
+  runPromptInputError.value = ''
   showStarterGuide.value = supportsStarterGuide.value
   uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
   showingWorkflowTemplates.value = false
