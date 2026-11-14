@@ -246,7 +246,23 @@ function resolveWorkflowProjectId() {
   if (workflowProjectId !== undefined) {
     return workflowProjectId
   }
-  return numericProjectId(projectStore.currentProject?.id)
+  const routeWorkflowId = String(route.params.id || 'new')
+  if (routeWorkflowId === 'new') {
+    return numericProjectId(projectStore.currentProject?.id)
+  }
+  if (
+    workflowStore.workflowId !== routeWorkflowId
+    || projectStore.loading
+    || projectListLoading.value
+    || projectStore.loadError
+    || projectListLoadError.value
+  ) {
+    return undefined
+  }
+  const associatedProject = projectStore.projects.find((project) =>
+    projectStore.projectWorkflows(project.id).some((workflow) => workflow.id === routeWorkflowId),
+  )
+  return numericProjectId(associatedProject?.id)
 }
 
 function openComfyUiFilePicker() {

@@ -330,4 +330,75 @@ describe('工作流打开错误与项目目录错误分别归属', () => {
     expect(workflowStore.loadingError).toBeFalsy()
     expect(wrapper!.text()).toContain('其他页面')
   })
+
+  it('项目目录加载失败时，保存无归属的现有工作流不会使用上次选中的项目', async () => {
+    const projectRequest = deferred<unknown>()
+    http.get.mockImplementation((url: string) => {
+      if (url === '/projects') return projectRequest.promise
+      if (url === '/workflows/definitions/303') return Promise.resolve(definition('303'))
+      return defaultResponse(url)
+    })
+    const { workflowStore, projectStore } = await setup('/workflows/303', [project('11', ['101'])])
+
+    // 模拟用户从项目 11 的工作流页直接打开另一个、没有 projectId 的工作流。
+    projectStore.currentProjectId = '11'
+    projectRequest.reject(new Error('项目目录暂不可用'))
+    await flushPromises()
+
+    expect(workflowStore.workflowId).toBe('303')
+    expect(workflowStore.projectId).toBeNull()
+    expect(projectStore.currentProjectId).toBe('11')
+
+    workflowStore.dirty = true
+    await flushPromises()
+    const save = vi.spyOn(workflowStore, 'saveCurrentWorkflow').mockResolvedValue({ workflowId: '303' } as never)
+    const saveButton = wrapper!.findAll('button').find((button) =>
+      button.text().trim() === i18n.global.t('workflow.saveWorkflow'),
+    )
+    expect(saveButton).toBeDefined()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({ projectId: undefined })
+  })
+
+  it('项目列表成功时仍会把已归属工作流保存到匹配项目', async () => {
+    http.get.mockImplementation((url: string) => {
+      if (url === '/projects') return Promise.resolve({ records: [project('11', ['303'])], total: 1 })
+      if (url === '/workflows/definitions/303') return Promise.resolve(definition('303'))
+      return defaultResponse(url)
+    })
+    const { workflowStore, projectStore } = await setup('/workflows/303', [project('11', ['303'])])
+
+    expect(workflowStore.workflowId).toBe('303')
+    expect(workflowStore.projectId).toBeNull()
+    expect(projectStore.currentProjectId).toBe('11')
+
+    workflowStore.dirty = true
+    await flushPromises()
+    const save = vi.spyOn(workflowStore, 'saveCurrentWorkflow').mockResolvedValue({ workflowId: '303' } as never)
+    const saveButton = wrapper!.findAll('button').find((button) =>
+      button.text().trim() === i18n.global.t('workflow.saveWorkflow'),
+    )
+    expect(saveButton).toBeDefined()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({ projectId: 11 })
+  })
+
+  it('新工作流仍可回退到当前选择的项目', async () => {
+    const { workflowStore } = await setup('/workflows/new', [project('11', [])])
+    workflowStore.dirty = true
+    await flushPromises()
+    const save = vi.spyOn(workflowStore, 'saveCurrentWorkflow').mockResolvedValue({ workflowId: '303' } as never)
+    const saveButton = wrapper!.findAll('button').find((button) =>
+      button.text().trim() === i18n.global.t('workflow.saveWorkflow'),
+    )
+    expect(saveButton).toBeDefined()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledWith({ projectId: 11 })
+  })
 })
