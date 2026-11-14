@@ -443,10 +443,8 @@ function normalizeUpscaleConfig(config: Record<string, unknown>, nextNodes: stri
   let options = isRecord(config.options)
     ? cloneConfigValue(config.options) as Record<string, unknown>
     : undefined
-  // 新格式以顶层 workflowBindings 为准；旧保存格式可从 options 中恢复。
-  const workflowBindings = config.workflowBindings !== undefined
-    ? config.workflowBindings
-    : options?.workflowBindings
+  // 非空顶层绑定优先；顶层为 null/缺省时回退旧 options 格式，与后端一致。
+  const workflowBindings = config.workflowBindings ?? options?.workflowBindings ?? config.workflowBindings
   if (workflowBindings !== undefined) {
     (options ??= {}).workflowBindings = cloneConfigValue(workflowBindings)
   }
