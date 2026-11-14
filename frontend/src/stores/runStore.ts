@@ -26,6 +26,22 @@ import { useWorkflowStore } from './workflowStore'
 
 let stopRealtime: (() => void) | null = null
 const refreshedArtifactRuns = new Set<string>()
+const cancellationCleanupRequestVersions = new WeakMap<object, Map<number, number>>()
+
+function nextCancellationCleanupRequestVersion(store: object, instanceId: number) {
+  let versions = cancellationCleanupRequestVersions.get(store)
+  if (!versions) {
+    versions = new Map<number, number>()
+    cancellationCleanupRequestVersions.set(store, versions)
+  }
+  const next = (versions.get(instanceId) ?? 0) + 1
+  versions.set(instanceId, next)
+  return next
+}
+
+function isCurrentCancellationCleanupRequest(store: object, instanceId: number, requestVersion: number) {
+  return cancellationCleanupRequestVersions.get(store)?.get(instanceId) === requestVersion
+}
 
 const MAX_VISIBLE_LOGS = 100
 
@@ -739,14 +755,20 @@ export const useRunStore = defineStore('run', {
       ;[...this.runs, ...this.historyRuns, ...this.workflowRuns].forEach(apply)
       if (this.currentRun) apply(this.currentRun)
     },
-    async loadCancellationCleanup(instanceId: number) {
+    async loadCancellationCleanup(instanceId: number, isStillCurrent: () => boolean = () => true) {
+      const requestVersion = nextCancellationCleanupRequestVersion(this, instanceId)
       const status = await getWorkflowCancellationCleanup(instanceId)
-      this.applyCancellationCleanup(instanceId, status)
+      if (isCurrentCancellationCleanupRequest(this, instanceId, requestVersion) && isStillCurrent()) {
+        this.applyCancellationCleanup(instanceId, status)
+      }
       return status
     },
     async retryCancellationCleanup(instanceId: number) {
+      const requestVersion = nextCancellationCleanupRequestVersion(this, instanceId)
       const status = await retryWorkflowCancellationCleanup(instanceId)
-      this.applyCancellationCleanup(instanceId, status)
+      if (isCurrentCancellationCleanupRequest(this, instanceId, requestVersion)) {
+        this.applyCancellationCleanup(instanceId, status)
+      }
       return status
     },
     async recoverCurrentRunRuntime(options: RunRecoveryOptions = {}) {

@@ -21,6 +21,8 @@ let status = 'RUNNING'
 let cancellation: (config: InternalAxiosRequestConfig) => Promise<AxiosResponse>
 let cleanupStatus: { workflowInstanceId: number; status: string; attemptCount: number; lastError?: string | null; retryable: boolean }
 let cleanupRetryStatus: { workflowInstanceId: number; status: string; attemptCount: number; completedAt?: string; retryable: boolean }
+let cleanupRetryPendingsByInstance: Map<number, ReturnType<typeof deferred<unknown>>>
+let cleanupReadPendingsByInstance: Map<number, ReturnType<typeof deferred<unknown>>>
 let requests: InternalAxiosRequestConfig[] = []
 let vueErrors: unknown[] = []
 function response(config: InternalAxiosRequestConfig, data: unknown, status = 200): AxiosResponse {
@@ -41,18 +43,30 @@ beforeEach(() => {
   status = 'RUNNING'; requests = []; vueErrors = []
   cleanupStatus = { workflowInstanceId: 101, status: 'PENDING', attemptCount: 0, retryable: true }
   cleanupRetryStatus = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 2, completedAt: '2026-10-23T03:11:00', retryable: false }
+  cleanupRetryPendingsByInstance = new Map()
+  cleanupReadPendingsByInstance = new Map()
   cancellation = async config => { throw failure(config) }
   // 只替换 Axios 传输层，保留真实页面、Pinia、API 模块及响应拦截器。
   axiosInstance.defaults.adapter = async config => {
     requests.push(config)
     const url = config.url!
     if (config.method === 'post') {
-      if (url.endsWith('/cancellation-cleanup/retry')) return response(config, cleanupRetryStatus)
+      if (url.endsWith('/cancellation-cleanup/retry')) {
+        const instanceId = Number(url.match(/instances\/(\d+)/)?.[1])
+        const pending = cleanupRetryPendingsByInstance.get(instanceId)
+        return pending ? pending.promise.then(data => response(config, data))
+          : response(config, { ...cleanupRetryStatus, workflowInstanceId: instanceId })
+      }
       return cancellation(config)
     }
     let data: unknown
     if (url === '/workflow-instances') data = { total: 2, items: [101, 102].map(id => ({ id, definitionId: 7, workflowName: `运行 ${id}`, status, nodes: [] })) }
-    else if (url.endsWith('/cancellation-cleanup')) data = cleanupStatus
+    else if (url.endsWith('/cancellation-cleanup')) {
+      const instanceId = Number(url.match(/instances\/(\d+)/)?.[1])
+      const pending = cleanupReadPendingsByInstance.get(instanceId)
+      if (pending) return pending.promise.then(value => response(config, value))
+      data = { ...cleanupStatus, workflowInstanceId: instanceId }
+    }
     else if (url.endsWith('/logs') || url.startsWith('/workflow/runtime/events/')) data = []
     else if (url.startsWith('/workflow/runtime/observability/')) data = { workflowId: url.split('/').at(-1), runtimeState: status, progress: 0.5 }
     else throw new Error(`非预期读取 ${url}`)
@@ -183,4 +197,92 @@ it('局部节点推断成功不能隐藏后端仍 RUNNING 的取消失败提示'
   expect(wrapper!.get('[data-testid="cancel-error"]').text()).toContain('HTTP 503')
   expect(vueErrors).toEqual([])
   expect(posts()).toHaveLength(1)
+})
+
+it('A 的取消清理重试失败迟到时不能伪装成 B 的清理状态读取失败', async () => {
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 2, lastError: 'A cleanup failed', retryable: true }
+  const { router, store } = await setup()
+  expect(store.currentRun?.id).toBe('run-101')
+  const cleanupRetryPending = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, cleanupRetryPending)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+
+  cleanupStatus = { workflowInstanceId: 102, status: 'PENDING', attemptCount: 0, retryable: true }
+  await router.push('/runs/run-102')
+  await flushPromises()
+  expect(store.currentRun?.id).toBe('run-102')
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).not.toContain(i18n.global.t('runs.cleanupLoadFailed'))
+  expect(requests.some(request => request.url?.endsWith('/cancellation-cleanup/retry'))).toBe(true)
+
+  const retryRequest = requests.find(request => request.url?.endsWith('/cancellation-cleanup/retry'))!
+  cleanupRetryPending.reject(failure(retryRequest))
+  await flushPromises()
+
+  expect(store.currentRun?.cancellationCleanup?.status).toBe('PENDING')
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).not.toContain(i18n.global.t('runs.cleanupLoadFailed'))
+})
+
+it('允许 B 清理重试与 A 并行，返回 A 时阻止同一运行的重复重试', async () => {
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { router, store } = await setup()
+
+  const aPending = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, aPending)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(button('runs.cleanupRetrying').attributes('disabled')).toBeDefined()
+
+  cleanupStatus = { workflowInstanceId: 102, status: 'FAILED', attemptCount: 2, retryable: true }
+  await router.push('/runs/run-102')
+  await flushPromises()
+  expect(button('runs.cleanupRetry').attributes('disabled')).toBeUndefined()
+
+  const bPending = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(102, bPending)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(button('runs.cleanupRetrying').attributes('disabled')).toBeDefined()
+  expect(posts().map(request => request.url)).toEqual([
+    '/workflow/runtime/instances/101/cancellation-cleanup/retry',
+    '/workflow/runtime/instances/102/cancellation-cleanup/retry',
+  ])
+
+  await router.push('/runs/run-101')
+  await flushPromises()
+  expect(button('runs.cleanupRetrying').attributes('disabled')).toBeDefined()
+  await button('runs.cleanupRetrying').trigger('click')
+  await flushPromises()
+  expect(posts()).toHaveLength(2)
+
+  aPending.resolve({ workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 2, retryable: false })
+  bPending.resolve({ workflowInstanceId: 102, status: 'COMPLETE', attemptCount: 3, retryable: false })
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ id: 'run-101', cancellationCleanup: { status: 'COMPLETE', retryable: false } })
+  expect(store.historyRuns.find(run => run.id === 'run-102')).toMatchObject({ cancellationCleanup: { status: 'COMPLETE', retryable: false } })
+})
+
+it('A→B→A 后旧 A 清理读取不会覆盖较新的 A 状态', async () => {
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'PENDING', attemptCount: 0, retryable: true }
+  const oldARead = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, oldARead)
+  const { router, store } = await setup()
+  expect(requests.some(request => request.url === '/workflow/runtime/instances/101/cancellation-cleanup')).toBe(true)
+
+  const newerAStatus = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 4, retryable: false }
+  store.applyCancellationCleanup(101, newerAStatus)
+  cleanupStatus = { workflowInstanceId: 102, status: 'PENDING', attemptCount: 0, retryable: true }
+  await router.push('/runs/run-102')
+  await flushPromises()
+  await router.push('/runs/run-101')
+  await flushPromises()
+  expect(store.currentRun?.cancellationCleanup).toMatchObject({ status: 'COMPLETE', attemptCount: 4 })
+
+  oldARead.resolve({ workflowInstanceId: 101, status: 'FAILED', attemptCount: 99, lastError: 'stale A refresh', retryable: true })
+  await flushPromises()
+  expect(store.currentRun?.cancellationCleanup).toMatchObject({ status: 'COMPLETE', attemptCount: 4 })
+  expect(store.historyRuns.find(run => run.id === 'run-101')?.cancellationCleanup).toMatchObject({ status: 'COMPLETE', attemptCount: 4 })
 })
