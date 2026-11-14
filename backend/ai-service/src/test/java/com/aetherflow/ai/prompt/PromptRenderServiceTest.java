@@ -32,12 +32,15 @@ class PromptRenderServiceTest {
 
         PromptRenderResult result = renderService.render("translate", "", Map.of(
                 "text", "hello",
+                "sourceLanguage", "auto",
                 "targetLanguage", "Chinese"
         ));
 
         assertThat(result.version()).isEqualTo("v1");
         assertThat(result.content()).contains("Chinese");
+        assertThat(result.content()).contains("source language is auto");
         assertThat(result.content()).contains("hello");
+        assertThat(result.content()).doesNotContain("{{");
     }
 
     @Test
