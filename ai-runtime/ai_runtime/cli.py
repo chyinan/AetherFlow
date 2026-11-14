@@ -81,7 +81,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "prepare-models":
-        _prepare_models()
+        try:
+            _prepare_models()
+        except Exception as exc:
+            logging.getLogger(__name__).error("failed to prepare model caches: %s", exc)
+            print(json.dumps({"status": "error", "error": str(exc)}, indent=2))
+            return 1
         print(json.dumps({"status": "ok"}, indent=2))
         return 0
 
@@ -112,13 +117,13 @@ def _serialize_result(result) -> dict[str, object]:
 def _prepare_models() -> None:
     whisper = WhisperService()
     whisper._load_model()
-    summary = SummaryService()
     try:
+        summary = SummaryService()
         import ollama
 
         ollama.Client(host=summary.host).pull(summary.model)
     except Exception as exc:
-        logging.getLogger(__name__).warning("failed to warm ollama model cache: %s", exc)
+        raise RuntimeError(f"failed to warm Ollama model cache: {exc}") from exc
 
 
 def _command_exists(name: str) -> bool:
