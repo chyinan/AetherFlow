@@ -21,6 +21,7 @@ import {
 import { copilotApi } from '@/services/api/copilotApi'
 import { renderCopilotMarkdown } from '@/services/copilot/copilotMarkdown'
 import { buildCanvasEditContext, compileCanvasEdit } from '@/services/copilot/copilotCanvasEdit'
+import { canvasEditFailureConversationId } from '@/services/copilot/copilotCanvasEditFailure'
 import { hasCustomNodeDraftOperations, prepareCustomNodeDraft } from '@/services/copilot/copilotCustomNodeDraft'
 import { customDefinitionKey, customNodeTemplate, type CustomDefinition } from '@/utils/customNodes'
 import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
@@ -681,6 +682,8 @@ async function sendCanvasEdit(value = prompt.value) {
   if (conversationHistoryModeUnknown.value) return
   if (!text || interactionPending.value || !props.context || !props.applyCanvasEdit) return
   const snapshot: WorkflowCopilotSnapshot = JSON.parse(JSON.stringify(props.context))
+  const scopeKeyAtStart = conversationSessionKey(props.context)
+  const conversationIdAtStart = conversationId.value
   if (snapshot.nodes.length > 100) return
   const base = currentPlannerBase()
   if (!base) return
@@ -697,12 +700,16 @@ async function sendCanvasEdit(value = prompt.value) {
   let responseMessageId = pendingId
   messages.value.push({ id: `user-${Date.now()}`, role: 'user', content: text, createdAt: nowText() })
   messages.value.push({ id: pendingId, role: 'assistant', content: t('copilot.editor.working'), createdAt: nowText() })
-  const stillCurrent = () => !controller.signal.aborted && session === plannerSessionSequence
+  const isCurrentRequest = () => chatController.value === controller
+    && canvasEditPendingId.value === responseMessageId
+    && session === plannerSessionSequence
     && props.context?.workflowId === snapshot.workflowId
+    && scopeKeyAtStart === conversationSessionKey(props.context)
+  const stillCurrent = () => !controller.signal.aborted && isCurrentRequest()
   try {
     const model = selectedModel.value
     const response = await copilotApi.editCanvas(text, {
-      conversationId: conversationId.value, workflowId: snapshot.workflowId,
+      conversationId: conversationIdAtStart, workflowId: snapshot.workflowId,
       projectId: snapshot.projectId ? String(snapshot.projectId) : undefined,
       provider: providerTypeOf(model?.providerId), model: model?.name,
       context: {
@@ -758,7 +765,12 @@ async function sendCanvasEdit(value = prompt.value) {
         + (validation.runtimeReady ? '' : `\n${t('copilot.editor.runtimeWarning')} ${validation.issues.join('；')}`),
     })
   } catch (error) {
-    if (session !== plannerSessionSequence || props.context?.workflowId !== snapshot.workflowId) return
+    if (!isCurrentRequest()) return
+    if (!controller.signal.aborted && responseMessageId === pendingId
+        && conversationIdAtStart === undefined && conversationId.value === undefined) {
+      const failedTurnConversationId = canvasEditFailureConversationId(error)
+      if (failedTurnConversationId) rememberConversation(failedTurnConversationId)
+    }
     const message = messages.value.find((item) => item.id === responseMessageId)
     if (message?.role === 'assistant') {
       const reason = controller.signal.aborted ? t('copilot.editor.cancelled') : toApiError(error, 'ai').message

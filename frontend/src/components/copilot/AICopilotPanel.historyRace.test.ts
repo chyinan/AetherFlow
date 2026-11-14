@@ -97,6 +97,18 @@ function canvasResponse() {
   }
 }
 
+function canvasEditFailure(conversationId: string) {
+  return {
+    response: {
+      status: 503,
+      data: {
+        code: 50300, message: 'model unavailable',
+        data: { type: 'canvas-edit-failure', conversationId },
+      },
+    },
+  }
+}
+
 describe('AICopilotPanel 历史恢复竞态（A12）', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
@@ -487,5 +499,78 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(reopened.text()).not.toContain(readyMediaPlan().explanation)
     expect(reopened.text()).toContain(i18n.global.t('copilot.welcome'))
     reopened.unmount()
+  })
+
+  it('首次画布编辑收到服务端确切会话 ID 后，不接纳迟到的旧历史且后续请求复用它', async () => {
+    const context = panelContext()
+    const history = deferred<CopilotMessage[]>()
+    listConversations.mockResolvedValue([{ id: 'conv-1', workflowId: context.workflowId }])
+    listMessages.mockReturnValue(history.promise)
+    editCanvas.mockRejectedValueOnce(canvasEditFailure('conv-2')).mockResolvedValueOnce(canvasResponse())
+    const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
+    await flushPromises()
+    expect(listMessages).toHaveBeenCalledWith('conv-1')
+
+    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(editCanvas).toHaveBeenCalledExactlyOnceWith('添加开始节点', expect.objectContaining({ conversationId: undefined }))
+    expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-2')
+    expect(wrapper.text()).not.toContain('OLD_HISTORY')
+    expect(wrapper.text()).toContain('添加开始节点')
+
+    history.resolve([historyMessage('OLD_HISTORY', 'conv-1')])
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('OLD_HISTORY')
+    expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-2')
+
+    await wrapper.find('form input').setValue('继续编辑')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(editCanvas).toHaveBeenCalledTimes(2)
+    expect(editCanvas.mock.calls[1][1]).toEqual(expect.objectContaining({ conversationId: 'conv-2' }))
+    wrapper.unmount()
+  })
+
+  it('迟到的画布编辑失败不会把另一工作流的会话选择写入当前作用域', async () => {
+    const contextA = panelContext('workflow-a')
+    const contextB = panelContext('workflow-b')
+    listConversations.mockResolvedValue([])
+    listMessages.mockResolvedValue([])
+    const failure = deferred<never>()
+    editCanvas.mockReturnValue(failure.promise)
+    const wrapper = mount(AICopilotPanel, { props: { context: contextA, applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    await wrapper.find('form input').setValue('在 A 添加节点')
+    await wrapper.find('form').trigger('submit')
+    expect(editCanvas).toHaveBeenCalledOnce()
+    await wrapper.setProps({ context: contextB })
+    await flushPromises()
+    failure.reject(canvasEditFailure('conv-99'))
+    await flushPromises()
+
+    expect(readConversationSelection(conversationSessionKey(contextB))).not.toBe('conv-99')
+    expect(readConversationSelection(conversationSessionKey(contextA))).not.toBe('conv-99')
+    wrapper.unmount()
+  })
+
+  it('失败元数据不会替换已确认的会话 ID', async () => {
+    const context = panelContext()
+    writeConversationSelection(conversationSessionKey(context), 'conv-1')
+    listConversations.mockResolvedValue([{ id: 'conv-1', workflowId: context.workflowId }])
+    listMessages.mockResolvedValue([])
+    editCanvas.mockRejectedValueOnce(canvasEditFailure('conv-2'))
+    const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    await wrapper.find('form input').setValue('添加节点')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(editCanvas).toHaveBeenCalledExactlyOnceWith('添加节点', expect.objectContaining({ conversationId: 'conv-1' }))
+    expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-1')
+    wrapper.unmount()
   })
 })
