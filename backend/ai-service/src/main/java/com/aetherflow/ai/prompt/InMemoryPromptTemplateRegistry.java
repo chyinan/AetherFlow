@@ -25,7 +25,7 @@ public class InMemoryPromptTemplateRegistry implements PromptTemplateRegistry {
                 )),
                 new PromptTemplate("translate", List.of(
                         new PromptVersion("translate", "v1",
-                                "Translate the following text to {{targetLanguage}}. Keep domain terms accurate:\n{{text}}",
+                                "Translate the following text into {{targetLanguage}}. The source language is {{sourceLanguage}}; if it is auto, detect it from the text. Keep domain terms accurate:\n{{text}}",
                                 true)
                 )),
                 new PromptTemplate("subtitle", List.of(

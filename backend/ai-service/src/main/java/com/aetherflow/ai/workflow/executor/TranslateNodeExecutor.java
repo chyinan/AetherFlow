@@ -37,11 +37,12 @@ public class TranslateNodeExecutor implements AiNodeExecutor {
 
     @Override
     public AiNodeResult execute(AiNodeExecutionContext context) {
+        Map<String, String> promptVariables = new LinkedHashMap<>();
+        promptVariables.put("sourceLanguage", context.payloadString("sourceLanguage", "auto"));
+        promptVariables.put("targetLanguage", context.payloadString("targetLanguage", "English"));
+        promptVariables.put("text", context.payloadString("text"));
         PromptRenderResult prompt = promptRenderService.render("translate", context.payloadString("promptVersion", ""),
-                Map.of(
-                        "text", context.payloadString("text"),
-                        "targetLanguage", context.payloadString("targetLanguage", "English")
-                ));
+                promptVariables);
         AiProviderResponse response = providerRouter.complete(new AiProviderRequest(
                 AiProviderType.from(context.payloadString("provider", ""), null),
                 context.payloadString("model", properties.getDefaultModel()),
