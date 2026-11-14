@@ -557,7 +557,7 @@ function normalizeConditionConfig(
 ) {
   return withNextNodes({
     variable: stringValue(config.variable ?? config.input, 'summary'),
-    operator: stringValue(config.operator, 'EXISTS'),
+    operator: stringValue(config.operator, 'EQUALS'),
     ...(config.value === undefined ? {} : { value: config.value }),
     trueBranch: stringValue(config.trueBranch, 'true'),
     falseBranch: stringValue(config.falseBranch, 'false'),

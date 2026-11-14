@@ -258,7 +258,7 @@ export const nodeTemplates: NodeTemplate[] = [
     category: 'Logic',
     catalog: 'node',
     group: 'logic',
-    config: { case1: 'score > 0.5', case2: 'score <= 0.5', else: true },
+    config: { case1: 'score > 0.5', case2: 'score <= 0.5', else: true, operator: 'EXISTS' },
     inputs: ['context.json'],
     outputs: ['if.path', 'else.path'],
   },

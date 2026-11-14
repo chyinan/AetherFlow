@@ -41,6 +41,27 @@ describe('CONDITION 标量比较值往返', () => {
   beforeEach(() => vi.mocked(getNodeCatalog).mockResolvedValue([]))
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()); vi.restoreAllMocks() })
 
+  it('旧节点缺省 operator 时显示和保存运行时默认 EQUALS', async () => {
+    const { wrapper, workflow, node } = await render({ variable: 'result', value: 'ready' })
+    const loadedNode = workflow.nodes.find((item) => item.id === node.id)!
+    delete loadedNode.data.config.operator
+    await flushPromises()
+
+    expect(wrapper.get<HTMLSelectElement>('[data-config-field="operator"]').element.value).toBe('EQUALS')
+    expect(wrapper.get<HTMLInputElement>('[data-config-field="value"]').element.value).toBe('ready')
+
+    const definition = mapWorkflowToDefinitionDTO({
+      id: workflow.workflowId, name: workflow.workflowName, nodes: workflow.nodes, edges: workflow.edges,
+    })
+    expect(definition.nodes?.[0]?.config).toMatchObject({ operator: 'EQUALS', value: 'ready' })
+  })
+
+  it('新节点显式 EXISTS 默认值保持不变', async () => {
+    const { wrapper, node } = await render({})
+    expect(node.data.config.operator).toBe('EXISTS')
+    expect(wrapper.get<HTMLSelectElement>('[data-config-field="operator"]').element.value).toBe('EXISTS')
+  })
+
   it('比较值编辑器写字符串标量，保存与重开都不包装成对象', async () => {
     const { wrapper, workflow, node, configOf } = await render({ variable: 'score', operator: 'EQUALS', value: '' })
     await wrapper.get<HTMLInputElement>('[data-config-field="value"]').setValue('0.75')

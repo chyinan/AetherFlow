@@ -326,7 +326,7 @@ const selectedKnowledgeDataset = computed(() => {
 })
 
 const conditionNeedsValue = computed(() =>
-  !['EXISTS', 'NOT_EXISTS'].includes(textConfig('operator', 'EXISTS')),
+  !['EXISTS', 'NOT_EXISTS'].includes(textConfig('operator', 'EQUALS')),
 )
 
 const availableChatModels = computed(() =>
@@ -1486,7 +1486,7 @@ onMounted(() => {
 
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.conditionOperator') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="operator" :value="textConfig('operator', 'EXISTS')" @change="handleTextInput('operator', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="operator" :value="textConfig('operator', 'EQUALS')" @change="handleTextInput('operator', $event)">
               <option v-for="operator in conditionOperators" :key="operator.value" :value="operator.value">
                 {{ t(operator.labelKey) }}
               </option>
