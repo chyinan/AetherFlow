@@ -1567,6 +1567,7 @@ export const enUS = {
     environmentLabel: 'Environment',
     defaultTimeout: 'Default timeout',
     artifactRetention: 'Artifact retention',
+    workspacePositiveIntegerRequired: 'Default timeout and artifact retention must both be whole numbers from 1 to 2,147,483,647.',
     inviteMockUser: 'Invite user',
     name: 'Name',
     email: 'Email',

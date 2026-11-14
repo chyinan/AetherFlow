@@ -1569,6 +1569,7 @@ export const jaJP = {
     environmentLabel: '環境',
     defaultTimeout: 'デフォルトタイムアウト',
     artifactRetention: 'アーティファクト保持期間',
+    workspacePositiveIntegerRequired: 'デフォルトタイムアウトとアーティファクト保持期間は、どちらも 1〜2,147,483,647 の整数にしてください。',
     inviteMockUser: 'ユーザーを招待',
     name: '名前',
     email: 'メール',

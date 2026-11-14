@@ -368,6 +368,55 @@ describe('设置保存与异步失败闭环', () => {
   })
 })
 
+describe('工作区配置的数值约束', () => {
+  const invalidValues = [
+    { name: 'workspace-timeout', property: 'defaultTimeoutMin', label: '空值', value: '' },
+    { name: 'workspace-timeout', property: 'defaultTimeoutMin', label: '零', value: '0' },
+    { name: 'workspace-timeout', property: 'defaultTimeoutMin', label: '小数', value: '1.5' },
+    { name: 'workspace-timeout', property: 'defaultTimeoutMin', label: '超出整数上限', value: '2147483648' },
+    { name: 'workspace-retention', property: 'retentionDays', label: '空值', value: '' },
+    { name: 'workspace-retention', property: 'retentionDays', label: '零', value: '0' },
+    { name: 'workspace-retention', property: 'retentionDays', label: '小数', value: '1.5' },
+    { name: 'workspace-retention', property: 'retentionDays', label: '超出整数上限', value: '2147483648' },
+  ] as const
+
+  it.each(invalidValues)('$name 应拒绝 $label 并允许修正后重试', async ({ name, property, value }) => {
+    const update = vi.spyOn(settingsApi, 'updateWorkspace').mockResolvedValue(workspace)
+    await setup('/settings?tab=custom', true)
+    const input = wrapper!.get<HTMLInputElement>(`input[name="${name}"]`)
+    await input.setValue(value)
+    await wrapper!.get('[data-action="save-workspace"]').trigger('click')
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper!.get('[role="alert"]').text()).toBe(i18n.global.t('settings.workspacePositiveIntegerRequired'))
+
+    await input.setValue('1')
+    await wrapper!.get('[data-action="save-workspace"]').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledOnce()
+    expect(update.mock.calls[0]?.[0][property]).toBe(1)
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { name: 'workspace-timeout', property: 'defaultTimeoutMin' },
+    { name: 'workspace-retention', property: 'retentionDays' },
+  ] as const)('$name 接受 Java Integer 的最大正值', async ({ name, property }) => {
+    const update = vi.spyOn(settingsApi, 'updateWorkspace').mockResolvedValue(workspace)
+    await setup('/settings?tab=custom', true)
+    const input = wrapper!.get<HTMLInputElement>(`input[name="${name}"]`)
+    expect(input.attributes('min')).toBe('1')
+    expect(input.attributes('max')).toBe('2147483647')
+    expect(input.attributes('step')).toBe('1')
+    await input.setValue('2147483647')
+    await wrapper!.get('[data-action="save-workspace"]').trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenCalledOnce()
+    expect(update.mock.calls[0]?.[0][property]).toBe(2147483647)
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  })
+})
+
 describe('同身份刷新不丢草稿', () => {
   it('替换相同身份快照保留正在编辑的管理员表单', async () => {
     const { auth } = await setup('/settings?tab=provider', true)
