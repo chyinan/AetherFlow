@@ -35,6 +35,7 @@ const formError = ref<string | null>(null)
 const formOpen = ref(false)
 const editingId = ref<string | null>(null)
 const total = ref(0)
+const hasLoadedWorkspaces = ref(false)
 const form = reactive<WorkspaceFormState>(createEmptyForm())
 
 const formTitle = computed(() => editingId.value ? t('workspaces.editTitle') : t('workspaces.createTitle'))
@@ -86,6 +87,7 @@ async function loadWorkspaces() {
     const page = await listWorkspaces(searchQuery.value.trim())
     workspaces.value = page.records ?? []
     total.value = page.total ?? workspaces.value.length
+    hasLoadedWorkspaces.value = true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t('workspaces.loadFailed')
   } finally {
@@ -199,11 +201,11 @@ onMounted(loadWorkspaces)
       </div>
 
       <div class="mb-4 flex items-center justify-between gap-3 text-xs text-text-muted">
-        <span>{{ t('workspaces.total', { count: total }) }}</span>
+        <span v-if="hasLoadedWorkspaces">{{ t('workspaces.total', { count: total }) }}</span>
         <span v-if="loading" class="inline-flex items-center gap-2"><LoaderCircle class="h-3.5 w-3.5 animate-spin" />{{ t('common.loading') }}</span>
       </div>
 
-      <section v-if="!loading && workspaces.length === 0" class="grid min-h-[260px] place-items-center rounded-lg border border-dashed border-app-border bg-white px-6 text-center">
+      <section v-if="!loading && !errorMessage && workspaces.length === 0" class="grid min-h-[260px] place-items-center rounded-lg border border-dashed border-app-border bg-white px-6 text-center">
         <div>
           <Building2 class="mx-auto h-8 w-8 text-text-muted" />
           <h2 class="mt-3 text-sm font-semibold text-text-primary">{{ t('workspaces.emptyTitle') }}</h2>
@@ -257,7 +259,7 @@ onMounted(loadWorkspaces)
         </div>
       </section>
 
-      <section v-else class="grid min-h-[260px] place-items-center rounded-lg border border-app-border bg-white px-6 text-center" aria-busy="true">
+      <section v-if="loading" class="grid min-h-[260px] place-items-center rounded-lg border border-app-border bg-white px-6 text-center" aria-busy="true">
         <div class="inline-flex items-center gap-2 text-sm text-text-secondary">
           <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
           {{ t('common.loading') }}
