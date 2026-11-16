@@ -7,16 +7,39 @@ import { useFileStore } from '@/stores/fileStore'
 
 const fileStore = useFileStore()
 const input = ref<HTMLInputElement | null>(null)
+const uploadError = ref<string | null>(null)
 const { t } = useI18n()
+let latestUploadAttempt = 0
 
 function browse() {
   input.value?.click()
 }
 
-function onFileChange(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (file) {
-    void fileStore.upload(file)
+async function onFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) {
+    target.value = ''
+    return
+  }
+
+  const attempt = ++latestUploadAttempt
+  uploadError.value = null
+  try {
+    await fileStore.upload(file)
+  } catch (error) {
+    // Keep this component's feedback tied to its latest upload, not shared store state.
+    if (attempt === latestUploadAttempt) {
+      uploadError.value = error instanceof Error && error.message
+        ? error.message
+        : t('files.uploadFailed')
+    }
+  } finally {
+    // Keep the input selected while this attempt is pending; clear only if no newer
+    // selection has replaced it, so the same file can be retried after settlement.
+    if (attempt === latestUploadAttempt) {
+      target.value = ''
+    }
   }
 }
 </script>
@@ -39,6 +62,9 @@ function onFileChange(event: Event) {
         {{ t('files.upload') }}
       </button>
     </div>
+    <p v-if="uploadError" role="alert" class="mt-4 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
+      {{ uploadError }}
+    </p>
     <div
       v-if="fileStore.uploading"
       class="mt-4 h-2 rounded-full bg-app-muted"
