@@ -56,6 +56,7 @@ const directEditMode = ref(Boolean(props.applyCanvasEdit))
 const canvasEditResults = ref(new Map<string, { success: boolean; text: string }>())
 const canvasEditPendingId = ref<string | null>(null)
 const prompt = ref('')
+const promptRows = computed(() => Math.min(5, 1 + (prompt.value.match(/\n/g)?.length ?? 0)))
 const loading = ref(false)
 const conversationSelectionPending = ref(false)
 const conversationIdentityUnconfirmed = ref(false)
@@ -264,6 +265,13 @@ async function loadConversationHistory() {
 function retryConversationHistory() {
   if (!historyRetryAvailable.value || interactionPending.value) return
   void loadConversationHistory()
+}
+
+function handlePromptKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return
+  event.preventDefault()
+  if (event.repeat) return
+  void sendPrompt()
 }
 
 /** 历史恢复成功后整体接管消息列表，并按历史里最后一条计划决定发送模式。 */
@@ -1407,12 +1415,14 @@ onMounted(() => {
           </select>
         </label>
         <div class="flex items-center gap-2 rounded-lg border border-app-border bg-app-muted px-3 py-2 focus-within:border-ai/50 focus-within:bg-white">
-          <input
+          <textarea
             v-model="prompt"
-            class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
+            :rows="promptRows"
+            class="min-h-8 max-h-32 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
             :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
-          />
+            @keydown="handlePromptKeydown"
+          ></textarea>
           <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown" :aria-label="presentationText('send')" :title="presentationText('send')">
             <Send class="h-4 w-4" />
           </button>
