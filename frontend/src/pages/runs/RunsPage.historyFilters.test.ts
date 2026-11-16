@@ -12,6 +12,7 @@ vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ markRunArtifactsRe
 vi.mock('@/stores/uiStore', () => ({ useUiStore: () => ({ startNotificationStream: vi.fn(), stopNotificationStream: vi.fn() }) }))
 
 import { i18n } from '@/i18n'
+import { normalizeServerTimezoneOffset, runtimeEnv } from '@/config/runtimeEnv'
 import { useRunStore } from '@/stores/runStore'
 import RunsPage from './RunsPage.vue'
 import { directRunId, readRunHistoryQuery } from './runHistoryQuery'
@@ -559,5 +560,57 @@ it.each([
     expect(wrapper!.get('[aria-current="true"]').text()).toContain(selected)
   } finally {
     i18n.global.locale.value = previous
+  }
+})
+
+it.each([
+  { source: 'LocalDateTime', raw: '2026-11-16T10:00:00' },
+  { source: '带 Z 的绝对时间', raw: '2026-11-16T10:00:00Z' },
+  { source: '带数值偏移的绝对时间', raw: '2026-11-16T10:00:00-05:30' },
+  { source: '仅日期', raw: '2026-11-16' },
+])('审计：运行历史$source 保留时区语义，显式偏移可跨浏览器时区格式化', async ({ raw }) => {
+  const previousTz = process.env.TZ
+  const previousLocale = localStorage.getItem('aetherflow.locale')
+  const previousTimezone = localStorage.getItem('aetherflow.timezone')
+  const original = mocks.get.getMockImplementation()!
+  process.env.TZ = 'UTC'
+  localStorage.setItem('aetherflow.locale', 'en-US')
+  localStorage.setItem('aetherflow.timezone', 'Asia/Tokyo')
+  mocks.get.mockImplementation(async (url: string, options?: { params?: RunPageQuery }) => {
+    const response = await original(url, options) as { items?: Array<Record<string, unknown>> }
+    if (url !== '/workflow-instances' || !Array.isArray(response.items)) return response
+    return {
+      ...response,
+      items: response.items.map(item => item.id === 1 ? { ...item, startedAt: raw } : item),
+    }
+  })
+  try {
+    await setup('/runs/run-1')
+    const explicitOffset = process.env.VITE_SERVER_TIMEZONE_OFFSET
+      ? normalizeServerTimezoneOffset(process.env.VITE_SERVER_TIMEZONE_OFFSET) : undefined
+    if (Object.prototype.hasOwnProperty.call(runtimeEnv, 'configuredServerTimezoneOffset')) {
+      expect(runtimeEnv.configuredServerTimezoneOffset).toBe(explicitOffset)
+    }
+    const expectedTimestamp = raw === '2026-11-16T10:00:00' && explicitOffset
+      ? `${raw}${explicitOffset}` : raw
+    const expectedTokyoTime = new Date(expectedTimestamp).toLocaleString('en-US', {
+      hour12: false, timeZone: 'Asia/Tokyo',
+    })
+    const row = wrapper!.get('[data-testid="history-run"]')
+    expect(row.text()).toContain(expectedTokyoTime)
+    if (raw === '2026-11-16T10:00:00') {
+      if (process.env.VITE_SERVER_TIMEZONE_OFFSET) expect(runtimeEnv.configuredServerTimezoneOffset).toBeDefined()
+      if (runtimeEnv.configuredServerTimezoneOffset === '+08:00') expect(expectedTokyoTime).toBe('11/16/2026, 11:00:00')
+      else if (runtimeEnv.configuredServerTimezoneOffset === '+09:00') expect(expectedTokyoTime).toBe('11/16/2026, 10:00:00')
+      else if (!runtimeEnv.configuredServerTimezoneOffset) expect(expectedTokyoTime).toBe('11/16/2026, 19:00:00')
+    }
+  } finally {
+    mocks.get.mockImplementation(original)
+    if (previousLocale === null) localStorage.removeItem('aetherflow.locale')
+    else localStorage.setItem('aetherflow.locale', previousLocale)
+    if (previousTimezone === null) localStorage.removeItem('aetherflow.timezone')
+    else localStorage.setItem('aetherflow.timezone', previousTimezone)
+    if (previousTz === undefined) delete process.env.TZ
+    else process.env.TZ = previousTz
   }
 })

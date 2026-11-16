@@ -46,27 +46,29 @@ function normalizeNumber(value: EnvValue, fallback: number) {
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback
 }
 
-/** 默认服务器偏移：后端历史时间是 LocalDateTime，按 +08:00 补齐成绝对时刻。 */
+/** 通知历史等兼容路径的默认服务器偏移；运行历史仅使用显式配置的偏移。 */
 export const defaultServerTimezoneOffset = '+08:00'
+
+function parseServerTimezoneOffset(value?: string | null) {
+  const match = /^([+-])(\d{2}):?(\d{2})$/.exec(typeof value === 'string' ? value.trim() : '')
+  if (!match) return undefined
+
+  const hours = Number(match[2])
+  const minutes = Number(match[3])
+  if (hours > 14 || minutes > 59) return undefined
+
+  return `${match[1]}${match[2]}:${match[3]}`
+}
 
 /**
  * 归一化服务器时区偏移（`+08:00` / `+0800` 均可），非法或缺省时回落到 +08:00。
  * 只接受显式偏移，不接受 IANA 名称，避免依赖运行环境的时区数据库。
  */
 export function normalizeServerTimezoneOffset(value?: string | null) {
-  const match = /^([+-])(\d{2}):?(\d{2})$/.exec(typeof value === 'string' ? value.trim() : '')
-  if (!match) {
-    return defaultServerTimezoneOffset
-  }
-
-  const hours = Number(match[2])
-  const minutes = Number(match[3])
-  if (hours > 14 || minutes > 59) {
-    return defaultServerTimezoneOffset
-  }
-
-  return `${match[1]}${match[2]}:${match[3]}`
+  return parseServerTimezoneOffset(value) ?? defaultServerTimezoneOffset
 }
+
+const configuredServerTimezoneOffset = parseServerTimezoneOffset(readEnv('VITE_SERVER_TIMEZONE_OFFSET'))
 
 export const runtimeEnv = {
   apiBase: normalizeBase(readEnv('VITE_API_BASE'), '/api'),
@@ -77,6 +79,7 @@ export const runtimeEnv = {
   notifyWebSocketFallback: normalizeBoolean(readEnv('VITE_NOTIFY_WS_FALLBACK'), false),
   runtimeWebSocketFallback: normalizeBoolean(readEnv('VITE_RUNTIME_WS_FALLBACK'), false),
   requestTimeoutMs: normalizeNumber(readEnv('VITE_API_TIMEOUT_MS'), 15000),
-  // 服务器时区偏移：历史通知的 LocalDateTime 用它补齐成绝对时刻。
-  serverTimezoneOffset: normalizeServerTimezoneOffset(readEnv('VITE_SERVER_TIMEZONE_OFFSET')),
+  // 通知兼容路径保留 +08:00 默认；运行历史只在显式配置时应用偏移。
+  serverTimezoneOffset: configuredServerTimezoneOffset ?? defaultServerTimezoneOffset,
+  configuredServerTimezoneOffset,
 } as const

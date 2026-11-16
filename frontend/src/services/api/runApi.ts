@@ -77,8 +77,19 @@ function formatDateTime(value?: string) {
     return formatLocaleDateTime(new Date())
   }
 
-  const date = new Date(value)
+  const normalized = normalizeServerTimestamp(value)
+  const date = new Date(normalized)
   return Number.isNaN(date.getTime()) ? value : formatLocaleDateTime(date)
+}
+
+/** 后端历史时间使用无偏移量的 LocalDateTime；按服务器偏移补齐，避免误按浏览器时区解析。 */
+function normalizeServerTimestamp(value: string) {
+  const trimmed = value.trim()
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+  const hasTimezone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(trimmed)
+  const localDateTime = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed)
+  const serverOffset = runtimeEnv.configuredServerTimezoneOffset
+  return localDateTime && !dateOnly && !hasTimezone && serverOffset ? `${trimmed}${serverOffset}` : trimmed
 }
 
 function formatTime(value?: string) {
