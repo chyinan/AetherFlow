@@ -134,6 +134,24 @@ describe('节点配置与后端执行语义一致', () => {
     expect(whisperPanel).toContain("t('workflow.inspector.whisperPromptLimit')")
   })
 
+  it('保留常用 Whisper 语言选项，同时允许编辑已保存的自定义代码', () => {
+    const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
+    const whisperPanel = source.slice(source.indexOf("selectedKind === 'whisper'"), source.indexOf("selectedKind === 'translate'"))
+    const languageLabelStart = whisperPanel.lastIndexOf('<label', whisperPanel.indexOf("t('workflow.inspector.asrLanguage')"))
+    const languageField = whisperPanel.slice(languageLabelStart, whisperPanel.indexOf('</label>', languageLabelStart))
+
+    expect(languageField).toContain('<input')
+    expect(languageField).toContain('list="whisper-language-options"')
+    expect(languageField).toContain('maxlength="32"')
+    expect(languageField).toContain(`:value="textConfig('language', 'auto')"`)
+    expect(languageField).toContain(`@input="handleTextInput('language', $event)"`)
+    expect(languageField).not.toContain('<select')
+    expect(languageField).toContain('<option value="auto">auto</option>')
+    expect(languageField).toContain('<option value="zh">zh</option>')
+    expect(languageField).toContain('<option value="en">en</option>')
+    expect(languageField).toContain("t('workflow.inspector.whisperLanguageHint')")
+  })
+
   it('LLM 面板不展示后端未实现的视觉、节点重试和 fallback 配置', () => {
     const source = readFileSync(fileURLToPath(new URL('./NodeInspector.vue', import.meta.url)), 'utf8')
     const llmPanel = source.slice(source.indexOf("selectedKind === 'llm'"), source.indexOf("selectedKind === 'knowledge-retrieval'"))

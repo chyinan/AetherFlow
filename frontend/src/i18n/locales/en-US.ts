@@ -671,6 +671,7 @@ export const enUS = {
       fileUrlOutput: 'Public file URL passed to Whisper Runtime.',
       objectKeyOutput: 'Object storage key for the uploaded file.',
       asrLanguage: 'Transcription language',
+      whisperLanguageHint: 'Enter a language code supported by the active installed model, or choose/type auto for automatic detection.',
       asrPrompt: 'Whisper prompt',
       whisperPromptLimit: 'Up to 8,000 characters.',
       whisperRuntimeHint: 'Python AI Runtime extracts audio with FFmpeg internally, then faster-whisper generates transcription.',

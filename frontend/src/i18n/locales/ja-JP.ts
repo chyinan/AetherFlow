@@ -673,6 +673,7 @@ export const jaJP = {
       fileUrlOutput: 'Whisper ランタイムに渡される公開ファイル URL',
       objectKeyOutput: 'アップロードされたファイルのオブジェクトストレージキー',
       asrLanguage: '文字起こし言語',
+      whisperLanguageHint: '現在インストールされているモデルでサポートされている言語コードを入力するか、自動検出するには auto を選択または入力してください。',
       asrPrompt: 'Whisper プロンプト',
       whisperPromptLimit: '最大 8,000 文字です。',
       whisperRuntimeHint: 'Python AI Runtime は内部で FFmpeg で音声を抽出し、faster-whisper で文字起こしを行います。',
