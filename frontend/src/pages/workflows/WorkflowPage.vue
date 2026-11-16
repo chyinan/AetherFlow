@@ -34,6 +34,7 @@ import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowNodeKind } from '@/types/workflow'
 import { mergeCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
+import { readComfyWorkflowFile } from '@/utils/comfyWorkflow'
 import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 
 const workflowStore = useWorkflowStore()
@@ -305,21 +306,16 @@ async function handleComfyUiFileChange(event: Event) {
   comfyUiImportError.value = null
   comfyUiImportNotice.value = null
   try {
-    const text = await file.text()
+    const text = await readComfyWorkflowFile(file)
     if (!canApply()) {
       reportEditConflict()
       return
     }
-    const parsed = JSON.parse(text) as unknown
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      throw new Error(t('workflow.importComfyUiInvalid'))
-    }
-
     const imported = await importComfyUiWorkflow({
       name: file.name.replace(/\.json$/i, '') || t('workflow.importComfyUiDefaultName'),
       description: t('workflow.importComfyUiDescription'),
       projectId,
-      workflowJson: parsed as Record<string, unknown>,
+      workflowJson: text,
     })
     if (!canApply()) {
       reportEditConflict()

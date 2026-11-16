@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import { i18n } from '@/i18n'
@@ -52,12 +53,20 @@ let wrapper: ReturnType<typeof mount> | undefined
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.stubGlobal('TextDecoder', TextDecoder)
   localStorage.clear()
   importFails = false; saveFails = false
   entity = { id: 101, name: 'Existing', version: 1, projectId: 11, definitionJson: JSON.stringify({ nodes: [] }) }
   http.get.mockImplementation(async (url: string) => { if (url.startsWith('/workflows/definitions/')) return JSON.parse(JSON.stringify(entity)); throw new Error('Unexpected GET '+url) })
   http.post.mockImplementation(async (url: string, payload: any) => {
-    if (url.endsWith('/import/comfyui')) { if (importFails) throw new Error('temporary import failure'); return JSON.parse(JSON.stringify({ ...preview, name: payload.name, projectId: payload.projectId })) }
+    if (url.endsWith('/import/comfyui')) {
+      if (importFails) throw new Error('temporary import failure')
+      const result = JSON.parse(JSON.stringify({ ...preview, name: payload.name, projectId: payload.projectId }))
+      const image = result.nodes.find((node: any) => node.nodeId === 'image-generation')
+      image.config.workflow = payload.workflowJson
+      image.config.workflowJson = payload.workflowJson
+      return result
+    }
     if (url === '/workflows/definitions') { if (saveFails) throw new Error('temporary save failure'); entity = { id: 201, name: payload.name, projectId: payload.projectId, version: 1, definitionJson: JSON.stringify(payload) }; return JSON.parse(JSON.stringify(entity)) }
     throw new Error('Unexpected POST '+url)
   })
@@ -107,7 +116,7 @@ async function importFile(text: Promise<string> = Promise.resolve(JSON.stringify
   const input = wrapper!.get('input[type="file"]')
   Object.defineProperty(input.element, 'files', {
     configurable: true,
-    value: [{ name, text: () => text }],
+    value: [{ name, arrayBuffer: async () => new TextEncoder().encode(await text).buffer as ArrayBuffer }],
   })
   await input.trigger('change')
   await flushPromises()
@@ -128,7 +137,8 @@ describe('audit19：空白入口的成功导入必须进入可编辑画布', () 
   expect(store.workflowId).toBe('new')
   expect(store.dirty).toBe(true)
   expect(store.nodes.map(node => node.id)).toEqual(['start', 'prompt', 'image-generation', 'end'])
-  expect(store.nodes.find(node => node.id === 'image-generation')!.data.config.workflowJson).toEqual(comfy)
+  expect(store.nodes.find(node => node.id === 'image-generation')!.data.config.workflowJson).toBe(JSON.stringify(comfy))
+  expect(http.post.mock.calls.find(([url]) => url.endsWith('/import/comfyui'))?.[1].workflowJson).toBe(JSON.stringify(comfy))
   expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
   expect({ canvas: wrapper!.find('workflow-canvas-stub').exists(), saveButton: Boolean(saveButton()) })
     .toEqual({ canvas: true, saveButton: true })
@@ -159,6 +169,17 @@ describe('audit19：空白入口的成功导入必须进入可编辑画布', () 
   await saveButton().trigger('click'); await flushPromises()
   expect(router.currentRoute.value.path).toBe('/workflows/201')
   expect(store.dirty).toBe(false)
+ })
+ it('导入 API 将 UTF-8 JSON 文本原样传给服务端并保存其文本响应', async () => {
+  const { store } = await setup('/workflows/new')
+  const text = '\uFEFF{\n "sampler": {"class_type":"KSampler","inputs":{"seed":9007199254740993,"noise_seed":18446744073709551615,"text":"café","nfd":"é"}}\n}\n'
+  await importFile(Promise.resolve(text), 'lossless.json')
+
+  const request = http.post.mock.calls.find(([url]) => url.endsWith('/import/comfyui'))?.[1]
+  expect(request.workflowJson).toBe(text)
+  const image = store.nodes.find(node => node.id === 'image-generation')!.data.config
+  expect(image.workflowJson).toBe(text)
+  expect(image.workflow).toBe(text)
  })
  it('空白入口成功导入后拒绝替换保留画布，确认替换后仍可见并可保存', async () => {
   const { store } = await setup('/workflows/new')

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { comfyBindingError, comfyParameters, describeComfyGraph, isRecord } from '@/utils/comfyWorkflow'
+import { comfyBindingError, comfyParameters, describeComfyGraph, isRecord, readComfyWorkflowFile } from '@/utils/comfyWorkflow'
 const props = defineProps<{ nodeId: string; config: Record<string, unknown> }>()
 const emit = defineEmits<{
   update: [key: string, value: unknown]
@@ -28,11 +28,11 @@ async function loadApi(event: Event) {
   const current = ++sequence, nodeId = props.nodeId, previousGraph = props.config.workflowJson
   error.value = ''
   try {
-    const parsed: unknown = JSON.parse(await file.text())
+    const text = await readComfyWorkflowFile(file)
     if (!alive || current !== sequence || nodeId !== props.nodeId || previousGraph !== props.config.workflowJson) return
-    if (describeComfyGraph(parsed).format !== 'API') { error.value = t('invalid'); return }
+    if (describeComfyGraph(text).format !== 'API') { error.value = t('invalid'); return }
     const values: Record<string, unknown> = {
-      workflowJson: parsed,
+      workflowJson: text,
       workflowBindings: [],
     }
     if (!props.config.workflow) values.workflow = props.config.workflowJson

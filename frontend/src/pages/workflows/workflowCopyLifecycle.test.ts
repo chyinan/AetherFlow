@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 import { i18n } from '@/i18n'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { resolveWorkflowNavigation } from '@/test/resolveWorkflowNavigation'
@@ -41,6 +42,7 @@ const preview = { name: 'Imported', nodes: [
 ] }
 let wrapper: ReturnType<typeof mount> | undefined
 beforeEach(() => {
+  vi.stubGlobal('TextDecoder', TextDecoder)
   vi.resetAllMocks(); localStorage.clear()
   http.get.mockImplementation(async (url: string) => entity(Number(url.split('/').at(-1))))
   http.put.mockImplementation(async (url: string, payload: unknown) => ({ ...entity(Number(url.split('/').at(-1))), definitionJson: JSON.stringify(payload), version: 2 }))
@@ -50,7 +52,7 @@ beforeEach(() => {
 describe('较新导入意图使旧复制回执失效', () => {
   async function selectImport(read: Promise<string>) {
     const input = wrapper!.get('input[type="file"]')
-    Object.defineProperty(input.element, 'files', { configurable: true, value: [{ name: 'newer-import.json', text: () => read }] })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [{ name: 'newer-import.json', arrayBuffer: () => read.then(value => new TextEncoder().encode(value).buffer as ArrayBuffer) }] })
     await input.trigger('change'); await flushPromises()
   }
   function expectImported(store: ReturnType<typeof useWorkflowStore>) {
@@ -249,7 +251,7 @@ describe('复制工作流的请求归属与编辑恢复', () => {
     http.post.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(preview)
     await copy()
     const input = wrapper!.get('input[type="file"]')
-    Object.defineProperty(input.element, 'files', { configurable: true, value: [{ name: 'import.json', text: async () => JSON.stringify(comfy) }] })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [{ name: 'import.json', arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(comfy)).buffer as ArrayBuffer }] })
     await input.trigger('change'); await flushPromises()
     expect(store.nodes.map(node => node.id)).toEqual(['start', 'prompt', 'image-generation', 'end'])
     store.updateNodeConfig('prompt', 'prompt', '导入后的新编辑'); const before = graphState(store)

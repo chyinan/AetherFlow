@@ -11,14 +11,23 @@ function mapConfig(kind: WorkflowNodeKind, config: Record<string, unknown>) {
 }
 const graph = { '1': { class_type: 'KSampler', inputs: { seed: 123, positive: ['2', 0], enabled: true, empty: null } } }
 
-it.each(['image-generation', 'upscale'] as const)('%s 对象与 JSON 文本均映射为 AI Map 契约并隔离引用', kind => {
-  for (const value of [graph, JSON.stringify(graph), reactive(graph)]) {
+it.each(['image-generation', 'upscale'] as const)('%s 对象输入仍克隆，JSON 文本原样保留', kind => {
+  for (const value of [graph, reactive(graph)]) {
     const result = mapConfig(kind, { provider: 'COMFYUI', workflowJson: value })
     expect(result.workflowJson).toEqual(graph)
     expect(typeof result.workflowJson).toBe('object')
     expect(result.workflowJson).not.toBe(value)
     expect(JSON.parse(JSON.stringify(result)).workflowJson).toEqual(graph)
   }
+  const text = JSON.stringify(graph)
+  const textResult = mapConfig(kind, { provider: 'COMFYUI', workflowJson: text })
+  expect(textResult.workflowJson).toBe(text)
+  expect(typeof textResult.workflowJson).toBe('string')
+})
+
+it('Comfy 执行图文本在保存映射中保留大整数、NFC/NFD 和边界空白', () => {
+  const text = '{\n  "seed": 9007199254740993,\n  "noise_seed": 18446744073709551615,\n  "nfc": "café",\n  "nfd": "é"\n}\n'
+  expect(mapConfig('image-generation', { workflowJson: text }).workflowJson).toBe(text)
 })
 it.each(['image-generation', 'upscale'] as const)('%s 明确清空执行图保留为空值，与未编辑区分', kind => {
   // 未编辑：字段缺省，保存时省略，回落原图的兼容行为不变。

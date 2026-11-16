@@ -1,17 +1,23 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 import ComfyWorkflowPanel from './ComfyWorkflowPanel.vue'
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import { buildWorkflowPreflight } from '@/utils/workflowPreflight'
 import type { WorkflowDefinition } from '@/types/workflow'
+
+vi.stubGlobal('TextDecoder', TextDecoder)
 
 const ui = { nodes: [{ id: 1, type: 'ExamplePluginText', widgets_values: ['synthetic'] }], links: [], extra: { frontendVersion: 'test' } }
 const api = { first: { class_type: 'KSampler', inputs: { steps: 30, seed: 11 } }, second: { class_type: 'KSampler', inputs: { steps: 20, seed: 22 } }, plugin: { class_type: 'ExamplePluginText', inputs: { text: 'synthetic' } } }
 function panel(config: Record<string, unknown>, locale = 'zh-CN') {
   const i18n = createI18n({ legacy: false, locale, fallbackLocale: 'en', messages: {} })
   return mount(ComfyWorkflowPanel, { props: { nodeId: 'image', config }, global: { plugins: [i18n] } })
+}
+function fileBytes(text: string) {
+  return new TextEncoder().encode(text).buffer as ArrayBuffer
 }
 function workflow(config: Record<string, unknown>): WorkflowDefinition {
   return { id: 'test', name: 'test', edges: [], nodes: [{ id: 'image', type: 'workflow', position: { x:0,y:0 }, data: { kind:'image-generation', label:'image', description:'', inputs:[], outputs:[], status:'idle', config: { provider:'COMFYUI', mode:'workflow', ...config } } }] }
@@ -33,10 +39,11 @@ describe('ComfyUI 导入与参数绑定', () => {
   it('载入 API 图时保留原图并清空旧绑定，选择目标后才产生覆盖', async () => {
     const config = { workflow:ui, workflowJson:ui, workflowBindings:[{ nodeId:'old', inputName:'text', parameter:'prompt' }] }
     const wrapper = panel(config)
-    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ text:async () => JSON.stringify(api) }], configurable:true })
+    const text = JSON.stringify(api)
+    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ arrayBuffer:async () => fileBytes(text) }], configurable:true })
     await wrapper.get('[data-testid="comfy-api-file"]').trigger('change'); await flushPromises()
     expect(wrapper.emitted('update')).toBeUndefined()
-    expect(wrapper.emitted('replace-workflow')).toEqual([[{ workflowJson: api, workflowBindings: [] }, 'image']])
+    expect(wrapper.emitted('replace-workflow')).toEqual([[{ workflowJson: text, workflowBindings: [] }, 'image']])
     expect(config.workflow).toEqual(ui)
     await wrapper.setProps({ config: { ...config, workflowJson:api, workflowBindings:[] } })
     await wrapper.get('[data-testid="comfy-target"]').setValue(JSON.stringify(['second','steps']))
@@ -48,12 +55,13 @@ describe('ComfyUI 导入与参数绑定', () => {
   it('复合替换没有既存原图字段时，会在同一补丁保留旧执行图为原图', async () => {
     const previousGraph = { '1': { class_type: 'KSampler', inputs: { seed: 5 } } }
     const wrapper = panel({ workflowJson: previousGraph, workflowBindings:[{ nodeId:'old', inputName:'seed', parameter:'seed' }] })
-    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ text:async () => JSON.stringify(api) }], configurable:true })
+    const text = JSON.stringify(api)
+    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ arrayBuffer:async () => fileBytes(text) }], configurable:true })
 
     await wrapper.get('[data-testid="comfy-api-file"]').trigger('change'); await flushPromises()
 
     expect(wrapper.emitted('replace-workflow')).toEqual([[
-      { workflow: previousGraph, workflowJson: api, workflowBindings: [] },
+      { workflow: previousGraph, workflowJson: text, workflowBindings: [] },
       'image',
     ]])
     wrapper.unmount()
@@ -66,10 +74,20 @@ describe('ComfyUI 导入与参数绑定', () => {
     const bad = workflow({ ...config, workflowBindings:[{ nodeId:'second', inputName:'missing', parameter:'steps' }] })
     expect(buildWorkflowPreflight(bad, [], { catalogLoaded:false, capabilitiesLoaded:false }).some(issue => issue.level === 'blocking' && issue.field === 'workflowBindings')).toBe(true)
   })
+  it('载入大整数与 Unicode API 文本时只解析用于清单，存储原文不舍入', async () => {
+    const text = '\uFEFF{\n "large": {"class_type":"KSampler","inputs":{"seed":9007199254740993,"noise_seed":18446744073709551615,"text":"café","nfd":"é"},"_meta":{"title":"保留元数据"}}\n}\n'
+    const wrapper = panel({ workflow: ui, workflowJson: ui })
+    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ arrayBuffer:async () => fileBytes(text) }], configurable:true })
+
+    await wrapper.get('[data-testid="comfy-api-file"]').trigger('change'); await flushPromises()
+
+    expect(wrapper.emitted('replace-workflow')).toEqual([[{ workflowJson: text, workflowBindings: [] }, 'image']])
+    wrapper.unmount()
+  })
   it('异步读文件期间切换节点，不把结果写入新节点', async () => {
     let resolve!: (value:string) => void
     const wrapper = panel({ workflow:ui, workflowJson:ui })
-    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ text:() => new Promise<string>(r => { resolve = r }) }] })
+    Object.defineProperty(wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element, 'files', { value:[{ arrayBuffer:() => new Promise<ArrayBuffer>(r => { resolve = (value) => r(fileBytes(value)) }) }] })
     await wrapper.get('[data-testid="comfy-api-file"]').trigger('change')
     await wrapper.setProps({ nodeId:'other' }); resolve(JSON.stringify(api)); await flushPromises()
     expect(wrapper.emitted('update')).toBeUndefined(); wrapper.unmount()

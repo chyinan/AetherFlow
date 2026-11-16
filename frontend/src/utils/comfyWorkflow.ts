@@ -3,10 +3,23 @@ export interface ComfyBinding { nodeId: string; inputName: string; parameter: st
 export const comfyParameters = ['prompt', 'negativePrompt', 'seed', 'steps', 'cfgScale', 'sampler', 'scheduler', 'width', 'height', 'batchSize', 'denoiseStrength', 'checkpoint', 'vae', 'sourceImage'] as const
 export const comfyUiGuidance = '原图已保留。请在原有 ComfyUI 中导出 API 格式 JSON，再载入执行图；当前界面 JSON 只能查看与保存，不能运行。'
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+export async function readComfyWorkflowFile(file: Blob): Promise<string> {
+  // fatal 防止无效 UTF-8 被替换字符悄悄改写；ignoreBOM 保留 BOM 字符用于原文存储。
+  const bytes = await file.arrayBuffer()
+  try {
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
+  } catch {
+    throw new Error('ComfyUI JSON 文件必须是有效的 UTF-8 文本。')
+  }
+}
 export function decodeComfyGraph(value: unknown): Record<string, unknown> | null {
   if (isRecord(value)) return value
   if (typeof value === 'string') {
-    try { const parsed: unknown = JSON.parse(value); if (isRecord(parsed)) return parsed } catch { /* 保留无效文本，由界面给出错误。 */ }
+    try {
+      const text = value.charCodeAt(0) === 0xfeff ? value.slice(1) : value
+      const parsed: unknown = JSON.parse(text)
+      if (isRecord(parsed)) return parsed
+    } catch { /* 保留无效文本，由界面给出错误。 */ }
   }
   return null
 }

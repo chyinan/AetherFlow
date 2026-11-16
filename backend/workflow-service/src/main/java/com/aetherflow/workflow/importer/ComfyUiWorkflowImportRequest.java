@@ -18,6 +18,6 @@ public class ComfyUiWorkflowImportRequest {
     private Long projectId;
 
     @NotNull
-    @Schema(description = "ComfyUI workflow JSON object.")
+    @Schema(description = "ComfyUI workflow JSON object or original JSON text. Text input is retained losslessly.")
     private Object workflowJson;
 }
