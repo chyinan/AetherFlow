@@ -220,6 +220,38 @@ class AiTaskEventOutboxPublisherTest {
                 .containsEntry("imageUrls", List.of("https://files.test/frame.png"));
     }
 
+    @Test
+    void retainsTypedComfyImageAndMediaOutputsAcrossOutboxCommit() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        AiNodeResult staged = new AiNodeResult("IMAGE_GENERATION", "SUCCEEDED", Map.of(), List.of(
+                new AiArtifact("IMAGE", "frame.png", "image/png", new byte[]{1}),
+                new AiArtifact("MEDIA", "voice.mp3", "audio/mpeg", new byte[]{2}),
+                new AiArtifact("MEDIA", "voice-2.wav", "audio/wav", new byte[]{3})))
+                .withStoredArtifactFiles(new ArtifactRegistrationResult("comfy-mixed", 3, List.of(
+                        metadata(101L, "frame.png", "image/png", null),
+                        metadata(102L, "voice.mp3", "audio/mpeg", null),
+                        metadata(103L, "voice-2.wav", "audio/wav", null))));
+        assertThat(staged.output().get("mediaFiles")).asList().hasSize(2);
+        assertThat(staged.output()).containsEntry("mediaFileIds", List.of(102L, 103L))
+                .containsEntry("imageFileIds", List.of(101L));
+
+        AiNodeResult restored = objectMapper.readValue(objectMapper.writeValueAsString(staged), AiNodeResult.class);
+        AiNodeResult committed = restored.withStoredArtifactFiles(new ArtifactRegistrationResult("comfy-mixed", 3, List.of(
+                metadata(103L, "frame.png", "image/png", "https://files/frame.png"),
+                metadata(104L, "voice.mp3", "audio/mpeg", "https://files/voice.mp3"),
+                metadata(105L, "voice-2.wav", "audio/wav", "https://files/voice-2.wav"))));
+
+        assertThat(committed.output()).containsEntry("imageFileIds", List.of(103L))
+                .containsEntry("imageUrls", List.of("https://files/frame.png"))
+                .containsEntry("mediaFileIds", List.of(104L, 105L))
+                .containsEntry("mediaObjectKeys", List.of("generated/voice.mp3", "generated/voice-2.wav"))
+                .containsEntry("mediaUrls", List.of("https://files/voice.mp3", "https://files/voice-2.wav"))
+                .containsEntry("mediaFileId", 104L)
+                .containsEntry("mediaObjectKey", "generated/voice.mp3")
+                .containsEntry("mediaUrl", "https://files/voice.mp3");
+        assertThat(committed.output().get("mediaFiles")).asList().hasSize(2);
+    }
+
     private FileMetadataDTO metadata(Long id, String name, String contentType, String url) {
         return new FileMetadataDTO(id, "aetherflow", "generated/" + name, name, contentType, 3L, url);
     }

@@ -36,9 +36,17 @@ public record AiNodeResult(
         }
         Map<String, Object> enrichedOutput = new LinkedHashMap<>(output == null ? Map.of() : output);
         enrichedOutput.put("artifactFiles", List.copyOf(files));
+        for (String mediaAlias : List.of("mediaFiles", "mediaFileIds", "mediaObjectKeys", "mediaUrls",
+                "mediaFileId", "mediaObjectKey", "mediaUrl")) {
+            enrichedOutput.remove(mediaAlias);
+        }
         List<Long> imageFileIds = new java.util.ArrayList<>();
         List<String> imageObjectKeys = new java.util.ArrayList<>();
         List<String> imageUrls = new java.util.ArrayList<>();
+        List<FileMetadataDTO> mediaFiles = new java.util.ArrayList<>();
+        List<Long> mediaFileIds = new java.util.ArrayList<>();
+        List<String> mediaObjectKeys = new java.util.ArrayList<>();
+        List<String> mediaUrls = new java.util.ArrayList<>();
         int mappedCount = Math.min(artifacts == null ? 0 : artifacts.size(), files.size());
         List<Map<String, Object>> artifactTypeBindings = new java.util.ArrayList<>();
         for (int index = 0; index < mappedCount; index++) {
@@ -50,21 +58,34 @@ public record AiNodeResult(
             String prefix = artifact.type().trim().toLowerCase(Locale.ROOT);
             artifactTypeBindings.add(Map.of("index", index, "type", prefix));
             if (file.getId() != null) {
-                enrichedOutput.put(prefix + "FileId", file.getId());
+                if ("media".equals(prefix)) enrichedOutput.putIfAbsent(prefix + "FileId", file.getId());
+                else enrichedOutput.put(prefix + "FileId", file.getId());
                 if ("image".equals(prefix)) imageFileIds.add(file.getId());
+                if ("media".equals(prefix)) mediaFileIds.add(file.getId());
             }
             if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) {
-                enrichedOutput.put(prefix + "ObjectKey", file.getObjectKey());
+                if ("media".equals(prefix)) enrichedOutput.putIfAbsent(prefix + "ObjectKey", file.getObjectKey());
+                else enrichedOutput.put(prefix + "ObjectKey", file.getObjectKey());
                 if ("image".equals(prefix)) imageObjectKeys.add(file.getObjectKey());
+                if ("media".equals(prefix)) mediaObjectKeys.add(file.getObjectKey());
             }
             if (file.getUrl() != null && !file.getUrl().isBlank() && !"image".equals(prefix)) {
-                enrichedOutput.put(prefix + "Url", file.getUrl());
+                if ("media".equals(prefix)) enrichedOutput.putIfAbsent(prefix + "Url", file.getUrl());
+                else enrichedOutput.put(prefix + "Url", file.getUrl());
             }
             if ("image".equals(prefix) && file.getUrl() != null && !file.getUrl().isBlank()) imageUrls.add(file.getUrl());
+            if ("media".equals(prefix)) {
+                mediaFiles.add(file);
+                if (file.getUrl() != null && !file.getUrl().isBlank()) mediaUrls.add(file.getUrl());
+            }
         }
         if (!imageFileIds.isEmpty()) enrichedOutput.put("imageFileIds", List.copyOf(imageFileIds));
         if (!imageObjectKeys.isEmpty()) enrichedOutput.put("imageObjectKeys", List.copyOf(imageObjectKeys));
         if (!imageUrls.isEmpty()) enrichedOutput.put("imageUrls", List.copyOf(imageUrls));
+        if (!mediaFiles.isEmpty()) enrichedOutput.put("mediaFiles", List.copyOf(mediaFiles));
+        if (!mediaFileIds.isEmpty()) enrichedOutput.put("mediaFileIds", List.copyOf(mediaFileIds));
+        if (!mediaObjectKeys.isEmpty()) enrichedOutput.put("mediaObjectKeys", List.copyOf(mediaObjectKeys));
+        if (!mediaUrls.isEmpty()) enrichedOutput.put("mediaUrls", List.copyOf(mediaUrls));
         if (!artifactTypeBindings.isEmpty()) {
             // 以类型和序号保留产物到文件的对应关系；原始 AiArtifact 字节会在 Outbox 序列化前移除，
             // 最终提交回执仍需据此重建类型化 URL 别名。
@@ -76,7 +97,8 @@ public record AiNodeResult(
         for (FileMetadataDTO file : files) {
             String prefix = legacyPrefix(file == null ? null : file.getOriginalName());
             if (prefix != null && file.getUrl() != null && !file.getUrl().isBlank()) {
-                enrichedOutput.put(prefix + "Url", file.getUrl());
+                if ("media".equals(prefix)) enrichedOutput.putIfAbsent(prefix + "Url", file.getUrl());
+                else enrichedOutput.put(prefix + "Url", file.getUrl());
             }
         }
         return new AiNodeResult(nodeType, status, Map.copyOf(enrichedOutput), List.of(),
@@ -92,6 +114,10 @@ public record AiNodeResult(
         Set<Long> imageFileIds = numberSet(output.get("imageFileIds"));
         Set<String> imageObjectKeys = stringSet(output.get("imageObjectKeys"));
         Set<String> imageUrls = stringSet(output.get("imageUrls"));
+        Set<Long> mediaFileIds = new LinkedHashSet<>();
+        Set<String> mediaObjectKeys = new LinkedHashSet<>();
+        Set<String> mediaUrls = new LinkedHashSet<>();
+        List<FileMetadataDTO> mediaFiles = new java.util.ArrayList<>();
         for (Object rawBinding : bindings) {
             if (!(rawBinding instanceof Map<?, ?> binding)
                     || !(binding.get("index") instanceof Number indexValue)
@@ -106,14 +132,26 @@ public record AiNodeResult(
             if (file == null) {
                 continue;
             }
-            if (file.getId() != null) output.put(type + "FileId", file.getId());
+            if (file.getId() != null) {
+                if ("media".equals(type)) output.putIfAbsent(type + "FileId", file.getId());
+                else output.put(type + "FileId", file.getId());
+            }
             if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) {
-                output.put(type + "ObjectKey", file.getObjectKey());
+                if ("media".equals(type)) output.putIfAbsent(type + "ObjectKey", file.getObjectKey());
+                else output.put(type + "ObjectKey", file.getObjectKey());
             }
             if ("image".equals(type)) {
                 if (file.getId() != null) imageFileIds.add(file.getId());
                 if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) imageObjectKeys.add(file.getObjectKey());
                 if (file.getUrl() != null && !file.getUrl().isBlank()) imageUrls.add(file.getUrl());
+            } else if ("media".equals(type)) {
+                mediaFiles.add(file);
+                if (file.getId() != null) mediaFileIds.add(file.getId());
+                if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) mediaObjectKeys.add(file.getObjectKey());
+                if (file.getUrl() != null && !file.getUrl().isBlank()) {
+                    mediaUrls.add(file.getUrl());
+                    output.putIfAbsent("mediaUrl", file.getUrl());
+                }
             } else if (file.getUrl() != null && !file.getUrl().isBlank()) {
                 output.put(type + "Url", file.getUrl());
             }
@@ -121,6 +159,10 @@ public record AiNodeResult(
         if (!imageFileIds.isEmpty()) output.put("imageFileIds", List.copyOf(imageFileIds));
         if (!imageObjectKeys.isEmpty()) output.put("imageObjectKeys", List.copyOf(imageObjectKeys));
         if (!imageUrls.isEmpty()) output.put("imageUrls", List.copyOf(imageUrls));
+        if (!mediaFileIds.isEmpty()) output.put("mediaFileIds", List.copyOf(mediaFileIds));
+        if (!mediaObjectKeys.isEmpty()) output.put("mediaObjectKeys", List.copyOf(mediaObjectKeys));
+        if (!mediaUrls.isEmpty()) output.put("mediaUrls", List.copyOf(mediaUrls));
+        if (!mediaFiles.isEmpty()) output.put("mediaFiles", List.copyOf(mediaFiles));
     }
 
     private static Set<Long> numberSet(Object value) {

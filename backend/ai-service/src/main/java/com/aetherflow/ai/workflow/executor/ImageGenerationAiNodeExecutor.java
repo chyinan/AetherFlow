@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @Slf4j
@@ -35,6 +36,10 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
     /** 与工作流节点目录的 batchSize 上限一致：1–16 张必须完整交付。 */
     private static final int MAX_IMAGES_PER_RESULT = 16;
     private static final int MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+    private static final int MAX_MEDIA_PER_RESULT = 16;
+    private static final int MAX_MEDIA_BYTES = 50 * 1024 * 1024;
+    private static final Set<String> ALLOWED_MEDIA_CONTENT_TYPES = Set.of(
+            "audio/aac", "audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/opus", "audio/wav", "video/mp4");
 
     private final ImageProviderRegistry providerRegistry;
 
@@ -173,9 +178,19 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         output.put("provider", response.provider());
         output.put("mode", response.mode());
         output.put("metadata", response.metadata());
+        boolean customComfyWorkflow = "COMFYUI".equalsIgnoreCase(response.provider())
+                && "workflow".equalsIgnoreCase(response.mode());
         List<AiArtifact> artifacts = response.images() == null ? List.of()
                 : toArtifacts(response.images());
-        output.put("imageCount", artifacts.size());
+        List<AiArtifact> mediaArtifacts = !customComfyWorkflow || response.media() == null ? List.of()
+                : toMediaArtifacts(response.media());
+        if (!mediaArtifacts.isEmpty()) {
+            java.util.ArrayList<AiArtifact> combined = new java.util.ArrayList<>(artifacts);
+            combined.addAll(mediaArtifacts);
+            artifacts = List.copyOf(combined);
+        }
+        output.put("imageCount", response.images() == null ? 0 : response.images().size());
+        if (customComfyWorkflow) output.put("mediaCount", mediaArtifacts.size());
         return new AiNodeResult(nodeType, "SUCCEEDED", output, artifacts);
     }
 
@@ -200,6 +215,10 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
             }
             encoded = encoded.substring(comma + 1);
         }
+        if (encoded.length() > ((MAX_IMAGE_BYTES + 2) / 3) * 4 + 4) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned an image outside the 20 MB limit");
+        }
         try {
             byte[] content = Base64.getDecoder().decode(encoded);
             if (content.length == 0 || content.length > MAX_IMAGE_BYTES) {
@@ -210,6 +229,47 @@ public class ImageGenerationAiNodeExecutor implements AiNodeExecutor {
         } catch (IllegalArgumentException exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "image provider returned invalid base64 image data");
+        }
+    }
+
+    private List<AiArtifact> toMediaArtifacts(List<com.aetherflow.ai.image.GeneratedMediaPayload> media) {
+        if (media.size() > MAX_MEDIA_PER_RESULT) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned more media files than the supported limit of " + MAX_MEDIA_PER_RESULT);
+        }
+        return media.stream().map(this::toMediaArtifact).toList();
+    }
+
+    private AiArtifact toMediaArtifact(com.aetherflow.ai.image.GeneratedMediaPayload media) {
+        if (media == null || media.base64Data() == null || media.base64Data().isBlank()) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned blank media");
+        }
+        String contentType = media.contentType() == null ? "" : media.contentType().trim().toLowerCase(Locale.ROOT);
+        if (!ALLOWED_MEDIA_CONTENT_TYPES.contains(contentType)) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned unsupported media type");
+        }
+        String encoded = media.base64Data().trim();
+        if (encoded.regionMatches(true, 0, "data:", 0, 5)) {
+            int comma = encoded.indexOf(',');
+            if (comma < 0) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE, "image provider returned an invalid media data URI");
+            }
+            encoded = encoded.substring(comma + 1);
+        }
+        if (encoded.length() > ((MAX_MEDIA_BYTES + 2) / 3) * 4 + 4) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned media outside the 50 MB limit");
+        }
+        try {
+            byte[] content = Base64.getDecoder().decode(encoded);
+            if (content.length == 0 || content.length > MAX_MEDIA_BYTES) {
+                throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                        "image provider returned media outside the 50 MB limit");
+            }
+            return new AiArtifact("MEDIA", media.fileName(), contentType, content);
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
+                    "image provider returned invalid base64 media data");
         }
     }
 
