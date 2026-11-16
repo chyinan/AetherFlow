@@ -141,6 +141,7 @@ export const jaJP = {
     retention: '成果物保持（日）',
     saving: '保存中',
     nameRequired: 'ワークスペース名を入力してください。',
+    positiveIntegerRequired: '入力する場合、デフォルトタイムアウトとアーティファクト保持期間は、どちらも 1〜2,147,483,647 の整数にしてください。',
     loadFailed: 'ワークスペースの読み込みに失敗しました。',
     saveFailed: 'ワークスペースの保存に失敗しました。',
     deleteFailed: 'ワークスペースの削除に失敗しました。',
@@ -1664,3 +1665,4 @@ export const jaJP = {
     },
   },
 } satisfies typeof enUS
+

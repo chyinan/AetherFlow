@@ -58,25 +58,46 @@ function resetForm() {
   formError.value = null
 }
 
-function numberOrUndefined(value: string) {
-  const parsed = Number(value)
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+type WorkspaceLimitValue = number | null | undefined
+type WorkspaceLimitValues = {
+  defaultTimeoutMin: WorkspaceLimitValue
+  retentionDays: WorkspaceLimitValue
 }
 
-function buildCreateRequest(): WorkspaceCreateRequest {
+function parseOptionalPositiveInteger(value: string): WorkspaceLimitValue {
+  const normalized = String(value).trim()
+  if (!normalized) {
+    return undefined
+  }
+  const parsed = Number(normalized)
+  return Number.isInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : null
+}
+
+function getWorkspaceLimitValues(): WorkspaceLimitValues {
+  return {
+    defaultTimeoutMin: parseOptionalPositiveInteger(form.defaultTimeoutMin),
+    retentionDays: parseOptionalPositiveInteger(form.retentionDays),
+  }
+}
+
+function hasValidWorkspaceLimits(values: WorkspaceLimitValues) {
+  return values.defaultTimeoutMin !== null && values.retentionDays !== null
+}
+
+function buildCreateRequest(values: WorkspaceLimitValues): WorkspaceCreateRequest {
   return {
     name: form.name.trim(),
     slug: form.slug.trim() || undefined,
     region: form.region.trim() || undefined,
     environment: form.environment.trim() || undefined,
     ownerName: form.ownerName.trim() || undefined,
-    defaultTimeoutMin: numberOrUndefined(form.defaultTimeoutMin),
-    retentionDays: numberOrUndefined(form.retentionDays),
+    ...(values.defaultTimeoutMin == null ? {} : { defaultTimeoutMin: values.defaultTimeoutMin }),
+    ...(values.retentionDays == null ? {} : { retentionDays: values.retentionDays }),
   }
 }
 
-function buildUpdateRequest(): WorkspaceUpdateRequest {
-  return buildCreateRequest()
+function buildUpdateRequest(values: WorkspaceLimitValues): WorkspaceUpdateRequest {
+  return buildCreateRequest(values)
 }
 
 async function loadWorkspaces() {
@@ -120,8 +141,13 @@ function closeForm() {
 }
 
 async function saveForm() {
+  const limitValues = getWorkspaceLimitValues()
   if (!form.name.trim()) {
     formError.value = t('workspaces.nameRequired')
+    return
+  }
+  if (!hasValidWorkspaceLimits(limitValues)) {
+    formError.value = t('workspaces.positiveIntegerRequired')
     return
   }
 
@@ -129,9 +155,9 @@ async function saveForm() {
   formError.value = null
   try {
     if (editingId.value) {
-      await updateWorkspace(editingId.value, buildUpdateRequest())
+      await updateWorkspace(editingId.value, buildUpdateRequest(limitValues))
     } else {
-      await createWorkspace(buildCreateRequest())
+      await createWorkspace(buildCreateRequest(limitValues))
     }
     formOpen.value = false
     resetForm()
@@ -277,8 +303,8 @@ onMounted(loadWorkspaces)
           <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.region') }}</span><input v-model="form.region" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
           <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.environment') }}</span><select v-model="form.environment" class="w-full rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"><option value="dev">dev</option><option value="staging">staging</option><option value="prod">prod</option></select></label>
           <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.owner') }}</span><input v-model="form.ownerName" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
-          <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.timeout') }}</span><input v-model="form.defaultTimeoutMin" type="number" min="0" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
-          <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.retention') }}</span><input v-model="form.retentionDays" type="number" min="0" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
+          <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.timeout') }}</span><input v-model="form.defaultTimeoutMin" type="number" min="1" max="2147483647" step="1" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
+          <label><span class="mb-1.5 block text-xs font-medium text-text-secondary">{{ t('workspaces.retention') }}</span><input v-model="form.retentionDays" type="number" min="1" max="2147483647" step="1" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" /></label>
           <p v-if="formError" class="sm:col-span-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm text-status-error" role="alert">{{ formError }}</p>
           <footer class="flex justify-end gap-2 sm:col-span-2">
             <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm font-medium text-text-secondary hover:text-text-primary" :disabled="saving" @click="closeForm">{{ t('common.cancel') }}</button>
