@@ -51,6 +51,12 @@ function dynamicPromptTemplate(id: string): WorkflowDefinition {
 
 let wrapper: ReturnType<typeof mount> | undefined
 let errors: unknown[] = []
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
 beforeEach(() => {
   vi.clearAllMocks()
   errors = []
@@ -82,7 +88,9 @@ async function setup() {
 }
 
 async function openTemplates() {
-  await wrapper!.get('[data-action="workflow-templates"]').trigger('click')
+  const trigger = wrapper!.get<HTMLButtonElement>('[data-action="workflow-templates"]')
+  trigger.element.focus()
+  await trigger.trigger('click')
   await flushPromises()
 }
 
@@ -213,4 +221,87 @@ it('模板弹框打开时屏蔽撤销重做快捷键，关闭后恢复快捷键'
   await closeButton.trigger('click')
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
   expect(store.nodes).toHaveLength(0)
+})
+
+it('模板选择器进入焦点、隔离编辑区并通过 Escape 关闭恢复', async () => {
+  await setup()
+  const trigger = wrapper!.get<HTMLButtonElement>('[data-action="workflow-templates"]')
+  await openTemplates()
+  const dialog = wrapper!.get('[role="dialog"]')
+  const buttons = dialog.findAll('button')
+  expect(dialog.attributes('aria-modal')).toBe('true')
+  expect(document.activeElement).toBe(buttons[0]!.element)
+  expect(wrapper!.get('header').attributes('inert')).toBeDefined()
+  expect(wrapper!.find('.contents[inert]').exists()).toBe(true)
+
+  buttons[0]!.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+  expect(document.activeElement).toBe(buttons.at(-1)!.element)
+  buttons.at(-1)!.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+  expect(document.activeElement).toBe(buttons[0]!.element)
+
+  trigger.element.focus()
+  expect(document.activeElement).toBe(buttons[0]!.element)
+  buttons[0]!.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  await flushPromises()
+  expect(wrapper!.find('[role="dialog"]').exists()).toBe(false)
+  expect(wrapper!.get('header').attributes('inert')).toBeUndefined()
+  expect(document.activeElement).toBe(trigger.element)
+})
+
+it('延迟模板加载期间焦点离开按钮，关闭后仍恢复到明确的打开按钮', async () => {
+  const pending = deferred<WorkflowDefinition[]>()
+  api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+  await setup()
+  const trigger = wrapper!.get<HTMLButtonElement>('[data-action="workflow-templates"]')
+  trigger.element.focus()
+  await trigger.trigger('click')
+  await flushPromises()
+  expect(trigger.attributes('disabled')).toBeDefined()
+
+  document.body.setAttribute('tabindex', '-1')
+  document.body.focus()
+  expect(document.activeElement).toBe(document.body)
+  pending.resolve([sample()])
+  await flushPromises()
+  expect(wrapper!.find('[role="dialog"]').exists()).toBe(true)
+  const closeButton = wrapper!.get('[role="dialog"] button')
+  expect(document.activeElement).toBe(closeButton.element)
+  await closeButton.trigger('click')
+  await flushPromises()
+  expect(document.activeElement).toBe(trigger.element)
+  document.body.removeAttribute('tabindex')
+})
+
+it('延迟模板加载失败时只在焦点落到 body 时恢复打开按钮', async () => {
+  const stranded = deferred<WorkflowDefinition[]>()
+  const deliberate = deferred<WorkflowDefinition[]>()
+  api.listWorkflowTemplates.mockReturnValueOnce(stranded.promise).mockReturnValueOnce(deliberate.promise)
+  await setup()
+  const trigger = wrapper!.get<HTMLButtonElement>('[data-action="workflow-templates"]')
+  document.body.setAttribute('tabindex', '-1')
+
+  trigger.element.focus()
+  await trigger.trigger('click')
+  await flushPromises()
+  expect(trigger.attributes('disabled')).toBeDefined()
+  document.body.focus()
+  stranded.reject(new Error('fixture load failure'))
+  await flushPromises()
+  expect(document.activeElement).toBe(trigger.element)
+  expect(wrapper!.text()).toContain('fixture load failure')
+
+  await trigger.trigger('click')
+  await flushPromises()
+  expect(trigger.attributes('disabled')).toBeDefined()
+  const deliberateFocus = document.createElement('button')
+  document.body.append(deliberateFocus)
+  deliberateFocus.focus()
+  expect(document.activeElement).toBe(deliberateFocus)
+  deliberate.reject(new Error('second fixture load failure'))
+  await flushPromises()
+  expect(document.activeElement).toBe(deliberateFocus)
+  expect(wrapper!.text()).toContain('second fixture load failure')
+
+  deliberateFocus.remove()
+  document.body.removeAttribute('tabindex')
 })
