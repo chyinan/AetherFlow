@@ -556,6 +556,12 @@ public class WorkflowNodeCatalogService {
                         variable("imageFileIds", "ARRAY", "Stored generated image file ids.", List.of(7)),
                         variable("imageUrls", "ARRAY", "Stored generated image URLs.", List.of("http://minio/image.png")),
                         variable("imageObjectKeys", "ARRAY", "Stored generated image object keys.", List.of("workflow/exports/images/wf/node/image.png")),
+                        variable("mediaFiles", "ARRAY", "Stored generated audio/media file metadata.", List.of(Map.of("id", 8, "contentType", "audio/flac"))),
+                        variable("mediaFileIds", "ARRAY", "Stored generated audio/media file ids.", List.of(8)),
+                        variable("mediaUrls", "ARRAY", "Stored generated audio/media URLs.", List.of("http://minio/audio.flac")),
+                        variable("mediaObjectKeys", "ARRAY", "Stored generated audio/media object keys.", List.of("workflow/exports/media/wf/node/audio.flac")),
+                        variable("mediaUrl", "STRING", "URL for the first generated audio/media artifact.", "http://minio/audio.flac"),
+                        variable("fileUrl", "STRING", "Generic URL for a generated media artifact, compatible with downstream media nodes.", "http://minio/audio.flac"),
                         variable("imageGenerationMetadata", "OBJECT", "Provider generation metadata.", Map.of("seed", 1234))
                 ),
                 mapOf(

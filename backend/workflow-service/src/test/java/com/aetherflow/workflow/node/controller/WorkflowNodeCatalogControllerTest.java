@@ -155,7 +155,8 @@ class WorkflowNodeCatalogControllerTest {
                 .satisfies(schema -> assertThat(schema.options()).contains("DPM++ 2M", "Euler", "UniPC"));
         assertThat(imageGeneration.outputVariables())
                 .extracting(WorkflowNodeVariableSchema::name)
-                .contains("imageFiles", "imageFileIds", "imageUrls", "imageGenerationMetadata");
+                .contains("imageFiles", "imageFileIds", "imageUrls", "imageGenerationMetadata",
+                        "mediaFiles", "mediaFileIds", "mediaUrls", "mediaUrl", "fileUrl");
 
         WorkflowNodeCatalogItem prompt = item(result.getData(), "PROMPT");
         assertThat(prompt.configSchema())

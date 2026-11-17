@@ -45,6 +45,14 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     private static final String DEFAULT_SAMPLER = "euler";
     private static final String DEFAULT_SCHEDULER = "normal";
     private static final int MAX_BATCH_SIZE = 16;
+    private static final int MAX_MEDIA_OUTPUTS = 16;
+    private static final int MAX_UNSUPPORTED_MEDIA_METADATA = 16;
+    private static final int MAX_COMFY_OUTPUT_NODES = 32;
+    private static final int MAX_COMFY_OUTPUT_FIELDS = 24;
+    private static final int MAX_COMFY_TEXT_LENGTH = 2048;
+    private static final int MAX_COMFY_TEXT_ITEMS = 8;
+    private static final Set<String> SUPPORTED_AUDIO_CONTENT_TYPES = Set.of(
+            "audio/aac", "audio/flac", "audio/mp4", "audio/mpeg", "audio/ogg", "audio/opus", "audio/wav");
 
     private final RestClient restClient;
     private final RestClient healthRestClient;
@@ -141,21 +149,72 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
         String promptId = promptIdNode.asText();
         HistoryResult history = waitForHistory(client, promptId, timeout(request));
-        List<ComfyImageRef> refs = imageRefs(promptId, history.history());
-        if (refs.isEmpty()) {
+        boolean customWorkflow = "workflow".equalsIgnoreCase(mode);
+        ComfyOutputRefs outputRefs = outputRefs(promptId, history.history(), customWorkflow);
+        boolean metadataOnlyWorkflow = customWorkflow;
+        if (outputRefs.images().isEmpty() && outputRefs.audio().isEmpty()
+                && !(metadataOnlyWorkflow && outputRefs.hasSuccessfulNonAssetOutput())) {
             throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
         }
 
-        List<GeneratedImagePayload> images = new ArrayList<>(refs.size());
-        for (ComfyImageRef ref : refs) {
-            images.add(download(client, ref));
+        List<GeneratedImagePayload> images = new ArrayList<>(outputRefs.images().size());
+        List<GeneratedMediaPayload> media = new ArrayList<>(outputRefs.audio().size());
+        List<Map<String, Object>> unsupportedMedia = new ArrayList<>();
+        for (ComfyOutputRef ref : outputRefs.images()) {
+            DownloadedComfyAsset downloaded = download(client, ref);
+            String contentType = downloaded.contentType();
+            if (metadataOnlyWorkflow && isSupportedMediaType(contentType)) {
+                media.add(mediaPayload(ref, downloaded, contentType));
+                if (media.size() > MAX_MEDIA_OUTPUTS) {
+                    throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.INVALID_RESPONSE);
+                }
+            } else if (metadataOnlyWorkflow && contentType != null
+                    && (contentType.startsWith("video/") || contentType.startsWith("audio/"))) {
+                // 明确标记为非图片的内容不能作为图片保存；在有界元数据中保留信息，
+                // 但不保存内部产物策略尚未允许的格式。
+                addUnsupportedMedia(unsupportedMedia, ref, contentType);
+            } else {
+                images.add(imagePayload(ref, downloaded, contentType));
+            }
+        }
+        for (ComfyOutputRef ref : metadataOnlyWorkflow ? outputRefs.audio() : List.<ComfyOutputRef>of()) {
+            if (ref.audioContentType() == null) {
+                addUnsupportedMedia(unsupportedMedia, ref, "unsupported-audio-extension");
+                continue;
+            }
+            DownloadedComfyAsset downloaded = download(client, ref);
+            String contentType = downloaded.contentType();
+            if (isGenericContentType(contentType)) {
+                contentType = ref.audioContentType();
+            }
+            if (!SUPPORTED_AUDIO_CONTENT_TYPES.contains(contentType)) {
+                addUnsupportedMedia(unsupportedMedia, ref, contentType);
+                continue;
+            }
+            media.add(mediaPayload(ref, downloaded, contentType));
+            if (media.size() > MAX_MEDIA_OUTPUTS) {
+                throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.INVALID_RESPONSE);
+            }
+        }
+        if (images.isEmpty() && media.isEmpty()
+                && !(metadataOnlyWorkflow && outputRefs.successfulTerminalStatus()
+                && (outputRefs.hasNonAssetOutput() || !unsupportedMedia.isEmpty()))) {
+            throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.EMPTY);
         }
 
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("promptId", promptId);
         metadata.put("imageCount", images.size());
+        if (metadataOnlyWorkflow) {
+            metadata.put("mediaCount", media.size());
+            Map<String, Object> comfyOutputMetadata = new LinkedHashMap<>(outputRefs.metadata());
+            if (!unsupportedMedia.isEmpty()) {
+                comfyOutputMetadata.put("unsupportedMedia", List.copyOf(unsupportedMedia));
+            }
+            metadata.put("comfyOutputMetadata", Map.copyOf(comfyOutputMetadata));
+        }
         metadata.put("queue", history.queue() == null ? Map.of() : history.queue());
-        return new ImageGenerationResponse(type().name(), mode, images, metadata);
+        return new ImageGenerationResponse(type().name(), mode, images, media, metadata);
     }
 
     private Map<String, Object> queuePayload(ImageGenerationRequest request, String mode, ComfyUploadResponse upload) {
@@ -608,43 +667,104 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         }
     }
 
-    private List<ComfyImageRef> imageRefs(String promptId, Map<String, Object> history) {
+    private ComfyOutputRefs outputRefs(String promptId, Map<String, Object> history, boolean includeAudio) {
         Object promptHistory = history.get(promptId);
         if (!(promptHistory instanceof Map<?, ?> promptMap)) {
-            return List.of();
+            return ComfyOutputRefs.empty();
         }
         Object outputs = promptMap.get("outputs");
         if (!(outputs instanceof Map<?, ?> outputMap)) {
-            return List.of();
+            return ComfyOutputRefs.empty();
         }
-        List<ComfyImageRef> refs = new ArrayList<>();
-        for (Object output : outputMap.values()) {
+        List<ComfyOutputRef> images = new ArrayList<>();
+        List<ComfyOutputRef> audio = new ArrayList<>();
+        Map<String, Object> nodeMetadata = new LinkedHashMap<>();
+        boolean hasNonAssetOutput = false;
+        int nodeCount = 0;
+        for (Map.Entry<?, ?> outputEntry : outputMap.entrySet()) {
+            boolean summarizeNode = nodeCount++ < MAX_COMFY_OUTPUT_NODES;
+            String nodeId = boundedText(String.valueOf(outputEntry.getKey()), 128);
+            Object output = outputEntry.getValue();
             if (!(output instanceof Map<?, ?> nodeOutput)) {
                 continue;
             }
-            Object images = nodeOutput.get("images");
-            if (!(images instanceof Iterable<?> iterable)) {
+            images.addAll(outputRefs(nodeId, "images", nodeOutput.get("images")));
+            if (includeAudio) {
+                audio.addAll(outputRefs(nodeId, "audio", nodeOutput.get("audio")));
+            }
+            if (audio.size() > MAX_MEDIA_OUTPUTS) {
+                throw failure(COMFYUI, Stage.OUTPUT, Field.workflow, Reason.INVALID_RESPONSE);
+            }
+            if (!summarizeNode) {
                 continue;
             }
-            for (Object image : iterable) {
-                if (!(image instanceof Map<?, ?> imageMap)) {
-                    continue;
+            Map<String, Object> nodeSummary = new LinkedHashMap<>();
+            int fieldCount = 0;
+            for (Map.Entry<?, ?> field : nodeOutput.entrySet()) {
+                if (fieldCount++ >= MAX_COMFY_OUTPUT_FIELDS) {
+                    nodeSummary.put("truncatedFields", true);
+                    hasNonAssetOutput = true;
+                    break;
                 }
-                String filename = textOrDefault(imageMap.get("filename"), "");
-                if (filename.isBlank()) {
-                    continue;
+                String key = boundedText(String.valueOf(field.getKey()), 128);
+                Object value = field.getValue();
+                if (!Set.of("images", "audio", "animated").contains(key) && value != null) {
+                    hasNonAssetOutput = true;
                 }
-                refs.add(new ComfyImageRef(
-                        filename,
-                        textOrDefault(imageMap.get("subfolder"), ""),
-                        textOrDefault(imageMap.get("type"), "output")
-                ));
+                if ("images".equals(key) || "audio".equals(key)) {
+                    nodeSummary.put(key, Map.of("count", collectionSize(value)));
+                } else if ("text".equalsIgnoreCase(key)) {
+                    nodeSummary.put(key, boundedTextOutput(value));
+                } else if ("animated".equals(key)) {
+                    nodeSummary.put(key, boundedAnimatedValue(value));
+                } else {
+                    nodeSummary.put(key, summarizeUnknownValue(value));
+                }
             }
+            nodeMetadata.put(nodeId, Map.copyOf(nodeSummary));
+        }
+        String terminalStatus = terminalStatus(promptMap);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("terminalStatus", terminalStatus);
+        metadata.put("outputs", Map.copyOf(nodeMetadata));
+        if (outputMap.size() > MAX_COMFY_OUTPUT_NODES) {
+            metadata.put("truncatedNodes", true);
+        }
+        if (outputMap.size() > MAX_COMFY_OUTPUT_NODES) {
+            // 节点元数据已截断时，剩余节点内容未知；不把成功终态误报为空结果。
+            hasNonAssetOutput = true;
+        }
+        return new ComfyOutputRefs(images, audio, Map.copyOf(metadata),
+                isSuccessfulTerminalStatus(promptMap), hasNonAssetOutput);
+    }
+
+    private List<ComfyOutputRef> outputRefs(String nodeId, String outputKey, Object rawRefs) {
+        if (!(rawRefs instanceof Iterable<?> iterable)) {
+            return List.of();
+        }
+        List<ComfyOutputRef> refs = new ArrayList<>();
+        for (Object rawRef : iterable) {
+            if (!(rawRef instanceof Map<?, ?> refMap)) {
+                continue;
+            }
+            String filename = textOrDefault(refMap.get("filename"), "");
+            if (filename.isBlank()) {
+                continue;
+            }
+            String type = textOrDefault(refMap.get("type"), "output");
+            boolean audioViewTypeAllowed = Set.of("output", "temp").contains(type.toLowerCase(Locale.ROOT));
+            refs.add(new ComfyOutputRef(
+                    filename,
+                    textOrDefault(refMap.get("subfolder"), ""),
+                    type,
+                    outputKey,
+                    nodeId,
+                    "audio".equals(outputKey) && audioViewTypeAllowed ? audioContentType(filename) : null));
         }
         return refs;
     }
 
-    private GeneratedImagePayload download(RestClient client, ComfyImageRef ref) {
+    private DownloadedComfyAsset download(RestClient client, ComfyOutputRef ref) {
         ResponseEntity<byte[]> response = atStage(Stage.DOWNLOAD, () -> client.get()
                 .uri(uriBuilder -> uriBuilder.path("/view")
                         .queryParam("filename", ref.filename())
@@ -657,12 +777,149 @@ public class ComfyUiProvider implements ImageGenerationProvider {
         if (bytes.length == 0) {
             throw failure(COMFYUI, Stage.DOWNLOAD, Field.workflow, Reason.EMPTY);
         }
-        String contentType = atStage(Stage.DOWNLOAD, () -> response.getHeaders().getContentType() == null
-                ? "image/png"
-                : response.getHeaders().getContentType().toString());
-        return new GeneratedImagePayload(ref.filename(), contentType,
-                Base64.getEncoder().encodeToString(bytes), (long) bytes.length,
+        MediaType headerType = response.getHeaders().getContentType();
+        String contentType = headerType == null
+                ? null
+                : (headerType.getType() + "/" + headerType.getSubtype()).toLowerCase(Locale.ROOT);
+        return new DownloadedComfyAsset(bytes, contentType);
+    }
+
+    private GeneratedImagePayload imagePayload(ComfyOutputRef ref, DownloadedComfyAsset downloaded, String contentType) {
+        String effectiveContentType = contentType == null || contentType.isBlank() ? "image/png" : contentType;
+        return new GeneratedImagePayload(ref.filename(), effectiveContentType,
+                Base64.getEncoder().encodeToString(downloaded.bytes()), (long) downloaded.bytes().length,
                 Map.of("subfolder", ref.subfolder(), "type", ref.type()));
+    }
+
+    private GeneratedMediaPayload mediaPayload(ComfyOutputRef ref, DownloadedComfyAsset downloaded, String contentType) {
+        if (downloaded.bytes().length > 50 * 1024 * 1024) {
+            throw failure(COMFYUI, Stage.DOWNLOAD, Field.workflow, Reason.INVALID_RESPONSE);
+        }
+        return new GeneratedMediaPayload(ref.filename(), contentType,
+                Base64.getEncoder().encodeToString(downloaded.bytes()), (long) downloaded.bytes().length,
+                Map.of("subfolder", ref.subfolder(), "type", ref.type(),
+                        "outputKey", ref.outputKey(), "nodeId", ref.nodeId()));
+    }
+
+    private Map<String, Object> unsupportedMedia(ComfyOutputRef ref, String contentType) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("outputKey", ref.outputKey());
+        value.put("nodeId", ref.nodeId());
+        value.put("fileName", boundedText(ref.filename(), 255));
+        value.put("contentType", boundedText(contentType, 128));
+        return Map.copyOf(value);
+    }
+
+    private void addUnsupportedMedia(List<Map<String, Object>> unsupportedMedia,
+                                    ComfyOutputRef ref,
+                                    String contentType) {
+        if (unsupportedMedia.size() < MAX_UNSUPPORTED_MEDIA_METADATA) {
+            unsupportedMedia.add(unsupportedMedia(ref, contentType));
+        }
+    }
+
+    private String audioContentType(String filename) {
+        String name = filename.toLowerCase(Locale.ROOT);
+        if (name.endsWith(".flac")) return "audio/flac";
+        if (name.endsWith(".mp3")) return "audio/mpeg";
+        if (name.endsWith(".opus")) return "audio/opus";
+        if (name.endsWith(".wav")) return "audio/wav";
+        if (name.endsWith(".m4a")) return "audio/mp4";
+        if (name.endsWith(".aac")) return "audio/aac";
+        if (name.endsWith(".ogg")) return "audio/ogg";
+        return null;
+    }
+
+    private boolean isSupportedMediaType(String contentType) {
+        return contentType != null && (SUPPORTED_AUDIO_CONTENT_TYPES.contains(contentType)
+                || "video/mp4".equals(contentType));
+    }
+
+    private boolean isGenericContentType(String contentType) {
+        return contentType == null || contentType.isBlank()
+                || "application/octet-stream".equals(contentType);
+    }
+
+    private int collectionSize(Object value) {
+        if (value instanceof java.util.Collection<?> collection) {
+            return collection.size();
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.size();
+        }
+        return value == null ? 0 : 1;
+    }
+
+    private String terminalStatus(Map<?, ?> promptHistory) {
+        Object rawStatus = promptHistory.get("status");
+        if (!(rawStatus instanceof Map<?, ?> status)) {
+            return "unknown";
+        }
+        return textOrDefault(status.get("status_str"), "unknown").toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isSuccessfulTerminalStatus(Map<?, ?> promptHistory) {
+        Object rawStatus = promptHistory.get("status");
+        if (!(rawStatus instanceof Map<?, ?> status)
+                || !"success".equalsIgnoreCase(String.valueOf(status.get("status_str")))) {
+            return false;
+        }
+        return !Boolean.FALSE.equals(status.get("completed"));
+    }
+
+    private String boundedText(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength) + "…";
+    }
+
+    private Object boundedTextOutput(Object value) {
+        if (value instanceof CharSequence text) {
+            return boundedText(text.toString(), MAX_COMFY_TEXT_LENGTH);
+        }
+        if (value instanceof Iterable<?> values) {
+            List<String> texts = new ArrayList<>();
+            for (Object item : values) {
+                if (texts.size() >= MAX_COMFY_TEXT_ITEMS) break;
+                if (item instanceof CharSequence text) {
+                    texts.add(boundedText(text.toString(), MAX_COMFY_TEXT_LENGTH));
+                }
+            }
+            return List.copyOf(texts);
+        }
+        return summarizeUnknownValue(value);
+    }
+
+    private Object boundedAnimatedValue(Object value) {
+        if (value instanceof Boolean || value instanceof Number) return value;
+        if (value instanceof Iterable<?> values) {
+            List<Object> bounded = new ArrayList<>();
+            for (Object item : values) {
+                if (bounded.size() >= 4) break;
+                if (item instanceof Boolean || item instanceof Number) bounded.add(item);
+                else bounded.add("other");
+            }
+            return List.copyOf(bounded);
+        }
+        return summarizeUnknownValue(value);
+    }
+
+    private Object summarizeUnknownValue(Object value) {
+        if (value instanceof Boolean || value instanceof Number) return value;
+        if (value instanceof CharSequence text) {
+            return Map.of("type", "string", "length", text.length());
+        }
+        if (value instanceof Map<?, ?> map) {
+            List<String> keys = map.keySet().stream().limit(8)
+                    .map(String::valueOf).map(key -> boundedText(key, 128)).toList();
+            return Map.of("type", "object", "keys", keys, "keyCount", map.size());
+        }
+        if (value instanceof java.util.Collection<?> collection) {
+            return Map.of("type", "array", "count", collection.size());
+        }
+        if (value instanceof Iterable<?>) {
+            return Map.of("type", "iterable");
+        }
+        return value == null ? Map.of("type", "null") : Map.of("type", "other");
     }
 
     private <T> T atStage(Stage stage, Supplier<T> operation) {
@@ -743,6 +1000,39 @@ public class ComfyUiProvider implements ImageGenerationProvider {
     record HistoryResult(Map<String, Object> history, Map<String, Object> queue) {
     }
 
-    record ComfyImageRef(String filename, String subfolder, String type) {
+    private record ComfyOutputRef(String filename, String subfolder, String type,
+                                  String outputKey, String nodeId, String audioContentType) {
+    }
+
+    private record DownloadedComfyAsset(byte[] bytes, String contentType) {
+        private DownloadedComfyAsset {
+            bytes = bytes == null ? new byte[0] : bytes.clone();
+        }
+
+        @Override
+        public byte[] bytes() {
+            return bytes.clone();
+        }
+    }
+
+    private record ComfyOutputRefs(List<ComfyOutputRef> images,
+                                   List<ComfyOutputRef> audio,
+                                   Map<String, Object> metadata,
+                                   boolean successfulTerminalStatus,
+                                   boolean hasNonAssetOutput) {
+        private ComfyOutputRefs {
+            images = List.copyOf(images);
+            audio = List.copyOf(audio);
+            metadata = Map.copyOf(metadata);
+        }
+
+        private static ComfyOutputRefs empty() {
+            return new ComfyOutputRefs(List.of(), List.of(),
+                    Map.of("terminalStatus", "unknown", "outputs", Map.of()), false, false);
+        }
+
+        private boolean hasSuccessfulNonAssetOutput() {
+            return successfulTerminalStatus && hasNonAssetOutput;
+        }
     }
 }

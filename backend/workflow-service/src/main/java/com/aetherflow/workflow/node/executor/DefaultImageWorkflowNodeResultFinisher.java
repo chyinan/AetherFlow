@@ -50,6 +50,10 @@ public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNode
         }
         List<ImageWorkflowDtos.GeneratedImage> images = ImageWorkflowNodeSupport.imagesFromOutput(output);
         if (images.isEmpty()) {
+            NodeResult metadataOnly = successfulComfyMetadataOnly(nodeType, output);
+            if (metadataOnly != null) {
+                return metadataOnly;
+            }
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
                     "async image result returned no images");
         }
@@ -106,11 +110,80 @@ public class DefaultImageWorkflowNodeResultFinisher implements ImageWorkflowNode
         stored.put("provider", stringValue(output, "provider"));
         stored.put("mode", stringValue(output, "mode"));
         stored.put(metadataKey, NodeValueSupport.objectMap(output.get("metadata")));
-        stored.put(prefix + "Files", List.copyOf(files));
+        List<?> imageFiles = artifactFilesOfType(files, output.get("artifactTypeBindings"), "image");
+        List<?> mediaFiles = artifactFilesOfType(files, output.get("artifactTypeBindings"), "media");
+        stored.put(prefix + "Files", imageFiles);
         stored.put(prefix + "FileIds", valueOrEmptyList(output.get("imageFileIds")));
         stored.put(prefix + "ObjectKeys", valueOrEmptyList(output.get("imageObjectKeys")));
         stored.put(prefix + "Urls", valueOrEmptyList(output.get("imageUrls")));
+        if (!mediaFiles.isEmpty()) {
+            stored.put("mediaFiles", mediaFiles);
+            stored.put("mediaFileIds", valueOrEmptyList(output.get("mediaFileIds")));
+            stored.put("mediaObjectKeys", valueOrEmptyList(output.get("mediaObjectKeys")));
+            stored.put("mediaUrls", valueOrEmptyList(output.get("mediaUrls")));
+            copyIfPresent(output, stored, "mediaFileId");
+            copyIfPresent(output, stored, "mediaObjectKey");
+            copyIfPresent(output, stored, "mediaUrl");
+            copyIfPresent(output, stored, "fileId");
+            copyIfPresent(output, stored, "fileObjectKey");
+            copyIfPresent(output, stored, "fileUrl");
+            if (stored.containsKey("mediaUrl")) {
+                stored.putIfAbsent("fileUrl", stored.get("mediaUrl"));
+            }
+        }
         return NodeResult.success(Map.copyOf(stored), Map.copyOf(stored));
+    }
+
+    private List<?> artifactFilesOfType(List<?> files, Object rawBindings, String expectedType) {
+        if (!(rawBindings instanceof List<?> bindings) || bindings.isEmpty()) {
+            return "image".equals(expectedType) ? List.copyOf(files) : List.of();
+        }
+        java.util.ArrayList<Object> typedFiles = new java.util.ArrayList<>();
+        for (Object rawBinding : bindings) {
+            if (!(rawBinding instanceof Map<?, ?> binding)
+                    || !(binding.get("index") instanceof Number indexValue)
+                    || !expectedType.equalsIgnoreCase(String.valueOf(binding.get("type")))) {
+                continue;
+            }
+            int index = indexValue.intValue();
+            if (index >= 0 && index < files.size()) {
+                typedFiles.add(files.get(index));
+            }
+        }
+        return List.copyOf(typedFiles);
+    }
+
+    private NodeResult successfulComfyMetadataOnly(String nodeType, Map<String, Object> output) {
+        if (!"IMAGE_GENERATION".equalsIgnoreCase(nodeType)
+                || !"COMFYUI".equalsIgnoreCase(stringValue(output, "provider"))
+                || !"workflow".equalsIgnoreCase(stringValue(output, "mode"))) {
+            return null;
+        }
+        Map<String, Object> metadata = NodeValueSupport.objectMap(output == null ? null : output.get("metadata"));
+        Map<String, Object> comfyMetadata = NodeValueSupport.objectMap(metadata.get("comfyOutputMetadata"));
+        if (!"success".equalsIgnoreCase(stringValue(comfyMetadata, "terminalStatus"))
+                || NodeValueSupport.objectMap(comfyMetadata.get("outputs")).isEmpty()) {
+            return null;
+        }
+        Map<String, Object> stored = new LinkedHashMap<>();
+        stored.put("provider", stringValue(output, "provider"));
+        stored.put("mode", stringValue(output, "mode"));
+        stored.put("imageGenerationMetadata", metadata);
+        stored.put("imageFiles", List.of());
+        stored.put("imageFileIds", List.of());
+        stored.put("imageObjectKeys", List.of());
+        stored.put("imageUrls", List.of());
+        stored.put("mediaFiles", List.of());
+        stored.put("mediaFileIds", List.of());
+        stored.put("mediaObjectKeys", List.of());
+        stored.put("mediaUrls", List.of());
+        return NodeResult.success(Map.copyOf(stored), Map.copyOf(stored));
+    }
+
+    private void copyIfPresent(Map<String, Object> source, Map<String, Object> target, String key) {
+        if (source != null && source.get(key) != null) {
+            target.put(key, source.get(key));
+        }
     }
 
     private List<?> valueOrEmptyList(Object value) {

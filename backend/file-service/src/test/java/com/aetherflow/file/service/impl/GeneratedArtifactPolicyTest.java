@@ -59,6 +59,26 @@ class GeneratedArtifactPolicyTest {
                         assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST));
     }
 
+    @Test
+    void allowsOnlyRegisteredComfyAudioFormatsForGeneratedMedia() {
+        CreateGeneratedFileRequestDTO flac = mediaRequest("audio/flac", "audio.flac");
+        CreateGeneratedFileRequestDTO opus = mediaRequest("audio/opus", "audio.opus");
+
+        assertThat(GeneratedArtifactPolicy.prepare(flac, 1024).contentType()).isEqualTo("audio/flac");
+        assertThat(GeneratedArtifactPolicy.prepare(opus, 1024).contentType()).isEqualTo("audio/opus");
+
+        CreateGeneratedFileRequestDTO unsupported = mediaRequest("audio/x-comfy-private", "audio.unknown");
+        assertThatThrownBy(() -> GeneratedArtifactPolicy.prepare(unsupported, 1024))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST));
+
+        CreateGeneratedFileRequestDTO misclassified = mediaRequest("audio/flac", "voice.flac");
+        misclassified.setArtifactKind("image");
+        assertThatThrownBy(() -> GeneratedArtifactPolicy.prepare(misclassified, 1024))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getErrorCode()).isEqualTo(ResultCode.BAD_REQUEST));
+    }
+
     private CreateGeneratedFileRequestDTO request() {
         CreateGeneratedFileRequestDTO request = new CreateGeneratedFileRequestDTO();
         request.setUserId(1001L);
@@ -74,6 +94,15 @@ class GeneratedArtifactPolicyTest {
         request.setOriginalName("transcription.srt");
         request.setContentType("text/plain");
         request.setContentBase64(Base64.getEncoder().encodeToString("subtitle".getBytes(StandardCharsets.UTF_8)));
+        return request;
+    }
+
+    private CreateGeneratedFileRequestDTO mediaRequest(String contentType, String fileName) {
+        CreateGeneratedFileRequestDTO request = request();
+        request.setArtifactKind("document");
+        request.setOriginalName(fileName);
+        request.setContentType(contentType);
+        request.setIdempotencyKey("ai-task:77:node-image:MEDIA:0");
         return request;
     }
 }

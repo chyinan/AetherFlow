@@ -21,7 +21,8 @@ final class GeneratedArtifactPolicy {
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "text/plain", "text/markdown", "text/csv", "application/json",
             "image/png", "image/jpeg", "image/webp", "application/zip",
-            "audio/wav", "audio/mpeg", "audio/mp4", "audio/aac", "video/mp4");
+            "audio/wav", "audio/mpeg", "audio/mp4", "audio/aac", "audio/flac", "audio/ogg", "audio/opus",
+            "video/mp4");
 
     private GeneratedArtifactPolicy() {
     }
@@ -58,6 +59,9 @@ final class GeneratedArtifactPolicy {
         String contentType = required(request.getContentType(), "contentType", 128).toLowerCase(Locale.ROOT);
         if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
             throw badRequest("generated artifact content type is unsupported");
+        }
+        if (contentType.startsWith("audio/") && !"document".equals(artifactKind)) {
+            throw badRequest("audio generated artifacts must use document classification");
         }
         String originalName = sanitizeFileName(required(request.getOriginalName(), "originalName", 255));
         byte[] content = decodeContent(request.getContentBase64(), maxDecodedBytes);

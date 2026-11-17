@@ -1,6 +1,7 @@
 package com.aetherflow.ai.workflow.executor;
 
 import com.aetherflow.ai.image.GeneratedImagePayload;
+import com.aetherflow.ai.image.GeneratedMediaPayload;
 import com.aetherflow.ai.image.ImageGenerationRequest;
 import com.aetherflow.ai.image.ImageGenerationResponse;
 import com.aetherflow.ai.image.ImageGenerationProvider;
@@ -75,6 +76,65 @@ class ImageGenerationBatchDeliveryTest {
                 .hasMessageContaining("blank image");
     }
 
+    @Test
+    void deliversSupportedComfyAudioAsTypedMediaArtifactWithoutChangingImageCount() {
+        ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(
+                new ImageProviderRegistry(List.of(new ImageGenerationProvider() {
+                    public ImageProviderType type() { return ImageProviderType.COMFYUI; }
+                    public ImageGenerationResponse generate(ImageGenerationRequest request) {
+                        return new ImageGenerationResponse("COMFYUI", request.mode(), List.of(),
+                                List.of(new GeneratedMediaPayload("voice.flac", "audio/flac",
+                                        java.util.Base64.getEncoder().encodeToString(new byte[]{1, 2, 3}), 3L,
+                                        Map.of("outputKey", "audio"))), Map.of());
+                    }
+                    public ImageGenerationResponse upscale(ImageGenerationRequest request) { return generate(request); }
+                })));
+
+        var result = executor.execute(context("workflow"));
+
+        assertThat(result.artifacts()).hasSize(1);
+        assertThat(result.artifacts().get(0).type()).isEqualTo("MEDIA");
+        assertThat(result.artifacts().get(0).fileName()).isEqualTo("voice.flac");
+        assertThat(result.artifacts().get(0).contentType()).isEqualTo("audio/flac");
+        assertThat(result.output()).containsEntry("imageCount", 0).containsEntry("mediaCount", 1);
+    }
+
+    @Test
+    void rejectsUnsupportedMediaMimeInsteadOfForwardingItToStorage() {
+        ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(
+                new ImageProviderRegistry(List.of(new ImageGenerationProvider() {
+                    public ImageProviderType type() { return ImageProviderType.COMFYUI; }
+                    public ImageGenerationResponse generate(ImageGenerationRequest request) {
+                        return new ImageGenerationResponse("COMFYUI", request.mode(), List.of(),
+                                List.of(new GeneratedMediaPayload("voice.private", "audio/x-private",
+                                        "AQID", 3L, Map.of())), Map.of());
+                    }
+                    public ImageGenerationResponse upscale(ImageGenerationRequest request) { return generate(request); }
+                })));
+
+        assertThatThrownBy(() -> executor.execute(context("workflow")))
+                .hasMessageContaining("unsupported media type");
+    }
+
+    @Test
+    void ignoresMediaPayloadOutsideCustomComfyWorkflowMode() {
+        ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(
+                new ImageProviderRegistry(List.of(new ImageGenerationProvider() {
+                    public ImageProviderType type() { return ImageProviderType.COMFYUI; }
+                    public ImageGenerationResponse generate(ImageGenerationRequest request) {
+                        return new ImageGenerationResponse("COMFYUI", request.mode(), List.of(),
+                                List.of(new GeneratedMediaPayload("voice.flac", "audio/flac", "AQID", 3L, Map.of())), Map.of());
+                    }
+                    public ImageGenerationResponse upscale(ImageGenerationRequest request) { return generate(request); }
+                })));
+
+        var result = executor.execute(context());
+
+        assertThat(result.artifacts()).isEmpty();
+        assertThat(result.output()).containsEntry("imageCount", 0)
+                .doesNotContainKey("mediaCount");
+    }
+
     private static ImageProviderRegistry registryReturning(int imageCount) {
         return new ImageProviderRegistry(List.of(new ImageGenerationProvider() {
             public ImageProviderType type() { return ImageProviderType.COMFYUI; }
@@ -94,6 +154,10 @@ class ImageGenerationBatchDeliveryTest {
     }
 
     private static AiNodeExecutionContext context() {
+        return context("txt2img");
+    }
+
+    private static AiNodeExecutionContext context(String mode) {
         TaskMessageDTO message = new TaskMessageDTO();
         message.setTaskId(1L);
         message.setWorkflowInstanceId(2L);
@@ -101,6 +165,6 @@ class ImageGenerationBatchDeliveryTest {
         message.setNodeId("node-image");
         message.setNodeType("IMAGE_GENERATION");
         return new AiNodeExecutionContext(message, Map.of(
-                "provider", "COMFYUI", "mode", "txt2img", "prompt", "cat"));
+                "provider", "COMFYUI", "mode", mode, "prompt", "cat"));
     }
 }
