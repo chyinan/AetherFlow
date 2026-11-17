@@ -1167,11 +1167,13 @@ onMounted(() => {
           <UpstreamVariableSelector :key="`${selectedNode.id}-fileIdVariable`" :node-id="selectedNode.id" field="fileIdVariable" :label="t('workflow.inspector.fileIdVariable')" :model-value="textConfig('fileIdVariable', 'fileId')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="NUMBER" :fixed-value-active="Boolean(textConfig('fileId', ''))" @update:model-value="updateConfig('fileIdVariable', $event)" />
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrLanguage') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="language" :value="textConfig('language', 'auto')" @change="handleTextInput('language', $event)">
+            <input list="whisper-language-options" maxlength="32" class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="language" :value="textConfig('language', 'auto')" @input="handleTextInput('language', $event)" />
+            <datalist id="whisper-language-options">
               <option value="auto">auto</option>
               <option value="zh">zh</option>
               <option value="en">en</option>
-            </select>
+            </datalist>
+            <span class="mt-2 block text-xs leading-5 text-text-muted">{{ t('workflow.inspector.whisperLanguageHint') }}</span>
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.asrPrompt') }}</span>

@@ -697,6 +697,7 @@ export const zhCN = {
       fileUrlOutput: '传给 Whisper Runtime 的公开视频地址。',
       objectKeyOutput: '对象存储中的文件路径。',
       asrLanguage: '转写语言',
+      whisperLanguageHint: '请输入当前已安装模型支持的语言代码，或选择/输入 auto 以自动检测。',
       asrPrompt: 'Whisper 提示词',
       whisperPromptLimit: '最多 8000 个字符。',
       whisperRuntimeHint: '音频分离由 Python AI Runtime 内部调用 FFmpeg 完成，随后通过 faster-whisper 生成 transcription。',
