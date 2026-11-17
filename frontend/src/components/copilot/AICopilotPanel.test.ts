@@ -94,6 +94,49 @@ describe('AICopilotPanel', () => {
       edit: { status: 'READY', explanation: '添加开始节点', operations: [{ type: 'add_node', nodeId: 'ai-start', kind: 'start' }] } }
   }
 
+  it('preserves multiline chat prompts and sends Enter without stealing an IME commit', async () => {
+    const context = panelContext()
+    stream.mockResolvedValue(assistantMessage('Reply'))
+    const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
+    await flushPromises()
+    const composer = wrapper.find('form textarea')
+    expect(composer.exists()).toBe(true)
+    expect(composer.attributes('rows')).toBe('1')
+    await composer.setValue('First line\nSecond line')
+    expect((composer.element as HTMLTextAreaElement).value).toBe('First line\nSecond line')
+    expect(composer.attributes('rows')).toBe('2')
+
+    const shiftEnter = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true })
+    composer.element.dispatchEvent(shiftEnter)
+    expect(shiftEnter.defaultPrevented).toBe(false)
+
+    const imeEnter = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })
+    composer.element.dispatchEvent(imeEnter)
+    await flushPromises()
+    expect(imeEnter.defaultPrevented).toBe(false)
+    expect(stream).not.toHaveBeenCalled()
+
+    const legacyImeEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    Object.defineProperty(legacyImeEnter, 'keyCode', { value: 229 })
+    composer.element.dispatchEvent(legacyImeEnter)
+    await flushPromises()
+    expect(legacyImeEnter.defaultPrevented).toBe(false)
+    expect(stream).not.toHaveBeenCalled()
+
+    const sendEnter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    composer.element.dispatchEvent(sendEnter)
+    await flushPromises()
+    expect(sendEnter.defaultPrevented).toBe(true)
+    expect(stream.mock.calls[0][0]).toContain('First line\nSecond line')
+
+    const repeatedEnter = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true })
+    composer.element.dispatchEvent(repeatedEnter)
+    await flushPromises()
+    expect(repeatedEnter.defaultPrevented).toBe(true)
+    expect(stream).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('starts a fresh conversation and keeps it empty when the panel reopens', async () => {
     const context = panelContext()
     listConversations.mockResolvedValue([{ id: 'conv-11', title: 'Old chat', workflowId: context.workflowId, messageCount: 2, updatedAt: '' }])
@@ -124,7 +167,7 @@ describe('AICopilotPanel', () => {
     const first = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
     await flushPromises()
     await first.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
-    await first.find('form input').setValue('全新问题')
+    await first.find('form textarea').setValue('全新问题')
     await first.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
@@ -153,7 +196,7 @@ describe('AICopilotPanel', () => {
     const applyCanvasEdit = vi.fn()
     const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(editCanvas).toHaveBeenCalledTimes(1))
     await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))?.trigger('click')
@@ -186,7 +229,7 @@ describe('AICopilotPanel', () => {
     editCanvas.mockResolvedValue(canvasResponse())
     const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(editCanvas).toHaveBeenCalledWith('添加开始节点', expect.objectContaining({ context: expect.objectContaining({ nodeCatalog: expect.any(Array) }) }))
@@ -204,7 +247,7 @@ describe('AICopilotPanel', () => {
     const context = panelContext()
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(editCanvas).toHaveBeenCalledTimes(1))
     await wrapper.setProps({ context: { ...context, editRevision: 4 } })
@@ -222,7 +265,7 @@ describe('AICopilotPanel', () => {
     const applyCanvasEdit = vi.fn().mockReturnValue(true)
     const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(validateCanvasEdit).toHaveBeenCalledTimes(1))
     await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.editor.cancel'))?.trigger('click')
@@ -238,7 +281,7 @@ describe('AICopilotPanel', () => {
     const applyCanvasEdit = vi.fn().mockReturnValue(true)
     const wrapper = mount(AICopilotPanel, { props: { context: panelContext(), applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(applyCanvasEdit).not.toHaveBeenCalled()
@@ -272,7 +315,7 @@ describe('AICopilotPanel', () => {
     const wrapper = mount(AICopilotPanel, {
       global: { plugins: [i18n] },
     })
-    const input = wrapper.find('form input')
+    const input = wrapper.find('form textarea')
     await input.setValue('请解释错误')
     const submitPromise = wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(stream).toHaveBeenCalled())
@@ -388,7 +431,7 @@ describe('AICopilotPanel', () => {
     expect(applyWorkflowDraft).toHaveBeenCalledTimes(1)
 
     await wrapper.findAll('button').find((button) => button.text().includes(i18n.global.t('copilot.planner.leaveMode')))?.trigger('click')
-    await wrapper.find('form input').setValue('What does the Summary node do?')
+    await wrapper.find('form textarea').setValue('What does the Summary node do?')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream).toHaveBeenCalledTimes(1)
@@ -414,7 +457,7 @@ describe('AICopilotPanel', () => {
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-plan-failed')
     expect(planWorkflow.mock.calls[0][1].conversationId).toBeUndefined()
 
-    await wrapper.find('form input').setValue('Keep the first request and add an audience')
+    await wrapper.find('form textarea').setValue('Keep the first request and add an audience')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -494,7 +537,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(wrapper.text()).toContain(clarification.clarifyingQuestion)
 
-    await wrapper.find('form input').setValue('A public URL')
+    await wrapper.find('form textarea').setValue('A public URL')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(planWorkflow).toHaveBeenCalledTimes(2)
@@ -520,7 +563,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(planWorkflow.mock.calls[0][1].context).not.toHaveProperty('pendingDraft')
 
-    await wrapper.find('form input').setValue('只修改当前草稿名称')
+    await wrapper.find('form textarea').setValue('只修改当前草稿名称')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -573,7 +616,7 @@ describe('AICopilotPanel', () => {
       props: { context, saveCustomNodeDrafts, applyCanvasEdit }, global: { plugins: [i18n] },
     })
     await flushPromises()
-    await wrapper.find('form input').setValue('生成天气 API 模板')
+    await wrapper.find('form textarea').setValue('生成天气 API 模板')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(wrapper.find('[data-testid="custom-node-preview"]').exists()).toBe(true)
@@ -583,7 +626,7 @@ describe('AICopilotPanel', () => {
     expect(wrapper.text()).toContain('Custom node output is not connected')
     expect(saveCustomNodeDrafts).not.toHaveBeenCalled()
 
-    await wrapper.find('form input').setValue('只修改当前草稿名称')
+    await wrapper.find('form textarea').setValue('只修改当前草稿名称')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -673,7 +716,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('I have a media summary plan ready to review.')
-    await wrapper.find('form input').setValue('Explain this workflow')
+    await wrapper.find('form textarea').setValue('Explain this workflow')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream).toHaveBeenCalledWith(expect.stringContaining('Explain this workflow'), expect.objectContaining({ workflowId: 'workflow-b' }))
@@ -769,7 +812,7 @@ describe('AICopilotPanel', () => {
     if (mode === 'planner') {
       await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.quickDraftWorkflow'))!.trigger('click')
     } else {
-      await wrapper.find('form input').setValue('新的请求')
+      await wrapper.find('form textarea').setValue('新的请求')
       await wrapper.find('form').trigger('submit')
     }
     history.resolve([assistantMessage('OLD_HISTORY', 'conv-1')])
@@ -797,7 +840,7 @@ describe('AICopilotPanel', () => {
     stream.mockResolvedValue(assistantMessage('NEW_REPLY'))
     const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('新的问题')
+    await wrapper.find('form textarea').setValue('新的问题')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     if (lateResult === 'list') conversations.resolve([{ id: 'conv-1', workflowId: context.workflowId }])
@@ -808,7 +851,7 @@ describe('AICopilotPanel', () => {
     expect(wrapper.text()).not.toContain('OLD_HISTORY')
     expect(wrapper.text()).not.toContain(i18n.global.t('copilot.historyUnavailable'))
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-2')
-    await wrapper.find('form input').setValue('继续')
+    await wrapper.find('form textarea').setValue('继续')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[1][1].conversationId).toBe('conv-2')
@@ -830,7 +873,7 @@ describe('AICopilotPanel', () => {
     const editMode = wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.editor.editMode'))!
     expect(chatMode.attributes('aria-pressed')).toBe('true')
     expect(editMode.attributes('aria-pressed')).toBe('false')
-    await wrapper.find('form input').setValue('A public URL')
+    await wrapper.find('form textarea').setValue('A public URL')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(planWorkflow).toHaveBeenCalledWith('A public URL', expect.objectContaining({ conversationId: 'conv-1' }))
@@ -852,7 +895,7 @@ describe('AICopilotPanel', () => {
     history.resolve([planMessage(context, readyMediaPlan())])
     await flushPromises()
     expect(wrapper.text()).not.toContain(readyMediaPlan().explanation)
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(editCanvas).toHaveBeenCalledOnce()
@@ -907,7 +950,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(wrapper.text()).not.toContain('DRAFT-A-DETAILS')
     expect(listMessages).toHaveBeenCalledTimes(1)
-    await wrapper.find('form input').setValue('Work on B')
+    await wrapper.find('form textarea').setValue('Work on B')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
@@ -947,7 +990,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(listMessages).toHaveBeenCalledWith('conv-1')
     expect(wrapper.text()).toContain('REMEMBERED_HISTORY')
-    await wrapper.find('form input').setValue('继续之前的讨论')
+    await wrapper.find('form textarea').setValue('继续之前的讨论')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
@@ -964,7 +1007,7 @@ describe('AICopilotPanel', () => {
     expect(readConversationSelection(conversationSessionKey(context))).toBe('new')
     expect(wrapper.text()).toContain(i18n.global.t('copilot.historyUnavailable'))
     stream.mockResolvedValue(assistantMessage('NEW_REPLY'))
-    await wrapper.find('form input').setValue('新问题')
+    await wrapper.find('form textarea').setValue('新问题')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
@@ -980,7 +1023,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(wrapper.text()).toContain(i18n.global.t('copilot.welcome'))
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-1')
-    await wrapper.find('form input').setValue('Hello')
+    await wrapper.find('form textarea').setValue('Hello')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
@@ -1003,7 +1046,7 @@ describe('AICopilotPanel', () => {
     await flushPromises()
     expect(listMessages).not.toHaveBeenCalled()
     stream.mockResolvedValue(assistantMessage('NEW_REPLY'))
-    await reopened.find('form input').setValue('Fresh question')
+    await reopened.find('form textarea').setValue('Fresh question')
     await reopened.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
@@ -1020,7 +1063,7 @@ describe('AICopilotPanel', () => {
     expect(wrapper.text()).toContain(i18n.global.t('copilot.historyLoadFailed'))
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-1')
     stream.mockResolvedValue(assistantMessage('CONTINUED', 'conv-1'))
-    await wrapper.find('form input').setValue('Continue')
+    await wrapper.find('form textarea').setValue('Continue')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBe('conv-1')
@@ -1042,7 +1085,7 @@ describe('AICopilotPanel', () => {
     const applyCanvasEdit = vi.fn().mockReturnValue(true)
     const wrapper = mount(AICopilotPanel, { props: { context, ...(mode === 'canvas' ? { applyCanvasEdit } : {}) }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('新的请求')
+    await wrapper.find('form textarea').setValue('新的请求')
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeDefined()
     await wrapper.find('form').trigger('submit')
     if (mode === 'planner') {
@@ -1078,7 +1121,7 @@ describe('AICopilotPanel', () => {
     const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
     await flushPromises()
     expect(listMessages).toHaveBeenCalledWith('conv-1')
-    await wrapper.find('form input').setValue('Continue')
+    await wrapper.find('form textarea').setValue('Continue')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     // 历史未恢复完成前不允许续发：否则会按默认模式写到错误会话，迟到的规划历史也会失效。
@@ -1125,7 +1168,7 @@ describe('AICopilotPanel', () => {
     const wrapper = mount(AICopilotPanel, { props: { context }, global: { plugins: [i18n] } })
     await flushPromises()
     await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))!.trigger('click')
-    await wrapper.find('form input').setValue('Fresh question')
+    await wrapper.find('form textarea').setValue('Fresh question')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream.mock.calls[0][1].conversationId).toBeUndefined()
@@ -1148,11 +1191,11 @@ describe('AICopilotPanel', () => {
       global: { plugins: [i18n] },
     })
     await flushPromises()
-    await wrapper.find('form input').setValue('UNSENT_COMPOSER_DRAFT')
+    await wrapper.find('form textarea').setValue('UNSENT_COMPOSER_DRAFT')
     const quickActionLabel = mode === 'chat' ? i18n.global.t('copilot.quickExplainLatestError') : i18n.global.t('copilot.quickDraftWorkflow')
     await wrapper.findAll('button').find((button) => button.text() === quickActionLabel)!.trigger('click')
     await nextTick()
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('UNSENT_COMPOSER_DRAFT')
 
     response.resolve(mode === 'chat'
       ? assistantMessage('Quick answer')
@@ -1161,7 +1204,7 @@ describe('AICopilotPanel', () => {
         : { message: assistantMessage('Canvas response'), edit: { status: 'NEEDS_CLARIFICATION', explanation: 'Need one detail' } })
     await flushPromises()
 
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('UNSENT_COMPOSER_DRAFT')
     wrapper.unmount()
   })
 
@@ -1176,12 +1219,12 @@ describe('AICopilotPanel', () => {
       global: { plugins: [i18n] },
     })
     await flushPromises()
-    await wrapper.find('form input').setValue('UNSENT_COMPOSER_DRAFT')
+    await wrapper.find('form textarea').setValue('UNSENT_COMPOSER_DRAFT')
     const quickActionLabel = mode === 'chat' ? i18n.global.t('copilot.quickExplainLatestError') : i18n.global.t('copilot.quickDraftWorkflow')
     await wrapper.findAll('button').find((button) => button.text() === quickActionLabel)!.trigger('click')
     await flushPromises()
 
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('UNSENT_COMPOSER_DRAFT')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('UNSENT_COMPOSER_DRAFT')
     wrapper.unmount()
   })
 })
