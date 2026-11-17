@@ -2,6 +2,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { getBatchResults, type BatchRunResult } from '@/api/modules/runtime'
 const props = defineProps<{ instanceId?: string | number; nodeId: string; runStatus?: string }>()
+const PAGE_SIZE = 50
 const rows = ref<BatchRunResult[]>([])
 const total = ref(0)
 const offset = ref(0)
@@ -16,12 +17,22 @@ async function load(nextOffset = 0) {
   try {
     const result = await getBatchResults(props.instanceId, props.nodeId, nextOffset)
     if (current !== generation) return
-    rows.value = result.results; total.value = result.total; offset.value = result.offset
+    // 并发批次因失败停止后，保留下来的结果可能已不覆盖这一页。
+    if (result.total > 0 && nextOffset >= result.total) {
+      await load(Math.floor((result.total - 1) / PAGE_SIZE) * PAGE_SIZE)
+      return
+    }
+    rows.value = result.results; total.value = result.total
+    // 恢复执行时快照可能暂时没有逐项结果，下一次读取仍应使用原页。
+    offset.value = result.total === 0 ? nextOffset : result.offset
   } catch { if (current === generation) error.value = '批次结果暂时无法加载，请重试' }
   finally { if (current === generation) loading.value = false }
 }
 onBeforeUnmount(() => { generation++ })
-watch(() => [props.instanceId, props.nodeId, props.runStatus], () => { void load() }, { immediate: true })
+watch(() => [props.instanceId, props.nodeId, props.runStatus] as const, ([instanceId, nodeId], previous) => {
+  const sameBatch = previous?.[0] === instanceId && previous?.[1] === nodeId
+  void load(sameBatch ? offset.value : 0)
+}, { immediate: true })
 </script>
 <template>
   <section class="mt-3 space-y-2 rounded-lg border border-app-border p-3" data-test="loop-run-results">
@@ -34,6 +45,6 @@ watch(() => [props.instanceId, props.nodeId, props.runStatus], () => { void load
       <p v-if="row.error" class="mt-2 text-status-error">{{ row.error }}</p>
       <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ JSON.stringify(row.variables ?? row.item ?? {}, null, 2) }}</pre>
     </details>
-    <div v-if="total > 50" class="flex justify-between text-xs"><button type="button" :disabled="loading || offset === 0" @click="load(Math.max(0, offset - 50))">上一页</button><button type="button" :disabled="loading || offset + 50 >= total" @click="load(offset + 50)">下一页</button></div>
+    <div v-if="total > PAGE_SIZE" class="flex justify-between text-xs"><button type="button" :disabled="loading || offset === 0" @click="load(Math.max(0, offset - PAGE_SIZE))">上一页</button><button type="button" :disabled="loading || offset + PAGE_SIZE >= total" @click="load(offset + PAGE_SIZE)">下一页</button></div>
   </section>
 </template>
