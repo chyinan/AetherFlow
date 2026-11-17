@@ -36,6 +36,7 @@ import type { WorkflowNodeKind } from '@/types/workflow'
 import { mergeCustomDefinitions, type CustomDefinition } from '@/utils/customNodes'
 import { readComfyWorkflowFile } from '@/utils/comfyWorkflow'
 import { isActiveWorkflowRun, isWaitingWorkflowRun, workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
+import { useModalFocus } from '@/composables/useModalFocus'
 
 const workflowStore = useWorkflowStore()
 const canvasRef = ref<InstanceType<typeof WorkflowCanvas> | null>(null)
@@ -144,6 +145,8 @@ watch(() => route.fullPath, (to, from) => {
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
+const workflowTemplateDialog = ref<HTMLElement | null>(null)
+useModalFocus(showingWorkflowTemplates, workflowTemplateDialog, () => { showingWorkflowTemplates.value = false })
 const comfyUiImportError = ref<string | null>(null)
 const comfyUiImportNotice = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
@@ -790,7 +793,10 @@ async function copyWorkflow() {
   }
 }
 
-async function openWorkflowTemplates() {
+async function openWorkflowTemplates(event?: MouseEvent) {
+  const opener = event?.currentTarget instanceof HTMLElement
+    ? event.currentTarget
+    : document.activeElement instanceof HTMLElement ? document.activeElement : null
   if (workflowStore.workflowTemplatesLoading) {
     return
   }
@@ -799,9 +805,19 @@ async function openWorkflowTemplates() {
   workflowStore.setRunError(null)
   try {
     const templates = await workflowStore.loadWorkflowTemplates()
-    if (ownsRequest() && templates) showingWorkflowTemplates.value = true
+    await nextTick()
+    if (ownsRequest() && templates) {
+      if (opener?.isConnected && !opener.matches(':disabled')) opener.focus({ preventScroll: true })
+      showingWorkflowTemplates.value = true
+    }
   } catch (error) {
-    if (ownsRequest()) workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
+    if (ownsRequest()) {
+      workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
+      await nextTick()
+      if (ownsRequest() && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
+        opener.focus({ preventScroll: true })
+      }
+    }
   }
 }
 
@@ -1121,7 +1137,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
   </section>
 
   <section v-else data-testid="workflow-editor" class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
-    <header class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <header :inert="showingWorkflowTemplates || undefined" class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
@@ -1221,7 +1237,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </header>
 
-    <section v-if="runPromptInputs.length" data-testid="workflow-run-inputs" class="mx-5 mt-4 space-y-3 rounded-xl border border-app-border bg-white p-4 shadow-sm">
+    <section v-if="runPromptInputs.length" :inert="showingWorkflowTemplates || undefined" data-testid="workflow-run-inputs" class="mx-5 mt-4 space-y-3 rounded-xl border border-app-border bg-white p-4 shadow-sm">
       <h2 class="text-sm font-semibold text-text-primary">{{ t('workflow.runPromptInputsTitle') }}</h2>
       <label v-for="input in runPromptInputs" :key="input.variable" class="block">
         <span class="mb-2 block text-sm font-medium text-text-primary">{{ t('workflow.runPromptInputLabel', { variable: input.variable }) }}</span>
@@ -1238,8 +1254,9 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       <p v-if="runPromptInputError" data-run-input-error role="alert" class="text-sm text-status-error">{{ runPromptInputError }}</p>
     </section>
 
-    <div class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
+    <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
+      <div class="contents" :inert="showingWorkflowTemplates || undefined">
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />
 
@@ -1276,8 +1293,9 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         </div>
       </Transition>
 
+      </div>
       <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid place-items-center bg-slate-950/25 p-4">
-        <section class="w-full max-w-xl rounded-xl border border-app-border bg-white p-5 shadow-panel" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
+        <section ref="workflowTemplateDialog" tabindex="-1" class="w-full max-w-xl rounded-xl border border-app-border bg-white p-5 shadow-panel" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
           <div class="flex items-center justify-between gap-4">
             <div>
               <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
