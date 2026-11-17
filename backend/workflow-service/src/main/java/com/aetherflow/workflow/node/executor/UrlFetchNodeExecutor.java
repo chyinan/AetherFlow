@@ -42,10 +42,15 @@ public class UrlFetchNodeExecutor extends BaseNodeExecutor {
         if (!direct.isBlank()) {
             return direct;
         }
-        String variableName = text(config.get("urlVariable"), "url");
-        Object value = context.variables().get(variableName);
-        if (value == null) {
-            value = context.variables().get("websiteUrl");
+        String variableName = text(config.get("urlVariable"), "");
+        Object value;
+        if (variableName.isBlank()) {
+            value = context.variables().get("url");
+            if (value == null) {
+                value = context.variables().get("websiteUrl");
+            }
+        } else {
+            value = context.variables().get(variableName);
         }
         String resolved = value == null ? "" : String.valueOf(value).trim();
         if (resolved.isBlank()) {
