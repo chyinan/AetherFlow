@@ -460,6 +460,7 @@ services:
         VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
         VITE_RUNTIME_WS_FALLBACK: ${VITE_RUNTIME_WS_FALLBACK:-true}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
+        VITE_SERVER_TIMEZONE_OFFSET: ${VITE_SERVER_TIMEZONE_OFFSET:-+08:00}
     container_name: aetherflow-frontend
     volumes:
       - frontend-dist:/output
@@ -480,6 +481,7 @@ services:
         VITE_NOTIFY_WS_FALLBACK: ${VITE_NOTIFY_WS_FALLBACK:-true}
         VITE_RUNTIME_WS_FALLBACK: ${VITE_RUNTIME_WS_FALLBACK:-true}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-15000}
+        VITE_SERVER_TIMEZONE_OFFSET: ${VITE_SERVER_TIMEZONE_OFFSET:-+08:00}
     container_name: aetherflow-nginx
     deploy: *java-service-deploy
     ports:
