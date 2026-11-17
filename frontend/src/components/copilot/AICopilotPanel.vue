@@ -437,6 +437,55 @@ function pendingPlannerDraftContext() {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * 用已经通过脱敏的 STRING 默认值替换选项样本的第 20 项。
+ * 只考虑已验证定义中短、普通的默认标量，且仅在该默认值确实位于
+ * 未发送的枚举尾部时替换；不会从原始枚举尾部复制数据到模型上下文。
+ */
+function includeVisibleDefaultsInEnumSamples(rawDefinitions: CustomDefinition[], visible: unknown): unknown {
+  if (!Array.isArray(visible)) return visible
+  const sensitiveFieldName = /secret|password|token|api.?key|credential|authorization|private.?key|access.?key/i
+  const ordinarySample = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
+  return visible.map((visibleDefinition, definitionIndex) => {
+    const rawDefinition = rawDefinitions[definitionIndex]
+    if (!isRecord(rawDefinition) || !isRecord(visibleDefinition)) return visibleDefinition
+    let updated: Record<string, unknown> | undefined
+    for (const section of ['inputs', 'fields', 'outputs'] as const) {
+      const rawFields = rawDefinition[section]
+      const visibleFields = visibleDefinition[section]
+      if (!Array.isArray(rawFields) || !Array.isArray(visibleFields)) continue
+      let changed = false
+      const nextFields = visibleFields.map((visibleField, fieldIndex) => {
+        const rawField = rawFields[fieldIndex]
+        if (!isRecord(rawField) || !isRecord(visibleField)) return visibleField
+        const rawOptions = rawField.options
+        const visibleOptions = visibleField.options
+        const rawDefault = rawField.defaultValue
+        const visibleDefault = visibleField.defaultValue
+        if (rawField.type !== 'STRING' || typeof rawField.name !== 'string' || sensitiveFieldName.test(rawField.name)
+          || !Array.isArray(rawOptions) || rawOptions.length <= 20 || rawOptions.length > 64
+          || rawOptions.some(option => typeof option !== 'string')
+          || !Array.isArray(visibleOptions) || visibleOptions.length !== 20
+          || !rawOptions.slice(0, 20).every((option, index) => option === visibleOptions[index])
+          || typeof rawDefault !== 'string' || typeof visibleDefault !== 'string' || visibleDefault !== rawDefault
+          || !ordinarySample.test(visibleDefault) || visibleOptions.includes(visibleDefault)
+          || !rawOptions.slice(20).some(option => option === rawDefault)) return visibleField
+        changed = true
+        return { ...visibleField, options: [...visibleOptions.slice(0, 19), visibleDefault] }
+      })
+      if (changed) {
+        updated ??= { ...visibleDefinition }
+        updated[section] = nextFields
+      }
+    }
+    return updated ?? visibleDefinition
+  })
+}
+
 function pendingCustomNodeDraftContext() {
   const entry = [...customNodePreviews.value.entries()].reverse()
     .find(([, draft]) => draft.status === 'pending' || draft.status === 'applying')
@@ -448,7 +497,10 @@ function pendingCustomNodeDraftContext() {
     baseEditRevision: draft.base.editRevision,
     // 待确认草稿要保留到字段层级，否则模型续改时看不到 inputs/fields/outputs 与 request.headers 的精确结构；
     // 400 字符截断与密钥脱敏仍然生效。
-    definition: redactCopilotValue(draft.definitions, '', 0, PENDING_DRAFT_REDACT_DEPTH),
+    definition: includeVisibleDefaultsInEnumSamples(
+      draft.definitions,
+      redactCopilotValue(draft.definitions, '', 0, PENDING_DRAFT_REDACT_DEPTH),
+    ),
     operations: redactCopilotValue((draft.canvasEdit?.operations ?? []).map((operation) =>
       operation.type === 'create_custom_node'
         ? { type: operation.type, draftId: operation.draftId }
