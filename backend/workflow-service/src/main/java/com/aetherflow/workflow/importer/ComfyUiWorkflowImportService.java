@@ -28,8 +28,10 @@ public class ComfyUiWorkflowImportService {
         Map<String, Object> image = new LinkedHashMap<>();
         image.put("provider", "COMFYUI"); image.put("mode", "workflow");
         image.put("promptVariable", "prompt"); image.put("negativePromptVariable", "negativePrompt");
-        // 原始图独立保留；执行图可由用户明确替换为原生前端导出的 API 图。
-        image.put("workflow", graph); image.put("workflowJson", graph);
+        // 文本导入时原文同时作为原图与执行图存储，避免浏览器往返舍入大整数。
+        // 旧客户端传对象时继续保持对象类型与既有保存契约。
+        Object storedGraph = workflowJson instanceof String ? workflowJson : graph;
+        image.put("workflow", storedGraph); image.put("workflowJson", storedGraph);
         image.put("workflowBindings", List.of()); image.put("comfyImport", metadata); image.put("next", "end");
         WorkflowDefinitionDTO result = new WorkflowDefinitionDTO();
         result.setName(name == null || name.isBlank() ? "Imported ComfyUI Workflow" : name);

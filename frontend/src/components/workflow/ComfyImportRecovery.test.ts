@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 import ComfyWorkflowPanel from '@/components/workflow/ComfyWorkflowPanel.vue'
 import { buildWorkflowPreflight } from '@/utils/workflowPreflight'
 import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { WorkflowDefinition, WorkflowGraphNode, WorkflowNodeKind, NodeTemplate } from '@/types/workflow'
 const api={n:{class_type:'CLIPTextEncode',inputs:{text:'synthetic positive'}}}
 const ui={nodes:[{id:1,type:'PluginText',widgets_values:['synthetic']}],links:[]}
+vi.stubGlobal('TextDecoder', TextDecoder)
 const node=(id:string,kind:WorkflowNodeKind,config:Record<string,unknown>):WorkflowGraphNode=>({id,type:'workflow',position:{x:0,y:0},data:{kind,label:id,config,inputs:[],outputs:[],description:'',status:'idle'}})
 function panel(config:Record<string,unknown>) {
   return mount(ComfyWorkflowPanel,{props:{nodeId:'image-generation',config},global:{plugins:[createI18n({legacy:false,locale:'zh-CN',messages:{}})]}})
@@ -37,7 +39,7 @@ describe('独立复核：执行图编辑及 UI→API 恢复',()=>{
   it('未解析摘要的 UI 图载入 API 后不应残留必填 prompt 阻断',async()=>{
     const config:Record<string,unknown>={provider:'COMFYUI',mode:'workflow',workflow:ui,workflowJson:ui,workflowBindings:[],promptVariable:'prompt',negativePromptVariable:'negativePrompt',comfyImport:{positiveStatus:'unresolved'}}
     const w=panel(config)
-    Object.defineProperty(w.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element,'files',{value:[{text:async()=>JSON.stringify(api)}],configurable:true})
+    Object.defineProperty(w.get<HTMLInputElement>('[data-testid="comfy-api-file"]').element,'files',{value:[{arrayBuffer:async()=>new TextEncoder().encode(JSON.stringify(api)).buffer as ArrayBuffer}],configurable:true})
     await w.get('[data-testid="comfy-api-file"]').trigger('change');await flushPromises()
     const replacement = w.emitted('replace-workflow')?.[0]?.[0] as Record<string, unknown> | undefined
     Object.assign(config, replacement)

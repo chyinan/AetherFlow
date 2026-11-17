@@ -48,7 +48,7 @@ export interface ComfyUiWorkflowImportRequest {
   name?: string
   description?: string
   projectId?: number
-  workflowJson: Record<string, unknown>
+  workflowJson: Record<string, unknown> | string
 }
 
 export interface WorkflowDefinitionEntity {

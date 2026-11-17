@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import { i18n } from '@/i18n'
@@ -54,6 +55,7 @@ let wrapper: ReturnType<typeof mount> | undefined
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal('TextDecoder', TextDecoder)
   localStorage.clear()
   importFails = false; saveFails = false
   entity = { id: 101, name: 'Existing', version: 1, projectId: 11, definitionJson: JSON.stringify({ nodes: [] }) }
@@ -111,7 +113,7 @@ async function importFile(text: Promise<string> = Promise.resolve(JSON.stringify
   const input = wrapper!.get('input[type="file"]')
   Object.defineProperty(input.element, 'files', {
     configurable: true,
-    value: [{ name: 'import.json', text: () => text }],
+    value: [{ name: 'import.json', arrayBuffer: () => text.then(value => new TextEncoder().encode(value).buffer as ArrayBuffer) }],
   })
   await input.trigger('change')
   await flushPromises()

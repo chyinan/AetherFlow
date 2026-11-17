@@ -2,6 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 import { i18n } from '@/i18n'
 import { useDifyStore } from '@/stores/difyStore'
 import { useModelStore } from '@/stores/modelStore'
@@ -17,7 +18,7 @@ vi.mock('@/api/modules/node', () => ({ getNodeCatalog: vi.fn(async () => ['IMAGE
 ] }))) }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 let wrapper: ReturnType<typeof mount> | undefined
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks() })
+beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); vi.stubGlobal('TextDecoder', TextDecoder) })
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
 
 it.each(['IMAGE_GENERATION', 'UPSCALE'])('%s 保存重开后的真实检查器将对象显示为 JSON，可编辑再保存', async type => {
@@ -50,9 +51,9 @@ it.each(['IMAGE_GENERATION', 'UPSCALE'])('%s 保存重开后的真实检查器�
   const edited = { ...graph, '2': { class_type: 'EmptyLatentImage', inputs: { width: 1024 } } }
   await field.setValue(JSON.stringify(edited)); await field.trigger('change')
   await store.saveCurrentWorkflow()
-  expect(http.put.mock.calls.at(-1)![1].nodes[0].config.workflowJson).toEqual(edited)
+  expect(http.put.mock.calls.at(-1)![1].nodes[0].config.workflowJson).toBe(JSON.stringify(edited))
   expect(await store.loadWorkflow('42')).toBe(true)
-  expect(store.nodes[0]!.data.config.workflowJson).toEqual(edited)
+  expect(store.nodes[0]!.data.config.workflowJson).toBe(JSON.stringify(edited))
   expect(store.nodes[0]!.data.config).toMatchObject(imported)
 })
 
@@ -87,11 +88,11 @@ it.each([
   } } })
   await flushPromises()
   const file = wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]')
-  Object.defineProperty(file.element, 'files', { configurable: true, value: [{ text: async () => JSON.stringify(nextExecutionGraph) }] })
+  Object.defineProperty(file.element, 'files', { configurable: true, value: [{ arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(nextExecutionGraph)).buffer as ArrayBuffer }] })
   await file.trigger('change'); await flushPromises()
 
   const config = store.nodes[0]!.data.config
-  expect(config.workflowJson).toEqual(nextExecutionGraph)
+  expect(config.workflowJson).toBe(JSON.stringify(nextExecutionGraph))
   expect(config.workflowBindings).toEqual([])
   expect(config.workflow).toEqual(hasSource ? sourceGraph : previousExecutionGraph)
   expect(store.historyPast).toHaveLength(1)
@@ -99,15 +100,15 @@ it.each([
   expect(store.undo()).toBe(true)
   expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: previousExecutionGraph, workflowBindings: previousBindings })
   expect(store.redo()).toBe(true)
-  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: nextExecutionGraph, workflowBindings: [] })
+  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: JSON.stringify(nextExecutionGraph), workflowBindings: [] })
 
   await store.saveCurrentWorkflow()
   expect(JSON.parse(entity.definitionJson).nodes[0].config).toMatchObject({
-    workflowJson: nextExecutionGraph,
+    workflowJson: JSON.stringify(nextExecutionGraph),
     workflowBindings: [],
     workflow: hasSource ? sourceGraph : previousExecutionGraph,
   })
   expect(await store.loadWorkflow('42')).toBe(true)
-  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: nextExecutionGraph, workflowBindings: [] })
+  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: JSON.stringify(nextExecutionGraph), workflowBindings: [] })
   expect(store.nodes[0]!.data.config.workflow).toEqual(hasSource ? sourceGraph : previousExecutionGraph)
 })

@@ -125,25 +125,17 @@ function cloneConfigValue(value: unknown) {
   return structuredClone(unwrapConfigValue(value))
 }
 
-// AI 执行器读取 Map：对象原样保真，编辑器中的合法对象 JSON 文本也规范为对象。
-// 其他旧值继续沿用原有保存行为，本修复不额外收紧配置校验。
+// 对象输入继续克隆；文本输入原样保留，避免浏览器解析/序列化导致大整数舍入或 Unicode 改写。
 function normalizeWorkflowJson(value: unknown): Record<string, unknown> | string | undefined {
   if (isRecord(value)) return cloneConfigValue(value) as Record<string, unknown>
   if (value === undefined || value === null) return undefined
   if (typeof value === 'string') {
-    const text = value.trim()
-    if (!text) {
+    if (!value.trim()) {
       // 明确清空：保留空串以便与"未编辑"区分，
       // 否则保存会丢掉这次清空，预检与执行又会悄悄回退原图。
       return '';
     }
-    try {
-      const parsed: unknown = JSON.parse(text)
-      if (isRecord(parsed)) return parsed
-    } catch {
-      // 无法解析的旧文本由原有配置校验与运行流程处理。
-    }
-    return text;
+    return value
   }
   // 非字符串旧值沿用原有保存行为。
   return optionalString(value);

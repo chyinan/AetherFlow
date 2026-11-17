@@ -17,6 +17,8 @@ public final class ComfyUiWorkflow {
         if (value instanceof Map<?, ?>) return map(value);
         if (value instanceof String text) {
             try {
+                // 存储边界保留原始文本；仅在校验/执行解析时容忍 UTF-8 BOM。
+                if (!text.isEmpty() && text.charAt(0) == '\uFEFF') text = text.substring(1);
                 Object parsed = JSON.readerFor(Object.class).with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readValue(text);
                 if (parsed instanceof Map<?, ?>) return map(parsed);
             } catch (Exception ignored) { }
