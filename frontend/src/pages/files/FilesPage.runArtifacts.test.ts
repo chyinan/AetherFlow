@@ -143,6 +143,7 @@ it('下载仍提交选中成品的文件 ID，等待禁用按钮，失败保留�
   expect(downloadButtons()[0]!.attributes('disabled')).toBeDefined()
   pending.reject(new Error('模拟下载失败')); await flushPromises()
   expect(wrapper!.text()).toContain('模拟下载失败')
+  expect(wrapper!.findAll('[role="alert"]').some(alert => alert.text().includes('模拟下载失败'))).toBe(true)
   expect(downloadButtons()[0]!.attributes('disabled')).toBeUndefined()
   expect(router.currentRoute.value.query.runId).toBe('run-2')
   expect(shownRunLinks()).toEqual(['/runs/run-2'])

@@ -120,7 +120,7 @@ async function toggleFileSource(fileId: string) {
         <div v-if="!runFilterId && fileStore.loading && fileStore.files.length === 0" class="rounded-md border border-app-border bg-white px-3 py-4 text-sm text-text-secondary" aria-busy="true">
           {{ t('common.loading') }}
         </div>
-        <p v-if="fileStore.fileActionError" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
+        <p v-if="fileStore.fileActionError" role="alert" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
           {{ fileStore.fileActionError }}
         </p>
 
