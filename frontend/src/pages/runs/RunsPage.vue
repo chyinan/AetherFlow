@@ -101,6 +101,7 @@ const cancellationErrors = ref<Record<string, string>>({})
 const cancellationCleanupErrorState = ref<{ runId: string; selectionGeneration: number; message: string } | null>(null)
 const retryingCancellationCleanupRunIds = ref(new Set<string>())
 let cancellationCleanupSelectionGeneration = 0
+let cancellationCleanupFeedbackRequestId = 0
 const cancellationCleanupError = computed(() => {
   const error = cancellationCleanupErrorState.value
   return error && error.runId === runStore.currentRun?.id && error.selectionGeneration === cancellationCleanupSelectionGeneration
@@ -173,21 +174,12 @@ async function retryCancellationCleanup() {
   const run = runStore.currentRun
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || !instanceId || retryingCancellationCleanupRunIds.value.has(run.id)) return
-  const selectionGeneration = cancellationCleanupSelectionGeneration
   retryingCancellationCleanupRunIds.value.add(run.id)
-  if (runStore.currentRun?.id === run.id && selectionGeneration === cancellationCleanupSelectionGeneration) {
-    cancellationCleanupErrorState.value = null
-  }
+  const { reportError } = beginCancellationCleanupFeedback(run.id)
   try {
     await runStore.retryCancellationCleanup(instanceId)
   } catch (error) {
-    if (runStore.currentRun?.id === run.id && selectionGeneration === cancellationCleanupSelectionGeneration) {
-      cancellationCleanupErrorState.value = {
-        runId: run.id,
-        selectionGeneration,
-        message: toApiError(error, 'workflow').message,
-      }
-    }
+    reportError(error)
   } finally {
     retryingCancellationCleanupRunIds.value.delete(run.id)
   }
@@ -197,20 +189,32 @@ async function refreshCancellationCleanup() {
   const run = runStore.currentRun
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || run.backendStatus !== 'CANCELLED' || !instanceId) return
-  const selectionGeneration = cancellationCleanupSelectionGeneration
-  cancellationCleanupErrorState.value = null
-  const isCurrentSelection = () => runStore.currentRun?.id === run.id
-    && selectionGeneration === cancellationCleanupSelectionGeneration
+  const { isCurrent, reportError } = beginCancellationCleanupFeedback(run.id)
   try {
-    await runStore.loadCancellationCleanup(instanceId, isCurrentSelection)
+    await runStore.loadCancellationCleanup(instanceId, isCurrent)
   } catch (error) {
-    if (isCurrentSelection()) {
+    reportError(error)
+  }
+}
+
+function beginCancellationCleanupFeedback(runId: string) {
+  const selectionGeneration = cancellationCleanupSelectionGeneration
+  const requestId = ++cancellationCleanupFeedbackRequestId
+  cancellationCleanupErrorState.value = null
+  // 同一选择内，较早的轮询失败也不能覆盖较新的读取或重试结果。
+  const isCurrent = () => active && runStore.currentRun?.id === runId
+    && selectionGeneration === cancellationCleanupSelectionGeneration
+    && requestId === cancellationCleanupFeedbackRequestId
+  return {
+    isCurrent,
+    reportError(error: unknown) {
+      if (!isCurrent()) return
       cancellationCleanupErrorState.value = {
-        runId: run.id,
+        runId,
         selectionGeneration,
         message: toApiError(error, 'workflow').message,
       }
-    }
+    },
   }
 }
 
@@ -229,7 +233,10 @@ watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runSto
     if (!cleanup) void refreshCancellationCleanup()
     if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
     if (cleanup?.retryable || ['PENDING', 'PROCESSING', 'FAILED'].includes(cleanup?.status ?? '')) {
-      cancellationCleanupPoll = setInterval(() => { void refreshCancellationCleanup() }, 5_000)
+      cancellationCleanupPoll = setInterval(() => {
+        // 定时读取不抢占重试回执；重新打开且缺少状态时仍允许首次读取。
+        if (!retryingCancellationCleanup.value) void refreshCancellationCleanup()
+      }, 5_000)
     }
   }, { immediate: true, flush: 'sync' })
 
