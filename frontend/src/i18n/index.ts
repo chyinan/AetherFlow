@@ -5,10 +5,12 @@ import { enUS } from './locales/en-US'
 import { jaJP } from './locales/ja-JP'
 import { zhCN } from './locales/zh-CN'
 
+const initialLocale = getStoredLocale()
+
 export const i18n = createI18n({
   legacy: false,
   globalInjection: true,
-  locale: getStoredLocale(),
+  locale: initialLocale,
   fallbackLocale: 'en-US',
   messages: {
     'zh-CN': zhCN,
@@ -16,6 +18,10 @@ export const i18n = createI18n({
     'ja-JP': jaJP,
   },
 })
+
+if (typeof window !== 'undefined') {
+  window.document.documentElement.lang = initialLocale
+}
 
 export function setAppLocale(locale: AppLocale) {
   i18n.global.locale.value = locale
