@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { nodeVariableOutputs, upstreamVariables } from './workflowVariables'
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
-import type { WorkflowGraphNode, WorkflowNodeKind } from '@/types/workflow'
+import type { NodeTemplate, WorkflowGraphNode, WorkflowNodeKind } from '@/types/workflow'
 const node = (id: string, kind: WorkflowNodeKind, config: Record<string, unknown> = {}): WorkflowGraphNode => ({ id, type: 'workflow', position: { x: 0, y: 0 }, data: { kind, label: id, config, inputs: [], outputs: [], description: '', status: 'idle' } })
 const edges = [{ id: 'a-b', source: 'a', target: 'b' }, { id: 'b-c', source: 'b', target: 'c' }]
 describe('工作流全局上游变量', () => {
@@ -22,6 +22,30 @@ describe('工作流全局上游变量', () => {
     expect(nodeVariableOutputs(node('s', 'start', { variables: { question: 'text', count: 2 }, output: { fake: true }, fileId: 3 }))).toEqual([{ name: 'question', type: 'STRING' }, { name: 'count', type: 'NUMBER' }, { name: 'fileId', type: 'NUMBER' }])
     expect(nodeVariableOutputs(node('m', 'template-transform', { outputVariable: 'prompts', transformMode: 'structured' }))).toEqual([{ name: 'prompts', type: 'UNKNOWN' }])
     expect(nodeVariableOutputs(node('l', 'llm')).map((item) => item.name)).toEqual(['completionText', 'completion', 'jsonData'])
+  })
+
+  it('子工作流将显式父输出映射作为下游变量，而不是将运行回执当作变量', () => {
+    const child = node('child', 'subworkflow', {
+      definitionId: 8,
+      definitionVersion: 3,
+      inputMappings: {},
+      outputMappings: { answer: 'summary' },
+    })
+    const consumer = node('consumer', 'summary', { textVariable: 'answer' })
+    const template: NodeTemplate = {
+      kind: 'subworkflow', label: '子工作流', description: '', category: 'Workflow',
+      config: {}, inputs: [], outputs: [],
+      outputSchema: [{ name: 'childWorkflowInstanceId', type: 'NUMBER' }],
+    }
+
+    expect(nodeVariableOutputs(child, [template])).toEqual([{ name: 'answer', type: 'UNKNOWN' }])
+    expect(upstreamVariables('consumer', [child, consumer], [
+      { id: 'child-consumer', source: 'child', target: 'consumer' },
+    ], [template])).toEqual([{
+      name: 'answer', type: 'UNKNOWN',
+      sources: [{ id: 'child', label: 'child' }],
+      writers: [{ id: 'child', label: 'child' }],
+    }])
   })
 })
 it('选择器产生的全局变量名经过保存 mapper 原样保留，旧自定义变量也不被改名', () => {

@@ -16,6 +16,32 @@ describe('静态预检分类与保存契约', () => {
     expect(issues.filter((item) => item.level === 'blocking')).toEqual([])
     expect(issues).toContainEqual(expect.objectContaining({ code: 'unresolvedVariable', field: 'promptVariable' }))
   })
+  it('允许下游引用子工作流显式映射的父输出名', () => {
+    const child = node('child', 'subworkflow', {
+      definitionId: 8,
+      definitionVersion: 3,
+      inputMappings: {},
+      outputMappings: { answer: 'summary' },
+    })
+    const consumer = node('consumer', 'summary', { textVariable: 'answer' })
+    const graph = workflow([child, consumer])
+    graph.edges = [{ id: 'child-consumer', source: 'child', target: 'consumer' }]
+    const subworkflowTemplate: NodeTemplate = {
+      kind: 'subworkflow', label: '子工作流', description: '', category: 'Workflow',
+      config: {}, inputs: [], outputs: [],
+      configSchema: [
+        { name: 'definitionId', type: 'NUMBER', required: true },
+        { name: 'definitionVersion', type: 'NUMBER', required: true },
+        { name: 'inputMappings', type: 'OBJECT', required: true },
+        { name: 'outputMappings', type: 'OBJECT', required: true },
+      ],
+      outputSchema: [{ name: 'childWorkflowInstanceId', type: 'NUMBER' }],
+    }
+    const issues = buildWorkflowPreflight(graph, [...nodeTemplates, subworkflowTemplate], known)
+    expect(issues).not.toContainEqual(expect.objectContaining({
+      nodeId: 'consumer', field: 'textVariable', code: 'unresolvedVariable', detail: 'answer',
+    }))
+  })
   it('按服务端目录一次报告必填和枚举，并带节点与字段位置', () => {
     const template = { ...nodeTemplates.find((item) => item.kind === 'summary')!, configSchema: [{ name: 'model', type: 'STRING', required: true }, { name: 'provider', type: 'STRING', options: ['OPENAI', 'OLLAMA'] }] }
     const issues = check([node('summary', 'summary', { provider: 'invalid' })], [template])
