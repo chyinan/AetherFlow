@@ -1,10 +1,10 @@
 export const homeMessages = {
   'zh-CN': {
     personalTitle: '我的工作台', personalHint: '继续创作，跟进运行，查看完成结果', personalScope: '这里仅展示你自己的工作流和运行记录',
-    newWorkflow: '新建或导入工作流', importHint: '在编辑器中创建，或导入 ComfyUI JSON', projects: '前往项目', allWorkflows: '查看项目与工作流',
+    newWorkflow: '新建或导入工作流', importHint: '也可以在编辑器中导入 ComfyUI JSON。', projects: '前往项目', allWorkflows: '查看项目与工作流',
     refresh: '刷新', retry: '重试', loading: '正在加载…', loadFailed: '此区块暂时加载失败，请重试',
     continueTitle: '继续编辑', continueHint: '你的已保存工作流', savedOnly: '此处仅列出已保存的工作流，不恢复未保存的画布修改',
-    noWorkflows: '还没有已保存的工作流', startHint: '可以先创建项目组织工作，也可以直接新建或导入工作流', createProject: '前往项目创建',
+    noWorkflows: '还没有已保存的工作流', startHint: '新建工作流前，请先选择或创建项目。', createProject: '前往项目创建',
     activeTitle: '进行中', activeHint: '运行、排队与等待输入的任务', failedTitle: '失败待查看', failedHint: '打开失败详情，检查原因并决定是否重试',
     completedTitle: '完成结果', completedHint: '按开始时间倒序展示已完成运行，打开详情查看输出', allRuns: '全部运行', viewRuns: '查看更多运行',
     activeEmpty: '目前没有进行中的运行', failedEmpty: '暂无失败运行记录', completedEmpty: '还没有已完成的运行',
@@ -21,10 +21,10 @@ export const homeMessages = {
   },
   'en-US': {
     personalTitle: 'My workbench', personalHint: 'Keep creating, follow your runs, and open completed results', personalScope: 'Only your own workflows and runs appear here',
-    newWorkflow: 'Create or import a workflow', importHint: 'Create in the editor, or import ComfyUI JSON', projects: 'Go to projects', allWorkflows: 'View projects and workflows',
+    newWorkflow: 'Create or import a workflow', importHint: 'You can also import ComfyUI JSON in the editor.', projects: 'Go to projects', allWorkflows: 'View projects and workflows',
     refresh: 'Refresh', retry: 'Retry', loading: 'Loading…', loadFailed: 'This section could not load. Please retry',
     continueTitle: 'Continue editing', continueHint: 'Your saved workflows', savedOnly: 'Only saved workflows appear here. Unsaved canvas changes are not restored',
-    noWorkflows: 'No saved workflows yet', startHint: 'Create a project to organize your work, or create or import a workflow directly', createProject: 'Go to project creation',
+    noWorkflows: 'No saved workflows yet', startHint: 'To create a workflow, choose or create a project first.', createProject: 'Go to project creation',
     activeTitle: 'In progress', activeHint: 'Running, queued, and waiting for input', failedTitle: 'Failures to review', failedHint: 'Open a failed run to check its cause and decide whether to retry',
     completedTitle: 'Completed results', completedHint: 'Completed runs, newest start time first. Open details to inspect outputs', allRuns: 'All runs', viewRuns: 'View more runs',
     activeEmpty: 'No runs are currently in progress', failedEmpty: 'No failed runs recorded', completedEmpty: 'No completed runs yet',
@@ -41,10 +41,10 @@ export const homeMessages = {
   },
   'ja-JP': {
     personalTitle: 'マイワークベンチ', personalHint: '編集を続け、実行状況と完了した結果を確認します', personalScope: '自分のワークフローと実行履歴のみを表示します',
-    newWorkflow: 'ワークフローを作成・インポート', importHint: 'エディターで作成、または ComfyUI JSON をインポート', projects: 'プロジェクトへ', allWorkflows: 'プロジェクトとワークフローを見る',
+    newWorkflow: 'ワークフローを作成・インポート', importHint: 'ComfyUI JSON をエディターにインポートすることもできます。', projects: 'プロジェクトへ', allWorkflows: 'プロジェクトとワークフローを見る',
     refresh: '更新', retry: '再試行', loading: '読み込み中…', loadFailed: 'このセクションを読み込めませんでした。再試行してください',
     continueTitle: '編集を続ける', continueHint: '保存済みワークフロー', savedOnly: '保存済みワークフローのみを表示します。未保存のキャンバス変更は復元しません',
-    noWorkflows: '保存済みワークフローはまだありません', startHint: 'プロジェクトを作成して整理するか、ワークフローを直接作成・インポートできます', createProject: 'プロジェクト作成へ',
+    noWorkflows: '保存済みワークフローはまだありません', startHint: 'ワークフローを新規作成する前に、プロジェクトを選択または作成してください。', createProject: 'プロジェクト作成へ',
     activeTitle: '進行中', activeHint: '実行中・待機中・入力待ちのタスク', failedTitle: '確認が必要な失敗', failedHint: '詳細で原因を確認し、再試行するか判断します',
     completedTitle: '完了した結果', completedHint: '開始日時の新しい順に完了した実行を表示します。詳細で出力を確認できます', allRuns: 'すべての実行', viewRuns: '実行をもっと見る',
     activeEmpty: '現在進行中の実行はありません', failedEmpty: '失敗した実行の記録はありません', completedEmpty: '完了した実行はまだありません',
