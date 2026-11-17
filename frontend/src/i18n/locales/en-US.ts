@@ -139,6 +139,7 @@ export const enUS = {
     retention: 'Artifact retention (days)',
     saving: 'Saving',
     nameRequired: 'Workspace name is required.',
+    positiveIntegerRequired: 'Default timeout and artifact retention must be whole numbers from 1 to 2,147,483,647 when provided.',
     loadFailed: 'Failed to load workspaces.',
     saveFailed: 'Failed to save workspace.',
     deleteFailed: 'Failed to delete workspace.',
@@ -1685,3 +1686,4 @@ export const enUS = {
 }
 
 export type EnUSMessages = typeof enUS
+

@@ -139,6 +139,7 @@ export const zhCN = {
     retention: '产物保留（天）',
     saving: '保存中',
     nameRequired: '请填写工作区名称。',
+    positiveIntegerRequired: '默认超时和产物保留天数如填写，必须是 1 至 2,147,483,647 的整数。',
     loadFailed: '加载工作区失败。',
     saveFailed: '保存工作区失败。',
     deleteFailed: '删除工作区失败。',
@@ -1693,3 +1694,4 @@ export const zhCN = {
 }
 
 export type ZhCNMessages = typeof zhCN
+
