@@ -20,9 +20,11 @@ describe('HumanApprovalDialog', () => {
     approveHumanNode.mockResolvedValue({ runtimeState: 'SUCCESS' })
   })
 
-  it('submits approval decision and emits completion', async () => {
+  it('submits approval decision and calls the captured completion handler', async () => {
+    const onCompleted = vi.fn()
     const wrapper = mount(HumanApprovalDialog, {
       props: {
+        onCompleted,
         request: {
           instanceId: 101,
           nodeId: 'node-human',
@@ -44,11 +46,10 @@ describe('HumanApprovalDialog', () => {
     await flushPromises()
 
     expect(approveHumanNode).toHaveBeenCalledWith(101, 'node-human', expect.objectContaining({ approved: true }))
-    expect(wrapper.emitted('completed')).toHaveLength(1)
-    expect(wrapper.emitted('completed')?.[0]?.[0]).toEqual({
+    expect(onCompleted).toHaveBeenCalledWith({
       approved: true,
       snapshot: { runtimeState: 'SUCCESS' },
-    })
+    }, { instanceId: 101, nodeId: 'node-human' })
     wrapper.unmount()
   })
 })

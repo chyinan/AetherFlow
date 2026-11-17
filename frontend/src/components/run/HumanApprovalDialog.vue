@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Check, Hand, LoaderCircle, X, XCircle } from 'lucide-vue-next'
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
 import { approveHumanNode, type RuntimeExecutionSnapshot } from '@/api/modules/runtime'
+import { humanApprovalTargetKey, pendingHumanApprovalTargets } from './humanApprovalSubmissions'
 import type { HumanApprovalDetails } from '@/types/run'
 
 export interface HumanApprovalTarget {
@@ -18,31 +19,36 @@ export interface HumanApprovalRequestView extends HumanApprovalTarget {
   details: HumanApprovalDetails
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   request: HumanApprovalRequestView
-}>()
+  visible?: boolean
+  onCompleted: (completion: { approved: boolean; snapshot: RuntimeExecutionSnapshot }, target: HumanApprovalTarget) => void | Promise<void>
+}>(), { visible: true })
 
 const emit = defineEmits<{
   close: []
-  completed: [{ approved: boolean; snapshot: RuntimeExecutionSnapshot }, HumanApprovalTarget]
 }>()
 
 const { t } = useI18n()
 const comment = ref('')
-const saving = ref(false)
 const error = ref<string | null>(null)
 let generation = 0
+
+const isSubmitting = computed(() => pendingHumanApprovalTargets.has(
+  humanApprovalTargetKey(props.request.instanceId, props.request.nodeId),
+))
 
 // 同一个弹窗可被下一审批复用，意见、等待和回执都必须属于原始目标。
 watch([() => String(props.request.instanceId), () => props.request.nodeId], () => {
   generation += 1
   comment.value = ''
-  saving.value = false
   error.value = null
 }, { flush: 'sync' })
 
 function close() {
   generation += 1
+  comment.value = ''
+  error.value = null
   emit('close')
 }
 
@@ -53,17 +59,20 @@ function errorMessage(value: unknown) {
 }
 
 async function submit(approved: boolean) {
-  if (saving.value) {
+  const request = props.request
+  // Keep this callback across the request even if navigation unmounts this dialog.
+  const onCompleted = props.onCompleted
+  const target: HumanApprovalTarget = { instanceId: request.instanceId, nodeId: request.nodeId }
+  const targetKey = humanApprovalTargetKey(target.instanceId, target.nodeId)
+  if (pendingHumanApprovalTargets.has(targetKey)) {
     return
   }
 
-  const request = props.request
-  const target: HumanApprovalTarget = { instanceId: request.instanceId, nodeId: request.nodeId }
   const current = generation
   const isCurrent = () => current === generation
     && String(props.request.instanceId) === String(target.instanceId)
     && props.request.nodeId === target.nodeId
-  saving.value = true
+  pendingHumanApprovalTargets.add(targetKey)
   error.value = null
   try {
     const snapshot = await approveHumanNode(target.instanceId, target.nodeId, {
@@ -72,17 +81,20 @@ async function submit(approved: boolean) {
       reviewer: request.details.reviewer,
       method: 'webapp',
     })
-    if (isCurrent()) emit('completed', { approved, snapshot }, target)
+    // The response remains authoritative for its original node even if this
+    // dialog and its page have been unmounted. The handler verifies the selected
+    // run and target before reconciling state.
+    void onCompleted({ approved, snapshot }, target)
   } catch (cause) {
     if (isCurrent()) error.value = errorMessage(cause)
   } finally {
-    if (isCurrent()) saving.value = false
+    pendingHumanApprovalTargets.delete(targetKey)
   }
 }
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport v-if="props.visible" to="body">
     <div
       class="fixed inset-0 z-[80] grid place-items-center bg-slate-950/55 p-4 backdrop-blur-sm"
       role="presentation"
@@ -153,7 +165,7 @@ async function submit(approved: boolean) {
             type="button"
             data-action="reject"
             class="inline-flex items-center gap-2 rounded-lg border border-status-error/30 bg-white px-3 py-2 text-sm font-semibold text-status-error transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="saving"
+            :disabled="isSubmitting"
             @click="submit(false)"
           >
             <XCircle class="h-4 w-4" />
@@ -163,12 +175,12 @@ async function submit(approved: boolean) {
             type="button"
             data-action="approve"
             class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
-            :disabled="saving"
+            :disabled="isSubmitting"
             @click="submit(true)"
           >
-            <LoaderCircle v-if="saving" class="h-4 w-4 animate-spin" />
+            <LoaderCircle v-if="isSubmitting" class="h-4 w-4 animate-spin" />
             <Check v-else class="h-4 w-4" />
-            {{ saving ? t('runs.approval.submitting') : t('runs.approval.approve') }}
+            {{ isSubmitting ? t('runs.approval.submitting') : t('runs.approval.approve') }}
           </button>
         </footer>
       </section>

@@ -20,7 +20,7 @@ import RunsPage from './RunsPage.vue'
 let wrapper: ReturnType<typeof mount> | undefined
 let events: RuntimeEvent[]
 let runtimeState: RuntimeState
-let currentNodeId: string
+let currentNodeId: string | undefined
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: Error) => void
@@ -165,13 +165,62 @@ describe('人工审批请求的归属与中断恢复', () => {
     second.resolve({ workflowId: '101', runtimeState: 'FAILED' }); await flushPromises()
   })
 
-  it('关闭后刷新重开相同审批，旧回执不能关闭或清空重开的新表单', async () => {
+  it('关闭后刷新重开相同审批，仍在途的决策锁定目标并按成功回执恢复', async () => {
     const pending = deferred<RuntimeExecutionSnapshot>(); mocks.post.mockReturnValue(pending.promise)
     const { store } = await setup(); action('approve').click(); await flushPromises(); await close()
-    expect(dialog()).toBeNull(); await refresh(); await enterComment('重新核对')
-    pending.resolve({ workflowId: '101', runtimeState: 'RUNNING' }); await flushPromises()
-    expect(store.currentRun?.nodeStates[0]?.approval?.approvalStatus).toBe('pending')
-    expect(comment().value).toBe('重新核对')
+    expect(dialog()).toBeNull(); await refresh()
+    expect(dialog()).not.toBeNull()
+    expect(action('approve').disabled).toBe(true)
+    expect(action('reject').disabled).toBe(true)
+    action('reject').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    expect(approvalPosts()).toHaveLength(1)
+
+    events = [event('approval-a', true)]; runtimeState = 'SUCCESS'; currentNodeId = undefined
+    pending.resolve({ workflowId: '101', runtimeState: 'SUCCESS' }); await flushPromises()
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({
+      status: 'success', approval: { approved: true, approvalStatus: 'approved' },
+    })
+    expect(dialog()).toBeNull()
+    expect(approvalPosts()).toHaveLength(1)
+  })
+
+  it('导航卸载页面后返回同一运行，迟到成功回执仍交付给新页面并阻止相反决策', async () => {
+    const pending = deferred<RuntimeExecutionSnapshot>(); mocks.post.mockReturnValue(pending.promise)
+    const { router, store } = await setup()
+    action('approve').click(); await flushPromises()
+    await router.push('/other'); await flushPromises()
+    expect(dialog()).toBeNull()
+
+    // Reenter before the server reply. The run cache still reflects WAITING,
+    // so the application-wide in-flight lock must keep both decisions disabled.
+    await router.push('/runs/run-101'); await flushPromises()
+    expect(dialog()).not.toBeNull()
+    expect(action('approve').disabled).toBe(true)
+    expect(action('reject').disabled).toBe(true)
+    expect(approvalPosts()).toHaveLength(1)
+
+    // The completion response is a terminal SUCCESS; the original page has
+    // been unmounted, but its captured handler still reconciles the same target.
+    events = [event('approval-a', true)]; runtimeState = 'SUCCESS'; currentNodeId = 'next'
+    pending.resolve({ workflowId: '101', runtimeState: 'SUCCESS', currentNodeId: 'next' }); await flushPromises()
+    expect(store.currentRun?.backendStatus).toBe('SUCCESS')
+    expect(dialog()).toBeNull()
+    expect(approvalPosts()).toHaveLength(1)
+  })
+
+  it('关闭后重开的同一审批遇到失败时解锁，允许一次新的重试', async () => {
+    const pending = deferred<RuntimeExecutionSnapshot>(); mocks.post.mockReturnValueOnce(pending.promise)
+    await setup(); await enterComment('先前意见'); action('approve').click(); await flushPromises(); await close()
+    await refresh()
+    expect(action('approve').disabled).toBe(true)
+
+    pending.reject(new Error('temporary failure')); await flushPromises()
+    expect(action('approve').disabled).toBe(false)
+    expect(comment().value).toBe('')
+    action('reject').click(); await flushPromises()
+    expect(approvalPosts()).toHaveLength(2)
+    expect(approvalPosts()[1]![1]).toMatchObject({ approved: false })
   })
 
   it.each(['成功', '失败'] as const)('切换到已缓存运行后，旧审批%s回执不能改变新运行或显示错误', async outcome => {
