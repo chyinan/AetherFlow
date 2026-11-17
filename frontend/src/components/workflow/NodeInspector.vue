@@ -1583,7 +1583,7 @@ onMounted(() => {
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.iterationSemanticsTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">
-              {{ selectedKind === 'iteration' ? '逐项执行下方步骤，支持异步等待与恢复；已完成项不会重复执行。' : '逐轮执行下方步骤并回填状态，遇到停止标记或次数上限结束。' }}
+              {{ t(selectedKind === 'iteration' ? 'workflow.inspector.iterationSemanticsIteration' : 'workflow.inspector.iterationSemanticsLoop') }}
             </p>
           </div>
           <label class="block">
@@ -1602,17 +1602,17 @@ onMounted(() => {
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
             <input class="w-full rounded-lg border border-transparent bg-app-muted px-3 py-3 text-sm outline-none focus:border-primary" :placeholder="t('workflow.inspector.stopWhenPlaceholder')" data-config-field="stopWhen" :value="textConfig('stopWhen', 'done')" @input="handleTextInput('stopWhen', $event)" />
           </label>
-          <label v-if="selectedKind === 'iteration'" class="block text-sm">每项变量名称
-            <input aria-label="每项变量名称" class="mt-2 w-full rounded border p-2" data-config-field="itemVariable" :value="textConfig('itemVariable', 'item')" @input="handleTextInput('itemVariable', $event)" />
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">{{ t('workflow.inspector.iteration.itemVariable') }}
+            <input :aria-label="t('workflow.inspector.iteration.itemVariable')" class="mt-2 w-full rounded border p-2" data-config-field="itemVariable" :value="textConfig('itemVariable', 'item')" @input="handleTextInput('itemVariable', $event)" />
           </label>
-          <label class="block text-sm">索引变量名称
-            <input aria-label="索引变量名称" class="mt-2 w-full rounded border p-2" data-config-field="indexVariable" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
+          <label class="block text-sm">{{ t('workflow.inspector.iteration.indexVariable') }}
+            <input :aria-label="t('workflow.inspector.iteration.indexVariable')" class="mt-2 w-full rounded border p-2" data-config-field="indexVariable" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
           </label>
-          <label v-if="selectedKind === 'iteration'" class="block text-sm">同时等待的任务上限（1–8）
-            <input aria-label="批次并发上限" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" data-config-field="concurrency" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">{{ t('workflow.inspector.iteration.concurrencyLimit') }}
+            <input :aria-label="t('workflow.inspector.iteration.concurrencyLimit')" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" data-config-field="concurrency" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
           </label>
-          <label v-if="selectedKind === 'iteration'" class="block text-sm">某项失败时
-            <select aria-label="批次失败策略" class="mt-2 w-full rounded border p-2" data-config-field="failureStrategy" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">停止批次</option><option value="CONTINUE">保留失败项并继续</option></select>
+          <label v-if="selectedKind === 'iteration'" class="block text-sm">{{ t('workflow.inspector.iteration.failureStrategy') }}
+            <select :aria-label="t('workflow.inspector.iteration.failureStrategy')" class="mt-2 w-full rounded border p-2" data-config-field="failureStrategy" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">{{ t('workflow.inspector.iteration.stopBatch') }}</option><option value="CONTINUE">{{ t('workflow.inspector.iteration.keepFailedAndContinue') }}</option></select>
           </label>
           <LoopBodyEditor :key="selectedNode?.id" :model-value="configValue('bodyNodes', [])" :catalog="nodeCatalog" @update:model-value="updateConfig('bodyNodes', $event)" />
         </section>
