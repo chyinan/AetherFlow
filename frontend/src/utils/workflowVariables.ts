@@ -49,6 +49,15 @@ export function nodeVariableOutputs(node: WorkflowGraphNode, templates: Readonly
     catch { return [] }
   }
   if (kind === 'output') return []
+  if (kind === 'subworkflow') {
+    const mappings = Object.entries(object(config.outputMappings))
+    if (mappings.length > 100) return []
+    return mappings
+      .filter(([name, path]) => /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name)
+        && !name.startsWith('__') && name !== 'userId' && name !== 'username'
+        && typeof path === 'string' && Boolean(path.trim()) && path.length <= 512)
+      .map(([name]) => ({ name, type: 'UNKNOWN' }))
+  }
   if (kind === 'variable-assigner') {
     if (!text(config.variable)) return []
     const mode = text(config.valueMode).toUpperCase()
