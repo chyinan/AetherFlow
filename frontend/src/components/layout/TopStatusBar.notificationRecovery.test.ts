@@ -215,6 +215,107 @@ describe('恢复入口与请求边界', () => {
     expect(titles()).toEqual(['合成历史通知3'])
     expect(useUiStore().notificationLoadError ?? false).toBe(false)
   })
+  it('键盘激活历史重试后，等待、失败和成功均不丢失通知区域内的焦点', async () => {
+    doubles.list.mockRejectedValue(new Error('合成读取拒绝'))
+    const store = await setup()
+    const bell = wrapper!.get<HTMLButtonElement>('[aria-controls="notification-panel"]').element
+    bell.focus()
+    await toggle()
+    expect(document.activeElement).toBe(panel())
+    const retryButton = () => [...panel()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === text('retryLoad'))!
+    const initialRetry = retryButton()
+    const rejected = gate()
+    doubles.list.mockImplementationOnce(async () => {
+      await rejected.promise
+      throw new Error('合成重试暂不可用')
+    })
+    initialRetry.focus()
+    expect(document.activeElement).toBe(initialRetry)
+    initialRetry.click()
+    await flushPromises()
+    expect(initialRetry.isConnected).toBe(false)
+    expect(panel()?.querySelector('[role="status"]')?.textContent?.trim()).toBe(text('loading'))
+    expect.soft(document.activeElement?.id).toBe('notification-panel')
+    rejected.resolve()
+    await flushPromises()
+    const nextRetry = retryButton()
+    expect(nextRetry).toBeDefined()
+    expect.soft(document.activeElement === nextRetry).toBe(true)
+    const recovered = gate()
+    const before = doubles.list.mock.calls.length
+    doubles.list.mockImplementationOnce(async () => {
+      await recovered.promise
+      return [record(3)]
+    })
+    nextRetry.click()
+    await flushPromises()
+    expect(doubles.list).toHaveBeenCalledTimes(before + 1)
+    expect.soft(document.activeElement?.id).toBe('notification-panel')
+    recovered.resolve()
+    await flushPromises()
+    expect(titles()).toEqual(['合成历史通知3'])
+    expect(store.notificationLoadError).toBe(false)
+    expect.soft(document.activeElement?.id).toBe('notification-panel')
+    expect(panel()?.querySelector('button')?.textContent?.trim()).toBe(text('markAllRead'))
+    expect(doubles.mark).not.toHaveBeenCalled()
+    expect(doubles.clear).not.toHaveBeenCalled()
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(panel()).toBeNull()
+    expect(document.activeElement).toBe(bell)
+  })
+
+  it('历史重试等待中按 Escape，迟到的数据不会重新打开或抢走焦点', async () => {
+    doubles.list.mockRejectedValue(new Error('合成读取拒绝'))
+    const store = await setup()
+    const bell = wrapper!.get<HTMLButtonElement>('[aria-controls="notification-panel"]').element
+    bell.focus()
+    await toggle()
+    const retry = [...panel()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === text('retryLoad'))!
+    const waiting = gate()
+    doubles.list.mockImplementationOnce(async () => {
+      await waiting.promise
+      return [record(3)]
+    })
+    retry.focus()
+    retry.click()
+    await flushPromises()
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(panel()).toBeNull()
+    expect(document.activeElement).toBe(bell)
+    waiting.resolve()
+    await flushPromises()
+    expect(store.notifications.map(item => item.id)).toEqual(['record-3'])
+    expect(panel()).toBeNull()
+    expect(document.activeElement).toBe(bell)
+  })
+
+  it('历史重试失败时，不从用户已选中的面板内控件抢回焦点', async () => {
+    await setup()
+    doubles.list.mockRejectedValueOnce(new Error('合成缓存刷新失败'))
+    await toggle()
+    const retry = [...panel()!.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === text('retryLoad'))!
+    const waiting = gate()
+    doubles.list.mockImplementationOnce(async () => {
+      await waiting.promise
+      throw new Error('合成重试仍不可用')
+    })
+    retry.focus()
+    retry.click()
+    await flushPromises()
+    const markAll = action('markAllRead')!
+    markAll.focus()
+    waiting.resolve()
+    await flushPromises()
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain(text('loadFailed'))
+    expect(document.activeElement).toBe(markAll)
+    expect(doubles.mark).not.toHaveBeenCalled()
+  })
+
   it('清空明确失败后原动作重试只再次派发清空', async () => {
     await setup(); await toggle(); clearFailure = true; await clickAction('clear')
     expect(titles()).toHaveLength(2)
