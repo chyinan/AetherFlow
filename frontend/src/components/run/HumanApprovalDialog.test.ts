@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { approveHumanNode } = vi.hoisted(() => ({
   approveHumanNode: vi.fn(),
@@ -51,5 +51,136 @@ describe('HumanApprovalDialog', () => {
       snapshot: { runtimeState: 'SUCCESS' },
     }, { instanceId: 101, nodeId: 'node-human' })
     wrapper.unmount()
+  })
+})
+
+describe('人工审批弹窗键盘焦点', () => {
+  let wrapper: ReturnType<typeof mount> | undefined
+  let opener: HTMLButtonElement
+  let background: HTMLButtonElement
+  const request = {
+    instanceId: 101,
+    nodeId: 'node-human',
+    nodeLabel: '人工审批',
+    details: { approved: false, approvalStatus: 'pending' as const, reviewer: 'ops', method: 'webapp' },
+  }
+
+  beforeEach(() => {
+    approveHumanNode.mockReset()
+    approveHumanNode.mockResolvedValue({ runtimeState: 'SUCCESS' })
+    opener = document.createElement('button')
+    background = document.createElement('button')
+    document.body.append(opener, background)
+    opener.focus()
+  })
+
+  afterEach(async () => {
+    wrapper?.unmount()
+    wrapper = undefined
+    await flushPromises()
+    opener.remove()
+    background.remove()
+  })
+
+  function open(visible: boolean) {
+    wrapper = mount(HumanApprovalDialog, {
+      props: { request, visible, onCompleted: vi.fn() },
+      global: { plugins: [i18n] },
+      attachTo: document.body,
+    })
+    return wrapper
+  }
+
+  function dialog() { return document.body.querySelector<HTMLElement>('[role="dialog"]')! }
+  function closeButton() { return dialog().querySelector<HTMLButtonElement>('header button')! }
+  function press(key: string, shiftKey = false) {
+    const event = new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true })
+    document.activeElement?.dispatchEvent(event)
+    return event
+  }
+
+  it('首次显示时接管焦点，首尾 Tab 循环，拒绝背景焦点，Esc 后恢复打开前焦点', async () => {
+    const mounted = open(true)
+    await flushPromises()
+    const approve = dialog().querySelector<HTMLButtonElement>('[data-action="approve"]')!
+
+    expect(document.activeElement).toBe(closeButton())
+    expect(press('Tab', true).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(approve)
+    expect(press('Tab').defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(closeButton())
+    background.focus()
+    expect(document.activeElement).toBe(closeButton())
+
+    expect(press('Escape').defaultPrevented).toBe(true)
+    expect(mounted.emitted('close')).toHaveLength(1)
+    await mounted.setProps({ visible: false })
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('重开时捕获新的打开前焦点，卸载后恢复焦点并释放键盘事件', async () => {
+    const mounted = open(false)
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+    await mounted.setProps({ visible: true })
+    await flushPromises()
+    expect(document.activeElement).toBe(closeButton())
+    await mounted.setProps({ visible: false })
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+
+    background.focus()
+    await mounted.setProps({ visible: true })
+    await flushPromises()
+    expect(document.activeElement).toBe(closeButton())
+    mounted.unmount()
+    wrapper = undefined
+    await flushPromises()
+    expect(document.activeElement).toBe(background)
+    expect(press('Escape').defaultPrevented).toBe(false)
+    expect(mounted.emitted('close')).toBeUndefined()
+  })
+
+  it.each(['approve', 'reject'] as const)('提交 %s 时将焦点从禁用的决策移到关闭按钮，失败后可再次键盘操作', async (decision) => {
+    let rejectRequest!: (reason: Error) => void
+    approveHumanNode.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectRequest = reject }))
+    const mounted = open(true)
+    await flushPromises()
+
+    const approve = dialog().querySelector<HTMLButtonElement>('[data-action="approve"]')!
+    const reject = dialog().querySelector<HTMLButtonElement>('[data-action="reject"]')!
+    const comment = dialog().querySelector<HTMLTextAreaElement>('textarea')!
+    comment.value = '保留意见'
+    comment.dispatchEvent(new Event('input', { bubbles: true }))
+    const focused = decision === 'approve' ? approve : reject
+    focused.focus()
+    focused.click()
+    await flushPromises()
+
+    try {
+      expect(approveHumanNode).toHaveBeenCalledOnce()
+      expect(approveHumanNode).toHaveBeenCalledWith(101, 'node-human', expect.objectContaining({
+        approved: decision === 'approve',
+        comment: '保留意见',
+      }))
+      expect(approve.disabled).toBe(true)
+      expect(reject.disabled).toBe(true)
+      expect(document.activeElement).toBe(closeButton())
+      expect(press('Tab', true).defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(comment)
+      expect(press('Tab').defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(closeButton())
+    } finally {
+      rejectRequest(new Error('暂时不可用'))
+      await flushPromises()
+    }
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('暂时不可用')
+    expect(comment.value).toBe('保留意见')
+    expect(approve.disabled).toBe(false)
+    expect(reject.disabled).toBe(false)
+    expect(press('Tab', true).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(approve)
+    expect(mounted.emitted('close')).toBeUndefined()
   })
 })
