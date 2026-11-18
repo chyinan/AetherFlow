@@ -52,7 +52,7 @@ async function setup() {
   return { router, store: useProjectStore() }
 }
 function deleteButton(id = '101') {
-  return wrapper!.get(`a[href="/workflows/${id}"] button[title="${i18n.global.t('projects.deleteWorkflow')}"]`)
+  return wrapper!.get(`[data-workflow-row="${id}"] button[title="${i18n.global.t('projects.deleteWorkflow')}"]`)
 }
 async function clickDelete(id = '101') { await deleteButton(id).trigger('click'); await flushPromises() }
 const hasRow = (id: string) => wrapper!.find(`a[href="/workflows/${id}"]`).exists()

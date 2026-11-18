@@ -54,7 +54,7 @@ async function setup() {
   return { router, store: useProjectStore() }
 }
 async function openRename(id = '101', name = '甲的新名称') {
-  await wrapper.get(`a[href="/workflows/${id}"] button[title="${i18n.global.t('projects.renameWorkflow')}"]`).trigger('click')
+  await wrapper.get(`[data-workflow-row="${id}"] button[title="${i18n.global.t('projects.renameWorkflow')}"]`).trigger('click')
   await wrapper.get('form input').setValue(name)
 }
 async function close() { await wrapper.get('form button[type="button"]').trigger('click') }
