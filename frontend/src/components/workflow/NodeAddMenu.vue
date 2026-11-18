@@ -29,6 +29,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { NodeTemplate, WorkflowNodeKind } from '@/types/workflow'
+import { isNodeTemplateBlocked } from '@/utils/workflowCapability'
 import CustomNodeLibrary from './CustomNodeLibrary.vue'
 
 const props = defineProps<{
@@ -136,6 +137,7 @@ const groupedTemplates = computed(() =>
 )
 
 function selectTemplate(template: NodeTemplate) {
+  if (isNodeTemplateBlocked(template)) return
   emit('select', template)
 }
 </script>
@@ -191,7 +193,8 @@ function selectTemplate(template: NodeTemplate) {
             v-for="template in group.templates"
             :key="template.config.customDefinition ? JSON.stringify(template.config.customDefinition) : template.kind"
             type="button"
-            class="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-app-bg2"
+            :disabled="isNodeTemplateBlocked(template)"
+            class="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-app-bg2 disabled:cursor-not-allowed disabled:bg-app-muted"
             @mouseenter="hoveredTemplate = template"
             @focus="hoveredTemplate = template"
             @click="selectTemplate(template)"
@@ -203,6 +206,9 @@ function selectTemplate(template: NodeTemplate) {
               <span class="block truncate text-sm font-semibold text-text-primary">{{ templateLabel(template) }}</span>
               <span class="mt-0.5 block truncate text-xs text-text-muted">
                 {{ template.provider ?? t(`workflow.catalog.categories.${template.category}`) }}
+              </span>
+              <span v-if="template.availability?.reason" class="mt-1 block break-words text-xs leading-5 text-status-warning">
+                {{ t('workflow.capabilityUnavailable') }}：{{ template.availability.reason }}
               </span>
             </span>
           </button>
