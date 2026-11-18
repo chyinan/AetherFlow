@@ -76,8 +76,8 @@ it('子运行和来源运行链接保留历史筛选，后退恢复原查询', a
 })
 
 it.each([
-  ['en-US', 'Child workflow run history', 'View child workflow runs', 'Hide child workflow runs', 'Refresh child runs', 'Open child run #20', 'Waiting for the child workflow to finish', 'Call processed', 'Reused completed result', 'Definition #7 · v2', 'View original parent run #9', 'Re-running a child on its own'],
-  ['ja-JP', '子ワークフロー実行履歴', '子ワークフローの実行を表示', '子ワークフローの実行を非表示', '子ランを更新', '子ラン #20 を開く', '子ワークフローの完了を待機中', '呼び出しを処理済み', '完了済みの結果を再利用', '定義 #7 · v2', '元の親ラン #9 を表示', '子ランを単独で再実行しても'],
+  ['en-US', 'Child workflow run history', 'View child workflow runs', 'Hide child workflow runs', 'Refresh child runs', 'Open child run #20', 'Call processing pending', 'Call processed', 'Reused completed result', 'Definition #7 · v2', 'View original parent run #9', 'Re-running a child on its own'],
+  ['ja-JP', '子ワークフロー実行履歴', '子ワークフローの実行を表示', '子ワークフローの実行を非表示', '子ランを更新', '子ラン #20 を開く', '呼び出しの処理が未完了', '呼び出しを処理済み', '完了済みの結果を再利用', '定義 #7 · v2', '元の親ラン #9 を表示', '子ランを単独で再実行しても'],
 ] as const)('%s 界面本地化子运行和来源运行入口', async (locale, section, show, hide, refresh, child, waiting, processed, reused, definition, source, parentNote) => {
   i18n.global.locale.value = locale
   api.listWorkflowChildRuns.mockResolvedValue([
