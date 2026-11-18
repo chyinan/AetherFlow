@@ -174,13 +174,15 @@ function invalidateForm() {
   testing.value = false
 }
 function close(restoreFocus = true) {
+  // 关闭不取消保存；打开按钮仍禁用时，让焦点回到连接面板。
+  const returnTo = open.value && saving.value ? selectorRoot.value : opener
   open.value = false
   invalidateForm()
   editingId.value = null
   form.name = ''
   form.baseUrl = ''
   form.provider = provider.value
-  if (restoreFocus) opener?.focus()
+  if (restoreFocus) returnTo?.focus()
 }
 async function showWizard(connection?: NodeConnection) {
   if (!alive || saving.value) return
