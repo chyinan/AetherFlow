@@ -19,6 +19,7 @@ const managementContext = computed(() => ['/admin', '/monitor', '/models'].inclu
 const showNotifications = ref(false)
 const notificationTrigger = ref<HTMLButtonElement | null>(null)
 const notificationPanel = ref<HTMLElement | null>(null)
+const notificationRetryButton = ref<HTMLButtonElement | null>(null)
 
 const notificationItems = computed(() => uiStore.notifications.slice(0, 20))
 const unreadNotificationCount = computed(() => uiStore.unreadNotificationCount)
@@ -31,6 +32,22 @@ async function openNotifications() {
     await nextTick()
     notificationPanel.value?.focus({ preventScroll: true })
     await uiStore.loadNotificationMessages()
+  }
+}
+
+async function retryNotificationHistory() {
+  const panel = notificationPanel.value
+  const retryButton = notificationRetryButton.value
+  const retryHadFocus = panel && retryButton && document.activeElement === retryButton
+  // 加载态会移除重试按钮，先把焦点交给仍打开的通知区域。
+  if (retryHadFocus) panel.focus({ preventScroll: true })
+
+  await uiStore.loadNotificationMessages()
+  if (!retryHadFocus) return
+  await nextTick()
+  // 再次失败时可直接重试，但不要打断已离开的用户或重新打开的面板。
+  if (notificationPanel.value === panel && document.activeElement === panel) {
+    notificationRetryButton.value?.focus({ preventScroll: true })
   }
 }
 
@@ -147,7 +164,7 @@ onBeforeUnmount(() => {
             </p>
             <div v-else-if="uiStore.notificationLoadError" role="alert" class="rounded-md border border-status-error/30 p-3 text-sm text-status-error">
               <p>{{ t('notifications.loadFailed') }}</p>
-              <button type="button" :disabled="Boolean(uiStore.notificationMutation)" class="mt-2 font-medium underline disabled:cursor-wait disabled:opacity-50" @click="uiStore.loadNotificationMessages()">
+              <button ref="notificationRetryButton" type="button" :disabled="Boolean(uiStore.notificationMutation)" class="mt-2 font-medium underline disabled:cursor-wait disabled:opacity-50" @click="retryNotificationHistory">
                 {{ t('notifications.retryLoad') }}
               </button>
             </div>
