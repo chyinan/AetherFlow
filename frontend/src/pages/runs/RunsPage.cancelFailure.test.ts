@@ -23,14 +23,15 @@ let cleanupStatus: { workflowInstanceId: number; status: string; attemptCount: n
 let cleanupRetryStatus: { workflowInstanceId: number; status: string; attemptCount: number; completedAt?: string; retryable: boolean }
 let cleanupRetryPendingsByInstance: Map<number, ReturnType<typeof deferred<unknown>>>
 let cleanupReadPendingsByInstance: Map<number, ReturnType<typeof deferred<unknown>>>
+let historyInstanceIds: number[]
 let requests: InternalAxiosRequestConfig[] = []
 let vueErrors: unknown[] = []
 function response(config: InternalAxiosRequestConfig, data: unknown, status = 200): AxiosResponse {
   return { config, data, status, statusText: String(status), headers: {} }
 }
-function failure(config: InternalAxiosRequestConfig) {
+function failure(config: InternalAxiosRequestConfig, message = '取消服务暂时不可用') {
   return new AxiosError('Request failed with status code 503', 'ERR_BAD_RESPONSE', config, undefined,
-    response(config, { message: '取消服务暂时不可用' }, 503))
+    response(config, { message }, 503))
 }
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -45,6 +46,7 @@ beforeEach(() => {
   cleanupRetryStatus = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 2, completedAt: '2026-10-23T03:11:00', retryable: false }
   cleanupRetryPendingsByInstance = new Map()
   cleanupReadPendingsByInstance = new Map()
+  historyInstanceIds = [101, 102]
   cancellation = async config => { throw failure(config) }
   // 只替换 Axios 传输层，保留真实页面、Pinia、API 模块及响应拦截器。
   axiosInstance.defaults.adapter = async config => {
@@ -60,7 +62,9 @@ beforeEach(() => {
       return cancellation(config)
     }
     let data: unknown
-    if (url === '/workflow-instances') data = { total: 2, items: [101, 102].map(id => ({ id, definitionId: 7, workflowName: `运行 ${id}`, status, nodes: [] })) }
+    const run = (id: number) => ({ id, definitionId: 7, workflowName: `运行 ${id}`, status, nodes: [] })
+    if (url === '/workflow-instances') data = { total: historyInstanceIds.length, items: historyInstanceIds.map(run) }
+    else if (/^\/workflow-instances\/\d+$/.test(url)) data = run(Number(url.split('/').at(-1)))
     else if (url.endsWith('/cancellation-cleanup')) {
       const instanceId = Number(url.match(/instances\/(\d+)/)?.[1])
       const pending = cleanupReadPendingsByInstance.get(instanceId)
@@ -73,7 +77,12 @@ beforeEach(() => {
     return response(config, data)
   }
 })
-afterEach(() => { wrapper?.unmount(); useRunStore().stopRealtime(); axiosInstance.defaults.adapter = originalAdapter })
+afterEach(() => {
+  wrapper?.unmount()
+  useRunStore().stopRealtime()
+  axiosInstance.defaults.adapter = originalAdapter
+  vi.useRealTimers()
+})
 async function setup() {
   const pinia = createPinia(); setActivePinia(pinia)
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/runs/:id', name: 'run-detail', component: RunsPage }] })
@@ -84,6 +93,7 @@ async function setup() {
 }
 function button(key: string) { return wrapper!.findAll('button').find(b => b.text() === i18n.global.t(key))! }
 function posts() { return requests.filter(request => request.method === 'post') }
+function cleanupReads() { return requests.filter(request => request.url === '/workflow/runtime/instances/101/cancellation-cleanup') }
 it.each(['RUNNING', 'WAITING'])('%s 取消 HTTP 失败显示结果未确认，保留状态、刷新和手动再次取消', async state => {
   status = state
   const { store } = await setup()
@@ -285,4 +295,144 @@ it('A→B→A 后旧 A 清理读取不会覆盖较新的 A 状态', async () => 
   await flushPromises()
   expect(store.currentRun?.cancellationCleanup).toMatchObject({ status: 'COMPLETE', attemptCount: 4 })
   expect(store.historyRuns.find(run => run.id === 'run-101')?.cancellationCleanup).toMatchObject({ status: 'COMPLETE', attemptCount: 4 })
+})
+
+async function startPendingCleanupPoll() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { store } = await setup()
+  const stalePoll = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, stalePoll)
+  await vi.advanceTimersByTimeAsync(5_000)
+  expect(cleanupReads()).toHaveLength(2)
+  async function failPoll() {
+    stalePoll.reject(failure(cleanupReads()[1]!, '旧轮询暂时不可用'))
+    await flushPromises()
+    // GET 会由 Axios 自动尝试 150ms、300ms 两次退避；等最终失败后再断言。
+    await vi.advanceTimersByTimeAsync(450)
+    await flushPromises()
+    expect(cleanupReads()).toHaveLength(4)
+  }
+  return { store, failPoll }
+}
+
+it.each(['之前', '之后'] as const)('较早轮询在清理重试完成%s失败时不显示过期提示', async order => {
+  const { store, failPoll } = await startPendingCleanupPoll()
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(posts().map(request => request.url)).toEqual(['/workflow/runtime/instances/101/cancellation-cleanup/retry'])
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+
+  if (order === '之前') {
+    await failPoll()
+    expect(section.find('[role="alert"]').exists()).toBe(false)
+  }
+  retry.resolve(cleanupRetryStatus)
+  await flushPromises()
+  expect(store.currentRun?.cancellationCleanup?.status).toBe('COMPLETE')
+  if (order === '之后') await failPoll()
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+  expect(section.find('button').exists()).toBe(false)
+})
+
+it('较新的重试失败仍可见，不会被旧轮询的错误替换', async () => {
+  const { failPoll } = await startPendingCleanupPoll()
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  retry.reject(failure(posts()[0]!, '本次清理重试暂时不可用'))
+  await flushPromises()
+
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  expect(section.get('[role="alert"]').text()).toContain('本次清理重试暂时不可用')
+  await failPoll()
+  expect(section.get('[role="alert"]').text()).toContain('本次清理重试暂时不可用')
+  cleanupRetryPendingsByInstance.delete(101)
+  await section.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(posts()).toHaveLength(2)
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+})
+
+it('取消清理重试未返回时，自动轮询不会抢先读取并压掉重试结果', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { store } = await setup()
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(5_000)
+  retry.resolve(cleanupRetryStatus)
+  await flushPromises()
+
+  expect(store.currentRun?.cancellationCleanup?.status).toBe('COMPLETE')
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupComplete'))
+})
+
+it.each(['失败', '仍待处理'] as const)('取消清理重试%s后恢复正常轮询', async outcome => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { store } = await setup()
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(5_000)
+  expect(cleanupReads()).toHaveLength(1)
+
+  if (outcome === '失败') {
+    retry.reject(failure(posts()[0]!, '本次清理重试暂时不可用'))
+  } else {
+    retry.resolve({ ...cleanupStatus, status: 'PENDING', attemptCount: 2 })
+  }
+  await flushPromises()
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  if (outcome === '失败') {
+    expect(section.get('[role="alert"]').text()).toContain('本次清理重试暂时不可用')
+  } else {
+    expect(store.currentRun?.cancellationCleanup?.status).toBe('PENDING')
+  }
+  cleanupStatus = cleanupRetryStatus
+  await vi.advanceTimersByTimeAsync(5_000)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(2)
+  expect(posts()).toHaveLength(1)
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+})
+
+it('重开不在当前历史页的运行时，仍能读取缺失的清理状态', async () => {
+  status = 'CANCELLED'
+  historyInstanceIds = [102]
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { router, store } = await setup()
+  expect(store.historyRuns.map(run => run.id)).toEqual(['run-102'])
+  expect(cleanupReads()).toHaveLength(1)
+
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  await router.push('/runs/run-102')
+  await flushPromises()
+  cleanupStatus = { ...cleanupStatus, attemptCount: 2 }
+  await router.push('/runs/run-101')
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(2)
+  expect(store.currentRun).toMatchObject({ id: 'run-101', cancellationCleanup: { attemptCount: 2, status: 'FAILED' } })
+
+  retry.reject(failure(posts()[0]!, '旧选择的清理重试失败'))
+  await flushPromises()
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+  expect(section.get('[data-testid="retry-cancel-cleanup"]').attributes('disabled')).toBeUndefined()
 })
