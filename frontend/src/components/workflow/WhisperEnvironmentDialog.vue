@@ -254,7 +254,8 @@ onBeforeUnmount(() => {
             <template v-else-if="step === 1">
               <h4 class="text-sm font-medium text-text-primary">{{ t('prerequisitesTitle') }}</h4>
               <p class="text-xs leading-5 text-text-secondary">{{ t('prerequisitesHint') }}</p>
-              <ul v-if="blockers.length" data-testid="whisper-prerequisite-blockers" class="list-disc space-y-2 rounded-lg bg-amber-50 py-3 pl-7 pr-3 text-xs leading-5 text-amber-900"><li v-for="blocker in blockers" :key="blocker" :data-blocker="blocker">{{ t(`blockers.${blocker}`) }}</li></ul>
+              <p v-if="loading" class="text-xs leading-5 text-text-secondary">{{ t('prerequisitePending') }}</p>
+              <ul v-else-if="blockers.length" data-testid="whisper-prerequisite-blockers" class="list-disc space-y-2 rounded-lg bg-amber-50 py-3 pl-7 pr-3 text-xs leading-5 text-amber-900"><li v-for="blocker in blockers" :key="blocker" :data-blocker="blocker">{{ t(`blockers.${blocker}`) }}</li></ul>
               <p v-else class="text-xs leading-5 text-text-secondary">{{ t('prerequisiteClear') }}</p>
               <p class="text-xs leading-5 text-text-secondary">{{ t('prerequisites') }}</p>
               <p class="text-xs leading-5 text-text-secondary">{{ t(`${deployment}Prerequisites`) }}</p>
