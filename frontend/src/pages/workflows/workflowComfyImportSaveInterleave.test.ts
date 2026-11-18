@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createRequire } from 'node:module'
 import { TextDecoder, TextEncoder } from 'node:util'
 
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
@@ -16,7 +17,7 @@ import type { WorkflowDefinition } from '@/types/workflow'
 
 import WorkflowPage from './WorkflowPage.vue'
 
-const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn(), importComfyUi: vi.fn() }))
+const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn(), copyWorkflow: vi.fn(), importComfyUi: vi.fn() }))
 vi.mock('@/services/api/workflowApi', async (original) => ({
   ...await original<typeof import('@/services/api/workflowApi')>(),
   workflowApi: api,
@@ -75,6 +76,7 @@ beforeEach(() => {
   localStorage.clear()
   api.getWorkflow.mockReset()
   api.saveWorkflow.mockReset()
+  api.copyWorkflow.mockReset()
   api.importComfyUi.mockReset()
   api.getWorkflow.mockImplementation(async (id: string) => definition(id))
   vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -129,6 +131,93 @@ async function importFile(text: Promise<string> = Promise.resolve('{}'), name = 
   await input.trigger('change')
   await flushPromises()
 }
+
+function chooserFile(reads: Array<Promise<string>>) {
+  const file = new File(['{}'], 'workflow.json', { type: 'application/json' })
+  const read = vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
+    const text = await reads.shift()!
+    return new TextEncoder().encode(text).buffer as ArrayBuffer
+  })
+  return { file, read }
+}
+
+async function chooseFileLikeBrowser(input: HTMLInputElement, file: File) {
+  await wrapper!.get('[data-action="import-comfyui"]').trigger('click')
+  // jsdom 没有原生文件选择器；填充它的真实 FileList，不模拟应用对 value 的写入。
+  const require = createRequire(import.meta.url)
+  const { implForWrapper } = createRequire(require.resolve('jsdom'))('./generated/idl/utils.js')
+  expect(input.files).not.toBeNull()
+  if (input.files?.[0] === file) {
+    // 浏览器可以对重新选择同一个文件只发 cancel，不发 change。
+    input.dispatchEvent(new Event('cancel', { bubbles: true }))
+  } else {
+    implForWrapper(input.files).splice(0, input.files!.length, implForWrapper(file))
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+  await flushPromises()
+}
+
+describe('中断 ComfyUI 导入后重新选择同一个文件', () => {
+  it('旧文件读取在切换工作流后结束，新工作流仍可重新选择原文件', async () => {
+    const { store, router } = await setup('/workflows/101?projectId=11')
+    const input = wrapper!.get<HTMLInputElement>('input[type="file"]').element
+    const reading = deferred<string>()
+    const { file, read } = chooserFile([reading.promise, Promise.resolve('{}')])
+    api.importComfyUi.mockResolvedValueOnce({ ...imported(), projectId: 22 })
+
+    await chooseFileLikeBrowser(input, file)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(wrapper!.get('[data-action="import-comfyui"]').attributes('disabled')).toBeDefined()
+
+    await resolveWorkflowNavigation(wrapper!, router.push('/workflows/102?projectId=22'))
+    expect(wrapper!.get('input[type="file"]').element).toBe(input)
+    expect(store.workflowId).toBe('102')
+    reading.resolve('{}')
+    await flushPromises()
+    expect(api.importComfyUi).not.toHaveBeenCalled()
+    expect(wrapper!.get('[data-action="import-comfyui"]').attributes('disabled')).toBeUndefined()
+
+    await chooseFileLikeBrowser(input, file)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(api.importComfyUi).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: 22 }))
+    expect(store.workflowName).toBe('Imported')
+  })
+
+  it('转换期间主动复制工作流后可重选原文件，迟到的旧转换不影响副本', async () => {
+    const { store, router } = await setup('/workflows/101?projectId=11')
+    const input = wrapper!.get<HTMLInputElement>('input[type="file"]').element
+    const { file, read } = chooserFile([Promise.resolve('{}'), Promise.resolve('{}')])
+    const older = deferred<WorkflowDefinitionDTO>()
+    const current = deferred<WorkflowDefinitionDTO>()
+    api.importComfyUi.mockReturnValueOnce(older.promise).mockReturnValueOnce(current.promise)
+    api.saveWorkflow.mockImplementation(async (workflow: WorkflowDefinition) => workflow)
+    api.copyWorkflow.mockResolvedValueOnce(definition('102'))
+
+    await chooseFileLikeBrowser(input, file)
+    expect(api.importComfyUi).toHaveBeenCalledTimes(1)
+    await wrapper!.get('[data-action="copy-workflow"]').trigger('click')
+    await flushPromises()
+    expect(api.copyWorkflow).toHaveBeenCalledExactlyOnceWith('101', undefined)
+    expect(router.currentRoute.value.params.id).toBe('102')
+    expect(store.workflowId).toBe('102')
+    expect(wrapper!.get('input[type="file"]').element).toBe(input)
+    expect(wrapper!.get('[data-action="import-comfyui"]').attributes('disabled')).toBeUndefined()
+
+    await chooseFileLikeBrowser(input, file)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(api.importComfyUi).toHaveBeenCalledTimes(2)
+    older.resolve({ ...imported(), name: '旧转换' })
+    await flushPromises()
+    expect(store.workflowId).toBe('102')
+    expect(store.workflowName).not.toBe('旧转换')
+    expect(wrapper!.get('[data-action="import-comfyui"]').attributes('disabled')).toBeDefined()
+    current.resolve(imported())
+    await flushPromises()
+    expect(store.workflowName).toBe('Imported')
+    expect(input.files).toHaveLength(0)
+  })
+})
 
 describe('首次保存回执与较新 ComfyUI 导入的交错', () => {
   it('导入停在文件读取阶段时，首次保存回执不会让导入失效', async () => {

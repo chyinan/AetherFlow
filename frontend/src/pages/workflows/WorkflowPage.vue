@@ -282,17 +282,13 @@ function importErrorMessage(error: unknown) {
 
 async function handleComfyUiFileChange(event: Event) {
   const input = event.target
-  const file = input instanceof HTMLInputElement ? input.files?.[0] : undefined
-  if (!file) {
-    return
-  }
+  if (!(input instanceof HTMLInputElement)) return
+  const file = input.files?.[0]
+  if (!file) return
 
-  if (!confirmDiscardUnsavedChanges()) {
-    if (input instanceof HTMLInputElement) {
-      input.value = ''
-    }
-    return
-  }
+  // 捕获后立即清空选择器：即使导航使本次导入过期，也可以重新选择同一文件。
+  input.value = ''
+  if (!confirmDiscardUnsavedChanges()) return
 
   const requestId = ++comfyUiImportSequence
   const editRevision = workflowStore.editRevision
@@ -337,9 +333,6 @@ async function handleComfyUiFileChange(event: Event) {
     else reportEditConflict()
   } finally {
     if (ownsRequest()) importingComfyUi.value = false
-    if (requestId === comfyUiImportSequence && input instanceof HTMLInputElement) {
-      input.value = ''
-    }
   }
 }
 
