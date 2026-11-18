@@ -12,11 +12,12 @@ const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const panel = ref<HTMLElement | null>(null)
+const reloadButton = ref<HTMLButtonElement | null>(null)
 let previousFocus: HTMLElement | null = null
 let generation = 0
 const canSubmit = computed(() => preview.value?.eligible && !loading.value && !submitting.value)
 
-async function loadPreview() {
+async function loadPreview(focusOwner?: HTMLElement | null) {
   const current = ++generation
   preview.value = null
   loading.value = true
@@ -28,8 +29,24 @@ async function loadPreview() {
   } catch (failure) {
     if (current === generation) error.value = toApiError(failure, 'workflow').message || t('runs.rerunFailed')
   } finally {
-    if (current === generation) loading.value = false
+    if (current === generation) {
+      loading.value = false
+      if (focusOwner && error.value) {
+        await nextTick()
+        if (current === generation && document.activeElement === focusOwner) {
+          reloadButton.value?.focus({ preventScroll: true })
+        }
+      }
+    }
   }
+}
+
+function retryPreview() {
+  // 重试按钮会在加载时卸载，先让对话框接管焦点，保留键盘的取消入口。
+  const button = reloadButton.value
+  const focusOwner = button && document.activeElement === button ? panel.value : null
+  focusOwner?.focus({ preventScroll: true })
+  void loadPreview(focusOwner)
 }
 
 async function submit() {
@@ -66,7 +83,7 @@ function trapFocus(event: KeyboardEvent) {
   }
 }
 
-watch(() => [props.instanceId, props.nodeId], loadPreview, { immediate: true })
+watch(() => [props.instanceId, props.nodeId], () => { void loadPreview() }, { immediate: true })
 onMounted(async () => {
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
@@ -96,7 +113,7 @@ onBeforeUnmount(() => {
         <p v-if="error" role="alert" class="mt-4 text-sm text-status-error">{{ error }}</p>
         <div class="mt-5 flex flex-wrap justify-end gap-2">
           <button type="button" data-action="close" class="rounded-md border px-3 py-2 text-sm" @click="close">{{ t('common.cancel') }}</button>
-          <button v-if="error && !submitting" type="button" data-action="reload" class="rounded-md border px-3 py-2 text-sm" @click="loadPreview">{{ t('runs.rerunRefresh') }}</button>
+          <button v-if="error && !submitting" ref="reloadButton" type="button" data-action="reload" class="rounded-md border px-3 py-2 text-sm" @click="retryPreview">{{ t('runs.rerunRefresh') }}</button>
           <button type="button" data-action="rerun" class="rounded-md bg-primary px-3 py-2 text-sm text-white disabled:opacity-50" :disabled="!canSubmit" @click="submit">{{ submitting ? t('runs.rerunSubmitting') : t('runs.rerunConfirm') }}</button>
         </div>
       </section>
