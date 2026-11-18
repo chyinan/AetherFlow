@@ -244,6 +244,7 @@ export const useRunStore = defineStore('run', {
     currentRun: null as WorkflowRun | null,
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
+    logHistoryRetryByRunId: {} as Record<string, true>,
     loading: false,
     logsLoading: false,
     historyLoading: false,
@@ -453,9 +454,27 @@ export const useRunStore = defineStore('run', {
         this.currentRun = selectedRun
         const cachedLogs = this.logsByRunId[runId]
         this.logs = cachedLogs ?? []
-        const selectedLogs = options.refreshLogs || !cachedLogs ? await runApi.getLogs(runId) : cachedLogs
+        // 缓存可能仅含恢复或实时事件；一次历史读取失败后，下次打开仍要读日志。
+        const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryRetryByRunId[runId] === true
+        let selectedLogs = cachedLogs ?? []
+        let logReadError: string | undefined
+        if (needsLogRead) {
+          try {
+            selectedLogs = await runApi.getLogs(runId)
+          } catch (error) {
+            if (!toApiError(error, 'runtime').retryable) throw error
+            // 日志读取暂时失败时保留已读日志，不阻断该运行的概况、事件恢复及实时订阅。
+            logReadError = errorMessage(error)
+          }
+        }
         if (!isCurrentSelection() || this.currentRun?.id !== runId) {
           return
+        }
+        if (logReadError) {
+          this.logHistoryRetryByRunId[runId] = true
+          this.error = logReadError
+        } else if (needsLogRead) {
+          delete this.logHistoryRetryByRunId[runId]
         }
         // 同一运行的刷新保留请求期间收到的实时日志。
         // 展示顺序由 mergeLogs 按事件时间决定，请求到达顺序不参与排序。
