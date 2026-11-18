@@ -815,6 +815,9 @@ export const useWorkflowStore = defineStore('workflow', {
       this.loadingError = null
       this.saving = false
       this.savingError = null
+      // 新画布不继承旧工作流的保存核对提示或提交快照。
+      this.saveRecovery = null
+      this.pendingSaveSubmission = null
       this.runError = null
       this.historyPast = []
       this.historyFuture = []

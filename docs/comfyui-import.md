@@ -2,6 +2,8 @@
 
 导入创建 `START → PROMPT → IMAGE_GENERATION → END` 四个 AF 外层节点。图像节点保存完整原图，不把插件节点转换成 AF 原生节点。节点标题显示原图节点数和格式；检查器显示内部节点清单、完整原始 JSON、未解析文本和插件未验证状态。
 
+转换成功后，导入结果会作为新草稿打开，须单独保存；上一张画布的保存核对提示不再显示。
+
 ## 界面 JSON 与 API JSON
 
 - 普通界面 JSON 使用 `nodes`、`links`、`widgets_values` 等结构。可导入、保存和查看，不能直接作为 `/prompt` 的 API 图提交。前端预检、服务端启动预检和 ComfyUI Provider 都阻止误运行，并提供下一步。
