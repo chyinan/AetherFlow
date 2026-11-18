@@ -210,6 +210,9 @@ it('首次加载不把未确认数据呈现为成功的零计数', async () => {
   expect(overview().findAll('dd')).toHaveLength(0)
   expect(overview().text()).toContain('正在加载')
   expect(wrapper!.find('[data-testid="management-empty"]').exists()).toBe(false)
+  for (const key of ['models.noProviders', 'models.noModels', 'models.noLogs']) {
+    expect.soft(wrapper!.text()).not.toContain(i18n.global.t(key))
+  }
 })
 
 it('首次读取失败保留错误与重试，不冒充成功空快照', async () => {
@@ -220,6 +223,9 @@ it('首次读取失败保留错误与重试，不冒充成功空快照', async (
   expect(wrapper!.get('[role="alert"]').text()).toContain('合成首次读取失败')
   expect(wrapper!.get('[role="alert"]').find('button').exists()).toBe(true)
   expect(wrapper!.find('[data-testid="management-empty"]').exists()).toBe(false)
+  for (const key of ['models.noProviders', 'models.noModels', 'models.noLogs']) {
+    expect.soft(wrapper!.text()).not.toContain(i18n.global.t(key))
+  }
 })
 
 it('成功空快照显示已确认零计数与既有空提示，不残留服务详情', async () => {
@@ -227,6 +233,9 @@ it('成功空快照显示已确认零计数与既有空提示，不残留服务�
   await renderPage()
   expect(overview().findAll('dd').map((entry) => entry.text())).toEqual(['0', '0'])
   expect(wrapper!.find('[data-testid="management-empty"]').exists()).toBe(true)
+  for (const key of ['models.noProviders', 'models.noModels', 'models.noLogs']) {
+    expect(wrapper!.text()).toContain(i18n.global.t(key))
+  }
   expect(details().text()).not.toMatch(/主服务甲|备用服务乙|145ms|760ms/)
   expect(details().find('[data-testid="selected-provider-latency"]').exists()).toBe(false)
 })

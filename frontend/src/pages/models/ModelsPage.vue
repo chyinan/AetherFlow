@@ -29,7 +29,9 @@ const managementWriteDisabled = computed(() => managementBusy.value || Boolean(m
 const selectedProvider = computed(() => modelStore.selectedProvider)
 const canManageProviders = computed(() => authStore.isAdmin)
 
-const hasSummarySnapshot = computed(() => modelStore.providers.length > 0 || modelStore.models.length > 0 || (!modelStore.loading && !modelStore.error))
+const snapshotReadSucceeded = computed(() => !modelStore.loading && !modelStore.error)
+const hasDisplayableSnapshot = computed(() => snapshotReadSucceeded.value || modelStore.providers.length > 0 || modelStore.models.length > 0)
+const providerListEmpty = computed(() => snapshotReadSucceeded.value && !modelStore.providers.length)
 const overallMetrics = computed(() => [
   {
     label: t('models.providersOnline'),
@@ -122,12 +124,12 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
       <div class="flex min-h-full w-full flex-col gap-4">
         <p v-if="modelStore.loading" role="status" class="rounded-lg border border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminLoading') }}</p>
         <p v-else-if="managementBusy" role="status" class="rounded-lg border border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('busy') }}</p>
-        <p v-if="!modelStore.loading && !modelStore.error && !modelStore.providers.length" data-testid="management-empty" class="rounded-lg border border-dashed border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminEmpty') }}</p>
+        <p v-if="providerListEmpty" data-testid="management-empty" class="rounded-lg border border-dashed border-app-border bg-white p-4 text-sm text-text-muted">{{ roleText('adminEmpty') }}</p>
         <p v-if="modelStore.error && modelStore.providers.length" role="status" class="text-sm text-status-warning">{{ roleText('backendFailure') }}</p>
         <p v-if="modelStore.snapshotSource === 'mock' && modelStore.providers.length" role="status" data-testid="model-demo-warning" class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{{ roleText('demo') }}</p>
         <section data-testid="models-overview" aria-labelledby="models-overview-title" class="rounded-lg border border-app-border bg-white px-4 py-3">
           <h2 id="models-overview-title" class="text-sm font-semibold text-text-primary">{{ roleText('overallSummary') }}</h2>
-          <template v-if="hasSummarySnapshot">
+          <template v-if="hasDisplayableSnapshot">
             <dl class="mt-3 grid gap-3 sm:grid-cols-2">
               <div v-for="metric in overallMetrics" :key="metric.label" class="flex items-baseline justify-between gap-3 rounded-md bg-app-bg2 px-3 py-2">
                 <dt class="text-xs text-text-muted">{{ metric.label }}</dt>
@@ -175,7 +177,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
             </div>
 
             <div class="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-              <p v-if="modelStore.providers.length === 0 && !modelStore.loading" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
+              <p v-if="providerListEmpty" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
                 {{ t('models.noProviders') }}
               </p>
 
@@ -333,10 +335,10 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                     <dd v-else class="mt-1 text-sm text-text-secondary">{{ quotaStatusText(selectedProvider) }}</dd>
                   </div>
                 </dl>
-                <p v-if="modelStore.selectedProviderModels.length === 0" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
+                <p v-if="hasDisplayableSnapshot && modelStore.selectedProviderModels.length === 0" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
                   {{ t('models.noModels') }}
                 </p>
-                <div v-else class="grid gap-3 lg:grid-cols-2">
+                <div v-else-if="modelStore.selectedProviderModels.length" class="grid gap-3 lg:grid-cols-2">
                   <article
                     v-for="model in modelStore.selectedProviderModels"
                     :key="model.id"
@@ -381,7 +383,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                   </span>
                 </div>
                 <div class="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1 font-mono text-xs leading-6">
-                  <p v-if="modelStore.logs.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
+                  <p v-if="hasDisplayableSnapshot && modelStore.logs.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
                     {{ t('models.noLogs') }}
                   </p>
                   <p v-for="log in modelStore.logs" :key="log.id" class="rounded-md border border-transparent bg-app-bg2 px-3 py-2 text-text-secondary transition hover:border-primary/20 hover:bg-primary-soft/30">
