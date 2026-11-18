@@ -24,14 +24,14 @@ describe('Copilot输入区展示', () => {
   it('聊天输入和图标发送按钮具有完整名称', async () => {
     wrapper = mount(AICopilotPanel, { global: { plugins: [i18n] } })
     await flushPromises()
-    expect(wrapper.get('form input').attributes('aria-label')).toBe(i18n.global.t('copilot.askPlaceholder'))
+    expect(wrapper.get('form textarea').attributes('aria-label')).toBe(i18n.global.t('copilot.askPlaceholder'))
     expect(wrapper.get('button[type="submit"]').attributes('aria-label')).toBe('发送消息')
   })
 
   it('编辑模式输入保留与任务一致的名称', async () => {
     wrapper = mount(AICopilotPanel, { props: { applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
     await flushPromises()
-    expect(wrapper.get('form input').attributes('aria-label')).toBe(i18n.global.t('copilot.editor.placeholder'))
+    expect(wrapper.get('form textarea').attributes('aria-label')).toBe(i18n.global.t('copilot.editor.placeholder'))
     expect(wrapper.get('button[type="submit"]').attributes('aria-label')).toBe('发送消息')
   })
 })

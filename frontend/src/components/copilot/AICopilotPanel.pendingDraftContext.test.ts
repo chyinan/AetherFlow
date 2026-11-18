@@ -82,12 +82,12 @@ describe('mounted Copilot custom-node draft follow-up context', () => {
     })
     await flushPromises()
 
-    await wrapper.get('form input').setValue('Create a custom API node')
+    await wrapper.get('form textarea').setValue('Create a custom API node')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(wrapper.find('[data-testid="custom-node-preview"]').exists()).toBe(true)
 
-    await wrapper.get('form input').setValue('Keep this draft and continue editing it')
+    await wrapper.get('form textarea').setValue('Keep this draft and continue editing it')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 

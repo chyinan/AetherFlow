@@ -725,7 +725,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
       expect(panel.props('applyCanvasEdit')).toBeTypeOf('function')
       expect(panel.text()).toContain(i18n.global.t('copilot.historyLoadFailed'))
 
-      const input = panel.get<HTMLInputElement>('form input')
+      const input = panel.get<HTMLTextAreaElement>('form textarea')
       await input.setValue('继续修订原规划')
       expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeDefined()
       await panel.get('form').trigger('submit')
@@ -765,7 +765,7 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
     expect(readConversationSelection(conversationSessionKey({ workflowId: '101', projectId: null }))).toBe('new')
 
-    const input = panel.get<HTMLInputElement>('form input')
+    const input = panel.get<HTMLTextAreaElement>('form textarea')
     await input.setValue('继续修订已删除会话的规划')
     expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeDefined()
     await panel.get('form').trigger('submit')

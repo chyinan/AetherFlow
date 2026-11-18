@@ -93,6 +93,7 @@ const planPreview = ref<{
   applied: boolean
   structurallyValid: boolean | null
   runtimeReady: boolean | null
+  retryApply: boolean
   issues: string[]
 } | null>(null)
 let planValidationSequence = 0
@@ -587,6 +588,7 @@ async function preparePlanPreview(message: CopilotMessage, signal?: AbortSignal)
       applied: false,
       structurallyValid: false,
       runtimeReady: false,
+      retryApply: false,
       issues: [error instanceof Error ? error.message : t('copilot.planner.validationIssue')],
     }
     return
@@ -605,6 +607,7 @@ async function preparePlanPreview(message: CopilotMessage, signal?: AbortSignal)
     applied: false,
     structurallyValid: null,
     runtimeReady: null,
+    retryApply: false,
     issues: [],
   }
   if (stale) return
@@ -1136,26 +1139,36 @@ async function applyWorkflowPlan(message: CopilotMessage) {
   const preview = planPreview.value
   const current = currentPlannerBase()
   if (!message.plan || message.plan.status !== 'READY' || !message.plan.recipe
-      || !preview || preview.messageId !== message.id || preview.applied || applyingPlan.value) {
+      || !preview || preview.messageId !== message.id || preview.applied || applyingPlan.value
+      || !preview.structurallyValid || !preview.runtimeReady) {
     return
   }
+  const markStale = () => {
+    planPreview.value = { ...preview, stale: true, retryApply: false, issues: [t('copilot.planner.stale')] }
+  }
   if (!current || preview.stale || !planBaseIsCurrent(message)) {
-    planPreview.value = { ...preview, stale: true, issues: [t('copilot.planner.stale')] }
+    markStale()
     return
   }
   const sessionAtStart = plannerSessionSequence
+  const ownsPreview = () => sessionAtStart === plannerSessionSequence && planPreview.value?.messageId === message.id
+  const previewBaseIsCurrent = () => {
+    const base = currentPlannerBase()
+    return Boolean(base && !planPreview.value?.stale
+      && base.workflowId === preview.baseWorkflowId
+      && base.editRevision === preview.baseEditRevision
+      && base.backendDefinitionId === preview.baseDefinitionId
+      && base.backendVersion === preview.baseVersion
+      && base.graphFingerprint === preview.baseFingerprint)
+  }
   applyingPlan.value = true
+  let awaitingValidation = true
   try {
     const validation = await workflowApi.validateCopilotDraft(preview.workflow, message.plan.recipe)
-    const stillCurrent = currentPlannerBase()
-    if (sessionAtStart !== plannerSessionSequence || planPreview.value?.messageId !== message.id) return
-    if (!stillCurrent
-        || stillCurrent.workflowId !== preview.baseWorkflowId
-        || stillCurrent.editRevision !== preview.baseEditRevision
-        || stillCurrent.backendDefinitionId !== preview.baseDefinitionId
-        || stillCurrent.backendVersion !== preview.baseVersion
-        || stillCurrent.graphFingerprint !== preview.baseFingerprint) {
-      planPreview.value = { ...preview, stale: true, issues: [t('copilot.planner.stale')] }
+    awaitingValidation = false
+    if (!ownsPreview()) return
+    if (!previewBaseIsCurrent()) {
+      markStale()
       return
     }
     if (!validation.structurallyValid || !validation.runtimeReady) {
@@ -1163,6 +1176,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
         ...preview,
         structurallyValid: validation.structurallyValid,
         runtimeReady: validation.runtimeReady,
+        retryApply: false,
         issues: validation.issues?.length ? validation.issues : [t('copilot.planner.runtimeUnavailable')],
       }
       return
@@ -1176,7 +1190,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       edges: preview.workflow.edges,
     }
     if (!props.applyWorkflowDraft?.(draft)) {
-      planPreview.value = { ...preview, stale: true, issues: [t('copilot.planner.stale')] }
+      markStale()
       return
     }
     planPreview.value = {
@@ -1184,6 +1198,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       applied: true,
       structurallyValid: validation.structurallyValid,
       runtimeReady: validation.runtimeReady,
+      retryApply: false,
       issues: [],
     }
     const index = messages.value.findIndex((item) => item.id === message.id)
@@ -1194,9 +1209,19 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       }
     }
   } catch (error) {
-    if (sessionAtStart === plannerSessionSequence && planPreview.value?.messageId === message.id) {
-      const apiError = toApiError(error, 'workflow')
-      planPreview.value = { ...preview, structurallyValid: false, runtimeReady: false, issues: [apiError.message] }
+    if (!ownsPreview()) return
+    if (!previewBaseIsCurrent()) {
+      markStale()
+      return
+    }
+    const apiError = toApiError(error, 'workflow')
+    // 网络失败不是结构无效；仅保留原预览供再校验，不把它当作最终校验通过。
+    const retryApply = awaitingValidation && apiError.retryable
+    planPreview.value = {
+      ...preview,
+      ...(retryApply ? {} : { structurallyValid: false, runtimeReady: false }),
+      retryApply,
+      issues: [apiError.message],
     }
   } finally {
     // 旧会话的最终校验不能解除新会话正在应用的等待锁。
@@ -1237,7 +1262,7 @@ watch(() => [
         || base.backendDefinitionId !== preview.baseDefinitionId
         || base.backendVersion !== preview.baseVersion
         || base.graphFingerprint !== preview.baseFingerprint)) {
-    planPreview.value = { ...preview, stale: true, issues: [t('copilot.planner.stale')] }
+    planPreview.value = { ...preview, stale: true, retryApply: false, issues: [t('copilot.planner.stale')] }
   }
 })
 
@@ -1450,7 +1475,7 @@ onMounted(() => {
                 @click="applyWorkflowPlan(message)"
               >
                 <LoaderCircle v-if="applyingPlan" class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                {{ t('copilot.planner.apply') }}
+                {{ t(planPreview.retryApply ? 'copilot.planner.retryApply' : 'copilot.planner.apply') }}
               </button>
             </div>
           </section>

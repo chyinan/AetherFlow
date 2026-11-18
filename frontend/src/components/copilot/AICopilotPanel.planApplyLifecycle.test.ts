@@ -68,7 +68,7 @@ beforeEach(() => {
 });
 afterEach(() => wrapper?.unmount());
 function deferred<T>() { let resolve!: (x: T) => void; let reject!: (e: Error) => void; const promise = new Promise<T>((r, e) => { resolve = r; reject = e }); return { promise, resolve, reject }; }
-async function setup() {
+async function setup(withCanvasEditing = false) {
     const pinia = createPinia();
     setActivePinia(pinia);
     const store = useWorkflowStore();
@@ -78,12 +78,125 @@ async function setup() {
     let id = 0;
     planWorkflow.mockImplementation(async () => planMessage(context.value, readyMediaPlan(), `plan-${++id}`));
     const apply = vi.fn(request => store.applyCopilotWorkflowDraft(request));
-    wrapper = mount(defineComponent({ setup: () => () => h(AICopilotPanel, { context: context.value, applyWorkflowDraft: apply }) }), { global: { plugins: [pinia, i18n] } });
+    wrapper = mount(defineComponent({ setup: () => () => h(AICopilotPanel, {
+        context: context.value, applyWorkflowDraft: apply,
+        ...(withCanvasEditing ? { applyCanvasEdit: vi.fn(() => false) } : {}),
+    }) }), { global: { plugins: [pinia, i18n] } });
     await flushPromises();
-    return { store, apply };
+    return { store, apply, context };
 }
 function button(key: string) { const b = wrapper!.findAll('button').find(b => b.text() === i18n.global.t(key)); expect(b, key).toBeDefined(); return b!; }
 async function preview() { await button('copilot.quickDraftWorkflow').trigger('click'); await flushPromises(); }
+
+it('中文媒体需求澄清后，最终校验返回 503 可以重试同一预览并且只应用一次', async () => {
+    const { store, apply, context } = await setup(true);
+    const plan: CopilotWorkflowPlan = {
+        ...readyMediaPlan(),
+        requirements: {
+            ...readyMediaPlan().requirements,
+            goal: '把中文视频转录后生成三条摘要',
+            inputDescription: '运行时选择中文视频',
+            language: '中文',
+            instruction: '用中文生成三条摘要',
+        },
+        explanation: '请预览媒体摘要方案。',
+    };
+    planWorkflow.mockResolvedValueOnce(planMessage(context.value, {
+        ...plan, status: 'NEEDS_CLARIFICATION', recipe: null, steps: [],
+        requirements: { ...plan.requirements, inputKind: 'UNKNOWN', inputDescription: '' },
+        clarifyingQuestion: '输入是本地媒体文件，还是公开网址？',
+        explanation: '请补充输入类型。',
+    }, 'needs-input')).mockResolvedValueOnce(planMessage(context.value, plan));
+    await button('copilot.editor.chatMode').trigger('click');
+    await preview();
+    expect(wrapper!.text()).toContain('输入是本地媒体文件，还是公开网址？');
+    expect(apply).not.toHaveBeenCalled();
+    const text = '帮我搭一个工作流：输入中文视频，转录后生成三条摘要';
+    await wrapper!.get('form textarea').setValue(text);
+    await wrapper!.get('form').trigger('submit');
+    await flushPromises();
+    expect(planWorkflow).toHaveBeenLastCalledWith(text, expect.objectContaining({ conversationId: 'conv-1' }));
+    expect(wrapper!.text()).toContain('请预览媒体摘要方案。');
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(1);
+    expect(store.nodes).toHaveLength(0);
+
+    validateCopilotDraft.mockRejectedValueOnce({ status: 503, message: '工作流服务暂不可用' });
+    await button('copilot.planner.apply').trigger('click');
+    await flushPromises();
+    expect(wrapper!.text()).toContain('工作流服务暂不可用');
+    expect(apply).not.toHaveBeenCalled();
+    expect(store.nodes).toHaveLength(0);
+
+    const retry = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(retry.promise);
+    const retryButton = button('copilot.planner.retryApply');
+    await retryButton.trigger('click');
+    expect(retryButton.attributes('disabled')).toBeDefined();
+    await retryButton.trigger('click');
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(3);
+    expect(validateCopilotDraft.mock.calls[2]).toEqual(validateCopilotDraft.mock.calls[1]);
+    expect(planWorkflow).toHaveBeenCalledTimes(2);
+    expect(apply).not.toHaveBeenCalled();
+    retry.resolve(ready);
+    await flushPromises();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(store.nodes.map(node => node.data.kind)).toEqual(['start', 'upload', 'ffmpeg', 'whisper', 'summary', 'export', 'output']);
+    expect(store.nodes.find(node => node.data.kind === 'summary')?.data.config).toMatchObject({ prompt: '用中文生成三条摘要' });
+    expect(store.historyPast).toHaveLength(1);
+    expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.applied'));
+    expect(wrapper!.text()).not.toContain('工作流服务暂不可用');
+});
+
+it('同一预览重试仍需通过最终运行能力校验', async () => {
+    const { store, apply } = await setup();
+    await preview();
+    validateCopilotDraft.mockRejectedValueOnce({ status: 503, message: '暂时无法校验' });
+    await button('copilot.planner.apply').trigger('click');
+    await flushPromises();
+
+    validateCopilotDraft.mockResolvedValueOnce({ structurallyValid: true, runtimeReady: false, issues: ['模型未就绪'] });
+    await button('copilot.planner.retryApply').trigger('click');
+    await flushPromises();
+    expect(wrapper!.text()).toContain('模型未就绪');
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.retryApply'));
+    expect(store.nodes).toHaveLength(0);
+    expect(apply).not.toHaveBeenCalled();
+});
+
+it('最终校验返回不可重试的冲突时，仍要求重新规划', async () => {
+    const { store, apply } = await setup();
+    await preview();
+    validateCopilotDraft.mockRejectedValueOnce({ status: 409, message: '工作流版本已经改变' });
+    await button('copilot.planner.apply').trigger('click');
+    await flushPromises();
+    expect(wrapper!.text()).toContain('工作流版本已经改变');
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.retryApply'));
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.apply'));
+    expect(store.nodes).toHaveLength(0);
+    expect(apply).not.toHaveBeenCalled();
+});
+
+it.each(['校验失败前', '校验失败后'])('%s手动修改画布，不能重试旧预览', async (editTime) => {
+    const { store, apply } = await setup();
+    await preview();
+    let rejectValidation!: (error: { status: number; message: string }) => void;
+    validateCopilotDraft.mockReturnValueOnce(new Promise((_, reject) => { rejectValidation = reject; }));
+    await button('copilot.planner.apply').trigger('click');
+    const edit = () => store.addNodeFromTemplate(store.templates.find(template => template.kind === 'start')!, { x: 1, y: 2 });
+    if (editTime === '校验失败前') edit();
+    rejectValidation({ status: 503, message: '旧校验失败' });
+    await flushPromises();
+    if (editTime === '校验失败后') {
+        await button('copilot.planner.retryApply');
+        edit();
+        await flushPromises();
+    }
+    expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.stale'));
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.retryApply'));
+    expect(wrapper!.text()).not.toContain('旧校验失败');
+    expect(store.nodes).toHaveLength(1);
+    expect(apply).not.toHaveBeenCalled();
+});
 
 it.each([
     ['new-conversation', 'success'], ['new-conversation', 'failure'],
