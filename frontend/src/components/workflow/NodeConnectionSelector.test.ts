@@ -9,8 +9,9 @@ import type { NodeConnection, NodeConnectionProbe } from '@/api/modules/nodeConn
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((yes) => { resolve = yes })
-  return { promise, resolve }
+  let reject!: (cause: unknown) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
 }
 const saved: NodeConnection = { id: 'saved-comfy', name: 'Studio', provider: 'COMFYUI', baseUrl: 'http://image-service:8188', readOnly: false }
 const sd: NodeConnection = { id: 'saved-sd', name: 'WebUI', provider: 'STABLE_DIFFUSION_WEBUI', baseUrl: 'http://sd-service:7860', readOnly: false }
@@ -368,6 +369,58 @@ describe('节点连接向导', () => {
     expect(wrapper.get('[data-testid="apply-checkpoint-field-required"]').text()).toContain('current-model')
     expect(wrapper.text()).not.toContain('old-model'); expect(wrapper.emitted('updateConfig')).toBeUndefined()
   })
+  it.each(['取消', '成功', '失败'] as const)('当前连接测试%s后，焦点从移除的取消按钮回到重测按钮', async (outcome) => {
+    const pending = deferred<NodeConnectionProbe>()
+    mocks.probeSavedNodeConnection.mockReturnValueOnce(pending.promise)
+    const wrapper = render({ provider: 'COMFYUI', connectionId: saved.id })
+    await flushPromises()
+
+    const retry = wrapper.get<HTMLButtonElement>('[data-testid="refresh-connection"]').element
+    const cancel = wrapper.get<HTMLButtonElement>('[data-testid="cancel-current-test"]').element
+    expect(retry.disabled).toBe(true)
+    cancel.focus()
+    expect(document.activeElement).toBe(cancel)
+
+    if (outcome === '取消') cancel.click()
+    else if (outcome === '成功') pending.resolve(probe())
+    else pending.reject(new Error('temporary diagnostics failure'))
+    await flushPromises()
+
+    expect(cancel.isConnected).toBe(false)
+    expect(retry.disabled).toBe(false)
+    expect(document.activeElement).toBe(retry)
+    if (outcome === '取消') {
+      expect(wrapper.text()).toContain('本次测试已取消')
+      retry.click()
+      await flushPromises()
+      expect(mocks.probeSavedNodeConnection).toHaveBeenCalledTimes(2)
+      pending.resolve(probe({ message: 'stale cancelled diagnostics' }))
+      await flushPromises()
+      expect(wrapper.text()).not.toContain('stale cancelled diagnostics')
+    }
+    expect(wrapper.emitted('apply')).toBeUndefined()
+    expect(wrapper.emitted('updateConfig')).toBeUndefined()
+  })
+
+  it('连接诊断结束时不会从用户已选的其他控件夺回焦点', async () => {
+    const pending = deferred<NodeConnectionProbe>()
+    mocks.probeSavedNodeConnection.mockReturnValueOnce(pending.promise)
+    const wrapper = render({ provider: 'COMFYUI', connectionId: saved.id })
+    await flushPromises()
+
+    const cancel = wrapper.get<HTMLButtonElement>('[data-testid="cancel-current-test"]').element
+    const other = wrapper.get<HTMLButtonElement>('[data-testid="add-connection"]').element
+    cancel.focus()
+    other.focus()
+    expect(document.activeElement).toBe(other)
+
+    pending.resolve(probe())
+    await flushPromises()
+
+    expect(cancel.isConnected).toBe(false)
+    expect(document.activeElement).toBe(other)
+  })
+
   it('快速切换 A→B→A 后旧 A 探测及旧按钮不能写入当前节点', async () => {
     const first = deferred<NodeConnectionProbe>(); const second = deferred<NodeConnectionProbe>(); const third = deferred<NodeConnectionProbe>()
     mocks.probeSavedNodeConnection.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise).mockReturnValueOnce(third.promise)

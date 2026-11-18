@@ -36,6 +36,8 @@ const testing = ref(false)
 const saving = computed(() => Boolean(pendingSave.value))
 const nameInput = ref<HTMLInputElement | null>(null)
 const selectorRoot = ref<HTMLElement | null>(null)
+const refreshButton = ref<HTMLButtonElement | null>(null)
+const cancelProbeButton = ref<HTMLButtonElement | null>(null)
 const selectedCancelled = ref(false)
 let selectedSequence = 0
 let formSequence = 0
@@ -125,12 +127,26 @@ function syncConnectionProvider(issue: ConnectionChecklistIssue) {
   locateIssue(issue)
   emit('apply', { connectionId: connection.id, provider: connection.provider }, props.nodeId)
 }
+function finishSelectedProbe() {
+  const anchor = document.activeElement === cancelProbeButton.value ? selectorRoot.value : null
+  const sequence = selectedSequence
+  // 先把焦点留在面板内，取消按钮卸载后再聚焦已启用的重测按钮。
+  anchor?.focus({ preventScroll: true })
+  probing.value = false
+  if (!anchor) return
+  void nextTick(() => {
+    const retry = refreshButton.value
+    if (alive && !open.value && sequence === selectedSequence && document.activeElement === anchor && retry && !retry.disabled) {
+      retry.focus({ preventScroll: true })
+    }
+  })
+}
 function cancelSelectedProbe() {
   selectedSequence += 1
-  probing.value = false
   selectedProbe.value = null
   selectedError.value = ''
   selectedCancelled.value = true
+  finishSelectedProbe()
 }
 function currentValue(key: string) { return String(props.config[key] ?? '') }
 function unsupported(key: string, catalog: ImageCatalog) {
@@ -243,7 +259,7 @@ async function refreshSelected() {
   } catch (cause) {
     if (alive && sequence === selectedSequence && key === selectedKey.value) selectedError.value = errorMessage(cause)
   } finally {
-    if (alive && sequence === selectedSequence) probing.value = false
+    if (alive && sequence === selectedSequence) finishSelectedProbe()
   }
 }
 async function loadConnections() {
@@ -290,7 +306,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
 </script>
 
 <template>
-  <section ref="selectorRoot" class="space-y-4 rounded-xl border border-app-border bg-app-bg2 p-4" data-testid="node-connection">
+  <section ref="selectorRoot" :aria-label="t('connection')" tabindex="-1" class="space-y-4 rounded-xl border border-app-border bg-app-bg2 p-4" data-testid="node-connection">
     <label class="block text-sm font-semibold text-text-primary">
       {{ t('connection') }}
       <select :id="fieldId('connectionId')" data-config-field="connectionId" data-testid="connection-select" class="mt-2 w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm" :value="connectionId" :disabled="loading" @change="chooseConnection">
@@ -310,8 +326,8 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
     <div class="flex flex-wrap gap-2">
       <button data-testid="add-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white disabled:opacity-50" :disabled="saving" @click="showWizard()">{{ t('add') }}</button>
       <button v-if="selectedConnection && !selectedConnection.readOnly" data-testid="edit-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="saving" @click="showWizard(selectedConnection)">{{ t('edit') }}</button>
-      <button data-testid="refresh-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="probing || loading" @click="loadConnections()">{{ probing ? t('testing') : t('refresh') }}</button>
-      <button v-if="probing" data-testid="cancel-current-test" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs" @click="cancelSelectedProbe">{{ t('cancelTest') }}</button>
+      <button ref="refreshButton" data-testid="refresh-connection" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs disabled:opacity-50" :disabled="probing || loading" @click="loadConnections()">{{ probing ? t('testing') : t('refresh') }}</button>
+      <button v-if="probing" ref="cancelProbeButton" data-testid="cancel-current-test" type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 text-xs" @click="cancelSelectedProbe">{{ t('cancelTest') }}</button>
     </div>
     <p v-if="loading" role="status" class="text-xs text-text-muted">{{ t('loading') }}</p>
     <p v-if="saveFeedback" data-testid="connection-save-status" :role="saveOutcome?.status === 'failed' ? 'alert' : 'status'" class="text-xs leading-5" :class="saveOutcome?.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ saveFeedback }}</p>
