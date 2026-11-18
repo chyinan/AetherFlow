@@ -7,6 +7,7 @@ import { TextDecoder, TextEncoder } from 'node:util'
 
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import { i18n } from '@/i18n'
+import { nodeTemplates } from '@/services/mock/workflowMock'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { ProjectSummary } from '@/types/project'
@@ -234,4 +235,97 @@ describe('audit19：空白入口的成功导入必须进入可编辑画布', () 
   await redo(); await redo()
   expect(JSON.stringify({ nodes: store.nodes, edges: store.edges })).toBe(before)
  })
+})
+
+function editorAlerts() {
+  return wrapper!.get('[data-testid="workflow-editor"]').findAll('header [role="alert"]').map(alert => alert.text())
+}
+
+describe('编辑器独立显示 ComfyUI 导入失败', () => {
+  it('复制失败后仍显示转换错误，并可重新选择原文件成功导入', async () => {
+    const { store, router } = await setup()
+    const copyError = '复制服务暂不可用'
+    http.post.mockRejectedValueOnce(Object.assign(new Error(copyError), { status: 503 }))
+    await wrapper!.get('[data-action="copy-workflow"]').trigger('click')
+    await flushPromises()
+    expect(http.post.mock.calls[0]?.[0]).toBe('/workflows/definitions/101/copy')
+    expect(store.runError).toContain(copyError)
+    expect(editorAlerts()).toEqual([store.runError])
+
+    importFails = true
+    const before = JSON.stringify(store.$state)
+    await wrapper!.get('[data-action="import-comfyui"]').trigger('click')
+    await importFile()
+    expect.soft(editorAlerts()).toEqual([store.runError, 'temporary import failure'])
+    expect(JSON.stringify(store.$state)).toBe(before)
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    expect(wrapper!.get<HTMLButtonElement>('[data-action="import-comfyui"]').element.disabled).toBe(false)
+
+    importFails = false
+    await wrapper!.get('[data-action="import-comfyui"]').trigger('click')
+    await importFile()
+    expect(http.post.mock.calls.map(([url]) => url)).toEqual([
+      '/workflows/definitions/101/copy',
+      '/workflows/definitions/import/comfyui',
+      '/workflows/definitions/import/comfyui',
+    ])
+    expect(store.workflowId).toBe('new')
+    expect(store.workflowName).toBe('import')
+    expect(store.dirty).toBe(true)
+    expect(editorAlerts()).toEqual([])
+  })
+
+  it('保存被拒后读取失败仍显示原因，未提交转换或替换草稿', async () => {
+    const { store, router } = await setup()
+    const start = nodeTemplates.find(template => template.kind === 'start')!
+    expect(store.addNodeFromTemplate(start, { x: 12, y: 34 })).toBeTruthy()
+    expect(store.dirty).toBe(true)
+    http.put.mockRejectedValueOnce(Object.assign(new Error('保存校验未通过'), { status: 400 }))
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(http.put.mock.calls[0]?.[0]).toBe('/workflows/definitions/101')
+    expect(store.savingError).toContain('保存校验未通过')
+    expect(editorAlerts()).toEqual([store.savingError])
+    const before = JSON.stringify(store.$state)
+
+    const readError = '无法读取所选 JSON'
+    await wrapper!.get('[data-action="import-comfyui"]').trigger('click')
+    await importFile(Promise.reject(new DOMException(readError, 'NotReadableError')))
+    expect.soft(editorAlerts()).toEqual([store.savingError, readError])
+    expect(window.confirm).toHaveBeenCalledExactlyOnceWith(i18n.global.t('workflow.unsavedChangesConfirm'))
+    expect(http.post).not.toHaveBeenCalled()
+    expect(JSON.stringify(store.$state)).toBe(before)
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    expect(wrapper!.get<HTMLButtonElement>('[data-action="import-comfyui"]').element.disabled).toBe(false)
+  })
+
+  it('较晚的保存错误不会把已显示的导入错误从编辑器撤下', async () => {
+    const { store } = await setup()
+    let rejectSave!: (error: Error) => void
+    http.put.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectSave = reject }))
+    await saveButton().trigger('click')
+    expect(store.saving).toBe(true)
+    importFails = true
+    await importFile()
+    expect(editorAlerts()).toEqual(['temporary import failure'])
+
+    rejectSave(Object.assign(new Error('稍后返回的保存错误'), { status: 400 }))
+    await flushPromises()
+    expect(store.savingError).toContain('稍后返回的保存错误')
+    expect(editorAlerts()).toEqual([store.savingError, 'temporary import failure'])
+  })
+
+  it('没有其他操作错误时只显示一次导入错误，切换画布后清除', async () => {
+    const { store, router } = await setup()
+    importFails = true
+    await importFile()
+    expect(editorAlerts()).toEqual(['temporary import failure'])
+    expect(store.workflowId).toBe('101')
+
+    entity = { ...entity, id: 102 }
+    await router.push('/workflows/102?projectId=22')
+    await flushPromises()
+    expect(store.workflowId).toBe('102')
+    expect(editorAlerts()).toEqual([])
+  })
 })
