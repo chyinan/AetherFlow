@@ -36,6 +36,14 @@ node credentials are excluded. The URL recipe only uses the existing
 `URL_FETCH` executor and URL-ingestion policy (HTTP(S), allowlist/private-host
 settings, and response bounds); it does not add a new fetch implementation.
 
+## Model catalog recovery
+
+A model-list read failure is different from a successfully read list with no
+selectable models. Use **Retry loading models** in the Copilot panel after a
+read failure; it reloads only the catalog without resetting the conversation or
+an unsent prompt. This does not send a message or change default routing when
+no model is selected.
+
 ## Deployment note
 
 The Docker MySQL migrations now have a unique sequence: V25 adds the workflow
