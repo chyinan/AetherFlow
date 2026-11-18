@@ -575,6 +575,9 @@ export const useWorkflowStore = defineStore('workflow', {
       this.loadingError = null
       this.saving = false
       this.savingError = null
+      // 模板是新的未保存画布，不继承原工作流的保存核对提示或待核对提交。
+      this.saveRecovery = null
+      this.pendingSaveSubmission = null
       this.runError = null
     },
     applyCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest, options: { allowUnavailableCustomDrafts?: boolean } = {}) {
