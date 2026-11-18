@@ -1678,6 +1678,7 @@ export const zhCN = {
       runtimeUnavailable: '当前没有可用的所需运行能力。',
       stale: '画布或已保存的工作流发生了变化，此计划已过期。请基于当前工作流重新规划。',
       apply: '应用到画布',
+      retryApply: '重试应用到画布',
       replaceWarning: '应用会替换画布上的所有现有节点；替换后可撤销一次。',
       applied: '已应用到画布。准备好后再保存或运行。',
       applyFailed: '无法应用计划。请检查最新工作流后重试。',

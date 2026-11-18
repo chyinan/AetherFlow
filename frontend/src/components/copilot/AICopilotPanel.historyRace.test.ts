@@ -135,7 +135,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     // 列表已返回，只差历史恢复。
     expect(listMessages).toHaveBeenCalledWith('conv-1')
 
-    await wrapper.find('form input').setValue('先加一个开始节点')
+    await wrapper.find('form textarea').setValue('先加一个开始节点')
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeDefined()
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -145,7 +145,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(stream).not.toHaveBeenCalled()
     // 被拒绝的输入不进入消息列表，但用户输入的内容不丢。
     expect(wrapper.findAll('article')).toHaveLength(1)
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('先加一个开始节点')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('先加一个开始节点')
 
     history.resolve([historyMessage('RESTORED_HISTORY', 'conv-1')])
     await flushPromises()
@@ -166,7 +166,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(wrapper.text()).toContain(readyMediaPlan().explanation)
     expect(wrapper.text()).toContain(i18n.global.t('copilot.planner.mode'))
 
-    await wrapper.find('form input').setValue('继续规划')
+    await wrapper.find('form textarea').setValue('继续规划')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -191,7 +191,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))!.trigger('click')
     expect(readConversationSelection(conversationSessionKey(context))).toBe('new')
     expect(wrapper.text()).not.toContain(i18n.global.t('copilot.historyLoadFailed'))
-    await wrapper.find('form input').setValue('新会话添加开始节点')
+    await wrapper.find('form textarea').setValue('新会话添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -214,7 +214,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
     await flushPromises()
     expect(listMessages).toHaveBeenCalledWith('conv-1')
-    await wrapper.find('form input').setValue('继续规划')
+    await wrapper.find('form textarea').setValue('继续规划')
     history.reject({ status: 503 })
     await flushPromises()
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-1')
@@ -224,7 +224,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(editCanvas).not.toHaveBeenCalled()
     expect(planWorkflow).not.toHaveBeenCalled()
     expect(stream).not.toHaveBeenCalled()
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('继续规划')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('继续规划')
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeDefined()
     await wrapper.get('[data-testid="copilot-history-retry"]').trigger('click')
     await flushPromises()
@@ -253,7 +253,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     editCanvas.mockResolvedValue(canvasResponse())
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn().mockReturnValue(true) }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('保留这条输入')
+    await wrapper.find('form textarea').setValue('保留这条输入')
     await wrapper.get('[data-testid="copilot-history-retry"]').trigger('click')
     await flushPromises()
     expect(listMessages).toHaveBeenNthCalledWith(2, 'conv-1')
@@ -268,7 +268,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(editCanvas).not.toHaveBeenCalled()
     expect(stream).not.toHaveBeenCalled()
     expect(planWorkflow).not.toHaveBeenCalled()
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('保留这条输入')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('保留这条输入')
     const modeLabel = i18n.global.t(mode === 'chat' ? 'copilot.editor.chatMode' : 'copilot.editor.editMode')
     await wrapper.findAll('button').find((button) => button.text() === modeLabel)!.trigger('click')
     expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
@@ -299,7 +299,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(i18n.global.t('copilot.historyLoadFailed'))
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
-    await wrapper.find('form input').setValue('在新画布添加开始节点')
+    await wrapper.find('form textarea').setValue('在新画布添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(editCanvas).toHaveBeenCalledExactlyOnceWith('在新画布添加开始节点', expect.objectContaining({ conversationId: undefined, workflowId }))
@@ -317,13 +317,13 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     editCanvas.mockResolvedValue(canvasResponse())
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn().mockReturnValue(true) }, global: { plugins: [i18n] } })
     await flushPromises()
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.get('[data-testid="copilot-history-retry"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(i18n.global.t('copilot.historyLoadFailed'))
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('添加开始节点')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('添加开始节点')
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-1')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -342,7 +342,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(listMessages).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
-    await wrapper.find('form input').setValue('创建开始节点')
+    await wrapper.find('form textarea').setValue('创建开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(editCanvas).toHaveBeenCalledExactlyOnceWith('创建开始节点', expect.objectContaining({ conversationId: undefined }))
@@ -372,7 +372,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
       await wrapper.setProps({ context: nextContext })
     }
     await flushPromises()
-    await wrapper.find('form input').setValue('新会话请求')
+    await wrapper.find('form textarea').setValue('新会话请求')
     if (outcome === 'success') retryHistory.resolve([planMessage(context, readyMediaPlan())])
     else retryHistory.reject({ status: 503 })
     await flushPromises()
@@ -380,7 +380,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(wrapper.text()).not.toContain(i18n.global.t('copilot.historyLoadFailed'))
     expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
-    expect((wrapper.find('form input').element as HTMLInputElement).value).toBe('新会话请求')
+    expect((wrapper.find('form textarea').element as HTMLTextAreaElement).value).toBe('新会话请求')
     expect(readConversationSelection(conversationSessionKey(nextContext))).toBe(transition === 'new' ? 'new' : null)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
@@ -402,7 +402,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(listMessages).toHaveBeenCalledWith('conv-1')
 
     // 历史仍在路上时用户发出消息（请求失败，本地保留用户消息）。
-    await wrapper.find('form input').setValue('我的新问题')
+    await wrapper.find('form textarea').setValue('我的新问题')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(stream).toHaveBeenCalledTimes(1)
@@ -416,7 +416,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(wrapper.text()).toContain('我的新问题')
     expect(wrapper.text()).toContain(i18n.global.t('copilot.planner.mode'))
 
-    await wrapper.find('form input').setValue('继续规划')
+    await wrapper.find('form textarea').setValue('继续规划')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(planWorkflow).toHaveBeenCalledWith('继续规划', expect.objectContaining({ conversationId: 'conv-1' }))
@@ -511,7 +511,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     await flushPromises()
     expect(listMessages).toHaveBeenCalledWith('conv-1')
 
-    await wrapper.find('form input').setValue('添加开始节点')
+    await wrapper.find('form textarea').setValue('添加开始节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 
@@ -525,7 +525,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     expect(wrapper.text()).not.toContain('OLD_HISTORY')
     expect(readConversationSelection(conversationSessionKey(context))).toBe('conv-2')
 
-    await wrapper.find('form input').setValue('继续编辑')
+    await wrapper.find('form textarea').setValue('继续编辑')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(editCanvas).toHaveBeenCalledTimes(2)
@@ -543,7 +543,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     const wrapper = mount(AICopilotPanel, { props: { context: contextA, applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
     await flushPromises()
 
-    await wrapper.find('form input').setValue('在 A 添加节点')
+    await wrapper.find('form textarea').setValue('在 A 添加节点')
     await wrapper.find('form').trigger('submit')
     expect(editCanvas).toHaveBeenCalledOnce()
     await wrapper.setProps({ context: contextB })
@@ -565,7 +565,7 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] } })
     await flushPromises()
 
-    await wrapper.find('form input').setValue('添加节点')
+    await wrapper.find('form textarea').setValue('添加节点')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
 

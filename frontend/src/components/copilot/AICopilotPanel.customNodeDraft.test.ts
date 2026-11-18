@@ -83,7 +83,7 @@ function confirm() { return wrapper!.get('[data-testid="custom-node-confirm"]') 
 function cancel() { return wrapper!.get('[data-testid="custom-node-cancel"]') }
 function conversationButton() { return wrapper!.findAll('button').find(button => button.text() === i18n.global.t('copilot.newConversation'))! }
 async function requestDraft(prompt = '创建自定义节点并添加到画布') {
-  await wrapper!.get('form input').setValue(prompt)
+  await wrapper!.get('form textarea').setValue(prompt)
   await wrapper!.get('form').trigger('submit')
   await flushPromises()
 }

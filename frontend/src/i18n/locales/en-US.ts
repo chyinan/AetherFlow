@@ -1670,6 +1670,7 @@ export const enUS = {
       runtimeUnavailable: 'The required runtime capabilities are not available right now.',
       stale: 'This plan is stale because the canvas or saved workflow changed. Plan again from the current workflow.',
       apply: 'Apply to canvas',
+      retryApply: 'Retry applying to canvas',
       replaceWarning: 'Applying replaces every current node on the canvas. You can undo the replacement once.',
       applied: 'Applied to canvas. Save or run it when you are ready.',
       applyFailed: 'The plan could not be applied. Review the latest workflow and try again.',

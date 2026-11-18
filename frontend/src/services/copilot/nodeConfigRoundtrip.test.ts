@@ -301,7 +301,7 @@ describe('正常节点配置往返：真实组件和保存链路', () => {
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit }, global: { plugins: [i18n] } })
     try {
       await flushPromises()
-      await wrapper.find('form input').setValue('按指定字段配置节点')
+      await wrapper.find('form textarea').setValue('按指定字段配置节点')
       await wrapper.find('form').trigger('submit')
       await flushPromises()
       expect(applyCanvasEdit).toHaveBeenCalledTimes(1)

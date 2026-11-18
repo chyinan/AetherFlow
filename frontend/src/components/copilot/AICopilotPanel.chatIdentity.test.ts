@@ -54,7 +54,7 @@ async function setup(existing = false) {
   wrapper = mount(defineComponent({ setup: () => () => opened.value ? h(AICopilotPanel, { context: context.value, onClose: () => { opened.value = false } }) : h('button', { id: 'reopen', onClick: () => { opened.value = true } }, '重新打开') }), { global: { plugins: [pinia, i18n] } })
   await flushPromises(); return { store, context }
 }
-async function submit(prompt: string) { await wrapper.find('form input').setValue(prompt); await wrapper.find('form').trigger('submit'); await flushPromises() }
+async function submit(prompt: string) { await wrapper.find('form textarea').setValue(prompt); await wrapper.find('form').trigger('submit'); await flushPromises() }
 async function startNew() { await wrapper.findAll('button').find(b => b.text() === i18n.global.t('copilot.newConversation'))!.trigger('click'); await flushPromises() }
 async function reopen() { await wrapper.find(`button[title="${i18n.global.t('copilot.close')}"]`).trigger('click'); await wrapper.find('#reopen').trigger('click'); await flushPromises() }
 it('已有会话：部分错误保留，续问及重开仍沿用会话和工作流上下文', async () => {
@@ -62,7 +62,7 @@ it('已有会话：部分错误保留，续问及重开仍沿用会话和工作�
   const before = JSON.stringify([store.nodes, store.edges, store.editRevision, store.historyPast, store.dirty])
   await submit(firstPrompt)
   expect(wrapper.text()).toContain(firstPrompt); expect(wrapper.text()).toContain(partial); expect(wrapper.text()).toContain('provider temporarily unavailable')
-  expect(wrapper.find('form input').attributes('disabled')).toBeUndefined()
+  expect(wrapper.find('form textarea').attributes('disabled')).toBeUndefined()
   await submit('继续完成剩余两步')
   expect(requests.map(r => r.conversationId)).toEqual(['conv-10', 'conv-10'])
   expect(requests[1].context.workflow.id).toBe(store.workflowId)
