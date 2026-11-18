@@ -8,6 +8,7 @@ import RunOutputDetails from './RunOutputDetails.vue'
 import type { RunNodeState } from '@/types/run'
 import { failedNodeEditLocation } from '@/utils/runNavigation'
 import { runNavigationMessages } from './runNavigationMessages'
+import { runResultMessages } from './runResultMessages'
 
 const props = defineProps<{
   nodes: RunNodeState[]
@@ -20,7 +21,19 @@ const props = defineProps<{
 const emit = defineEmits<{ rerun: [node: RunNodeState] }>()
 
 const { t } = useI18n()
-const { t: navigationText } = useI18n({ useScope: 'local', messages: runNavigationMessages })
+const { t: timelineText } = useI18n({ useScope: 'local', messages: {
+  'zh-CN': { ...runNavigationMessages['zh-CN'], ...runResultMessages['zh-CN'] },
+  'en-US': { ...runNavigationMessages['en-US'], ...runResultMessages['en-US'] },
+  'ja-JP': { ...runNavigationMessages['ja-JP'], ...runResultMessages['ja-JP'] },
+} })
+
+function durationLabel(node: RunNodeState) {
+  if (node.durationMs !== undefined) return `${node.durationMs}ms`
+  if (node.status === 'success' || node.status === 'failed' || node.status === 'skipped') {
+    return timelineText('durationUnavailable')
+  }
+  return t('workflow.waiting')
+}
 
 function editLocation(node: RunNodeState) {
   return node.status === 'failed'
@@ -45,18 +58,18 @@ function editLocation(node: RunNodeState) {
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
             <span v-if="node.reused" class="text-primary">{{ t('runs.rerunReused') }}</span>
-            <span v-else>{{ node.durationMs !== undefined ? `${node.durationMs}ms` : t('workflow.waiting') }}</span>
+            <span v-else>{{ durationLabel(node) }}</span>
             <span v-if="node.retryCount !== undefined">{{ t('runs.retry') }} {{ node.retryCount }}</span>
           </div>
           <div v-if="node.status === 'failed'" class="mt-2 flex flex-wrap items-center gap-2">
             <RouterLink v-if="editLocation(node)" :to="editLocation(node)!" data-testid="edit-failed-node" class="rounded border border-primary/30 px-2 py-1 text-xs text-primary">
-              {{ navigationText('editNode') }}
+              {{ timelineText('editNode') }}
             </RouterLink>
             <button v-if="canRerun && !node.nodeId.includes('/')" type="button" class="rounded border border-primary/30 px-2 py-1 text-xs text-primary" @click="emit('rerun', node)">
               {{ t('runs.rerunNode') }}
             </button>
           </div>
-          <p v-if="node.status === 'failed' && !editLocation(node)" data-testid="edit-node-unavailable" class="mt-2 text-xs text-text-muted">{{ navigationText(node.nodeId.includes('/') ? 'scopedNode' : 'missingSource') }}</p>
+          <p v-if="node.status === 'failed' && !editLocation(node)" data-testid="edit-node-unavailable" class="mt-2 text-xs text-text-muted">{{ timelineText(node.nodeId.includes('/') ? 'scopedNode' : 'missingSource') }}</p>
           <p v-if="canRerun && node.status === 'failed' && node.nodeId.includes('/')" class="mt-2 text-xs text-text-muted">请从所属循环根节点重跑，提交前会显示失效范围</p>
           <RunOutputDetails v-if="node.output !== undefined" :output="node.output" :node-id="node.nodeId" :run-id="runId" />
         </div>
