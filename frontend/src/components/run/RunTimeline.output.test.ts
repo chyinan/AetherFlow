@@ -17,8 +17,8 @@ function deferred() {
 function nodes(output?: string): RunNodeState[] {
   return [{ nodeId: 'same-node', label: '结果节点', status: 'success', output }]
 }
-function render(output?: string, runId = 'run-1') {
-  const wrapper = mount(RunTimeline, { props: { nodes: nodes(output), runId }, global: { plugins: [createI18n({
+function render(output?: string, runId = 'run-1', attachTo?: HTMLElement) {
+  const wrapper = mount(RunTimeline, { attachTo, props: { nodes: nodes(output), runId }, global: { plugins: [createI18n({
     legacy: false, locale: 'zh-CN', messages: { 'zh-CN': {} }, missingWarn: false, fallbackWarn: false,
   })], stubs: { StatusBadge: true } } })
   wrappers.push(wrapper)
@@ -53,6 +53,41 @@ describe('运行时间线完整结果', () => {
     expect(wrapper.get('[data-testid="copy-status"]').text()).toContain('已复制完整内容')
     await expand.trigger('click')
     expect(expand.attributes('aria-expanded')).toBe('false')
+  })
+
+  it.each([
+    ['纯文本', '转录结果\n'.repeat(100)],
+    ['JSON', JSON.stringify({ lines: Array.from({ length: 100 }, (_, i) => `转录片段 ${i}`) })],
+  ])('展开%s后，结果滚动区紧接在按钮之后进入顺向 Tab 顺序', async (_kind, output) => {
+    const panel = render(output, 'run-1', document.body).get('[data-testid="run-output"]')
+    const toggle = panel.get<HTMLButtonElement>('[data-testid="expand-output"]')
+    const content = panel.get<HTMLPreElement>('[data-testid="output-content"]')
+    toggle.element.focus()
+    await toggle.trigger('click')
+    expect(document.activeElement).toBe(toggle.element)
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(toggle.attributes('aria-controls')).toBe(content.attributes('id'))
+
+    // jsdom 不执行 Tab 的默认动作；检查实际 DOM 中普通 Tab 停靠点的顺序。
+    const stops = [...panel.element.querySelectorAll<HTMLElement>('button:not([disabled]), [tabindex]')]
+      .filter(element => element.tabIndex >= 0)
+    expect(stops[stops.indexOf(toggle.element) + 1]).toBe(content.element)
+    content.element.focus()
+    expect(document.activeElement).toBe(content.element)
+  })
+
+  it('收起结果后保留按钮焦点，并移除结果的显式 Tab 停靠点', async () => {
+    const panel = render('转录结果\n'.repeat(100), 'run-1', document.body).get('[data-testid="run-output"]')
+    const toggle = panel.get<HTMLButtonElement>('[data-testid="expand-output"]')
+    const content = panel.get('[data-testid="output-content"]')
+    toggle.element.focus()
+    expect(content.attributes('tabindex')).toBeUndefined()
+    await toggle.trigger('click')
+    expect(content.attributes('tabindex')).toBe('0')
+    await toggle.trigger('click')
+    expect(document.activeElement).toBe(toggle.element)
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(content.attributes('tabindex')).toBeUndefined()
   })
 
   it('JSON 格式化保留超大整数、指数、重复键和转义，原文可完整还原', async () => {
