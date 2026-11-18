@@ -36,6 +36,13 @@ function clearRunFilter() {
   void router.push({ path: route.path, query, hash: route.hash })
 }
 
+const fileListUnsettled = computed(() => fileStore.loading || Boolean(fileStore.loadError))
+
+// 未确认的零不是空列表；已经显示的文件和计数仍保留。
+function showFileCount(count: number) {
+  return count > 0 || !fileListUnsettled.value
+}
+
 const summaryCards = computed(() => [
   { label: t('files.inputFiles'), value: fileStore.inputFiles.length, hint: t('files.inputFilesHint'), icon: FileInput },
   { label: t('files.artifacts'), value: fileStore.artifactFiles.length, hint: t('files.artifactsHint'), icon: PackageCheck },
@@ -89,7 +96,7 @@ async function toggleFileSource(fileId: string) {
               <component :is="card.icon" class="h-4 w-4" />
               <span class="text-xs font-medium">{{ card.label }}</span>
             </div>
-            <p class="mt-3 text-2xl font-semibold text-text-primary">{{ card.value }}</p>
+            <p class="mt-3 text-2xl font-semibold text-text-primary">{{ showFileCount(card.value) ? card.value : '—' }}</p>
             <p class="mt-1 text-xs text-text-muted">{{ card.hint }}</p>
           </article>
         </section>
@@ -117,7 +124,7 @@ async function toggleFileSource(fileId: string) {
             {{ t('common.retry') }}
           </button>
         </div>
-        <div v-if="!runFilterId && fileStore.loading && fileStore.files.length === 0" class="rounded-md border border-app-border bg-white px-3 py-4 text-sm text-text-secondary" aria-busy="true">
+        <div v-if="!runFilterId && fileStore.loading" class="rounded-md border border-app-border bg-white px-3 py-4 text-sm text-text-secondary" aria-busy="true">
           {{ t('common.loading') }}
         </div>
         <p v-if="fileStore.fileActionError" role="alert" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
@@ -131,9 +138,10 @@ async function toggleFileSource(fileId: string) {
                 <p class="text-sm font-semibold text-text-primary">{{ t('files.inputFiles') }}</p>
                 <p class="text-xs text-text-muted">{{ t('files.inputSectionHint') }}</p>
               </div>
-              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ fileStore.inputFiles.length }}</span>
+              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ showFileCount(fileStore.inputFiles.length) ? fileStore.inputFiles.length : '—' }}</span>
             </div>
             <FileAssetList
+              v-if="showFileCount(fileStore.inputFiles.length)"
               :files="fileStore.inputFiles"
               :deleting-ids="fileStore.deletingIds"
               :downloading-ids="fileStore.downloadingIds"
@@ -150,7 +158,7 @@ async function toggleFileSource(fileId: string) {
                 <p class="text-sm font-semibold text-text-primary">{{ t('files.artifacts') }}</p>
                 <p class="text-xs text-text-muted">{{ runFilterId ? artifactText('filterHint') : t('files.artifactSectionHint') }}</p>
               </div>
-              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ runFilterId && (fileStore.loading || fileStore.loadError) ? '—' : visibleArtifacts.length }}</span>
+              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ (runFilterId ? !fileListUnsettled : showFileCount(visibleArtifacts.length)) ? visibleArtifacts.length : '—' }}</span>
             </div>
             <p v-if="runFilterId && fileStore.loading" role="status" aria-busy="true" data-testid="run-artifact-loading" class="rounded-md border border-app-border bg-white p-4 text-sm text-text-secondary">
               {{ artifactText('loading') }}
@@ -162,7 +170,7 @@ async function toggleFileSource(fileId: string) {
               {{ artifactText('empty', { runId: runFilterId }) }}
             </p>
             <FileAssetList
-              v-else
+              v-else-if="runFilterId || showFileCount(visibleArtifacts.length)"
               :files="visibleArtifacts"
               :deleting-ids="fileStore.deletingIds"
               :downloading-ids="fileStore.downloadingIds"
