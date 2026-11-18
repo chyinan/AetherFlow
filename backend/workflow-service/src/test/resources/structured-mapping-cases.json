@@ -521,5 +521,151 @@
       "数值 1000000000000000000000",
       "数值 0"
     ]
+  },
+  {
+    "name": "非空筛选保留字幕中的全角与不换行空格",
+    "config": {
+      "operation": "map",
+      "sourcePath": "segments",
+      "shape": "value",
+      "value": {
+        "type": "path",
+        "value": "text"
+      },
+      "filter": {
+        "enabled": true,
+        "path": "text",
+        "operator": "notEmpty"
+      }
+    },
+    "input": {
+      "segments": [
+        {
+          "text": ""
+        },
+        {
+          "text": "\t \r\n"
+        },
+        {
+          "text": "\u3000"
+        },
+        {
+          "text": " \u00a0 "
+        },
+        {
+          "text": " 春 "
+        },
+        {}
+      ]
+    },
+    "expected": [
+      "\u3000",
+      " \u00a0 ",
+      " 春 "
+    ]
+  },
+  {
+    "name": "为空筛选采用 Java 文本边界并保持其他 JSON 空值规则",
+    "config": {
+      "operation": "filter",
+      "sourcePath": "items",
+      "filter": {
+        "enabled": true,
+        "path": "value",
+        "operator": "empty"
+      }
+    },
+    "input": {
+      "items": [
+        {
+          "label": "missing"
+        },
+        {
+          "label": "null",
+          "value": null
+        },
+        {
+          "label": "blank",
+          "value": " \t\n"
+        },
+        {
+          "label": "U+001F",
+          "value": "\u001f"
+        },
+        {
+          "label": "empty string",
+          "value": ""
+        },
+        {
+          "label": "empty array",
+          "value": []
+        },
+        {
+          "label": "empty object",
+          "value": {}
+        },
+        {
+          "label": "zero",
+          "value": 0
+        },
+        {
+          "label": "false",
+          "value": false
+        },
+        {
+          "label": "nonempty array",
+          "value": [
+            0
+          ]
+        },
+        {
+          "label": "nonempty object",
+          "value": {
+            "a": null
+          }
+        },
+        {
+          "label": "U+3000",
+          "value": "\u3000"
+        },
+        {
+          "label": "U+00A0",
+          "value": "\u00a0"
+        },
+        {
+          "label": "ordinary text",
+          "value": " 春 "
+        }
+      ]
+    },
+    "expected": [
+      {
+        "label": "missing"
+      },
+      {
+        "label": "null",
+        "value": null
+      },
+      {
+        "label": "blank",
+        "value": " \t\n"
+      },
+      {
+        "label": "U+001F",
+        "value": "\u001f"
+      },
+      {
+        "label": "empty string",
+        "value": ""
+      },
+      {
+        "label": "empty array",
+        "value": []
+      },
+      {
+        "label": "empty object",
+        "value": {}
+      }
+    ]
   }
 ]

@@ -102,3 +102,26 @@ describe('结构化映射编辑器', () => {
     expect(wrapper.emitted('apply')![0]).toEqual(wrapper.emitted('apply')![1])
   })
 })
+
+describe('结构化映射预览的空白文本筛选', () => {
+  it.each([
+    ['notEmpty', [{ text: '\u3000' }, { text: ' \u00a0 ' }, { text: ' 春 ' }]],
+    ['empty', [{ text: '' }, { text: ' \t\n' }, { text: '\u001f' }, {}]],
+  ] as const)('%s 预览与执行规则一致，不改变原始文本或保存配置', async (operator, expected) => {
+    const config = {
+      mapping: {
+        ...defaultMapping(),
+        operation: 'filter',
+        filter: { enabled: true, path: 'text', operator },
+      },
+    }
+    const wrapper = render(config)
+    await wrapper.get('[data-testid="mapping-preview-input"]').setValue(JSON.stringify({
+      segments: [{ text: '' }, { text: ' \t\n' }, { text: '\u3000' }, { text: ' \u00a0 ' }, { text: ' 春 ' }, { text: '\u001f' }, {}],
+    }))
+    await wrapper.get('[data-testid="preview-mapping"]').trigger('click')
+    expect(JSON.parse(wrapper.get('[data-testid="mapping-preview-output"]').text())).toEqual(expected)
+    expect(wrapper.emitted('apply')).toBeUndefined()
+    expect(config.mapping.filter).toEqual({ enabled: true, path: 'text', operator })
+  })
+})

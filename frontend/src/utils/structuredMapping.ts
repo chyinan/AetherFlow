@@ -159,7 +159,8 @@ function project(source: unknown, spec: Record<string, unknown>, nullable: boole
   return result
 }
 function empty(value: unknown): boolean {
-  return value === null || typeof value === 'string' && value.trim() === '' || Array.isArray(value) && value.length === 0
+  // 与服务端 String.trim() 保持一致：只有 U+0000–U+0020 属于此处的空白文本。
+  return value === null || typeof value === 'string' && !/[^\x00-\x20]/.test(value) || Array.isArray(value) && value.length === 0
     || value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0
 }
 function equal(left: unknown, right: unknown): boolean {
