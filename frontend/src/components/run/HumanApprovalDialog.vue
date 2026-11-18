@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
 import { approveHumanNode, type RuntimeExecutionSnapshot } from '@/api/modules/runtime'
+import { useModalFocus } from '@/composables/useModalFocus'
 import { humanApprovalTargetKey, pendingHumanApprovalTargets } from './humanApprovalSubmissions'
 import type { HumanApprovalDetails } from '@/types/run'
 
@@ -30,6 +31,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const panel = ref<HTMLElement | null>(null)
+const closeButton = ref<HTMLButtonElement | null>(null)
 const comment = ref('')
 const error = ref<string | null>(null)
 let generation = 0
@@ -37,6 +40,15 @@ let generation = 0
 const isSubmitting = computed(() => pendingHumanApprovalTargets.has(
   humanApprovalTargetKey(props.request.instanceId, props.request.nodeId),
 ))
+
+// 决策按钮禁用前，把仍停在该按钮上的焦点交给可用的关闭按钮。
+watch(isSubmitting, (submitting) => {
+  if (!submitting || !panel.value) return
+  const focused = document.activeElement
+  if (panel.value.contains(focused) && focused?.matches('[data-action="approve"], [data-action="reject"]')) {
+    closeButton.value?.focus({ preventScroll: true })
+  }
+}, { flush: 'sync' })
 
 // 同一个弹窗可被下一审批复用，意见、等待和回执都必须属于原始目标。
 watch([() => String(props.request.instanceId), () => props.request.nodeId], () => {
@@ -51,6 +63,9 @@ function close() {
   error.value = null
   emit('close')
 }
+
+// 首次可见时，等 Teleport 挂载面板后再捕获和接管焦点。
+useModalFocus(computed(() => props.visible && panel.value !== null), panel, close)
 
 onBeforeUnmount(() => { generation += 1 })
 
@@ -101,11 +116,12 @@ async function submit(approved: boolean) {
       @click.self="close"
     >
       <section
+        ref="panel"
         class="w-full max-w-lg overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="human-approval-title"
-        @keydown.esc="close"
+        tabindex="-1"
       >
         <header class="flex items-start justify-between gap-4 border-b border-app-border px-5 py-4">
           <div class="flex min-w-0 items-start gap-3">
@@ -118,6 +134,7 @@ async function submit(approved: boolean) {
             </div>
           </div>
           <button
+            ref="closeButton"
             type="button"
             class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-app-bg2 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             :aria-label="t('runs.approval.close')"
