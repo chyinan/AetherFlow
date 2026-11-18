@@ -80,16 +80,17 @@ afterEach(() => {
 async function setup(
   initialPath = '/workflows/101?projectId=11',
   initialProjects = [project('11', ['101']), project('22', ['202'])],
+  pendingResources: { catalog?: Promise<boolean>; history?: Promise<void> } = {},
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const workflowStore = useWorkflowStore()
-  vi.spyOn(workflowStore, 'loadNodeTemplates').mockResolvedValue(true)
+  vi.spyOn(workflowStore, 'loadNodeTemplates').mockImplementation(() => pendingResources.catalog ?? Promise.resolve(true))
   const projectStore = useProjectStore()
   projectStore.projects = initialProjects
   projectStore.currentProjectId = initialPath.includes('projectId=22') ? '22' : initialPath.includes('projectId=11') ? '11' : ''
   const runStore = useRunStore()
-  vi.spyOn(runStore, 'loadRuns').mockResolvedValue(undefined)
+  vi.spyOn(runStore, 'loadRuns').mockImplementation(() => pendingResources.history ?? Promise.resolve())
   vi.spyOn(runStore, 'selectRunForWorkflow').mockResolvedValue(null)
   vi.spyOn(runStore, 'subscribeCurrentRun').mockImplementation(() => undefined)
   vi.spyOn(runStore, 'clearCurrentRun').mockImplementation(() => undefined)
@@ -99,6 +100,7 @@ async function setup(
     history: createMemoryHistory(),
     routes: [
       { path: '/workflows/:id', component: WorkflowPage },
+      { path: '/projects', component: { template: '<p data-testid="projects-route">项目</p>' } },
       { path: '/other', component: { template: '<p>其他页面</p>' } },
     ],
   })
@@ -270,6 +272,93 @@ describe('工作流打开错误与项目目录错误分别归属', () => {
     expect(workflowStore.loadingError).toBeNull()
     expect(workflowStore.workflowName).toBe('工作流101')
     expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(true)
+  })
+
+  it.each(['catalog', 'history'] as const)('首次打开失败时不等待 %s，重试仍只读取当前工作流', async (resource) => {
+    const catalog = deferred<boolean>()
+    const history = deferred<void>()
+    const retryRequest = deferred<unknown>()
+    let workflowReadCount = 0
+    http.get.mockImplementation((url: string) => {
+      if (url !== '/workflows/definitions/101') return defaultResponse(url)
+      workflowReadCount += 1
+      return workflowReadCount === 1
+        ? Promise.reject(new Error('当前定义读取失败'))
+        : retryRequest.promise
+    })
+    const { workflowStore, projectStore, runStore } = await setup(undefined, undefined, resource === 'catalog'
+      ? { catalog: catalog.promise }
+      : { history: history.promise })
+
+    expect(workflowStore.loadingError).toContain('当前定义读取失败')
+    expect(wrapper!.text()).toContain('当前定义读取失败')
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+    await wrapper!.get('[data-testid="retry-workflow-load"]').trigger('click')
+    expect(workflowReadCount).toBe(2)
+    expect(projectStore.loadRequestId).toBe(1)
+    expect(workflowStore.loadNodeTemplates).toHaveBeenCalledTimes(1)
+    expect(runStore.loadRuns).toHaveBeenCalledTimes(1)
+    expect(workflowStore.loading).toBe(true)
+    expect(wrapper!.text()).not.toContain('当前定义读取失败')
+    expect(wrapper!.find('[data-testid="retry-workflow-load"]').exists()).toBe(false)
+
+    retryRequest.resolve(definition('101', 11))
+    await flushPromises()
+    // 成功时仍按原流程等待首次打开所需的辅助数据。
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+    catalog.resolve(true)
+    history.resolve(undefined)
+    await flushPromises()
+    expect(wrapper!.get('[data-testid="workflow-editor"]').text()).toContain('工作流101')
+    expect(runStore.selectRunForWorkflow).toHaveBeenCalledTimes(1)
+    expect(runStore.subscribeCurrentRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('辅助读取仍在等待时，重新加载再次失败显示当前错误并允许返回项目', async () => {
+    const history = deferred<void>()
+    let workflowReadCount = 0
+    http.get.mockImplementation((url: string) => {
+      if (url !== '/workflows/definitions/101') return defaultResponse(url)
+      workflowReadCount += 1
+      return Promise.reject(new Error(workflowReadCount === 1 ? '首次读取失败' : '重新读取失败'))
+    })
+    const { router: testRouter, runStore } = await setup(undefined, undefined, { history: history.promise })
+
+    await wrapper!.get('[data-testid="retry-workflow-load"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('重新读取失败')
+    expect(wrapper!.text()).not.toContain('首次读取失败')
+    expect(runStore.selectRunForWorkflow).not.toHaveBeenCalled()
+    await wrapper!.get('a[href="/projects"]').trigger('click')
+    await flushPromises()
+    expect(testRouter.currentRoute.value.path).toBe('/projects')
+    expect(wrapper!.find('[data-testid="projects-route"]').exists()).toBe(true)
+
+    history.resolve(undefined)
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="projects-route"]').exists()).toBe(true)
+    expect(runStore.subscribeCurrentRun).not.toHaveBeenCalled()
+  })
+
+  it('定义仍在读取时不显示错误，首次成功仍等待原有加载流程', async () => {
+    const catalog = deferred<boolean>()
+    const definitionRequest = deferred<unknown>()
+    http.get.mockImplementation((url: string) => url === '/workflows/definitions/101'
+      ? definitionRequest.promise
+      : defaultResponse(url))
+    const { workflowStore } = await setup(undefined, undefined, { catalog: catalog.promise })
+
+    expect(workflowStore.loading).toBe(true)
+    expect(wrapper!.find('[data-testid="retry-workflow-load"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+    definitionRequest.resolve(definition('101', 11))
+    await flushPromises()
+    expect(workflowStore.loading).toBe(false)
+    expect(wrapper!.find('[data-testid="retry-workflow-load"]').exists()).toBe(false)
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+    catalog.resolve(true)
+    await flushPromises()
+    expect(wrapper!.get('[data-testid="workflow-editor"]').text()).toContain('工作流101')
   })
 
   it('切换工作流后项目目录迟到失败不会覆盖当前工作流或其项目归属', async () => {

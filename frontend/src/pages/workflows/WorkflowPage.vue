@@ -1039,7 +1039,8 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     @change="handleComfyUiFileChange"
   />
 
-  <section v-if="initializingWorkflow || workflowStore.loading" class="grid h-full place-items-center bg-app-bg px-6">
+  <!-- 当前定义已明确读取失败时，不等辅助读取才提供重试和返回入口。 -->
+  <section v-if="workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError)" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
       <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
       {{ t('workflow.loading') }}
