@@ -792,23 +792,29 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      let recovery
-      try {
-        recovery = await runApi.recoverRuntime(targetRun)
-      } catch (error) {
-        if (!isCurrentTarget()) {
-          return
-        }
+      const reportRecoveryFailure = (error: unknown, partial: boolean) => {
         const message = errorMessage(error)
         this.error = message
         const occurredAt = new Date()
-        this.appendLog({
+        const summary = partial
+          ? 'Runtime recovery incomplete; showing available details.'
+          : 'Runtime recovery unavailable; retained current snapshot.'
+        // 追加恢复告警时沿用历史恢复的窗口，不额外裁掉已读日志。
+        this.logs = mergeLogs(this.logs, [{
           id: `${expectedRunId}-runtime-recovery-error-${Date.now()}`,
           time: formatTime(occurredAt),
           occurredAt: occurredAt.toISOString(),
           level: 'warn',
-          message: `Runtime recovery unavailable; retained current snapshot. ${message}`,
-        })
+          message: `${summary} ${message}`,
+        }])
+        this.logsByRunId[expectedRunId] = this.logs
+      }
+
+      let recovery
+      try {
+        recovery = await runApi.recoverRuntime(targetRun)
+      } catch (error) {
+        if (isCurrentTarget()) reportRecoveryFailure(error, false)
         return
       }
 
@@ -823,8 +829,10 @@ export const useRunStore = defineStore('run', {
       recovery.nodePatches.forEach((patch) => {
         this.mergeCurrentNodeRetryCount(patch)
         if ((currentNodeVersions[patch.nodeId] ?? 0) === (nodeVersions[patch.nodeId] ?? 0)) {
-          // 补齐未并发变更的历史节点，但不能用局部节点推断覆盖较新的运行摘要。
-          this.patchNodeState(patch, { inferRunStatus: !updatedWhileRecovering })
+          // 概况读取失败时节点历史仍可补齐结果，但不能据此推断整个运行已完成。
+          this.patchNodeState(patch, {
+            inferRunStatus: !updatedWhileRecovering && recovery.failure?.source !== 'observation',
+          })
         }
       })
       const authoritativeTerminal = recovery.runPatch?.backendStatus
@@ -841,6 +849,8 @@ export const useRunStore = defineStore('run', {
           this.logsByRunId[this.currentRun.id] = this.logs
         }
       }
+
+      if (recovery.failure) reportRecoveryFailure(recovery.failure.error, true)
     },
     subscribeCurrentRun() {
       if (!this.currentRun) {

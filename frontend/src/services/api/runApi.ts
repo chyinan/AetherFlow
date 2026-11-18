@@ -34,6 +34,7 @@ export interface RuntimeRecovery {
   runPatch?: Partial<WorkflowRun>
   logs: RunLogEntry[]
   nodePatches: RunNodeState[]
+  failure?: { source: 'observation' | 'events'; error: unknown }
 }
 
 function shouldUseMockFallback(error: unknown, source: ApiErrorSource = 'runtime') {
@@ -286,12 +287,25 @@ async function recoverRuntime(run: WorkflowRun): Promise<RuntimeRecovery> {
     recoverEvents(runtimeWorkflowId),
   ])
 
+  // 两条读取相互独立，一条遭遇可重试故障时仍保留另一条已证实的结果。
   if (observationResult.status === 'rejected') {
-    throw observationResult.reason
+    if (eventsResult.status === 'rejected' || !toApiError(observationResult.reason, 'runtime').retryable) {
+      throw observationResult.reason
+    }
+    return {
+      ...eventsResult.value,
+      failure: { source: 'observation', error: observationResult.reason },
+    }
   }
 
   if (eventsResult.status === 'rejected') {
-    throw eventsResult.reason
+    if (!toApiError(eventsResult.reason, 'runtime').retryable) throw eventsResult.reason
+    return {
+      runPatch: observationResult.value,
+      logs: [],
+      nodePatches: [],
+      failure: { source: 'events', error: eventsResult.reason },
+    }
   }
 
   return {
