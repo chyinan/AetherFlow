@@ -388,27 +388,33 @@ async function retryLoadProjects() {
               <p v-if="workflowsFor(project).length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 p-4 text-sm text-text-muted">
                 {{ t('projects.noProjectWorkflows') }}
               </p>
-              <RouterLink
+              <div
                 v-for="workflow in workflowsFor(project)"
                 :key="workflow.id"
-                :to="`/workflows/${workflow.id}`"
-                class="flex items-center justify-between gap-3 rounded-md border border-app-border bg-app-bg2 px-3 py-2 transition hover:border-primary/30 hover:bg-primary-soft/60"
-                @click.stop="projectStore.selectProject(project.id)"
+                :data-workflow-row="workflow.id"
+                class="flex items-center gap-2 rounded-md border border-app-border bg-app-bg2 transition hover:border-primary/30 hover:bg-primary-soft/60"
               >
-                <div class="min-w-0">
-                  <p class="truncate text-sm font-medium text-text-primary">{{ workflow.name }}</p>
-                  <p class="mt-1 text-[11px] text-text-muted">{{ workflow.updatedAt }}</p>
-                  <p v-if="projectStore.deletingWorkflowIds[workflow.id]" role="status" class="mt-1 text-xs text-text-muted">{{ t('projects.deletingWorkflowHint', { name: workflow.name }) }}</p>
-                  <p v-if="projectStore.workflowDeleteErrors[workflow.id]" role="alert" class="mt-1 text-xs text-status-warning">{{ t('projects.deleteWorkflowFailedHint', { name: workflow.name }) }}</p>
-                </div>
-                <div class="flex shrink-0 items-center gap-2">
-                  <StatusBadge :status="workflow.status === 'draft' ? 'idle' : workflow.status === 'ready' ? 'success' : 'running'" />
+                <RouterLink
+                  :to="`/workflows/${workflow.id}`"
+                  class="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-l-md py-2 pl-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                  @click.stop="projectStore.selectProject(project.id)"
+                >
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-medium text-text-primary">{{ workflow.name }}</p>
+                    <p class="mt-1 text-[11px] text-text-muted">{{ workflow.updatedAt }}</p>
+                    <p v-if="projectStore.deletingWorkflowIds[workflow.id]" role="status" class="mt-1 text-xs text-text-muted">{{ t('projects.deletingWorkflowHint', { name: workflow.name }) }}</p>
+                    <p v-if="projectStore.workflowDeleteErrors[workflow.id]" role="alert" class="mt-1 text-xs text-status-warning">{{ t('projects.deleteWorkflowFailedHint', { name: workflow.name }) }}</p>
+                  </div>
+                  <StatusBadge class="shrink-0" :status="workflow.status === 'draft' ? 'idle' : workflow.status === 'ready' ? 'success' : 'running'" />
+                </RouterLink>
+                <div class="flex shrink-0 items-center gap-2 pr-3">
                   <button
                     type="button"
                     class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-primary/30 hover:text-primary"
                     :title="t('projects.renameWorkflow')"
+                    :aria-label="`${t('projects.renameWorkflow')}: ${workflow.name}`"
                     :disabled="projectStore.deletingWorkflowIds[workflow.id]"
-                    @click.prevent.stop="openRenameWorkflow(project, workflow)"
+                    @click="openRenameWorkflow(project, workflow)"
                   >
                     <Edit3 class="h-3.5 w-3.5" />
                   </button>
@@ -416,14 +422,15 @@ async function retryLoadProjects() {
                     type="button"
                     class="grid h-7 w-7 place-items-center rounded-md border border-app-border bg-white text-text-muted transition hover:border-status-error/30 hover:text-status-error disabled:cursor-wait disabled:opacity-60"
                     :title="t('projects.deleteWorkflow')"
+                    :aria-label="`${t('projects.deleteWorkflow')}: ${workflow.name}`"
                     :disabled="projectStore.deletingWorkflowIds[workflow.id]"
                     :aria-busy="Boolean(projectStore.deletingWorkflowIds[workflow.id])"
-                    @click.prevent.stop="deleteWorkflow(project, workflow)"
+                    @click="deleteWorkflow(project, workflow)"
                   >
                     <Trash2 class="h-3.5 w-3.5" />
                   </button>
                 </div>
-              </RouterLink>
+              </div>
             </div>
             <details data-section="project-details" class="mx-3 mb-3 rounded-md border border-app-border bg-app-bg2">
               <summary class="cursor-pointer rounded-md px-3 py-2 text-xs font-medium text-text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">

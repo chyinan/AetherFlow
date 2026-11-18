@@ -70,7 +70,7 @@ const field = () => form().get<HTMLInputElement>('input')
 const headerTrigger = () => wrapper!.get<HTMLButtonElement>('header button')
 function triggerFor(kind: Kind) {
   if (kind === 'project') return headerTrigger()
-  if (kind === 'rename') return wrapper!.get<HTMLButtonElement>(`a[href="/workflows/101"] button[title="${message('renameWorkflow')}"]`)
+  if (kind === 'rename') return wrapper!.get<HTMLButtonElement>(`[data-workflow-row="101"] button[title="${message('renameWorkflow')}"]`)
   const result = wrapper!.findAll<HTMLButtonElement>('article button').find(node => node.text() === message('newWorkflow'))
   if (!result) throw new Error('没有正常新建工作流按钮')
   return result

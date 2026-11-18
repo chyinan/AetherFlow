@@ -178,3 +178,47 @@ it('中文和英文详情入口具名可聚焦，并保留展开内容的发现�
   expect(page.get('article').findAll('a[href^="/workflows/"]')).toHaveLength(2)
   expect(page.get('article').findAll('button').some(button => button.text() === message('newWorkflow'))).toBe(true)
 })
+
+it('工作流链接没有嵌套可聚焦的重命名和删除控件', async () => {
+  const page = await renderPage()
+  const projects = page.get('article')
+  const links = projects.findAll('a[href^="/workflows/"]')
+  expect(links).toHaveLength(2)
+  for (const link of links) {
+    expect.soft(link.find(':is(a,button,input,select,textarea,[tabindex])').exists()).toBe(false)
+  }
+})
+
+it.each(['zh-CN', 'en-US', 'ja-JP'] as const)('%s 的行操作能区分各自工作流', async (locale) => {
+  i18n.global.locale.value = locale
+  const page = await renderPage()
+  const items = project().workflows
+  for (const key of ['renameWorkflow', 'deleteWorkflow']) {
+    const buttons = page.findAll<HTMLButtonElement>(`button[title="${message(key)}"]`)
+    expect(buttons).toHaveLength(items.length)
+    expect.soft(buttons.map(button => button.attributes('aria-label'))).toEqual(
+      items.map(item => `${message(key)}: ${item.name}`),
+    )
+  }
+})
+
+it('重命名与取消删除不跟随链接，工作流链接仍导航到指定工作流', async () => {
+  const page = await renderPage()
+  const router = page.vm.$router
+  const target = project().workflows[1]!
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  const rename = page.findAll(`button[title="${message('renameWorkflow')}"]`)[1]!
+  await rename.trigger('click')
+  expect(router.currentRoute.value.fullPath).toBe('/projects')
+  expect(page.get<HTMLInputElement>('form input').element.value).toBe(target.name)
+  await page.get('form button[type="button"]').trigger('click')
+  const remove = page.findAll(`button[title="${message('deleteWorkflow')}"]`)[1]!
+  await remove.trigger('click')
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(i18n.global.t('projects.deleteWorkflowConfirm', { name: target.name }))
+  expect(mocks.projectStore.deleteProjectWorkflow).not.toHaveBeenCalled()
+  expect(router.currentRoute.value.fullPath).toBe('/projects')
+  await page.get(`a[href="/workflows/${target.id}"]`).trigger('click')
+  await flushPromises()
+  expect(router.currentRoute.value.fullPath).toBe(`/workflows/${target.id}`)
+  expect(mocks.projectStore.selectProject).toHaveBeenLastCalledWith('presentation-project')
+})
