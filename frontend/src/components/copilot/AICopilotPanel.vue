@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { LoaderCircle, PanelRightClose, Send, Sparkles, SquarePen } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
@@ -65,6 +65,10 @@ const conversationHistoryModeUnknown = ref(false)
 const historyRetryAvailable = ref(false)
 const interactionPending = computed(() => loading.value || savingCustomNodeDraft.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
 const modelsLoading = ref(false)
+const modelsLoadFailed = ref(false)
+const modelPicker = ref<HTMLSelectElement | null>(null)
+const modelRetryButton = ref<HTMLButtonElement | null>(null)
+const promptInput = ref<HTMLTextAreaElement | null>(null)
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
 const selectedModelId = ref('')
@@ -101,9 +105,9 @@ let panelDisposed = false
 const PENDING_DRAFT_REDACT_DEPTH = 6
 const { locale, t } = useI18n()
 const { t: presentationText } = useI18n({ useScope: 'local', messages: {
-  'zh-CN': { send: '发送消息' },
-  'en-US': { send: 'Send message' },
-  'ja-JP': { send: 'メッセージを送信' },
+  'zh-CN': { send: '发送消息', modelLoadFailed: '无法加载模型列表', retryModels: '重试加载模型' },
+  'en-US': { send: 'Send message', modelLoadFailed: 'Could not load the model list', retryModels: 'Retry loading models' },
+  'ja-JP': { send: 'メッセージを送信', modelLoadFailed: 'モデル一覧を読み込めませんでした', retryModels: 'モデルの読み込みを再試行' },
 } })
 const emit = defineEmits<{
   close: []
@@ -129,6 +133,11 @@ const availableModels = computed(() =>
   models.value.filter((model) => model.kind === 'chat' && model.status !== 'disabled'),
 )
 
+const modelPickerStatus = computed(() => modelsLoading.value
+  ? t('copilot.modelLoading')
+  : modelsLoadFailed.value
+    ? presentationText('modelLoadFailed')
+    : availableModels.value.length ? '' : t('copilot.modelUnavailable'))
 const selectedModel = computed(() =>
   availableModels.value.find((model) => model.id === selectedModelId.value),
 )
@@ -156,21 +165,36 @@ function selectedModelLabel(model: ModelCatalogItem) {
 }
 
 async function loadModels() {
+  if (modelsLoading.value || panelDisposed) return
   modelsLoading.value = true
+  let restoreModelFocus = false
   try {
     const snapshot = await modelApi.refreshSnapshot()
+    if (panelDisposed) return
     providers.value = snapshot.providers
     models.value = snapshot.models
     selectedModelId.value =
       availableModels.value.find((model) => model.status === 'ready')?.id ||
       availableModels.value[0]?.id ||
       ''
+    restoreModelFocus = Boolean(modelRetryButton.value && modelRetryButton.value === document.activeElement)
+    modelsLoadFailed.value = false
   } catch {
+    if (panelDisposed) return
     providers.value = []
     models.value = []
     selectedModelId.value = ''
+    modelsLoadFailed.value = true
   } finally {
-    modelsLoading.value = false
+    if (!panelDisposed) modelsLoading.value = false
+  }
+  if (restoreModelFocus) {
+    await nextTick()
+    // Retry disappears on success; do not reclaim focus if the user has moved away.
+    if (!panelDisposed && document.activeElement === document.body) {
+      const target = availableModels.value.length ? modelPicker.value : promptInput.value
+      target?.focus({ preventScroll: true })
+    }
   }
 }
 
@@ -1451,23 +1475,35 @@ onMounted(() => {
             {{ t('copilot.planner.leaveMode') }}
           </button>
         </div>
-        <label class="mb-2 flex items-center gap-2 text-xs text-text-secondary">
-          <span class="shrink-0 font-medium text-text-muted">{{ t('copilot.model') }}</span>
-          <select
-            v-model="selectedModelId"
-            class="min-w-0 flex-1 rounded-md border border-app-border bg-white px-2 py-1.5 text-xs text-text-primary outline-none transition focus:border-ai/50 disabled:bg-app-muted disabled:text-text-muted"
-            :disabled="modelsLoading || availableModels.length === 0"
-          >
-            <option v-if="modelsLoading || availableModels.length === 0" value="" disabled>
-              {{ modelsLoading ? t('copilot.modelLoading') : t('copilot.modelUnavailable') }}
-            </option>
-            <option v-for="model in availableModels" :key="model.id" :value="model.id">
-              {{ selectedModelLabel(model) }}
-            </option>
-          </select>
-        </label>
+        <div class="mb-2">
+          <label class="flex items-center gap-2 text-xs text-text-secondary">
+            <span class="shrink-0 font-medium text-text-muted">{{ t('copilot.model') }}</span>
+            <select
+              ref="modelPicker"
+              v-model="selectedModelId"
+              class="min-w-0 flex-1 rounded-md border border-app-border bg-white px-2 py-1.5 text-xs text-text-primary outline-none transition focus:border-ai/50 disabled:bg-app-muted disabled:text-text-muted"
+              :disabled="modelsLoading || availableModels.length === 0"
+            >
+              <option v-if="modelPickerStatus" value="" disabled>{{ modelPickerStatus }}</option>
+              <option v-for="model in availableModels" :key="model.id" :value="model.id">
+                {{ selectedModelLabel(model) }}
+              </option>
+            </select>
+          </label>
+          <button
+            v-if="modelsLoadFailed"
+            ref="modelRetryButton"
+            type="button"
+            data-testid="copilot-model-retry"
+            :aria-disabled="modelsLoading || undefined"
+            class="mt-1 rounded px-1 text-xs font-medium text-ai underline underline-offset-2 aria-disabled:opacity-50"
+            @click="loadModels"
+          >{{ presentationText('retryModels') }}</button>
+          <p class="sr-only" role="status">{{ modelPickerStatus }}</p>
+        </div>
         <div class="flex items-center gap-2 rounded-lg border border-app-border bg-app-muted px-3 py-2 focus-within:border-ai/50 focus-within:bg-white">
           <textarea
+            ref="promptInput"
             v-model="prompt"
             :rows="promptRows"
             class="min-h-8 max-h-32 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-sm outline-none placeholder:text-text-muted"
