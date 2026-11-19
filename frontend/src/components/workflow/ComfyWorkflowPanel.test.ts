@@ -52,6 +52,87 @@ describe('ComfyUI 导入与参数绑定', () => {
     expect(wrapper.emitted('update')?.at(-1)).toEqual(['workflowBindings',[{ nodeId:'second', inputName:'steps', parameter:'steps' }]])
     wrapper.unmount()
   })
+  describe('显式覆盖报错后的恢复', () => {
+    const steps = { nodeId: 'first', inputName: 'steps', parameter: 'steps' }
+    const seed = { nodeId: 'second', inputName: 'seed', parameter: 'seed' }
+    const duplicate = '重复绑定目标：first.steps'
+    const select = '[data-testid="comfy-target"]'
+    const add = '[data-testid="comfy-add-binding"]'
+    const alerts = (wrapper: ReturnType<typeof panel>) => wrapper.findAll('[role="alert"]').map(item => item.text())
+    async function attemptDuplicate(wrapper: ReturnType<typeof panel>) {
+      await wrapper.get(select).setValue(JSON.stringify(['first', 'steps']))
+      await wrapper.get(add).trigger('click')
+      expect(alerts(wrapper)).toEqual(expect.arrayContaining([duplicate]))
+      expect(wrapper.emitted('update')).toBeUndefined()
+    }
+
+    it('移除冲突覆盖后不再显示过期重复错误，可以重新添加同一目标', async () => {
+      const config = { workflow: ui, workflowJson: api, workflowBindings: [steps, seed] }
+      const wrapper = panel(config)
+      try {
+        await attemptDuplicate(wrapper)
+        await wrapper.findAll('button[aria-label="移除"]')[0]!.trigger('click')
+        expect(wrapper.emitted('update')).toEqual([['workflowBindings', [seed]]])
+        await wrapper.setProps({ config: { ...config, workflowBindings: [seed] } })
+        expect(alerts(wrapper)).not.toContain(duplicate)
+        await wrapper.get('[data-testid="comfy-parameter"]').setValue('steps')
+        await wrapper.get(add).trigger('click')
+        expect(wrapper.emitted('update')?.at(-1)).toEqual(['workflowBindings', [seed, steps]])
+        expect(wrapper.emitted('replace-workflow')).toBeUndefined()
+      } finally { wrapper.unmount() }
+    })
+
+    it('改选有效输入时清除旧目标错误，已设置的覆盖不受影响', async () => {
+      const wrapper = panel({ workflowJson: api, workflowBindings: [steps] })
+      try {
+        await attemptDuplicate(wrapper)
+        await wrapper.get(select).setValue(JSON.stringify(['second', 'seed']))
+        await wrapper.get('[data-testid="comfy-parameter"]').setValue('seed')
+        expect(alerts(wrapper)).not.toContain(duplicate)
+        expect(wrapper.emitted('update')).toBeUndefined()
+        await wrapper.get(add).trigger('click')
+        expect(wrapper.emitted('update')).toEqual([['workflowBindings', [steps, seed]]])
+      } finally { wrapper.unmount() }
+    })
+
+    it('执行图格式错误与重复覆盖可同时看到，修正覆盖不会误关文件提示', async () => {
+      const config = { workflow: ui, workflowJson: api, workflowBindings: [steps] }
+      const wrapper = panel(config)
+      try {
+        const file = wrapper.get<HTMLInputElement>('[data-testid="comfy-api-file"]')
+        const mockFile = (value: object) => Object.defineProperty(file.element, 'files', {
+          value: [{ arrayBuffer: async () => fileBytes(JSON.stringify(value)) }], configurable: true,
+        })
+        mockFile(ui)
+        await file.trigger('change'); await flushPromises()
+        const invalid = '执行图格式无效，请重新导出 API 格式 JSON。'
+        expect(alerts(wrapper)).toContain(invalid)
+        expect(wrapper.emitted('replace-workflow')).toBeUndefined()
+        await attemptDuplicate(wrapper)
+        expect(alerts(wrapper)).toEqual(expect.arrayContaining([duplicate, invalid]))
+        await wrapper.get('button[aria-label="移除"]').trigger('click')
+        await wrapper.setProps({ config: { ...config, workflowBindings: [] } })
+        expect(alerts(wrapper)).toEqual([invalid])
+        mockFile(api)
+        await file.trigger('change'); await flushPromises()
+        expect(alerts(wrapper)).toEqual([])
+        expect(wrapper.emitted('replace-workflow')).toEqual([[{ workflowJson: JSON.stringify(api), workflowBindings: [] }, 'image']])
+      } finally { wrapper.unmount() }
+    })
+
+    it('切换草稿目标不会清除实际已保存的无效覆盖错误', async () => {
+      const missing = { ...steps, inputName: 'missing' }
+      const config = { workflowJson: api, workflowBindings: [missing] }
+      const wrapper = panel(config)
+      try {
+        expect(alerts(wrapper)[0]).toContain('绑定目标不存在：first.missing')
+        await wrapper.get(select).setValue(JSON.stringify(['second', 'seed']))
+        await wrapper.get(add).trigger('click')
+        expect(alerts(wrapper)[0]).toContain('绑定目标不存在：first.missing')
+        expect(wrapper.emitted('update')).toBeUndefined()
+      } finally { wrapper.unmount() }
+    })
+  })
   it('复合替换没有既存原图字段时，会在同一补丁保留旧执行图为原图', async () => {
     const previousGraph = { '1': { class_type: 'KSampler', inputs: { seed: 5 } } }
     const wrapper = panel({ workflowJson: previousGraph, workflowBindings:[{ nodeId:'old', inputName:'seed', parameter:'seed' }] })

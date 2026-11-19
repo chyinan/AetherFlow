@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { comfyBindingError, comfyParameters, describeComfyGraph, isRecord, readComfyWorkflowFile } from '@/utils/comfyWorkflow'
 const props = defineProps<{ nodeId: string; config: Record<string, unknown> }>()
@@ -17,7 +17,17 @@ const source = computed(() => describeComfyGraph(props.config.workflow ?? props.
 const metadata = computed(() => isRecord(props.config.comfyImport) ? props.config.comfyImport : {})
 const bindings = computed(() => Array.isArray(props.config.workflowBindings) ? props.config.workflowBindings : [])
 const bindingError = computed(() => comfyBindingError(props.config.workflowBindings, execution.value.graph))
-const target = ref(''), parameter = ref<string>('prompt'), error = ref('')
+const target = ref(''), parameter = ref<string>('prompt'), loadError = ref('')
+const bindingAttempted = ref(false)
+const proposedBindings = computed(() => {
+  if (!target.value) return null
+  const [nodeId, inputName] = JSON.parse(target.value) as [string, string]
+  return [...bindings.value, { nodeId, inputName, parameter: parameter.value }]
+})
+const proposedBindingError = computed(() => comfyBindingError(proposedBindings.value, execution.value.graph))
+// 添加失败只说明当前选择，需随覆盖列表更新；文件读取结果独立显示。
+const visibleBindingError = computed(() => bindingError.value || (bindingAttempted.value ? proposedBindingError.value : null))
+watch(target, () => { bindingAttempted.value = false }, { flush: 'sync' })
 const input = ref<HTMLInputElement | null>(null)
 const targets = computed(() => execution.value.nodes.flatMap((node) => Object.keys(node.inputs).map((name) => ({ key: JSON.stringify([node.id, name]), label: `${node.id} · ${node.type} · ${name}` }))))
 let alive = true, sequence = 0
@@ -26,11 +36,11 @@ async function loadApi(event: Event) {
   const element = event.target as HTMLInputElement, file = element.files?.[0]
   if (!file) return
   const current = ++sequence, nodeId = props.nodeId, previousGraph = props.config.workflowJson
-  error.value = ''
+  loadError.value = ''
   try {
     const text = await readComfyWorkflowFile(file)
     if (!alive || current !== sequence || nodeId !== props.nodeId || previousGraph !== props.config.workflowJson) return
-    if (describeComfyGraph(text).format !== 'API') { error.value = t('invalid'); return }
+    if (describeComfyGraph(text).format !== 'API') { loadError.value = t('invalid'); return }
     const values: Record<string, unknown> = {
       workflowJson: text,
       workflowBindings: [],
@@ -38,16 +48,14 @@ async function loadApi(event: Event) {
     if (!props.config.workflow) values.workflow = props.config.workflowJson
     emit('replace-workflow', values, nodeId)
     target.value = ''
-  } catch { if (alive && current === sequence && nodeId === props.nodeId) error.value = t('error') }
+  } catch { if (alive && current === sequence && nodeId === props.nodeId) loadError.value = t('error') }
   finally { if (alive && current === sequence) element.value = '' }
 }
 function addBinding() {
-  if (!target.value) return
-  const [nodeId, inputName] = JSON.parse(target.value) as [string, string]
-  const next = [...bindings.value, { nodeId, inputName, parameter: parameter.value }]
-  const message = comfyBindingError(next, execution.value.graph)
-  if (message) { error.value = message; return }
-  error.value = ''; emit('update', 'workflowBindings', next)
+  const next = proposedBindings.value
+  if (!next) return
+  bindingAttempted.value = Boolean(proposedBindingError.value)
+  if (!bindingAttempted.value) emit('update', 'workflowBindings', next)
 }
 </script>
 
@@ -73,6 +81,7 @@ function addBinding() {
       <p v-if="!bindings.length" class="text-xs text-text-muted">{{ t('empty') }}</p>
       <div v-for="(binding, index) in bindings" :key="index" class="flex items-center justify-between gap-2 text-xs"><code>{{ binding.nodeId }}.{{ binding.inputName }} ← {{ binding.parameter }}</code><button type="button" :aria-label="t('remove')" class="px-2 py-1 text-primary" @click="emit('update', 'workflowBindings', bindings.filter((_, i) => i !== index))">{{ t('remove') }}</button></div>
     </div>
-    <p v-if="error || bindingError" role="alert" class="text-xs text-status-error">{{ error || bindingError }}</p>
+    <p v-if="loadError" role="alert" class="text-xs text-status-error">{{ loadError }}</p>
+    <p v-if="visibleBindingError" role="alert" class="text-xs text-status-error">{{ visibleBindingError }}</p>
   </section>
 </template>

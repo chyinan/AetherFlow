@@ -112,3 +112,62 @@ it.each([
   expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: JSON.stringify(nextExecutionGraph), workflowBindings: [] })
   expect(store.nodes[0]!.data.config.workflow).toEqual(hasSource ? sourceGraph : previousExecutionGraph)
 })
+
+it('移除重复目标恢复真实覆盖配置；撤销、重做、保存重开保留原图和合法覆盖', async () => {
+  const source = { nodes: [{ id: 1, type: 'ExamplePlugin', widgets_values: ['source'] }], links: [] }
+  const graph = '{\n "a":{"class_type":"KSampler","inputs":{"steps":30,"seed":9007199254740993}}\n}\n'
+  const stepBinding = { nodeId: 'a', inputName: 'steps', parameter: 'steps' }
+  const seedBinding = { nodeId: 'a', inputName: 'seed', parameter: 'seed' }
+  let entity = { id: 42, name: 'ComfyUI', version: 1, definitionJson: JSON.stringify({ nodes: [
+    { nodeId: 'image', nodeType: 'IMAGE_GENERATION', config: {
+      provider: 'COMFYUI', mode: 'workflow', workflow: source, workflowJson: graph, workflowBindings: [stepBinding, seedBinding],
+    } },
+  ] }) }
+  http.get.mockImplementation(async () => structuredClone(entity))
+  http.put.mockImplementation(async (_url, payload) => {
+    entity = { ...entity, version: entity.version + 1, definitionJson: JSON.stringify(payload) }
+    return structuredClone(entity)
+  })
+  const pinia = createPinia(); setActivePinia(pinia)
+  vi.spyOn(useModelStore(), 'loadModels').mockResolvedValue(undefined)
+  vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue(undefined)
+  const store = useWorkflowStore()
+  expect(await store.loadWorkflow('42')).toBe(true)
+  store.historyPast = []; store.historyFuture = []
+  useUiStore().setSelectedNode('image')
+  wrapper = mount(NodeInspector, { attachTo: document.body, global: { plugins: [pinia, i18n], stubs: {
+    NodeConnectionSelector: { props: ['nodeType'], template: '<div />' },
+  } } })
+  await flushPromises()
+  const panel = wrapper.get('[data-testid="comfy-workflow-panel"]')
+  const config = () => store.nodes[0]!.data.config
+  const duplicate = '重复绑定目标：a.steps'
+  await panel.get('[data-testid="comfy-target"]').setValue(JSON.stringify(['a', 'steps']))
+  await panel.get('[data-testid="comfy-parameter"]').setValue('steps')
+  await panel.get('[data-testid="comfy-add-binding"]').trigger('click')
+  await panel.get('[data-testid="comfy-add-binding"]').trigger('click')
+  expect(panel.get('[role="alert"]').text()).toBe(duplicate)
+  expect(config().workflowBindings).toEqual([stepBinding, seedBinding])
+  expect(store.historyPast).toHaveLength(0)
+
+  await panel.findAll('button[aria-label="移除"]')[1]!.trigger('click')
+  expect(config().workflowBindings).toEqual([stepBinding])
+  expect(panel.get('[role="alert"]').text()).toBe(duplicate)
+  await panel.get('button[aria-label="移除"]').trigger('click')
+  expect(config().workflowBindings).toEqual([])
+  expect(panel.find('[role="alert"]').exists()).toBe(false)
+  await panel.get('[data-testid="comfy-add-binding"]').trigger('click')
+  expect(store.historyPast).toHaveLength(3)
+  expect(config().workflowBindings).toEqual([stepBinding])
+  expect(store.undo()).toBe(true)
+  expect(config().workflowBindings).toEqual([])
+  expect(store.redo()).toBe(true)
+  expect(config().workflowBindings).toEqual([stepBinding])
+
+  expect(await store.saveCurrentWorkflow()).toEqual({ workflowId: '42' })
+  expect(http.put).toHaveBeenCalledTimes(1)
+  expect(await store.loadWorkflow('42')).toBe(true)
+  await flushPromises()
+  expect(config()).toMatchObject({ workflow: source, workflowJson: graph, workflowBindings: [stepBinding] })
+  expect(panel.find('[role="alert"]').exists()).toBe(false)
+})
