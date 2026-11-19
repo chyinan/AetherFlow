@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import CustomFieldValue from './CustomFieldValue.vue'
 import { parseCustomDefinition, previewCustomNode } from '@/utils/customNodes'
 const props = defineProps<{ config: Record<string, unknown> }>()
@@ -8,7 +8,23 @@ const definition = computed(() => { try { return parseCustomDefinition(props.con
 const definitionError = computed(() => { try { parseCustomDefinition(props.config.customDefinition); return '' } catch (e) { return e instanceof Error ? e.message : String(e) } })
 const variables = ref('{}'), response = ref('{"result":"示例输出"}'), preview = ref(''), error = ref('')
 function values(key: string): Record<string, unknown> { const raw = props.config[key]; return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {} }
-function update(key: string, name: string, value: unknown) { emit('update', key, { ...values(key), [name]: value }); preview.value = ''; error.value = '' }
+function clearPreview() {
+  preview.value = ''
+  error.value = ''
+}
+// 只跟踪预览使用的输入；画布撤销或重做也可能替换这些配置。
+watch([
+  variables,
+  response,
+  () => props.config.customDefinition,
+  () => props.config.customInputs,
+  () => props.config.customValues,
+  () => props.config.inputBindings,
+], clearPreview, { flush: 'sync' })
+function update(key: string, name: string, value: unknown) {
+  emit('update', key, { ...values(key), [name]: value })
+  clearPreview()
+}
 function debug() { try { preview.value = JSON.stringify(previewCustomNode(parseCustomDefinition(props.config.customDefinition), props.config, JSON.parse(variables.value), JSON.parse(response.value)), null, 2); error.value = '' } catch (e) { preview.value = ''; error.value = e instanceof Error ? e.message : String(e) } }
 </script>
 <template>
@@ -27,11 +43,11 @@ function debug() { try { preview.value = JSON.stringify(previewCustomNode(parseC
       <CustomFieldValue v-for="field in definition.fields" :key="field.name" :field="field" :model-value="values('customValues')[field.name]" @update:model-value="update('customValues', field.name, $event)" />
       <p class="text-xs text-text-muted">输出：{{ definition.outputs.map(field => `${field.name} (${field.type})`).join('、') }}</p>
       <details class="space-y-3 rounded border p-3"><summary class="cursor-pointer font-semibold">调试预览</summary>
-        <p class="mt-3 text-xs">本地校验输入、占位符和响应映射；不会发送 HTTP 请求或执行代码。</p>
+        <p class="mt-3 text-xs">本地校验输入、占位符和响应映射；修改样本或节点相关配置后请重新生成。不会发送 HTTP 请求或执行代码。</p>
         <label class="block text-xs">模拟工作流变量（JSON 对象）<textarea v-model="variables" class="mt-1 w-full rounded border p-2 font-mono" /></label>
         <label class="block text-xs">模拟响应 JSON（API 响应体 / 代码返回值）<textarea v-model="response" class="mt-1 w-full rounded border p-2 font-mono" /></label>
         <button type="button" class="rounded border px-3 py-2 text-sm" @click="debug">生成调试预览</button>
-        <button type="button" class="ml-2 text-sm" @click="preview = ''; error = ''">清空预览</button>
+        <button type="button" class="ml-2 text-sm" @click="clearPreview">清空预览</button>
         <p v-if="error" role="alert" class="text-xs text-status-error">{{ error }}</p><pre v-if="preview" class="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs" data-testid="custom-preview">{{ preview }}</pre>
       </details>
     </template>
