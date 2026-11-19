@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
-import { AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { AxiosError, type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -27,12 +27,14 @@ let wrapper: ReturnType<typeof mount> | undefined
 let requests: string[]
 let unavailable: Set<string>
 let terminalA: boolean
+let progressA: number
 let heldObservationA: Promise<void> | undefined
 let historyFrames: number
 const occurredAt = '2024-01-01T01:00:00Z'
 
 function failedRead(config: InternalAxiosRequestConfig) {
-  const message = config.url === obsA ? '运行概况暂时不可用' : '事件历史暂时不可用'
+  const message = config.url === logsA ? '运行日志暂时不可用'
+    : config.url === obsA ? '运行概况暂时不可用' : '事件历史暂时不可用'
   return new AxiosError(message, 'ERR_BAD_RESPONSE', config, undefined, {
     config, data: { code: 503, message }, status: 503, statusText: 'Service Unavailable', headers: {},
   })
@@ -43,6 +45,7 @@ beforeEach(() => {
   requests = []
   unavailable = new Set()
   terminalA = false
+  progressA = 0.42
   heldObservationA = undefined
   historyFrames = 1
   // 只替换传输层；真实 Axios 拦截器仍进行 GET 重试与响应解包。
@@ -65,7 +68,7 @@ beforeEach(() => {
     } else if (url.startsWith('/workflow/runtime/observability/')) {
       data = {
         workflowId: String(id), runtimeState: id === 101 && terminalA ? 'SUCCESS' : 'RUNNING',
-        progress: id === 101 && terminalA ? 1 : 0.42,
+        progress: id === 101 ? (terminalA ? 1 : progressA) : 0.42,
       }
     } else if (url.startsWith('/workflow/runtime/events/')) {
       data = [{
@@ -189,4 +192,104 @@ it('切换运行后迟到的局部结果及告警不污染当前详情', async (
   expect(wrapper!.get('[data-testid="output-content"]').text()).toContain('普通节点的完整文字结果 102')
   expect(wrapper!.text()).not.toContain('事件历史暂时不可用')
   expect(mocks.subscribeRun.mock.calls).toHaveLength(1)
+})
+
+
+it('首次打开时运行日志连续 503，不应阻挡同一运行的权威状态、节点结果和订阅', async () => {
+  unavailable.add(logsA)
+  terminalA = true
+  const { store } = await open()
+  await ready()
+  expect(requests.filter(url => url === logsA)).toHaveLength(3)
+  expect(store.error).toContain('HTTP 503: 运行日志暂时不可用')
+  expect(command('runs.retryLoad')!.attributes('disabled')).toBeUndefined()
+  expect(store.currentRun).toMatchObject({ id: 'run-101', status: 'success', backendStatus: 'SUCCESS', progress: 100 })
+  expect(command('runs.cancel')).toBeUndefined()
+  expect(wrapper!.get('[data-testid="output-content"]').text()).toContain('普通节点的完整文字结果 101')
+  expect(store.logs.map(log => log.id)).toContain('event-101')
+  expect(store.realtimeRunId).toBe('run-101')
+  expect(requests.filter(url => url === obsA)).toHaveLength(1)
+  expect(requests.filter(url => url === eventsA)).toHaveLength(1)
+})
+
+it('刷新时运行日志连续 503，保留已读日志并继续读取进度；显式重试可补齐日志', async () => {
+  const { store, router } = await open()
+  await ready()
+  expect(store.currentRunProgress).toBe(42)
+
+  unavailable.add(logsA)
+  progressA = 0.67
+  await command('runs.refresh')!.trigger('click')
+  await ready()
+  expect(store.error).toContain('HTTP 503: 运行日志暂时不可用')
+  expect(wrapper!.text()).toContain('已保存日志 101:0')
+  expect(wrapper!.text()).toContain('67%')
+  expect(store.currentRunProgress).toBe(67)
+  expect(store.realtimeRunId).toBe('run-101')
+  expect(store.logs.filter(log => log.id === 'event-101')).toHaveLength(1)
+
+  unavailable.delete(logsA)
+  historyFrames = 2
+  await command('runs.retryLoad')!.trigger('click')
+  await ready()
+  expect(router.currentRoute.value.params.id).toBe('run-101')
+  expect(store.error).toBeNull()
+  expect(command('runs.retryLoad')).toBeUndefined()
+  expect(wrapper!.text()).toContain('已保存日志 101:1')
+  expect(store.logs.filter(log => log.id === 'event-101')).toHaveLength(1)
+  expect(requests.filter(url => url === logsA)).toHaveLength(5)
+})
+
+it('切换运行后迟到的日志 503 不触发原运行的恢复和订阅，也不显示过期错误', async () => {
+  const normalRead = axiosInstance.defaults.adapter as AxiosAdapter
+  let release!: () => void
+  const heldLog = new Promise<void>(resolve => { release = resolve })
+  let blocked = false
+  unavailable.add(logsA)
+  axiosInstance.defaults.adapter = async config => {
+    if (config.url === logsA) {
+      blocked = true
+      await heldLog
+    }
+    return normalRead(config)
+  }
+  const { router, store } = await open()
+  await vi.waitFor(() => expect(blocked).toBe(true))
+  await router.push('/runs/run-102')
+  await ready()
+  release()
+  await vi.waitFor(() => expect(requests.filter(url => url === logsA)).toHaveLength(3))
+  await flushPromises()
+
+  expect(store.currentRun).toMatchObject({ id: 'run-102', progress: 42 })
+  expect(store.error).toBeNull()
+  expect(store.realtimeRunId).toBe('run-102')
+  expect(mocks.subscribeRun).toHaveBeenCalledTimes(1)
+  expect(requests).not.toContain(obsA)
+  expect(requests).not.toContain(eventsA)
+  expect(wrapper!.text()).not.toContain('运行日志暂时不可用')
+})
+
+it('日志暂时失败后离开并重新进入，再读实际日志；成功后重复进入仍复用缓存', async () => {
+  unavailable.add(logsA)
+  const { router, store } = await open()
+  await ready()
+  expect(requests.filter(url => url === logsA)).toHaveLength(3)
+  expect(store.error).toContain('HTTP 503: 运行日志暂时不可用')
+
+  await router.push('/runs/run-102')
+  await ready()
+  unavailable.delete(logsA)
+  await router.push('/runs/run-101')
+  await ready()
+  expect(store.error).toBeNull()
+  expect(wrapper!.text()).toContain('已保存日志 101:0')
+  expect(requests.filter(url => url === logsA)).toHaveLength(4)
+
+  await router.push('/runs/run-102')
+  await ready()
+  await router.push('/runs/run-101')
+  await ready()
+  expect(wrapper!.text()).toContain('已保存日志 101:0')
+  expect(requests.filter(url => url === logsA)).toHaveLength(4)
 })
