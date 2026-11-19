@@ -371,62 +371,55 @@ function chatModelProviderType(model: { providerId: string }) {
   return (provider?.providerType || model.providerId.replace(/^provider-/, '').replace(/-/g, '_')).trim()
 }
 
-/**
- * 按 id 解析下拉选中行。后端 slug 去重会让不同模型共用一个 id，
- * 因此 id 不唯一时按下拉行位置解析，绝不回写成相邻模型；定位失败返回 undefined。
- */
-function modelAtSelectedOption(select: HTMLSelectElement) {
-  const selectedId = select.value.trim()
-  if (!selectedId) return undefined
-  const matched = availableChatModels.value.filter((model) => model.id === selectedId)
-  if (matched.length === 1) return matched[0]
-  const byIndex = select.selectedIndex > 0 ? availableChatModels.value[select.selectedIndex - 1] : undefined
-  return byIndex && byIndex.id === selectedId ? byIndex : undefined
+function reserveModelOptionValue(used: Set<string>, seed: string) {
+  let value = seed
+  while (used.has(value)) value += '-'
+  used.add(value)
+  return value
 }
 
-function selectedLlmModelId() {
-  const modelName = textConfig('model', '').trim()
-  const configuredProvider = textConfig('provider', '').trim()
-  if (!modelName || !configuredProvider) return ''
-  return availableChatModels.value.find((model) => model.name === modelName
-    && normalizedProviderType(chatModelProviderType(model)) === normalizedProviderType(configuredProvider))?.id ?? ''
-}
-
-function handleLlmModelSelection(event: Event) {
-  if (!selectedNode.value) return
-  const select = event.target as HTMLSelectElement
-  const model = modelAtSelectedOption(select)
-  if (!model) {
-    // 只有显式清空才恢复服务默认 Provider/模型路由；定位失败时保留原配置。
-    if (!select.value.trim()) {
-      workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
-    }
-    return
-  }
-  workflowStore.updateNodeConfigValues(selectedNode.value.id, {
-    model: model.name,
-    provider: chatModelProviderType(model).toLowerCase(),
+const chatModelPicker = computed(() => {
+  const used = new Set(availableChatModels.value.map((model) => model.id))
+  const seen = new Set<string>()
+  const options = availableChatModels.value.map((model, index) => {
+    // 旧目录可能有重复 ID；每行必须独立回显和回写，普通唯一 ID 保持不变。
+    const value = seen.has(model.id) ? reserveModelOptionValue(used, `model-option-${index}`) : model.id
+    seen.add(model.id)
+    return { model, value }
   })
-}
+  return { options, unconfirmedValue: reserveModelOptionValue(used, 'configured-model') }
+})
+const configuredChatModel = computed(() => ({
+  model: textConfig('model', '').trim(),
+  provider: textConfig('provider', '').trim(),
+}))
+const selectedModelCatalogValue = computed(() => {
+  const { model, provider } = configuredChatModel.value
+  if (!model) return ''
+  const candidates = chatModelPicker.value.options.filter((item) => item.model.name === model)
+  // TRANSLATE 只存模型名的旧配置，仅在名字唯一时显示目录选项。
+  if (!provider) return selectedKind.value === 'translate' && candidates.length === 1 ? candidates[0].value : ''
+  return candidates.find((item) => normalizedProviderType(chatModelProviderType(item.model))
+    === normalizedProviderType(provider))?.value ?? ''
+})
+const configuredModelOption = computed(() => {
+  if (selectedModelCatalogValue.value) return null
+  const { model, provider } = configuredChatModel.value
+  if (!model && !provider) return null
+  const label = model
+    ? t('workflow.inspector.configuredModelUnconfirmed', { selection: [model, provider].filter(Boolean).join(' · ') })
+    : t('workflow.inspector.configuredProviderOnly', { provider })
+  return { value: chatModelPicker.value.unconfirmedValue, label }
+})
+const selectedModelValue = computed(() => selectedModelCatalogValue.value || configuredModelOption.value?.value || '')
 
-/** 翻译节点按 Provider/Model 对回显；只保存模型名的历史配置在名称唯一时才回显。 */
-function selectedTranslateModelId() {
-  const modelName = textConfig('model', '').trim()
-  if (!modelName) return ''
-  const candidates = availableChatModels.value.filter((model) => model.name === modelName)
-  const configuredProvider = textConfig('provider', '').trim()
-  if (!configuredProvider) return candidates.length === 1 ? candidates[0].id : ''
-  return candidates.find((model) => normalizedProviderType(chatModelProviderType(model))
-    === normalizedProviderType(configuredProvider))?.id ?? ''
-}
-
-function handleTranslateModelSelection(event: Event) {
+function handleChatModelSelection(event: Event) {
   if (!selectedNode.value) return
   const select = event.target as HTMLSelectElement
-  const model = modelAtSelectedOption(select)
+  const model = chatModelPicker.value.options.find((item) => item.value === select.value)?.model
   if (!model) {
-    // 与 LLM 段一致：显式清空即回到服务默认自动路由，定位失败时保持原配置。
-    if (!select.value.trim()) {
+    // 只有显式选择首行才恢复默认路由；只读的旧配置不是可写的目录项。
+    if (select.selectedIndex === 0 && select.value === '') {
       workflowStore.updateNodeConfigValues(selectedNode.value.id, { model: '', provider: '' })
     }
     return
@@ -1207,9 +1200,10 @@ onMounted(() => {
           <div class="block">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedTranslateModelId()" @change="handleTranslateModelSelection">
-                <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-                <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
+              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedModelValue" @change="handleChatModelSelection">
+                <option value="">{{ t('workflow.inspector.useServiceModelDefaults') }}</option>
+                <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+                <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
               </select>
             </label>
             <div v-if="modelStore.loading || modelStore.error || modelCatalogRetryPending" data-testid="node-model-catalog-status" :aria-busy="modelStore.loading || modelCatalogRetryPending" class="mt-2 space-y-2">
@@ -1273,9 +1267,10 @@ onMounted(() => {
           <div class="block">
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedLlmModelId()" @change="handleLlmModelSelection">
-                <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-                <option v-for="model in availableChatModels" :key="model.id" :value="model.id">{{ modelOptionLabel(model) }}</option>
+              <select ref="modelCatalogSelect" class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium text-text-primary outline-none" data-config-field="model" :aria-busy="modelStore.loading || modelCatalogRetryPending" :aria-describedby="modelStore.loading || modelStore.error || modelCatalogRetryPending ? 'node-model-catalog-status-message' : undefined" :value="selectedModelValue" @change="handleChatModelSelection">
+                <option value="">{{ t('workflow.inspector.useServiceModelDefaults') }}</option>
+                <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+                <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
               </select>
             </label>
             <div v-if="modelStore.loading || modelStore.error || modelCatalogRetryPending" data-testid="node-model-catalog-status" :aria-busy="modelStore.loading || modelCatalogRetryPending" class="mt-2 space-y-2">
