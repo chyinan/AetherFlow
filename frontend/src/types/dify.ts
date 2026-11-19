@@ -60,7 +60,7 @@ export interface ConversationLog {
   user: string
   channel: 'web' | 'api' | 'console'
   intent: string
-  status: 'success' | 'failed' | 'running'
+  status: 'success' | 'failed' | 'running' | 'warning'
   tokens: number | null
   cost: string
   feedback: 'like' | 'dislike' | 'none'
