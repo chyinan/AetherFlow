@@ -487,6 +487,13 @@ export const useWorkflowStore = defineStore('workflow', {
       this.dirty = true
       this.savingError = null
       this.runError = null
+      if (this.saveRecovery?.status === 'committed') {
+        this.saveRecovery = {
+          ...this.saveRecovery,
+          status: 'committedWithNewerEdits',
+          message: i18n.global.t('workflow.saveRecoveryCommittedWithNewerEdits'),
+        }
+      }
     },
     setRunError(message: string | null) {
       this.runError = message
@@ -1030,8 +1037,9 @@ export const useWorkflowStore = defineStore('workflow', {
         if (this.editRevision === savedRevision) this.workflowName = savedWorkflow.name
         this.backendDefinitionId = savedWorkflow.backendDefinitionId ?? this.backendDefinitionId ?? null
         this.backendVersion = savedWorkflow.backendVersion ?? this.backendVersion ?? null
-        // 保存成功说明基线已经前进，之前的待核对提交不再适用。
+        // 本次回执已确认提交，不再显示之前的核对结果或保留旧快照。
         this.pendingSaveSubmission = null
+        this.saveRecovery = null
         if (this.backendDefinitionId) {
           this.createIdempotencyKey = null
           this.createIntent = null
