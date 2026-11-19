@@ -4,6 +4,8 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
+import type { WorkflowRun } from '@/types/run'
+
 import { homeMessages } from './homeMessages'
 import { homeRunPageSize, type HomeRunGroup, type HomeRunSnapshot } from './homeStore'
 
@@ -12,6 +14,14 @@ const emit = defineEmits<{ retry: [] }>()
 const sectionHeading = ref<HTMLElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
 const historyQuery = () => props.group === 'failed' ? { status: 'FAILED' } : props.group === 'completed' ? { status: 'SUCCESS' } : {}
+
+function runStatusMessageKey(run: WorkflowRun) {
+  // WAITING 同时用于异步处理和人工审批；只在已有摘要证实时提示审批。
+  const awaitingApproval = run.status === 'paused'
+    && run.nodeStates.some(node => node.status === 'paused'
+      && node.approval?.approvalStatus === 'pending' && node.approval.approved === false)
+  return awaitingApproval ? 'status.awaitingApproval' : `status.${run.status}`
+}
 
 function retryInline() {
   if (props.loading) return
@@ -48,7 +58,7 @@ function retryInline() {
             <div class="min-w-0">
               <p class="break-words font-medium text-text-primary group-hover:text-primary">{{ run.workflowName }}</p>
               <p class="mt-1 break-all text-xs text-text-muted">{{ run.id }} · {{ run.startedAt }}</p>
-              <p class="mt-2 text-xs font-medium" :class="run.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ t(`status.${run.status}`) }}</p>
+              <p class="mt-2 text-xs font-medium" :class="run.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ t(runStatusMessageKey(run)) }}</p>
             </div>
             <span class="flex shrink-0 items-center gap-1 text-xs text-primary">{{ t(group === 'completed' ? 'openResult' : 'openRun') }}<ArrowUpRight class="h-3.5 w-3.5" aria-hidden="true" /></span>
           </RouterLink>
