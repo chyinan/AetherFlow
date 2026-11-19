@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Copy, FileJson, FolderKanban, Library, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow, X } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter, type RouteLocationNormalized } from 'vue-router'
 
@@ -56,7 +56,13 @@ const { t: pt } = useI18n({ useScope: 'local', messages: {
 const ct = pt
 const showPreflight = ref(false)
 const showStarterGuide = ref(false)
+const starterGuideId = useId()
+const starterGuideTrigger = ref<HTMLButtonElement | null>(null)
 const supportsStarterGuide = computed(() => workflowStore.nodes.some((node) => node.data.kind === 'image-generation') || (workflowStore.nodes.some((node) => node.data.kind === 'whisper') && workflowStore.nodes.some((node) => node.data.kind === 'summary')))
+function hideStarterGuide() {
+  showStarterGuide.value = false
+  starterGuideTrigger.value?.focus()
+}
 function locateStarterNode(nodeId: string, field: string) { void locatePreflightIssue({ id: 'guide', level: 'unknown', code: '', nodeId, field }) }
 function startGuidedRun() { showPreflight.value = true; void startRun() }
 function openGuidedResults() { if (currentWorkflowRun.value) void router.push(`/runs/${currentWorkflowRun.value.id}`) }
@@ -1223,7 +1229,16 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
           <Save class="h-4 w-4" />
           {{ workflowStore.saving ? t('workflow.saving') : workflowStore.dirty ? t('workflow.saveWorkflow') : t('workflow.saved') }}
         </button>
-        <button v-if="supportsStarterGuide" type="button" data-action="workflow-guide" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="showStarterGuide = !showStarterGuide">{{ pt('guide') }}</button>
+        <button
+          v-if="supportsStarterGuide"
+          ref="starterGuideTrigger"
+          type="button"
+          data-action="workflow-guide"
+          class="rounded-md border border-app-border px-3 py-2 text-sm text-primary"
+          :aria-expanded="showStarterGuide"
+          :aria-controls="showStarterGuide ? starterGuideId : undefined"
+          @click="showStarterGuide = !showStarterGuide"
+        >{{ pt('guide') }}</button>
         <button type="button" data-action="workflow-preflight" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="showPreflight = !showPreflight">{{ pt('title') }}</button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :title="runButtonBusy ? runButtonLabel : undefined" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
           <LoaderCircle v-if="runButtonBusy && !currentWorkflowRunWaiting" class="h-4 w-4 animate-spin" />
@@ -1251,7 +1266,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       <p v-if="runPromptInputError" data-run-input-error role="alert" class="text-sm text-status-error">{{ runPromptInputError }}</p>
     </section>
 
-    <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="showStarterGuide = false" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
+    <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :id="starterGuideId" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="hideStarterGuide" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
       <div class="contents" :inert="showingWorkflowTemplates || undefined">
       <WorkflowCanvas ref="canvasRef" />
