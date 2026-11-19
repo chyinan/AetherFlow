@@ -69,6 +69,8 @@ const modelsLoadFailed = ref(false)
 const modelPicker = ref<HTMLSelectElement | null>(null)
 const modelRetryButton = ref<HTMLButtonElement | null>(null)
 const promptInput = ref<HTMLTextAreaElement | null>(null)
+const chatViewport = ref<HTMLDivElement | null>(null)
+let chatTailScrollQueued = false
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
 const selectedModelId = ref('')
@@ -634,6 +636,23 @@ async function preparePlanPreview(message: CopilotMessage, signal?: AbortSignal)
   }
 }
 
+/** 发送新问题时显示新一轮；逐段更新时仅跟随原本已接近底部的读者。 */
+function followChatTail(force = false) {
+  const viewport = chatViewport.value
+  if (!viewport || chatTailScrollQueued) return
+  const top = viewport.scrollTop
+  // scrollHeight/clientHeight 取整，scrollTop 可能带小数。先读取新消息渲染前的位置。
+  if (!force && viewport.scrollHeight - viewport.clientHeight - top > 2) return
+  const session = plannerSessionSequence
+  chatTailScrollQueued = true
+  void nextTick(() => {
+    chatTailScrollQueued = false
+    if (chatViewport.value !== viewport || session !== plannerSessionSequence
+      || (!force && viewport.scrollTop + 2 < top)) return
+    viewport.scrollTop = viewport.scrollHeight
+  })
+}
+
 interface SendPromptOptions {
   intent?: WorkflowCopilotIntent
   requestText?: string
@@ -660,6 +679,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     return
   }
   beginConversationInteraction()
+  const followFreeformChat = !options.intent
   const intent = options.intent ?? (props.context ? 'freeform-workflow-question' : undefined)
   const requestText = options.requestText?.trim() || (
     intent ? `${text}\n\n${workflowCopilotPrompt(intent)}` : text
@@ -682,6 +702,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     createdAt: nowText(),
     action: options.action,
   })
+  if (followFreeformChat) followChatTail(true)
   const controller = new AbortController()
   chatController.value = controller
   const scopeKeyAtStart = conversationSessionKey(props.context)
@@ -719,6 +740,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
             ...current,
             content: current.content + delta,
           }
+          if (followFreeformChat) followChatTail()
         }
       },
     })
@@ -732,6 +754,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         ...assistantMessage,
         action: options.action,
       }
+      if (followFreeformChat) followChatTail()
     }
   } catch (error) {
     if (!stillCurrent()) return
@@ -744,6 +767,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         ...current,
         content: current.content ? `${current.content}\n\n${failureMessage}` : failureMessage,
       }
+      if (followFreeformChat) followChatTail()
     }
   } finally {
     if (chatController.value === controller && sessionAtStart === plannerSessionSequence) {
@@ -1328,7 +1352,7 @@ onMounted(() => {
         </button>
       </div>
 
-      <div class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
+      <div ref="chatViewport" class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
         <div v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
           {{ historyNotice }}
           <button
