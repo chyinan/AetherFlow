@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, isNavigationFailure, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -57,7 +57,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function setup(path = '/workflows/101?projectId=11') {
+async function setup(path = '/workflows/101?projectId=11', stubTeleport = true) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useWorkflowStore()
@@ -71,7 +71,7 @@ async function setup(path = '/workflows/101?projectId=11') {
   await router.isReady()
   wrapper = mount(RouterView, { attachTo: document.body, global: {
     plugins: [pinia, router, i18n],
-    stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true },
+    stubs: { teleport: stubTeleport, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true },
   } })
   await flushPromises()
   const start = store.addNodeFromTemplate(nodeTemplates.find((template) => template.kind === 'start')!, { x: 0, y: 0 })!
@@ -446,5 +446,105 @@ describe('未保存导航的任务连续性', () => {
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/workflows/101?projectId=11')
     expect(hasDialog()).toBe(false)
+  })
+})
+
+describe('离开前保存的键盘焦点', () => {
+  const setupWithTeleport = () => setup(undefined, false)
+  const dialog = () => new DOMWrapper(document.body).get<HTMLElement>('[data-testid="unsaved-navigation-dialog"]')
+  const hasDialog = () => new DOMWrapper(document.body).find('[data-testid="unsaved-navigation-dialog"]').exists()
+
+  function openPendingSave() {
+    const pending = deferred<WorkflowDefinition>()
+    api.saveWorkflow.mockReturnValueOnce(pending.promise)
+    return pending
+  }
+
+  function button(action: 'save' | 'stay' | 'discard') {
+    return dialog().get<HTMLButtonElement>(`[data-action="leave-${action}"]`)
+  }
+
+  function key(target: Element, value: string, options: KeyboardEventInit = {}) {
+    const event = new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...options })
+    target.dispatchEvent(event)
+    return event
+  }
+
+  it('保存按钮停用时焦点留在命名对话框，失败后可从原按钮重试', async () => {
+    const { router } = await setupWithTeleport()
+    const pending = openPendingSave()
+    const navigation = router.push('/elsewhere')
+    await flushPromises()
+    const save = button('save')
+    save.element.focus()
+    await save.trigger('click')
+    expect(button('save').element.disabled).toBe(true)
+    const panel = dialog().element
+    expect(panel.getAttribute('aria-labelledby')).toBe('unsaved-navigation-title')
+    expect(document.activeElement).toBe(panel)
+    pending.reject(new Error('暂时无法保存'))
+    await flushPromises()
+    expect(dialog().get('[role="alert"]').text()).toContain('暂时无法保存')
+    expect(save.element.disabled).toBe(false)
+    expect(document.activeElement).toBe(save.element)
+    expect(key(save.element, 'Enter', { repeat: true }).defaultPrevented).toBe(true)
+    expect(key(save.element, 'Enter').defaultPrevented).toBe(false)
+    await save.trigger('click')
+    expect(await navigation).toBeUndefined()
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    { shiftKey: false, action: 'stay' },
+    { shiftKey: true, action: 'discard' },
+  ] as const)('保存未决时 Tab 与 Shift+Tab 可从面板进入 $action；失败不抢回主动移动的焦点', async ({ shiftKey, action }) => {
+    const { router } = await setupWithTeleport()
+    const pending = openPendingSave()
+    const navigation = router.push('/elsewhere')
+    await flushPromises()
+    button('save').element.focus()
+    await button('save').trigger('click')
+    expect(key(dialog().element, 'Tab', { shiftKey }).defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(button(action).element)
+    pending.reject(new Error('暂时无法保存'))
+    await flushPromises()
+    expect(document.activeElement).toBe(button(action).element)
+    await button('stay').trigger('click')
+    expect(isNavigationFailure(await navigation)).toBe(true)
+  })
+
+  it('等待时按 Escape 可留页；旧请求在失败时不从编辑器抢焦点', async () => {
+    const { router } = await setupWithTeleport()
+    const pending = openPendingSave()
+    const opener = wrapper!.get<HTMLButtonElement>('button').element
+    opener.focus()
+    const navigation = router.push('/elsewhere')
+    await flushPromises()
+    button('save').element.focus()
+    await button('save').trigger('click')
+    expect(key(document.activeElement!, 'Escape').defaultPrevented).toBe(true)
+    expect(isNavigationFailure(await navigation)).toBe(true)
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+    pending.reject(new Error('过时的保存失败'))
+    await flushPromises()
+    expect(document.activeElement).toBe(opener)
+    expect(hasDialog()).toBe(false)
+  })
+
+  it('点击保存时若焦点原在留页按钮，不接管焦点', async () => {
+    const { router } = await setupWithTeleport()
+    const pending = openPendingSave()
+    const navigation = router.push('/elsewhere')
+    await flushPromises()
+    const stay = button('stay').element
+    expect(document.activeElement).toBe(stay)
+    await button('save').trigger('click')
+    expect(document.activeElement).toBe(stay)
+    pending.reject(new Error('暂时无法保存'))
+    await flushPromises()
+    expect(document.activeElement).toBe(stay)
+    await button('stay').trigger('click')
+    expect(isNavigationFailure(await navigation)).toBe(true)
   })
 })
