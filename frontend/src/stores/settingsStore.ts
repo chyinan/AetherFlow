@@ -184,9 +184,10 @@ export const useSettingsStore = defineStore('settings', () => {
     const assertCurrent = requireAdmin()
     const response = await settingsApi.testTelegramIntegration()
     assertCurrent()
-    const integration = await settingsApi.getTelegramIntegration()
-    assertCurrent()
-    state.telegramIntegration = integration
+    // 成功回执已确认服务端记录了测试结果。只更新状态，避免读回失败掩盖回执或重置表单。
+    if (response.success === true && state.telegramIntegration) {
+      state.telegramIntegration.lastTestStatus = 'success'
+    }
     return response
   }
 
