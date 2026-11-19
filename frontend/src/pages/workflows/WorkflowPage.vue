@@ -1135,8 +1135,11 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       <div class="min-w-0">
         <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
-        <p v-if="workflowStore.savingError || workflowStore.runError || comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
-          {{ workflowStore.savingError || workflowStore.runError || comfyUiImportError }}
+        <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
+          {{ workflowStore.savingError || workflowStore.runError }}
+        </p>
+        <p v-if="comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
+          {{ comfyUiImportError }}
         </p>
         <p v-if="comfyUiImportNotice" class="mt-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary" role="status" data-testid="comfyui-import-notice">
           {{ comfyUiImportNotice }}
