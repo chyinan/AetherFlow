@@ -3,6 +3,8 @@ import type { CanvasPosition } from '@/types/workflow'
 import type { CopilotMessage } from '@/types/copilot'
 import type { CustomDefinition } from '@/utils/customNodes'
 
+export const COPILOT_CANVAS_NODE_LIMIT = 100
+
 export type CopilotCanvasOperation = {
   type: 'add_node' | 'update_node' | 'delete_node' | 'connect' | 'disconnect' | 'create_custom_node'
   draftId?: string

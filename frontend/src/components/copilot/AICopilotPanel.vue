@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { LoaderCircle, PanelRightClose, Send, Sparkles, SquarePen } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
@@ -24,7 +24,7 @@ import { buildCanvasEditContext, compileCanvasEdit } from '@/services/copilot/co
 import { canvasEditFailureConversationId } from '@/services/copilot/copilotCanvasEditFailure'
 import { hasCustomNodeDraftOperations, prepareCustomNodeDraft } from '@/services/copilot/copilotCustomNodeDraft'
 import { customDefinitionKey, customNodeTemplate, type CustomDefinition } from '@/utils/customNodes'
-import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
+import { COPILOT_CANVAS_NODE_LIMIT, type CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
 import { UNCONFIRMED_CONVERSATION, conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import { modelApi } from '@/services/api/modelApi'
 import { workflowApi } from '@/services/api/workflowApi'
@@ -53,6 +53,10 @@ const customNodePreviews = ref(new Map<string, CustomNodePreview>())
 let customNodeController: AbortController | null = null
 const savingCustomNodeDraft = ref(false)
 const directEditMode = ref(Boolean(props.applyCanvasEdit))
+const canvasNodeCount = computed(() => props.context?.nodes.length ?? 0)
+const canvasEditSizeBlocked = computed(() => directEditMode.value && Boolean(props.applyCanvasEdit)
+  && canvasNodeCount.value > COPILOT_CANVAS_NODE_LIMIT)
+const canvasEditSizeNoticeId = `copilot-canvas-size-${useId()}`
 const canvasEditResults = ref(new Map<string, { success: boolean; text: string }>())
 const canvasEditPendingId = ref<string | null>(null)
 const prompt = ref('')
@@ -792,11 +796,10 @@ function setDirectEditMode(enabled: boolean) {
 async function sendCanvasEdit(value = prompt.value, options: Pick<SendPromptOptions, 'preserveComposerDraft'> = {}) {
   const text = value.trim()
   if (conversationHistoryModeUnknown.value) return
-  if (!text || interactionPending.value || !props.context || !props.applyCanvasEdit) return
+  if (!text || interactionPending.value || canvasEditSizeBlocked.value || !props.context || !props.applyCanvasEdit) return
   const snapshot: WorkflowCopilotSnapshot = JSON.parse(JSON.stringify(props.context))
   const scopeKeyAtStart = conversationSessionKey(props.context)
   const conversationIdAtStart = conversationId.value
-  if (snapshot.nodes.length > 100) return
   const base = currentPlannerBase()
   if (!base) return
   const pendingDraft = pendingCustomNodeDraftContext()
@@ -1344,8 +1347,9 @@ onMounted(() => {
           v-for="item in quickActions"
           :key="item.intent"
           type="button"
-          class="rounded-md border border-app-border bg-app-muted px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai disabled:cursor-wait disabled:opacity-55"
-          :disabled="interactionPending"
+          class="rounded-md border border-app-border bg-app-muted px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai disabled:opacity-55"
+          :class="interactionPending ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'"
+          :disabled="interactionPending || (canvasEditSizeBlocked && item.intent === 'draft-media-summary-workflow')"
           @click="runQuickAction(item.intent, item.label)"
         >
           {{ item.label }}
@@ -1516,8 +1520,11 @@ onMounted(() => {
       </div>
 
       <form class="border-t border-app-border bg-white p-3" @submit.prevent="sendPrompt()">
-        <p v-if="directEditMode && props.applyCanvasEdit" class="mb-2 text-xs leading-5 text-text-muted">{{ t('copilot.editor.hint') }}</p>
-        <p v-if="directEditMode && props.saveCustomNodeDrafts" class="mb-2 text-xs leading-5 text-text-muted">可以要求生成 API 或 Python 自定义节点；模板会先展示草稿，确认后才保存。</p>
+        <p v-if="canvasEditSizeBlocked" :id="canvasEditSizeNoticeId" class="mb-2 text-xs leading-5 text-text-secondary" role="status">
+          {{ t('copilot.editor.canvasNodeLimit', { count: canvasNodeCount, limit: COPILOT_CANVAS_NODE_LIMIT }) }}
+        </p>
+        <p v-else-if="directEditMode && props.applyCanvasEdit" class="mb-2 text-xs leading-5 text-text-muted">{{ t('copilot.editor.hint') }}</p>
+        <p v-if="!canvasEditSizeBlocked && directEditMode && props.saveCustomNodeDrafts" class="mb-2 text-xs leading-5 text-text-muted">可以要求生成 API 或 Python 自定义节点；模板会先展示草稿，确认后才保存。</p>
         <div v-if="plannerMode" class="mb-2 flex items-center justify-between gap-2 rounded-md border border-ai/20 bg-ai-soft px-2.5 py-1.5 text-xs text-ai">
           <span class="font-medium">{{ t('copilot.planner.mode') }}</span>
           <button type="button" class="shrink-0 text-text-secondary underline-offset-2 hover:underline" @click="leavePlannerMode">
@@ -1558,9 +1565,10 @@ onMounted(() => {
             class="min-h-8 max-h-32 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
             :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
+            :aria-describedby="canvasEditSizeBlocked ? canvasEditSizeNoticeId : undefined"
             @keydown="handlePromptKeydown"
           ></textarea>
-          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown" :aria-label="presentationText('send')" :title="presentationText('send')">
+          <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown || canvasEditSizeBlocked" :aria-label="presentationText('send')" :title="presentationText('send')">
             <Send class="h-4 w-4" />
           </button>
         </div>

@@ -1641,6 +1641,7 @@ export const zhCN = {
       notApplied: '未修改画布：{reason}', invalid: '画布修改未通过校验。',
       stale: '生成期间画布已发生变化，请根据最新画布重新发送要求。',
       runtimeWarning: '已更新草稿，但运行前还需处理：',
+      canvasNodeLimit: '当前画布有 {count} 个节点，超过直接编辑上限（{limit} 个）。可切换到“对话”，或在较小的画布上重试。',
       designRequest: '请根据当前画布和我们此前的需求直接创建或完善工作流。需求不明确时先问一个问题。',
     },
     title: 'AI Copilot',

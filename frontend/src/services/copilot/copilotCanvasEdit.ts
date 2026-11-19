@@ -1,5 +1,5 @@
 // pattern: Functional Core
-import type { CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
+import { COPILOT_CANVAS_NODE_LIMIT, type CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
 import type { NodeTemplate, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { parseCustomDefinition } from '@/utils/customNodes'
 import { createWorkflowNodeDataFromTemplate } from '@/utils/workflowNodeClone'
@@ -93,8 +93,8 @@ export function compileCanvasEdit(snapshot: Readonly<WorkflowCopilotSnapshot>, e
         return { ok: false, error: 'AI 返回了未知的画布操作。' }
     }
   }
-  if (nodes.length > 100 || nodes.filter((node) => node.data.kind === 'start').length !== 1) {
-    return { ok: false, error: '画布必须包含唯一的开始节点，且不超过 100 个节点。' }
+  if (nodes.length > COPILOT_CANVAS_NODE_LIMIT || nodes.filter((node) => node.data.kind === 'start').length !== 1) {
+    return { ok: false, error: `画布必须包含唯一的开始节点，且不超过 ${COPILOT_CANVAS_NODE_LIMIT} 个节点。` }
   }
   const visited = new Set<string>()
   const visiting = new Set<string>()
