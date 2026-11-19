@@ -90,10 +90,12 @@ function openRunById() {
   if (id) selectRun(id)
 }
 
-watch(filters, value => {
-  searchDraft.value = value.q
-  workflowDraft.value = value.workflowId
-  statusDraft.value = value.status
+// 详情切换只改变运行 ID；只有实际改变列表范围时才回填筛选表单。
+watch([() => filters.value.q, historyKey], () => {
+  const { q, workflowId, status } = filters.value
+  searchDraft.value = q
+  workflowDraft.value = workflowId
+  statusDraft.value = status
 })
 const dismissedApprovalKey = ref<string | null>(null)
 const cancellingRunIds = ref(new Set<string>())

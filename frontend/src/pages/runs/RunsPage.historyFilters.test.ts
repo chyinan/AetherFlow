@@ -188,6 +188,81 @@ it('分页与筛选写入 URL，切运行、刷新及前进后退保留条件且
   expect(displayedIds()).toEqual(list({ workflowId: 'wf-b', status: 'SUCCESS' }).items.map(run => `run-${run.id}`))
 })
 
+function getFilterDrafts() {
+  return ['search', 'workflow', 'status'].map(name =>
+    wrapper!.get<HTMLInputElement | HTMLSelectElement>(`[data-testid="history-${name}"]`).element.value)
+}
+async function enterFilterDrafts() {
+  await wrapper!.get('[data-testid="history-search"]').setValue('run-81')
+  await wrapper!.get('[data-testid="history-workflow"]').setValue('wf-b')
+  await wrapper!.get('[data-testid="history-status"]').setValue('SUCCESS')
+}
+
+it('在编辑筛选但尚未提交时打开列表记录，不丢失三个筛选草稿', async () => {
+  const { router, store } = await setup('/runs/run-1?q=甲&workflowId=wf-a&status=RUNNING&unused=keep')
+  const query = { ...router.currentRoute.value.query }
+  const before = displayedIds()
+  const newRun = wrapper!.get('[data-testid="history-run"]')
+  const nextId = newRun.get('[data-testid="history-run-id"]').text()
+  expect(nextId).not.toBe('run-1')
+  await enterFilterDrafts()
+  await newRun.trigger('click'); await flushPromises()
+
+  expect(router.currentRoute.value.params.id).toBe(nextId)
+  expect(store.currentRun?.id).toBe(nextId)
+  expect(router.currentRoute.value.query).toEqual(query)
+  expect(displayedIds()).toEqual(before)
+  expect(pageCalls()).toHaveLength(1)
+  expect(getFilterDrafts()).toEqual(['run-81', 'wf-b', 'SUCCESS'])
+
+  await apply()
+  expect(router.currentRoute.value.query).toMatchObject({ q: 'run-81', workflowId: 'wf-b', status: 'SUCCESS', page: '1', unused: 'keep' })
+  expect(store.currentRun?.id).toBe(nextId)
+  expect(pageCalls()).toHaveLength(2)
+})
+
+it('在编辑筛选时按完整 ID 打开并在两条详情之间前进后退，保留未提交草稿', async () => {
+  const { router, store } = await setup('/runs/run-1?q=甲&page=2')
+  await enterFilterDrafts()
+  const disclosure = wrapper!.get<HTMLDetailsElement>('[data-testid="history-id-disclosure"]')
+  disclosure.element.open = true
+  await disclosure.get('input').setValue('81')
+  await disclosure.get('form').trigger('submit'); await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe('/runs/run-81?q=%E7%94%B2&page=2')
+  expect(store.currentRun?.id).toBe('run-81')
+  expect(getFilterDrafts()).toEqual(['run-81', 'wf-b', 'SUCCESS'])
+  router.back(); await flushPromises()
+  expect(store.currentRun?.id).toBe('run-1')
+  expect(getFilterDrafts()).toEqual(['run-81', 'wf-b', 'SUCCESS'])
+  router.forward(); await flushPromises()
+  expect(store.currentRun?.id).toBe('run-81')
+  expect(getFilterDrafts()).toEqual(['run-81', 'wf-b', 'SUCCESS'])
+  expect(pageCalls()).toHaveLength(1)
+})
+
+it('历史的已应用筛选或页码改变时仍回填输入，显式清除不保留草稿', async () => {
+  const { router, store } = await setup('/runs/run-1?q=甲&workflowId=wf-a&status=RUNNING')
+  await enterFilterDrafts()
+  await wrapper!.get('[data-testid="history-next"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.query.page).toBe('2')
+  expect(getFilterDrafts()).toEqual(['甲', 'wf-a', 'RUNNING'])
+
+  await enterFilterDrafts()
+  await router.push('/runs/run-2?q=乙&workflowId=wf-b&status=SUCCESS'); await flushPromises()
+  expect(getFilterDrafts()).toEqual(['乙', 'wf-b', 'SUCCESS'])
+  await enterFilterDrafts()
+  router.back(); await flushPromises()
+  expect(getFilterDrafts()).toEqual(['甲', 'wf-a', 'RUNNING'])
+  expect(store.currentRun?.id).toBe('run-1')
+
+  await enterFilterDrafts()
+  await wrapper!.get('[data-testid="history-clear"]').trigger('click'); await flushPromises()
+  expect(getFilterDrafts()).toEqual(['', '', ''])
+  expect(router.currentRoute.value.query).toEqual({ page: '1' })
+  expect(store.currentRun?.id).toBe('run-1')
+})
+
 it('直接打开完整 ID 不受本页关键词、工作流与状态限制，保留所有条件', async () => {
   const { router, store } = await setup('/runs/run-1?q=没有匹配&workflowId=wf-a&status=SUCCESS')
   await wrapper!.get('[data-testid="history-direct-id"]').setValue('81')
