@@ -627,7 +627,11 @@ export const enUS = {
         promptVersion: { label: 'Prompt version', description: 'Optional prompt version tag.' },
         tags: { label: 'Tags', description: 'Prompt management tags.' },
         provider: { label: 'Provider', description: 'Image generation provider.' },
-        mode: { label: 'Mode', description: 'Generation mode.' },
+        mode: {
+          label: 'Mode', description: 'Generation mode.',
+          stableDiffusionDescription: 'Stable Diffusion WebUI supports txt2img and img2img.',
+          stableDiffusionRetained: 'The current mode “{mode}” was kept. Stable Diffusion WebUI does not support it. Choose txt2img or img2img, or switch back to ComfyUI.',
+        },
         promptVariable: { label: 'Prompt variable', description: 'Workflow variable containing the positive prompt.' },
         negativePromptVariable: { label: 'Negative prompt variable', description: 'Workflow variable containing the negative prompt.' },
         sourceImage: { label: 'Source image', description: 'Base64 source image for img2img or upscaling.' },

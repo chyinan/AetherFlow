@@ -629,7 +629,11 @@ export const jaJP = {
         promptVersion: { label: 'プロンプトバージョン', description: '任意のプロンプトバージョンタグ。' },
         tags: { label: 'タグ', description: 'プロンプト管理タグ。' },
         provider: { label: 'プロバイダ', description: '画像生成プロバイダ。' },
-        mode: { label: 'モード', description: '生成モード。' },
+        mode: {
+          label: 'モード', description: '生成モード。',
+          stableDiffusionDescription: 'Stable Diffusion WebUI は txt2img と img2img に対応しています。',
+          stableDiffusionRetained: '現在のモード「{mode}」は保持されています。Stable Diffusion WebUI はこのモードに対応していません。txt2img または img2img を選ぶか、ComfyUI に切り替えてください。',
+        },
         promptVariable: { label: 'プロンプト変数', description: 'ポジティブプロンプトを含むワークフロー変数。' },
         negativePromptVariable: { label: 'ネガティブプロンプト変数', description: 'ネガティブプロンプトを含むワークフロー変数。' },
         sourceImage: { label: 'ソース画像', description: 'img2img またはアップスケール用の Base64 ソース画像。' },
