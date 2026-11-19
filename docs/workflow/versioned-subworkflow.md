@@ -32,7 +32,8 @@
 - `GET /workflows/definitions/{definitionId}/versions` 返回可固定的版本号列表
 - 运行详情中的「查看子工作流记录」可展开子调用列表，并直接打开子运行；失败节点派生重跑复用的调用同时提供原父运行链接
 - `GET /workflows/instances/{instanceId}/children` 返回子运行 ID、父节点路径、固定版本和收据状态（WAITING/COMPLETED）。复用原结果时标记 `reused` 和 `sourceParentInstanceId`，不会复制执行或取消关系
-- 节点结果包含 `childWorkflowInstanceId`、`definitionId`、`definitionVersion`；成功后 `outputs` 为显式映射结果。child 的实际运行状态使用现有运行详情接口读取
+- 父运行的子工作流记录中，「调用尚未处理完成」和「调用已处理」是父流程对该调用的处理进度，并非子运行的执行状态。子运行已成功或失败时，父流程仍可能尚未处理完该调用；请打开对应子运行确认结果
+- 节点结果包含 `childWorkflowInstanceId`、`definitionId`、`definitionVersion`；成功后 `outputs` 为显式映射结果。子运行的实际状态由现有运行详情接口提供
 
 ## 部署与验证
 
