@@ -83,11 +83,14 @@ afterEach(() => {
   axiosInstance.defaults.adapter = originalAdapter
   vi.useRealTimers()
 })
-async function setup() {
+async function setup(attach = false) {
   const pinia = createPinia(); setActivePinia(pinia)
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/runs/:id', name: 'run-detail', component: RunsPage }] })
   await router.push('/runs/run-101'); await router.isReady()
-  wrapper = mount(RouterView, { global: { plugins: [pinia, router, i18n], config: { errorHandler: error => vueErrors.push(error) } } })
+  wrapper = mount(RouterView, {
+    ...(attach ? { attachTo: document.body } : {}),
+    global: { plugins: [pinia, router, i18n], config: { errorHandler: error => vueErrors.push(error) } },
+  })
   await flushPromises()
   return { router, store: useRunStore() }
 }
@@ -435,4 +438,148 @@ it('重开不在当前历史页的运行时，仍能读取缺失的清理状态'
   const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
   expect(section.find('[role="alert"]').exists()).toBe(false)
   expect(section.get('[data-testid="retry-cancel-cleanup"]').attributes('disabled')).toBeUndefined()
+})
+
+async function openCancelledRunWithUnknownCleanup() {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  status = 'CANCELLED'
+  const firstRead = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, firstRead)
+  const context = await setup(true)
+  expect(cleanupReads()).toHaveLength(1)
+  firstRead.reject(failure(cleanupReads()[0]!, '首次清理状态读取不可用'))
+  await flushPromises()
+  // 等待 Axios 原有的两次 GET 重试，界面才显示读取失败。
+  await vi.advanceTimersByTimeAsync(450)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(3)
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').get('[role="alert"]').text())
+    .toContain('首次清理状态读取不可用')
+  return context
+}
+
+it('手动刷新未知清理状态期间保留反馈和焦点，只发起一次读取；再次失败仍可重试', async () => {
+  await openCancelledRunWithUnknownCleanup()
+  const retry = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, retry)
+  const refresh = button('runs.cleanupRefresh')
+  refresh.element.focus()
+  await refresh.trigger('click'); await flushPromises()
+
+  const section = wrapper!.find('[data-testid="cancel-cleanup-status"]')
+  expect(section.exists()).toBe(true)
+  expect(section.attributes('aria-busy')).toBe('true')
+  expect(refresh.element.isConnected).toBe(true)
+  expect(document.activeElement).toBe(refresh.element)
+  expect(refresh.attributes('aria-disabled')).toBe('true')
+  expect(refresh.text()).toBe(i18n.global.t('runs.loading'))
+  await refresh.trigger('click'); await flushPromises()
+  expect(cleanupReads()).toHaveLength(4)
+  expect(posts()).toHaveLength(0)
+
+  retry.reject(failure(cleanupReads()[3]!, '第二次清理状态读取仍不可用'))
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(450)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(6)
+  expect(section.attributes('aria-busy')).toBe('false')
+  expect(section.get('[role="alert"]').text()).toContain('第二次清理状态读取仍不可用')
+  expect(button('runs.cleanupRefresh').element).toBe(refresh.element)
+  expect(refresh.attributes('aria-disabled')).toBe('false')
+  expect(document.activeElement).toBe(refresh.element)
+})
+
+it.each([false, true])('刷新已返回权威清理状态时，移除旧操作并将其焦点交接给本区（可重试=%s）', async retryable => {
+  const { store } = await openCancelledRunWithUnknownCleanup()
+  const retry = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, retry)
+  const refresh = button('runs.cleanupRefresh')
+  refresh.element.focus()
+  await refresh.trigger('click'); await flushPromises()
+  const known = retryable ? { ...cleanupStatus, status: 'FAILED', attemptCount: 2 } : cleanupRetryStatus
+  retry.resolve(known); await flushPromises()
+
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  expect(store.currentRun?.cancellationCleanup?.status).toBe(known.status)
+  expect(section.text()).toContain(i18n.global.t(retryable ? 'runs.cleanupFailed' : 'runs.cleanupComplete'))
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+  expect(refresh.element.isConnected).toBe(false)
+  expect(document.activeElement).toBe(section.element)
+  expect(section.find('[data-testid="retry-cancel-cleanup"]').exists()).toBe(retryable)
+  expect(posts()).toHaveLength(0)
+})
+
+it('手动刷新清理状态结束时不会抢走用户后来移动的焦点', async () => {
+  await openCancelledRunWithUnknownCleanup()
+  const retry = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, retry)
+  const refresh = button('runs.cleanupRefresh')
+  refresh.element.focus()
+  await refresh.trigger('click'); await flushPromises()
+  const openWorkflow = button('runs.openWorkflow')
+  openWorkflow.element.focus()
+  retry.resolve(cleanupRetryStatus); await flushPromises()
+  expect(document.activeElement).toBe(openWorkflow.element)
+  expect(posts()).toHaveLength(0)
+})
+
+it('离开并重回取消的运行后，旧刷新结果不能改写新读取状态或焦点', async () => {
+  const { router, store } = await openCancelledRunWithUnknownCleanup()
+  const stale = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, stale)
+  await button('runs.cleanupRefresh').trigger('click'); await flushPromises()
+  await router.push('/runs/run-102'); await flushPromises()
+  expect(store.currentRun?.id).toBe('run-102')
+  cleanupReadPendingsByInstance.delete(101)
+  cleanupStatus = { ...cleanupStatus, status: 'NOT_REQUIRED', retryable: false }
+  await router.push('/runs/run-101'); await flushPromises()
+  const openWorkflow = button('runs.openWorkflow')
+  openWorkflow.element.focus()
+  stale.resolve(cleanupRetryStatus); await flushPromises()
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupNotRequired'))
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+  expect(document.activeElement).toBe(openWorkflow.element)
+  expect(cleanupReads()).toHaveLength(5)
+  expect(posts()).toHaveLength(0)
+})
+
+it('离开并重回暂缺清理状态的运行时，仍在途的清理重试让读取入口保持不可用', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  status = 'CANCELLED'
+  historyInstanceIds = [102]
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+  const { router } = await setup(true)
+  expect(cleanupReads()).toHaveLength(1)
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  await wrapper!.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(posts()).toHaveLength(1)
+
+  await router.push('/runs/run-102'); await flushPromises()
+  const read = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, read)
+  await router.push('/runs/run-101'); await flushPromises()
+  expect(cleanupReads()).toHaveLength(2)
+  read.reject(failure(cleanupReads()[1]!, '重开后的清理状态读取不可用'))
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(450)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(4)
+
+  const refresh = button('runs.cleanupRefresh')
+  expect(refresh.element.hasAttribute('disabled')).toBe(true)
+  await refresh.trigger('click'); await flushPromises()
+  expect(posts()).toHaveLength(1)
+  expect(cleanupReads()).toHaveLength(4)
+
+  retry.resolve(cleanupRetryStatus); await flushPromises()
+  expect(refresh.element.hasAttribute('disabled')).toBe(false)
+  cleanupReadPendingsByInstance.delete(101)
+  cleanupStatus = { ...cleanupRetryStatus, status: 'NOT_REQUIRED' }
+  await refresh.trigger('click'); await flushPromises()
+  expect(cleanupReads()).toHaveLength(5)
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupNotRequired'))
+  expect(posts()).toHaveLength(1)
 })
