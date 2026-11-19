@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -65,6 +65,10 @@ const projectsLoaded = ref(false)
 const createProjectDialog = ref<HTMLElement | null>(null)
 const workflowDialog = ref<HTMLElement | null>(null)
 const projectDialogOpen = computed(() => showCreatePanel.value || showWorkflowPanel.value)
+type DeleteFocus = { projectId: string; trigger: HTMLButtonElement; row: HTMLElement; release: () => void }
+const deleteFocus = new Map<string, DeleteFocus>()
+
+onBeforeUnmount(() => deleteFocus.forEach(focus => focus.release()))
 
 useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject)
 useModalFocus(showWorkflowPanel, workflowDialog, closeWorkflowPanel)
@@ -179,16 +183,77 @@ async function submitWorkflowDraft() {
   })
 }
 
-async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
-  if (projectStore.deletingWorkflowIds[workflow.id]) return
-  const confirmed = window.confirm(t('projects.deleteWorkflowConfirm', { name: workflow.name }))
-  if (!confirmed) {
-    return
+function parkDeleteFocus(projectId: string, workflowId: string, trigger: HTMLButtonElement) {
+  const row = trigger.closest<HTMLElement>('[data-workflow-row]')
+  if (!row) return
+  // 删除按钮等待时会禁用；将焦点停在非操作的行上，避免持续按 Enter 激活另一个控件。
+  row.focus()
+  if (document.activeElement !== row) return
+
+  const focus: DeleteFocus = {
+    projectId,
+    trigger,
+    row,
+    release: () => {
+      row.removeEventListener('blur', focus.release)
+      if (deleteFocus.get(workflowId) === focus) deleteFocus.delete(workflowId)
+    },
   }
+  deleteFocus.set(workflowId, focus)
+  row.addEventListener('blur', focus.release, { once: true })
+  return focus
+}
+
+function moveFocusBeforeWorkflowRowRemoval(project: ProjectSummary, workflowId: string) {
+  // 独立的列表更新可能先移除本行；不能将它当成本次删除成功。
+  if (projectStore.deletingWorkflowIds[workflowId] || projectStore.workflowDeleteErrors[workflowId]) return
+  const focus = deleteFocus.get(workflowId)
+  if (!focus || focus.projectId !== project.id || document.activeElement !== focus.row || !document.hasFocus()) return
+  const card = focus.row.closest('article')
+  if (!card) return
+
+  const rows = [...card.querySelectorAll<HTMLElement>('[data-workflow-row]')]
+  const index = rows.indexOf(focus.row)
+  const survivingIds = new Set(workflowsFor(project).map(workflow => workflow.id))
+  // 此时旧行仍在 DOM；只在同一卡片中查找更新后仍可继续操作的行。
+  const neighbor = [...rows.slice(index + 1), ...rows.slice(0, index).reverse()].find(item => {
+    const id = item.dataset.workflowRow
+    return id && survivingIds.has(id) && !projectStore.deletingWorkflowIds[id]
+  })
+  const target = neighbor ?? card
+  target.focus()
+}
+
+function preventRepeatedWorkflowDelete(event: KeyboardEvent) {
+  // 请求已失败并恢复焦点时，重试应等待一次新的按键，而不是长按 Enter 的重复事件。
+  if (event.repeat) event.preventDefault()
+}
+
+async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary, event: MouseEvent) {
+  if (projectStore.deletingWorkflowIds[workflow.id]) return
+  const trigger = event.currentTarget
+  const triggerHadFocus = trigger instanceof HTMLButtonElement && trigger === document.activeElement
+  const confirmed = window.confirm(t('projects.deleteWorkflowConfirm', { name: workflow.name }))
+  if (!confirmed) return
+
+  const focus = triggerHadFocus && (document.activeElement === trigger || document.activeElement === document.body)
+    ? parkDeleteFocus(project.id, workflow.id, trigger)
+    : undefined
+  let failed = false
   try {
     await projectStore.deleteProjectWorkflow(project.id, workflow.id)
   } catch {
     // store 保留目标行及可重试提示；离页后的失败也不泄漏到组件事件边界。
+    failed = true
+  } finally {
+    if (focus) {
+      await nextTick()
+      if (failed && deleteFocus.get(workflow.id) === focus && document.activeElement === focus.row
+        && document.hasFocus() && focus.trigger.isConnected && !focus.trigger.disabled) {
+        focus.trigger.focus()
+      }
+      focus.release()
+    }
   }
 }
 
@@ -333,7 +398,9 @@ async function retryLoadProjects() {
           <article
             v-for="project in projectStore.projects"
             :key="project.id"
-            class="flex min-h-[320px] flex-col rounded-lg border bg-white shadow-sm transition hover:border-primary/30 hover:shadow-node"
+            :aria-label="project.name"
+            tabindex="-1"
+            class="flex min-h-[320px] flex-col rounded-lg border bg-white shadow-sm transition hover:border-primary/30 hover:shadow-node focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             :class="projectStore.currentProjectId === project.id ? 'border-primary/40 ring-2 ring-primary/10' : 'border-app-border'"
           >
             <div class="border-b border-app-border p-4">
@@ -392,7 +459,11 @@ async function retryLoadProjects() {
                 v-for="workflow in workflowsFor(project)"
                 :key="workflow.id"
                 :data-workflow-row="workflow.id"
-                class="flex items-center gap-2 rounded-md border border-app-border bg-app-bg2 transition hover:border-primary/30 hover:bg-primary-soft/60"
+                :aria-label="workflow.name"
+                role="group"
+                tabindex="-1"
+                @vue:before-unmount="moveFocusBeforeWorkflowRowRemoval(project, workflow.id)"
+                class="flex items-center gap-2 rounded-md border border-app-border bg-app-bg2 transition hover:border-primary/30 hover:bg-primary-soft/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 <RouterLink
                   :to="`/workflows/${workflow.id}`"
@@ -425,7 +496,8 @@ async function retryLoadProjects() {
                     :aria-label="`${t('projects.deleteWorkflow')}: ${workflow.name}`"
                     :disabled="projectStore.deletingWorkflowIds[workflow.id]"
                     :aria-busy="Boolean(projectStore.deletingWorkflowIds[workflow.id])"
-                    @click="deleteWorkflow(project, workflow)"
+                    @keydown.enter="preventRepeatedWorkflowDelete"
+                    @click="deleteWorkflow(project, workflow, $event)"
                   >
                     <Trash2 class="h-3.5 w-3.5" />
                   </button>

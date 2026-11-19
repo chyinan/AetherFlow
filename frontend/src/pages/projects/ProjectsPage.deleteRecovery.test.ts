@@ -26,6 +26,7 @@ function deferred<T>() {
 }
 let definitions: Entity[]
 let wrapper: VueWrapper | undefined
+let host: HTMLElement | undefined
 let componentErrors: unknown[]
 let confirm: ReturnType<typeof vi.spyOn>
 function projectRows() {
@@ -45,7 +46,9 @@ async function setup() {
     { path: '/workflows/:id', component: defineComponent({ template: '<p>工作流编辑页</p>' }) },
   ] })
   await router.push('/projects'); await router.isReady()
-  wrapper = mount(RouterView, { global: { plugins: [pinia, i18n, router], config: {
+  host = document.createElement('div')
+  document.body.append(host)
+  wrapper = mount(RouterView, { attachTo: host, global: { plugins: [pinia, i18n, router], config: {
     errorHandler: error => componentErrors.push(error),
   } } })
   await flushPromises()
@@ -74,7 +77,11 @@ beforeEach(() => {
   })
   http.delete.mockImplementation(async (path: string) => { persistDelete(Number(path.split('/').at(-1))) })
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
+afterEach(() => {
+  wrapper?.unmount(); wrapper = undefined
+  host?.remove(); host = undefined
+  vi.restoreAllMocks()
+})
 
 describe('正常／取消对照：真实页面、store 与 API 映射', () => {
   it('取消确认不删除、不改变列表或选择，也不导航', async () => {
@@ -565,5 +572,206 @@ describe('删除结果与已交付重命名恢复的代次协作', () => {
     expect(hasRow('101')).toBe(true)
     expect(wrapper!.get('a[href="/workflows/101"] [role="alert"]').text()).toContain('工作流甲')
     expect(componentErrors).toEqual([])
+  })
+})
+
+
+// 合成点击验证真实挂载节点的 DOM 焦点，不模拟浏览器原生键盘点击或确认框。
+describe('从聚焦的行删除按钮继续使用同一项目列表', () => {
+  const workflowLink = (id: string) => wrapper!.get<HTMLAnchorElement>(`a[href="/workflows/${id}"]`).element
+  const workflowRow = (id: string) => wrapper!.get<HTMLElement>(`[data-workflow-row="${id}"]`).element
+  const projectCard = () => wrapper!.findAll<HTMLElement>('article')[0]!.element
+  const focusDelete = (id = '101') => {
+    const button = deleteButton(id).element as HTMLButtonElement
+    button.focus()
+    expect(document.activeElement).toBe(button)
+    return button
+  }
+  const addSiblingWorkflow = () => {
+    definitions.splice(1, 0, { ...definitions[0]!, id: 103, name: '同项目的另一个工作流' })
+  }
+
+  it('同项目有后继工作流时，等待时停在本行，成功后移到下一行继续', async () => {
+    addSiblingWorkflow()
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    const { router } = await setup()
+    const trigger = focusDelete()
+    await clickDelete()
+    const pendingRow = workflowRow('101')
+    const focusWhileWaiting = document.activeElement
+    persistDelete(101); pending.resolve(); await flushPromises()
+
+    expect.soft(trigger.disabled).toBe(true)
+    expect.soft(focusWhileWaiting).toBe(pendingRow)
+    expect.soft(document.activeElement).toBe(workflowRow('103'))
+    expect.soft(hasRow('101')).toBe(false)
+    expect.soft(router.currentRoute.value.path).toBe('/projects')
+    expect(http.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('删除同一项目最后一行时回到前一行，不跳到另一项目', async () => {
+    addSiblingWorkflow()
+    await setup()
+    focusDelete('103')
+    await clickDelete('103')
+    expect(hasRow('103')).toBe(false)
+    expect(document.activeElement).toBe(workflowRow('101'))
+  })
+
+  it('删除项目唯一的工作流后，焦点留在同一卡片且新建工作流入口仍可用', async () => {
+    await setup()
+    focusDelete()
+    await clickDelete()
+    expect.soft(hasRow('101')).toBe(false)
+    expect.soft(document.activeElement).toBe(projectCard())
+    expect.soft(hasRow('102')).toBe(true)
+    expect(projectCard().tabIndex).toBe(-1)
+    expect([...projectCard().querySelectorAll('button')].some(
+      button => button.textContent?.trim() === i18n.global.t('projects.newWorkflow') && !button.disabled,
+    )).toBe(true)
+  })
+
+  it('删除失败而焦点仍由该操作保管时，回到同一按钮并保留明确确认后重试', async () => {
+    addSiblingWorkflow()
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    await setup()
+    const trigger = focusDelete()
+    await clickDelete()
+    const pendingRow = workflowRow('101')
+    const focusWhileWaiting = document.activeElement
+    pending.reject(new Error('删除暂时不可用')); await flushPromises()
+
+    expect.soft(focusWhileWaiting).toBe(pendingRow)
+    expect.soft(document.activeElement).toBe(trigger)
+    expect.soft(trigger.disabled).toBe(false)
+    expect.soft(wrapper!.get('[role="alert"]').text()).toContain('工作流甲')
+    expect.soft(confirm).toHaveBeenCalledTimes(1)
+    expect.soft(http.delete).toHaveBeenCalledTimes(1)
+    const repeat = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true })
+    trigger.dispatchEvent(repeat)
+    expect.soft(repeat.defaultPrevented).toBe(true)
+    const fresh = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    trigger.dispatchEvent(fresh)
+    expect.soft(fresh.defaultPrevented).toBe(false)
+    expect.soft(confirm).toHaveBeenCalledTimes(1)
+    expect.soft(http.delete).toHaveBeenCalledTimes(1)
+    confirm.mockReturnValue(false)
+    await clickDelete()
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(http.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('等待失败期间自行切到另一项目的链接时不被迟到的失败抢回焦点', async () => {
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    await setup()
+    focusDelete()
+    await clickDelete()
+    const elsewhere = workflowLink('102')
+    elsewhere.focus()
+    pending.reject(new Error('删除暂时不可用')); await flushPromises()
+    expect(document.activeElement).toBe(elsewhere)
+    expect(hasRow('101')).toBe(true)
+    expect(http.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('等待和完成后的落点不是操作控件，重复 Enter 不追加请求或导航', async () => {
+    addSiblingWorkflow()
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    const { router } = await setup()
+    focusDelete()
+    await clickDelete()
+    const parked = document.activeElement
+    parked?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    const callsWhileWaiting = http.delete.mock.calls.length
+    const routeWhileWaiting = router.currentRoute.value.path
+    persistDelete(101); pending.resolve(); await flushPromises()
+
+    const settled = document.activeElement
+    settled?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect.soft(parked).toBeInstanceOf(HTMLDivElement)
+    expect.soft(parked?.getAttribute('role')).toBe('group')
+    expect.soft(parked?.getAttribute('aria-label')).toBe('工作流甲')
+    expect.soft(parked?.getAttribute('tabindex')).toBe('-1')
+    expect.soft(settled).toBe(workflowRow('103'))
+    expect.soft(workflowRow('103').tabIndex).toBe(-1)
+    expect.soft(workflowLink('103').tabIndex).toBe(0)
+    expect.soft(routeWhileWaiting).toBe('/projects')
+    expect.soft(router.currentRoute.value.path).toBe('/projects')
+    expect.soft(callsWhileWaiting).toBe(1)
+    expect.soft(http.delete).toHaveBeenCalledTimes(1)
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('主动离开本行后即使再次聚焦行，迟到失败也不接管焦点', async () => {
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    await setup()
+    focusDelete()
+    await clickDelete()
+    const row = workflowRow('101')
+    row.focus()
+    workflowLink('102').focus()
+    row.focus()
+    pending.reject(new Error('删除暂时不可用')); await flushPromises()
+    expect(document.activeElement).toBe(row)
+    expect(hasRow('101')).toBe(true)
+  })
+
+  it('相邻行也在等待删除时，聚焦同一卡片而不跳到待删除行', async () => {
+    addSiblingWorkflow()
+    const first = deferred<void>()
+    const second = deferred<void>()
+    http.delete.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    await setup()
+    focusDelete()
+    await clickDelete()
+    await clickDelete('103')
+    persistDelete(101); first.resolve(); await flushPromises()
+    const focusAfterFirst = document.activeElement
+    persistDelete(103); second.resolve(); await flushPromises()
+    expect.soft(focusAfterFirst).toBe(projectCard())
+    expect.soft(document.activeElement).toBe(projectCard())
+    expect(hasRow('102')).toBe(true)
+    expect(http.delete).toHaveBeenCalledTimes(2)
+  })
+
+  it('独立刷新先移除等待中的行时，不把列表更新当作 DELETE 成功而接管焦点', async () => {
+    addSiblingWorkflow()
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    const { store } = await setup()
+    focusDelete()
+    await clickDelete()
+    definitions = definitions.filter(row => row.id !== 101)
+    await store.loadProjects(); await flushPromises()
+    const focusAfterRefresh = document.activeElement
+    expect(hasRow('101')).toBe(false)
+    expect(store.deletingWorkflowIds['101']).toBe(true)
+    pending.reject(new Error('删除暂时不可用')); await flushPromises()
+    expect.soft(focusAfterRefresh).toBe(document.body)
+    expect.soft(document.activeElement).toBe(document.body)
+    expect(hasRow('103')).toBe(true)
+  })
+
+  it('取消确认时保留原焦点，未获焦点的点击也不主动移动焦点', async () => {
+    await setup()
+    const trigger = focusDelete()
+    confirm.mockReturnValueOnce(false)
+    await clickDelete()
+    expect(document.activeElement).toBe(trigger)
+    expect(http.delete).not.toHaveBeenCalled()
+
+    const elsewhere = workflowLink('102')
+    elsewhere.focus()
+    await clickDelete()
+    expect(document.activeElement).toBe(elsewhere)
+    expect(hasRow('101')).toBe(false)
+    expect(http.delete).toHaveBeenCalledTimes(1)
   })
 })
