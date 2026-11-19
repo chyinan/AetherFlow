@@ -64,6 +64,10 @@ has, stop before running these renumbered files and review that database's
 Flyway history and schema with its owner. No database was accessed or changed
 as part of this implementation.
 
+## 预览校验与失败恢复
+
+规划已生成，但初次预览校验因可重试的请求错误（例如 HTTP 503）中断时，使用「重试校验预览」即可重新检查同一份草稿，不用再请模型生成。通过后才出现「应用到画布」；重试本身不应用、不保存或运行。若服务端明确判定结构或运行条件不满足、拒绝不可重试的请求，或原画布已变更，不会提供此重试入口。新对话、退出规划或切换画布后，迟到的校验也不会恢复旧预览。
+
 ## 最终应用校验的会话归属
 
 - “应用方案”的等待锁属于点击时的会话。新建会话、切换工作流或离开后返回原工作流，会使旧会话的最终校验失效

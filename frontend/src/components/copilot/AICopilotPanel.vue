@@ -83,7 +83,7 @@ const chatController = ref<AbortController | null>(null)
 const plannerPendingMessageId = ref<string | null>(null)
 const cancelledPlanMessageId = ref<string | null>(null)
 const applyingPlan = ref(false)
-const planPreview = ref<{
+type PlanPreview = {
   messageId: string
   baseWorkflowId: string
   baseEditRevision: number
@@ -96,8 +96,10 @@ const planPreview = ref<{
   structurallyValid: boolean | null
   runtimeReady: boolean | null
   retryApply: boolean
+  previewRetry: 'none' | 'available' | 'pending'
   issues: string[]
-} | null>(null)
+}
+const planPreview = ref<PlanPreview | null>(null)
 let planValidationSequence = 0
 let conversationLoadSequence = 0
 let plannerSessionSequence = 0
@@ -441,6 +443,14 @@ function planBaseIsCurrent(message: CopilotMessage) {
     && (message.planBaseVersion ?? null) === current.backendVersion)
 }
 
+function previewBaseMatches(preview: PlanPreview, base: ReturnType<typeof currentPlannerBase>) {
+  return Boolean(base && base.workflowId === preview.baseWorkflowId
+    && base.editRevision === preview.baseEditRevision
+    && base.backendDefinitionId === preview.baseDefinitionId
+    && base.backendVersion === preview.baseVersion
+    && base.graphFingerprint === preview.baseFingerprint)
+}
+
 function pendingPlannerDraftContext() {
   const preview = planPreview.value
   if (!preview || preview.applied || cancelledPlanMessageId.value === preview.messageId) return undefined
@@ -591,12 +601,11 @@ async function preparePlanPreview(message: CopilotMessage, signal?: AbortSignal)
       structurallyValid: false,
       runtimeReady: false,
       retryApply: false,
+      previewRetry: 'none',
       issues: [error instanceof Error ? error.message : t('copilot.planner.validationIssue')],
     }
     return
   }
-  const stale = !planBaseIsCurrent(message)
-  const sequence = ++planValidationSequence
   planPreview.value = {
     messageId: message.id,
     baseWorkflowId: base.workflowId,
@@ -605,35 +614,65 @@ async function preparePlanPreview(message: CopilotMessage, signal?: AbortSignal)
     baseVersion: base.backendVersion,
     baseFingerprint: base.graphFingerprint,
     workflow,
-    stale,
+    stale: !planBaseIsCurrent(message),
     applied: false,
     structurallyValid: null,
     runtimeReady: null,
     retryApply: false,
+    previewRetry: 'none',
     issues: [],
   }
-  if (stale) return
-  try {
-    const validation = await workflowApi.validateCopilotDraft(workflow, message.plan.recipe, signal)
-    if (sequence !== planValidationSequence || !planPreview.value || planPreview.value.messageId !== message.id) return
-    planPreview.value = {
-      ...planPreview.value,
-      stale: !planBaseIsCurrent(message),
-      structurallyValid: validation.structurallyValid,
-      runtimeReady: validation.runtimeReady,
-      issues: validation.issues ?? [],
+  await validatePlanPreview(message, signal)
+}
+
+async function validatePlanPreview(message: CopilotMessage, signal?: AbortSignal, retryButton?: HTMLButtonElement) {
+  const preview = planPreview.value
+  const recipe = message.plan?.recipe
+  if (!recipe || !preview || preview.messageId !== message.id || preview.stale) return
+  const sequence = ++planValidationSequence
+  if (retryButton) {
+    planPreview.value = { ...preview, previewRetry: 'pending', issues: [] }
+  }
+  const settle = (result: Pick<PlanPreview, 'structurallyValid' | 'runtimeReady' | 'previewRetry' | 'issues'>) => {
+    const pending = planPreview.value
+    if (sequence !== planValidationSequence || !pending || pending.messageId !== message.id || pending.stale) return
+    const stale = !previewBaseMatches(pending, currentPlannerBase())
+    if (retryButton && document.activeElement === retryButton && (stale || result.previewRetry === 'none')) {
+      // 重试按钮将消失，焦点留在结果区，不跳到能改变画布的操作上。
+      retryButton.parentElement?.focus({ preventScroll: true })
     }
-  } catch (error) {
-    if (sequence !== planValidationSequence || !planPreview.value || planPreview.value.messageId !== message.id) return
-    const apiError = toApiError(error, 'workflow')
     planPreview.value = {
-      ...planPreview.value,
-      stale: !planBaseIsCurrent(message),
-      structurallyValid: false,
-      runtimeReady: false,
-      issues: [apiError.message],
+      ...pending,
+      ...result,
+      stale,
+      previewRetry: stale ? 'none' : result.previewRetry,
     }
   }
+  try {
+    const validation = await workflowApi.validateCopilotDraft(preview.workflow, recipe, signal)
+    settle({
+      structurallyValid: validation.structurallyValid,
+      runtimeReady: validation.runtimeReady,
+      previewRetry: 'none',
+      issues: validation.issues ?? [],
+    })
+  } catch (error) {
+    const apiError = toApiError(error, 'workflow')
+    settle({
+      structurallyValid: apiError.retryable ? null : false,
+      runtimeReady: apiError.retryable ? null : false,
+      previewRetry: apiError.retryable ? 'available' : 'none',
+      issues: [apiError.message],
+    })
+  }
+}
+
+function retryPlanPreview(message: CopilotMessage, event: MouseEvent) {
+  const preview = planPreview.value
+  if (interactionPending.value || preview?.previewRetry !== 'available' || preview.stale
+      || !isLatestPlan(message) || !previewBaseMatches(preview, currentPlannerBase())) return
+  // 只重试同一份草稿的只读校验，不发送模型请求，也不应用画布。
+  void validatePlanPreview(message, undefined, event.currentTarget as HTMLButtonElement)
 }
 
 /** 发送新问题时显示新一轮；逐段更新时仅跟随原本已接近底部的读者。 */
@@ -1168,7 +1207,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
     return
   }
   const markStale = () => {
-    planPreview.value = { ...preview, stale: true, retryApply: false, issues: [t('copilot.planner.stale')] }
+    planPreview.value = { ...preview, stale: true, retryApply: false, previewRetry: 'none', issues: [t('copilot.planner.stale')] }
   }
   if (!current || preview.stale || !planBaseIsCurrent(message)) {
     markStale()
@@ -1176,15 +1215,8 @@ async function applyWorkflowPlan(message: CopilotMessage) {
   }
   const sessionAtStart = plannerSessionSequence
   const ownsPreview = () => sessionAtStart === plannerSessionSequence && planPreview.value?.messageId === message.id
-  const previewBaseIsCurrent = () => {
-    const base = currentPlannerBase()
-    return Boolean(base && !planPreview.value?.stale
-      && base.workflowId === preview.baseWorkflowId
-      && base.editRevision === preview.baseEditRevision
-      && base.backendDefinitionId === preview.baseDefinitionId
-      && base.backendVersion === preview.baseVersion
-      && base.graphFingerprint === preview.baseFingerprint)
-  }
+  const previewBaseIsCurrent = () => !planPreview.value?.stale
+    && previewBaseMatches(preview, currentPlannerBase())
   applyingPlan.value = true
   let awaitingValidation = true
   try {
@@ -1281,12 +1313,8 @@ watch(() => [
 ], () => {
   const preview = planPreview.value
   const base = currentPlannerBase()
-  if (preview && !preview.applied && base
-      && (base.editRevision !== preview.baseEditRevision
-        || base.backendDefinitionId !== preview.baseDefinitionId
-        || base.backendVersion !== preview.baseVersion
-        || base.graphFingerprint !== preview.baseFingerprint)) {
-    planPreview.value = { ...preview, stale: true, retryApply: false, issues: [t('copilot.planner.stale')] }
+  if (preview && !preview.applied && base && !previewBaseMatches(preview, base)) {
+    planPreview.value = { ...preview, stale: true, retryApply: false, previewRetry: 'none', issues: [t('copilot.planner.stale')] }
   }
 })
 
@@ -1468,9 +1496,9 @@ onMounted(() => {
               </ol>
             </div>
 
-            <div v-if="isLatestPlan(message) && planPreview?.messageId === message.id" class="space-y-2 border-t border-app-border pt-2">
+            <div v-if="isLatestPlan(message) && planPreview?.messageId === message.id" class="space-y-2 border-t border-app-border pt-2" tabindex="-1">
               <p v-if="planPreview.stale" class="text-status-warning">{{ t('copilot.planner.stale') }}</p>
-              <p v-else-if="planPreview.structurallyValid === null" class="flex items-center gap-1.5 text-text-muted">
+              <p v-else-if="planPreview.structurallyValid === null && planPreview.previewRetry !== 'available'" class="flex items-center gap-1.5 text-text-muted" role="status">
                 <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
                 {{ t('copilot.planner.validating') }}
               </p>
@@ -1484,7 +1512,17 @@ onMounted(() => {
                 {{ t('copilot.planner.replaceWarning') }}
               </p>
               <button
-                v-if="planPreview.applied"
+                v-if="planPreview.previewRetry !== 'none' && !planPreview.stale"
+                type="button"
+                data-testid="copilot-plan-preview-retry"
+                class="inline-flex items-center rounded-md border border-ai/25 bg-ai-soft px-2.5 py-1.5 text-xs font-medium text-ai transition hover:border-ai/40 hover:bg-ai/10 aria-disabled:cursor-wait aria-disabled:opacity-55"
+                :aria-disabled="planPreview.previewRetry === 'pending' || interactionPending || undefined"
+                @click="retryPlanPreview(message, $event)"
+              >
+                {{ t('copilot.planner.retryPreview') }}
+              </button>
+              <button
+                v-else-if="planPreview.applied"
                 type="button"
                 class="inline-flex items-center rounded-md border border-status-success/25 bg-green-50 px-2.5 py-1.5 text-xs font-medium text-status-success"
                 disabled
