@@ -9,13 +9,20 @@ const offset = ref(0)
 const loading = ref(false)
 const error = ref('')
 let generation = 0
-async function load(nextOffset = 0) {
+async function load(nextOffset = 0, keepPage = false) {
   const current = ++generation
-  rows.value = []; total.value = 0; loading.value = false; error.value = ''; offset.value = nextOffset
-  if (!props.instanceId) { total.value = 0; return }
-  loading.value = true
+  const { instanceId, nodeId } = props
+  // 只有同一运行、节点和页的刷新才复用已显示条目，保留原有展开状态与焦点。
+  if (!keepPage || !instanceId) {
+    rows.value = []
+    total.value = 0
+  }
+  error.value = ''
+  offset.value = nextOffset
+  loading.value = Boolean(instanceId)
+  if (!instanceId) return
   try {
-    const result = await getBatchResults(props.instanceId, props.nodeId, nextOffset)
+    const result = await getBatchResults(instanceId, nodeId, nextOffset)
     if (current !== generation) return
     // 并发批次因失败停止后，保留下来的结果可能已不覆盖这一页。
     if (result.total > 0 && nextOffset >= result.total) {
@@ -31,14 +38,14 @@ async function load(nextOffset = 0) {
 onBeforeUnmount(() => { generation++ })
 watch(() => [props.instanceId, props.nodeId, props.runStatus] as const, ([instanceId, nodeId], previous) => {
   const sameBatch = previous?.[0] === instanceId && previous?.[1] === nodeId
-  void load(sameBatch ? offset.value : 0)
+  void load(sameBatch ? offset.value : 0, sameBatch)
 }, { immediate: true })
 </script>
 <template>
   <section class="mt-3 space-y-2 rounded-lg border border-app-border p-3" data-test="loop-run-results">
-    <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">逐项结果 · {{ total }}</h3><button type="button" :disabled="loading" class="text-xs text-primary" @click="load(offset)">刷新</button></div>
-    <p v-if="error" role="alert" class="text-xs text-status-error">{{ error }}</p>
-    <p v-else-if="loading" class="text-xs text-text-muted">正在加载…</p>
+    <div class="flex items-center justify-between"><h3 class="text-sm font-semibold">逐项结果 · {{ total }}</h3><button type="button" :disabled="loading" class="text-xs text-primary" @click="load(offset, true)">刷新</button></div>
+    <p v-if="error" role="alert" class="text-xs text-status-error">{{ error }}<span v-if="rows.length">；显示上次读取的结果</span></p>
+    <p v-else-if="loading" role="status" class="text-xs text-text-muted">{{ rows.length ? '正在刷新，显示上次读取的结果…' : '正在加载…' }}</p>
     <p v-else-if="!rows.length" class="text-xs text-text-muted">运行后在这里查看每项状态和输出</p>
     <details v-for="(row, index) in rows" :key="row.index ?? offset + index" class="rounded border border-app-border p-2 text-xs">
       <summary>第 {{ (row.index ?? offset + index) + 1 }} 项 · {{ row.status }}</summary>
