@@ -29,6 +29,7 @@ const workflowDraft = ref(filters.value.workflowId)
 const statusDraft = ref(filters.value.status)
 const directIdDraft = ref('')
 const directIdError = ref(false)
+const coldDetailTarget = ref<string>()
 const runDetailRegion = ref<HTMLElement | null>(null)
 const historyKey = computed(() => JSON.stringify([filters.value.workflowId, filters.value.status, filters.value.page, filters.value.pageSize]))
 const visibleRuns = computed(() => runStore.historyRuns.filter(run => matchesRunHistorySearch(run, filters.value.q)))
@@ -280,14 +281,26 @@ const pageStatusSummary = computed(() => [
   { label: t('runs.failed'), value: historyStatusCounts.value.failed ?? 0 },
 ])
 
-async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>, refreshLogs = false) {
+async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>, intent: 'select' | 'refresh' | 'retry-detail' = 'select') {
   const generation = ++routeGeneration
   dismissedApprovalKey.value = null
   rerunNode.value = null
   if (runId) {
-    await runStore.selectRun(runId, { skipList: true, historyReady: ready, refreshLogs })
+    // 普通列表行、已知摘要和整页刷新保持原路径；只让在途列表中未确认的明确目标独立读取。
+    const cold = intent === 'retry-detail' || (intent === 'select' && Boolean(ready)
+      && runStore.currentRun?.id !== runId && !runStore.historyRuns.some(run => run.id === runId))
+    coldDetailTarget.value = cold ? runId : undefined
+    await runStore.selectRun(runId, {
+      skipList: true, historyReady: ready, refreshLogs: intent !== 'select',
+      ...(cold ? { isColdHistoryTargetCurrent: () => active && generation === routeGeneration && selectedRouteId.value === runId } : {}),
+    })
     return
   }
+  // 返回还在等待分页的列表，不保留本次提前显示的详情或让其恢复回执写入无 ID 路由。
+  if (ready && coldDetailTarget.value && runStore.currentRun?.id === coldDetailTarget.value) {
+    runStore.clearCurrentRun({ keepHistoryLoading: true })
+  }
+  coldDetailTarget.value = undefined
   await ready
   if (!active || generation !== routeGeneration || runStore.historyLoading || runStore.historyError) return
   const firstRun = visibleRuns.value[0]
@@ -367,7 +380,19 @@ function retryHistoryPage() {
 
 function refreshRuns() {
   dismissedApprovalKey.value = null
-  void syncRunFromRoute(selectedRouteId.value, requestHistoryPage(), true)
+  void syncRunFromRoute(selectedRouteId.value, requestHistoryPage(), 'refresh')
+}
+
+const canRetryColdDetail = computed(() => Boolean(
+  runStore.error && !selectedDetailReady.value && selectedRouteId.value === coldDetailTarget.value,
+))
+
+function retryLoad() {
+  if (canRetryColdDetail.value) {
+    void syncRunFromRoute(selectedRouteId.value, historyRequest, 'retry-detail')
+  } else {
+    refreshRuns()
+  }
 }
 
 function dismissApproval() {
@@ -455,10 +480,10 @@ watch(
             </div>
             <button
               class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="runStore.loading || runStore.historyLoading"
-              @click="refreshRuns"
+              :disabled="runStore.loading || (runStore.historyLoading && !canRetryColdDetail)"
+              @click="retryLoad"
             >
-              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': runStore.loading || runStore.historyLoading }" />
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': runStore.loading || (runStore.historyLoading && !canRetryColdDetail) }" />
               {{ t('runs.retryLoad') }}
             </button>
           </div>
