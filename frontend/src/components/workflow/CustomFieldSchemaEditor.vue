@@ -10,6 +10,16 @@ function update(index: number, key: string, value: unknown) {
     return next
   }))
 }
+function addField() {
+  const names = new Set(props.modelValue.map(field => field.name))
+  let index = props.modelValue.length + 1
+  while (names.has(`field${index}`)) index++
+  const name = `field${index}`
+  emit('update:modelValue', [
+    ...props.modelValue,
+    { name, type: 'STRING', required: false, ...(props.output ? { path: `/${name}` } : {}) },
+  ])
+}
 function clearDefault(index: number) { emit('update:modelValue', props.modelValue.map((field, i) => { const copy = { ...field }; if (i === index) delete copy.defaultValue; return copy })) }
 function defaultError(field: CustomField) {
   if (field.defaultValue === undefined || field.defaultValue === null) return ''
@@ -35,6 +45,6 @@ function defaultValue(index: number, event: Event) {
       <label v-if="field.type === 'STRING'" class="col-span-2 text-xs">枚举选项（逗号分隔，可留空）<input class="mt-1 w-full rounded border p-2" :value="field.options?.join(',') ?? ''" @input="update(index, 'options', ($event.target as HTMLInputElement).value.split(',').map(value => value.trim()).filter(Boolean))" /></label>
       <p v-if="defaultError(field)" role="alert" class="col-span-2 text-xs text-status-error">{{ defaultError(field) }} <button type="button" class="underline" @click="clearDefault(index)">清空不兼容默认值</button></p>
     </div>
-    <button type="button" class="rounded border px-3 py-2 text-xs" :disabled="modelValue.length >= 32" @click="emit('update:modelValue', [...modelValue, { name: `field${modelValue.length + 1}`, type: 'STRING', required: false, ...(output ? { path: `/field${modelValue.length + 1}` } : {}) }])">添加{{ label }}字段</button>
+    <button type="button" class="rounded border px-3 py-2 text-xs" :disabled="modelValue.length >= 32" @click="addField">添加{{ label }}字段</button>
   </section>
 </template>
