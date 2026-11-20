@@ -329,3 +329,96 @@ describe('编辑器独立显示 ComfyUI 导入失败', () => {
     expect(editorAlerts()).toEqual([])
   })
 })
+
+function questionInput() {
+  return wrapper!.get<HTMLTextAreaElement>('[data-run-input="question"]')
+}
+
+function addQuestionNode(store: ReturnType<typeof useWorkflowStore>) {
+  const template = nodeTemplates.find(candidate => candidate.kind === 'llm')!
+  const node = store.addNodeAfter('start', template)
+  expect(node).not.toBeNull()
+}
+
+async function setupQuestionWorkflow() {
+  entity.definitionJson = JSON.stringify({ nodes: [
+    { nodeId: 'start', nodeType: 'START', config: { next: 'old-llm' } },
+    { nodeId: 'old-llm', nodeType: 'LLM', config: { promptVariable: 'question', next: 'end' } },
+    { nodeId: 'end', nodeType: 'END', config: {} },
+  ] })
+  return setup()
+}
+
+describe('ComfyUI 成功替换画布后不继承旧图的运行输入', () => {
+  it.each(['已保存工作流', '同一地址的新建草稿'])('%s的旧提示词不会带到导入后新加的同名字段', async (entry) => {
+    const { store, router } = entry === '已保存工作流' ? await setupQuestionWorkflow() : await setup('/workflows/new')
+    if (entry === '同一地址的新建草稿') {
+      await importFile(Promise.resolve(JSON.stringify(comfy)), 'first.json')
+      addQuestionNode(store)
+      await flushPromises()
+    }
+    const oldPath = router.currentRoute.value.fullPath
+    await questionInput().setValue('只给原工作流的提示词')
+
+    await wrapper!.get('[data-action="import-comfyui"]').trigger('click')
+    await importFile()
+    expect(store.workflowName).toBe('import')
+    expect(router.currentRoute.value.fullPath).toBe(oldPath)
+    expect(wrapper!.find('[data-run-input="question"]').exists()).toBe(false)
+
+    addQuestionNode(store)
+    await flushPromises()
+    expect(questionInput().element.value).toBe('')
+  })
+
+  it('不在新图显示原工作流校验未填写输入时的提示', async () => {
+    const { store } = await setupQuestionWorkflow()
+    const run = wrapper!.findAll('button').find(button => button.text() === i18n.global.t('workflow.run'))!
+    await run.trigger('click')
+    await flushPromises()
+    expect(wrapper!.get('[data-run-input-error]').text()).toContain('question')
+    expect(http.post).not.toHaveBeenCalled()
+    expect(http.put).not.toHaveBeenCalled()
+
+    await importFile()
+    addQuestionNode(store)
+    await flushPromises()
+    expect(questionInput().element.value).toBe('')
+    expect(wrapper!.find('[data-run-input-error]').exists()).toBe(false)
+  })
+
+  it.each(['取消确认', '读取失败', '转换失败', '转换期间编辑原图'])('%s未替换画布，保留原工作流的运行输入', async (outcome) => {
+    const { store } = await setupQuestionWorkflow()
+    const pending = '仍属于未被替换的工作流'
+    await questionInput().setValue(pending)
+
+    if (outcome === '取消确认') {
+      store.updateNodeConfig('old-llm', 'temperature', 0.4)
+      vi.mocked(window.confirm).mockReturnValue(false)
+      await importFile()
+      expect(window.confirm).toHaveBeenCalledOnce()
+      expect(http.post).not.toHaveBeenCalled()
+    } else if (outcome === '读取失败') {
+      await importFile(Promise.reject(new Error('读取中断')))
+      expect(editorAlerts()).toEqual(['读取中断'])
+      expect(http.post).not.toHaveBeenCalled()
+    } else if (outcome === '转换失败') {
+      importFails = true
+      await importFile()
+      expect(editorAlerts()).toEqual(['temporary import failure'])
+    } else {
+      let release!: (value: WorkflowDefinitionDTO) => void
+      http.post.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+      await importFile()
+      expect(http.post.mock.calls[0]?.[0]).toBe('/workflows/definitions/import/comfyui')
+      expect(questionInput().element.value).toBe(pending)
+      store.updateNodeConfig('old-llm', 'temperature', 0.4)
+      release(preview)
+      await flushPromises()
+      expect(wrapper!.get('[data-testid="comfyui-import-notice"]').text()).toBe(i18n.global.t('workflow.importComfyUiEdited'))
+    }
+
+    expect(store.workflowId).toBe('101')
+    expect(questionInput().element.value).toBe(pending)
+  })
+})

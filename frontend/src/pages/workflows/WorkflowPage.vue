@@ -334,6 +334,9 @@ async function handleComfyUiFileChange(event: Event) {
     const graph = mapBackendDefinitionGraph(imported.nodes)
 
     workflowStore.resetToEmptyWorkflow()
+    // 导入替换整张画布，但地址可能不变；不要把旧图的临时运行输入带给新图。
+    runPromptValues.value = {}
+    runPromptInputError.value = ''
     workflowStore.workflowName = imported.name
     workflowStore.projectId = imported.projectId ?? projectId ?? null
     workflowStore.setNodes(graph.nodes)
