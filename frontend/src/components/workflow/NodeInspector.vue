@@ -242,6 +242,12 @@ const hasDynamicConfigPanel = computed(() =>
   Boolean(selectedNode.value && imageSchemaKinds.has(selectedNode.value.data.kind) && selectedCatalogItem.value?.configSchema?.length),
 )
 const isImageConnectionNode = computed(() => selectedKind.value === 'image-generation' || selectedKind.value === 'upscale')
+const usesStableDiffusionGeneration = computed(() => selectedKind.value === 'image-generation'
+  && ['', 'SD_WEBUI', 'STABLE_DIFFUSION_WEBUI', 'STABLE_DIFFUSION'].includes(textConfig('provider').trim().toUpperCase()))
+const retainedStableDiffusionWorkflowMode = computed(() => {
+  const mode = textConfig('mode')
+  return usesStableDiffusionGeneration.value && mode.trim().toLowerCase() === 'workflow' ? mode : ''
+})
 const imageInputFields = new Set(['sourceImage', 'sourceImageVariable'])
 const connectionFields = new Set(['connectionId', 'provider', 'checkpoint', 'vae', 'lora', 'sampler', 'scheduler', 'upscaler'])
 const dynamicConfigFields = computed(() => (selectedCatalogItem.value?.configSchema ?? [])
@@ -790,12 +796,19 @@ function dynamicFieldLabel(field: WorkflowNodeConfigSchema) {
 }
 
 function dynamicFieldDescription(field: WorkflowNodeConfigSchema) {
+  if (isStableDiffusionModeField(field)) return t('workflow.inspector.imageFields.mode.stableDiffusionDescription')
   const key = `workflow.inspector.imageFields.${field.name}.description`
   return te(key) ? t(key) : field.description ?? ''
 }
 
+function isStableDiffusionModeField(field: WorkflowNodeConfigSchema) {
+  return field.name === 'mode' && usesStableDiffusionGeneration.value
+}
+
 function selectOptions(field: WorkflowNodeConfigSchema) {
-  return field.options ?? []
+  const options = field.options ?? []
+  // 目录由两种 Provider 共享；SD WebUI 的执行器只支持 txt2img / img2img。
+  return isStableDiffusionModeField(field) ? options.filter((option) => option.trim().toLowerCase() !== 'workflow') : options
 }
 
 function fieldSelectValue(field: WorkflowNodeConfigSchema) {
@@ -1870,7 +1883,8 @@ onMounted(() => {
               @input="handleDynamicFieldInput(field, $event)"
             />
 
-            <p v-if="dynamicFieldDescription(field)" class="mt-2 text-xs leading-5 text-text-muted">{{ dynamicFieldDescription(field) }}</p>
+            <p v-if="field.name === 'mode' && retainedStableDiffusionWorkflowMode" role="status" data-testid="image-mode-retained" class="mt-2 text-xs leading-5 text-status-warning">{{ t('workflow.inspector.imageFields.mode.stableDiffusionRetained', { mode: retainedStableDiffusionWorkflowMode }) }}</p>
+            <p v-else-if="dynamicFieldDescription(field)" class="mt-2 text-xs leading-5 text-text-muted">{{ dynamicFieldDescription(field) }}</p>
           </label>
         </section>
 

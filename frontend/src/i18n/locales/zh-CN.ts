@@ -633,7 +633,11 @@ export const zhCN = {
         promptVersion: { label: '提示词版本', description: '可选的提示词版本标记。' },
         tags: { label: '标签', description: '提示词管理标签。' },
         provider: { label: '供应商', description: '图像生成服务供应商。' },
-        mode: { label: '生成模式', description: '选择 txt2img、img2img 或 ComfyUI workflow 模式。' },
+        mode: {
+          label: '生成模式', description: '选择 txt2img、img2img 或 ComfyUI workflow 模式。',
+          stableDiffusionDescription: 'Stable Diffusion WebUI 支持 txt2img 和 img2img。',
+          stableDiffusionRetained: '已保留当前模式“{mode}”。Stable Diffusion WebUI 不支持此模式；请选择 txt2img 或 img2img，或切回 ComfyUI。',
+        },
         promptVariable: { label: '提示词变量', description: '包含正向提示词的工作流变量。' },
         negativePromptVariable: { label: '反向提示词变量', description: '包含反向提示词的工作流变量。' },
         sourceImage: { label: '源图像', description: '用于 img2img 或图像放大的 Base64 源图像。' },
