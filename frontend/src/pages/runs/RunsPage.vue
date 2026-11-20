@@ -34,7 +34,11 @@ const historyKey = computed(() => JSON.stringify([filters.value.workflowId, filt
 const visibleRuns = computed(() => runStore.historyRuns.filter(run => matchesRunHistorySearch(run, filters.value.q)))
 const pageCount = computed(() => Math.max(1, Math.ceil(runStore.historyTotal / filters.value.pageSize)))
 const selectedRouteId = computed(() => Array.isArray(route.params.id) ? route.params.id[0] : route.params.id)
-const selectedDetailReady = computed(() => !selectedRouteId.value || selectedRouteId.value === runStore.currentRun?.id)
+// 列表路由还没有选中运行；编辑器或上一次详情留下的缓存不属于这个路由。
+const selectedRun = computed(() => selectedRouteId.value && selectedRouteId.value === runStore.currentRun?.id
+  ? runStore.currentRun : null)
+const selectedDetailReady = computed(() => Boolean(selectedRun.value))
+const pageError = computed(() => (selectedRouteId.value ? runStore.error : null) || runStore.historyError)
 const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore.currentRun && !runStore.historyLoading && !runStore.historyError
   && !visibleRuns.value.some(run => run.id === runStore.currentRun?.id))
 let historyRequest: Promise<void> | undefined
@@ -188,7 +192,7 @@ async function retryCancellationCleanup() {
 }
 
 async function refreshCancellationCleanup() {
-  const run = runStore.currentRun
+  const run = selectedRun.value
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || run.backendStatus !== 'CANCELLED' || !instanceId) return
   const { isCurrent, reportError } = beginCancellationCleanupFeedback(run.id)
@@ -204,7 +208,7 @@ function beginCancellationCleanupFeedback(runId: string) {
   const requestId = ++cancellationCleanupFeedbackRequestId
   cancellationCleanupErrorState.value = null
   // 同一选择内，较早的轮询失败也不能覆盖较新的读取或重试结果。
-  const isCurrent = () => active && runStore.currentRun?.id === runId
+  const isCurrent = () => active && selectedRun.value?.id === runId
     && selectionGeneration === cancellationCleanupSelectionGeneration
     && requestId === cancellationCleanupFeedbackRequestId
   return {
@@ -220,7 +224,11 @@ function beginCancellationCleanupFeedback(runId: string) {
   }
 }
 
-watch(() => [runStore.currentRun?.id, runStore.currentRun?.backendStatus, runStore.currentRun?.cancellationCleanup] as const,
+watch([
+  () => selectedRun.value?.id,
+  () => selectedRun.value?.backendStatus,
+  () => selectedRun.value?.cancellationCleanup,
+] as const,
   ([runId, backendStatus, cleanup], previous) => {
     if (!previous || previous[0] !== runId) {
       cancellationCleanupSelectionGeneration += 1
@@ -444,13 +452,13 @@ watch(
 
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6 xl:overflow-hidden">
       <div class="flex min-w-0 flex-col gap-4 xl:h-full">
-        <section v-if="runStore.error || runStore.historyError" class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <section v-if="pageError" class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex min-w-0 items-start gap-2">
               <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
               <div class="min-w-0">
                 <p class="font-semibold">{{ t('runs.loadErrorTitle') }}</p>
-                <p class="mt-1 break-words text-xs">{{ runStore.error || runStore.historyError }}</p>
+                <p class="mt-1 break-words text-xs">{{ pageError }}</p>
               </div>
             </div>
             <button
@@ -552,8 +560,12 @@ watch(
             </nav>
           </aside>
 
-          <section ref="runDetailRegion" data-testid="run-detail-region" tabindex="-1" :aria-label="`${historyText('detailTitle')} ${selectedRouteId ?? ''}`" :aria-busy="!selectedDetailReady && runStore.loading" class="flex min-h-0 min-w-0 scroll-mt-4 flex-col gap-4 overflow-y-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
-            <p v-if="!selectedDetailReady" role="status" class="p-4 text-sm text-text-muted">{{ runStore.error ? t('runs.loadErrorTitle') : historyText('detailLoading') }}</p>
+          <section ref="runDetailRegion" data-testid="run-detail-region" tabindex="-1" :aria-label="`${historyText('detailTitle')} ${selectedRouteId ?? ''}`" :aria-busy="selectedRouteId ? !selectedDetailReady && runStore.loading : runStore.historyLoading" class="flex min-h-0 min-w-0 scroll-mt-4 flex-col gap-4 overflow-y-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <p v-if="!selectedDetailReady" role="status" class="p-4 text-sm text-text-muted">
+              {{ selectedRouteId
+                ? (runStore.error ? t('runs.loadErrorTitle') : historyText('detailLoading'))
+                : (runStore.historyLoading ? historyText('loading') : t('workflow.noRunSelected')) }}
+            </p>
             <div v-if="runStore.currentRun && selectedDetailReady" class="shrink-0 rounded-lg border border-app-border bg-white p-4 shadow-sm">
               <p v-if="selectedOutsidePage" data-testid="history-outside" class="mb-3 rounded border border-primary/20 bg-primary-soft/40 p-2 text-xs text-primary">{{ historyText('outside') }}</p>
               <div class="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -648,9 +660,9 @@ watch(
                 </span>
               </div>
             </div>
-            <div class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
-              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :return-location="route.fullPath" :nodes="selectedDetailReady ? runStore.currentRun?.nodeStates ?? [] : []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
-              <LogStream class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full" :run-id="runStore.currentRun?.id" :workflow-id="runStore.currentRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
+            <div v-show="selectedDetailReady" class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
+              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
+              <LogStream class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
             </div>
           </section>
         </section>
