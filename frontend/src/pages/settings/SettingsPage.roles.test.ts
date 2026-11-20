@@ -304,6 +304,70 @@ describe('按实际账号权限设计设置体验', () => {
     expect(wrapper!.text()).not.toContain(i18n.global.t('settings.vectorStoreTestSuccess'))
   })
 
+  it('修改向量库服务地址后不会把旧地址的成功显示在新草稿上', async () => {
+    const test = vi.spyOn(settingsApi, 'testVectorStoreConfig')
+      .mockResolvedValueOnce({ success: true, message: '旧地址的测试通过' })
+      .mockResolvedValueOnce({ success: true, message: '新地址的测试通过' })
+    const save = vi.spyOn(settingsApi, 'saveVectorStoreConfig').mockResolvedValue(vector)
+    await setup('/settings?tab=data-source', true)
+    const button = wrapper!.get('[data-action="test-vector-store"]')
+    const address = wrapper!.get<HTMLInputElement>('input[placeholder="https://qdrant.example.com"]')
+
+    await button.trigger('click'); await flushPromises()
+    expect(wrapper!.text()).toContain('旧地址的测试通过')
+    expect(test).toHaveBeenNthCalledWith(1, { enabled: true, provider: 'qdrant', baseUrl: vector.baseUrl, collection: vector.collection, apiKey: null })
+
+    const newAddress = 'https://next.example.test'
+    await address.setValue(newAddress)
+    expect(wrapper!.text()).not.toContain('旧地址的测试通过')
+    expect(address.element.value).toBe(newAddress)
+    expect(test).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+
+    await button.trigger('click'); await flushPromises()
+    expect(wrapper!.text()).toContain('新地址的测试通过')
+    expect(test).toHaveBeenNthCalledWith(2, { enabled: true, provider: 'qdrant', baseUrl: newAddress, collection: vector.collection, apiKey: null })
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { failure: '旧集合未通过本次检查', isTransportError: false },
+    { failure: '旧集合的测试请求失败', isTransportError: true },
+  ])('修改集合后清除旧的测试反馈：$failure', async ({ failure, isTransportError }) => {
+    const test = vi.spyOn(settingsApi, 'testVectorStoreConfig')
+    if (isTransportError) test.mockRejectedValue(new Error(failure))
+    else test.mockResolvedValue({ success: false, message: failure })
+    await setup('/settings?tab=data-source', true)
+    const button = wrapper!.get('[data-action="test-vector-store"]')
+
+    await button.trigger('click'); await flushPromises()
+    expect(wrapper!.text()).toContain(failure)
+    await wrapper!.get('input[placeholder="workflow-embeddings"]').setValue('next-collection')
+
+    expect(wrapper!.text()).not.toContain(failure)
+    expect(test).toHaveBeenCalledOnce()
+    expect(button.attributes('disabled')).toBeUndefined()
+  })
+
+  it('无关字段不清除向量库测试结果；保存反馈仍独立于测试结果', async () => {
+    const test = vi.spyOn(settingsApi, 'testVectorStoreConfig').mockResolvedValue({ success: true, message: '当前草稿验证通过' })
+    const save = vi.spyOn(settingsApi, 'saveVectorStoreConfig').mockResolvedValue(vector)
+    await setup('/settings?tab=data-source', true)
+
+    await wrapper!.get('[data-action="test-vector-store"]').trigger('click'); await flushPromises()
+    await wrapper!.get('input[placeholder="https://example.com"]').setValue('https://unrelated.example.test')
+    expect(wrapper!.text()).toContain('当前草稿验证通过')
+
+    await wrapper!.get('[data-action="save-vector-store"]').trigger('click'); await flushPromises()
+    expect(wrapper!.text()).not.toContain('当前草稿验证通过')
+    const saved = i18n.global.t('settings.vectorStoreSaved')
+    expect(wrapper!.text()).toContain(saved)
+    await wrapper!.get('input[placeholder="workflow-embeddings"]').setValue('next-collection')
+    expect(wrapper!.text()).toContain(saved)
+    expect(test).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledOnce()
+  })
+
   it('普通设置目录部分失败可重试，仍不请求任何管理员接口', async () => {
     vi.mocked(settingsApi.listDataSources).mockRejectedValueOnce(new Error('合成目录失败'))
     await setup()

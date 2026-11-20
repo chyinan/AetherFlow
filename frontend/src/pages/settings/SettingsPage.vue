@@ -135,7 +135,7 @@ const urlFetchForm = ref({
 const vectorStoreLoading = ref(false)
 const vectorStoreSaving = ref(false)
 const vectorStoreTesting = ref(false)
-const vectorStoreMessage = ref('')
+const vectorStoreMessage = ref<{ kind: 'test' | 'config'; text: string } | null>(null)
 const vectorStoreLoadFailed = ref(false)
 const vectorStoreConfig = ref<VectorStoreConfig | null>(null)
 const vectorStoreForm = ref({
@@ -809,7 +809,7 @@ async function loadVectorStoreConfig() {
   if (!requireAdminAction() || vectorStoreLoading.value || vectorStoreSaving.value || vectorStoreTesting.value) return
   vectorStoreLoadFailed.value = false
   vectorStoreLoading.value = true
-  vectorStoreMessage.value = ''
+  vectorStoreMessage.value = null
   try {
     const config = await settingsApi.getVectorStoreConfig()
     if (session !== sessionGeneration) return
@@ -825,7 +825,7 @@ async function loadVectorStoreConfig() {
     if (session !== sessionGeneration) return
     vectorStoreLoadFailed.value = true
     vectorStoreConfig.value = null
-    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreLoadFailed')
+    vectorStoreMessage.value = { kind: 'config', text: error instanceof Error ? error.message : t('settings.vectorStoreLoadFailed') }
   } finally {
     if (session !== sessionGeneration) return
     vectorStoreLoading.value = false
@@ -874,15 +874,15 @@ async function testVectorStore() {
   const session = sessionGeneration
   if (!requireAdminAction() || vectorStoreTesting.value || vectorStoreSaving.value || vectorStoreLoading.value || !vectorStoreConfig.value) return
   vectorStoreTesting.value = true
-  vectorStoreMessage.value = ''
+  vectorStoreMessage.value = null
   try {
     const response = await settingsApi.testVectorStoreConfig(vectorStorePayload())
     if (session !== sessionGeneration) return
     if (response.success !== true) throw new Error(response.message || roleText('testFailed'))
-    vectorStoreMessage.value = response.message || t('settings.vectorStoreTestSuccess')
+    vectorStoreMessage.value = { kind: 'test', text: response.message || t('settings.vectorStoreTestSuccess') }
   } catch (error) {
     if (session !== sessionGeneration) return
-    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreTestFailed')
+    vectorStoreMessage.value = { kind: 'test', text: error instanceof Error ? error.message : t('settings.vectorStoreTestFailed') }
   } finally {
     if (session !== sessionGeneration) return
     vectorStoreTesting.value = false
@@ -893,17 +893,17 @@ async function saveVectorStore() {
   const session = sessionGeneration
   if (!requireAdminAction() || vectorStoreSaving.value || vectorStoreTesting.value || vectorStoreLoading.value || !vectorStoreConfig.value) return
   vectorStoreSaving.value = true
-  vectorStoreMessage.value = ''
+  vectorStoreMessage.value = null
   try {
     const config = await settingsApi.saveVectorStoreConfig(vectorStorePayload())
     if (session !== sessionGeneration) return
     vectorStoreConfig.value = config
     vectorStoreForm.value.apiKey = ''
-    vectorStoreMessage.value = t('settings.vectorStoreSaved')
+    vectorStoreMessage.value = { kind: 'config', text: t('settings.vectorStoreSaved') }
     markSaved()
   } catch (error) {
     if (session !== sessionGeneration) return
-    vectorStoreMessage.value = error instanceof Error ? error.message : t('settings.vectorStoreSaveFailed')
+    vectorStoreMessage.value = { kind: 'config', text: error instanceof Error ? error.message : t('settings.vectorStoreSaveFailed') }
   } finally {
     if (session !== sessionGeneration) return
     vectorStoreSaving.value = false
@@ -959,7 +959,7 @@ function clearSessionDrafts() {
   vectorStoreSaving.value = false
   vectorStoreTesting.value = false
   vectorStoreLoadFailed.value = false
-  vectorStoreMessage.value = ''
+  vectorStoreMessage.value = null
   vectorStoreConfig.value = null
   vectorStoreForm.value = { enabled: false, provider: 'qdrant', baseUrl: '', collection: '', apiKey: '' }
   urlFetchTesting.value = false
@@ -1011,6 +1011,10 @@ onBeforeUnmount(() => {
 
 watch(() => route.query.tab, syncRouteTab)
 watch(activeTab, loadTabResources)
+watch(vectorStoreForm, () => {
+  // 测试回执只对应发出请求时的表单；编辑后需要用户主动重测。
+  if (vectorStoreMessage.value?.kind === 'test') vectorStoreMessage.value = null
+}, { deep: true })
 watch(
   () => JSON.stringify([authStore.user?.id, authStore.user?.userId, authStore.user?.username, canManageAdminSettings.value, authStore.isAuthenticated]),
   () => {
@@ -1744,8 +1748,8 @@ watch(
                 </button>
               </div>
               <button v-if="vectorStoreLoadFailed" data-action="retry-vector-store" type="button" class="mt-3 rounded-md border border-app-border px-3 py-2 text-sm text-primary disabled:opacity-60" :disabled="vectorStoreLoading" @click="loadVectorStoreConfig">{{ roleText('vectorRetry') }}</button>
-              <p v-if="vectorStoreMessage" role="status" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
-                {{ vectorStoreMessage }}
+              <p v-if="vectorStoreMessage?.text" role="status" class="mt-3 rounded-md bg-app-bg2 px-3 py-2 text-xs text-text-secondary">
+                {{ vectorStoreMessage.text }}
               </p>
             </article>
           </section>
