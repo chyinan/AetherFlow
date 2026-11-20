@@ -32,6 +32,8 @@ API 图默认按原参数执行。通用 AF 的提示词、种子、步数和模
 
 绑定经工作流服务送达 AI 执行器，在 Provider 内消费，不把 `workflowBindings` 发给 ComfyUI。有效 `sourceImage` 绑定启用已有图片输入入口和 ImageSourceResolver：上游 ID、ID 数组第一项、Base64 与数据 URL 在同步调用或异步派发前解析；无绑定的 API 图不读取遗留源图变量。导入图执行不会回退到 SD WebUI，避免另一个 Provider 用普通生图替代原图语义。
 
+重复添加同一输入不会改动覆盖列表。移除冲突覆盖或改选另一个输入后，过期的重复提示消失，可以继续添加；已有的无效覆盖仍会提示。载入 API 执行图的错误单独显示，不会被添加或移除覆盖遮挡。
+
 ## 摘要、插件与原生前端
 
 提示词摘要沿 KSampler 的 positive/negative 引用识别。能够静态解析的 CLIP/PrimitiveString 字面量可显示；插件文本链、多阶段不一致或断开的引用显示未解析，不拿负向文本补正向。摘要元数据 `comfyImport` 只作提示，不控制实际执行。
