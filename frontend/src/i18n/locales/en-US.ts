@@ -1514,6 +1514,7 @@ export const enUS = {
     telegramSave: 'Save Telegram',
     telegramSaving: 'Saving',
     telegramTest: 'Send test message',
+    telegramTestSaveRequired: 'Save or revert your Telegram changes before sending a test message.',
     telegramTesting: 'Sending',
     telegramSaved: 'Telegram Bot configuration saved.',
     telegramTestSent: 'Test message submitted to Telegram Bot.',

@@ -1516,6 +1516,7 @@ export const jaJP = {
     telegramSave: 'Telegram を保存',
     telegramSaving: '保存中',
     telegramTest: 'テストメッセージを送信',
+    telegramTestSaveRequired: 'テストメッセージを送る前に、Telegram の変更を保存するか、保存済みの設定に戻してください。',
     telegramTesting: '送信中',
     telegramSaved: 'Telegram Bot 設定を保存しました。',
     telegramTestSent: 'テストメッセージを Telegram Bot に送信しました。',

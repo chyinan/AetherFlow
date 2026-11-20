@@ -1522,6 +1522,7 @@ export const zhCN = {
     telegramSave: '保存 Telegram',
     telegramSaving: '保存中',
     telegramTest: '发送测试消息',
+    telegramTestSaveRequired: '请先保存 Telegram 设置改动，或恢复已保存的设置，再发送测试消息。',
     telegramTesting: '发送中',
     telegramSaved: 'Telegram Bot 配置已保存。',
     telegramTestSent: '测试消息已提交给 Telegram Bot。',
