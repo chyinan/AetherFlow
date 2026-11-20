@@ -10,9 +10,9 @@ const mocks = vi.hoisted(() => ({
   auth: { isAuthenticated: true, isAdmin: false, user: { userId: 'fixture' } },
   home: {
     workflows: { data: [], loading: false, error: null, loaded: true },
-    active: { data: [], loading: false, error: null, loaded: true },
-    failed: { data: [], loading: false, error: null, loaded: true },
-    completed: { data: [], loading: false, error: null, loaded: true },
+    active: { data: { items: [], failedStatuses: [], pages: [] }, loading: false, error: null, loaded: true },
+    failed: { data: { items: [], failedStatuses: [], pages: [] }, loading: false, error: null, loaded: true },
+    completed: { data: { items: [], failedStatuses: [], pages: [] }, loading: false, error: null, loaded: true },
     clearPersonal: () => {},
     loadWorkflows: async () => {},
     loadRuns: async () => {},

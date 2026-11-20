@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowUpRight, RefreshCw } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -12,6 +12,7 @@ import { homeRunPageSize, type HomeRunGroup, type HomeRunSnapshot } from './home
 const props = defineProps<{ group: HomeRunGroup; loading: boolean; error: boolean; loaded: boolean; snapshot: HomeRunSnapshot | null }>()
 const emit = defineEmits<{ retry: [] }>()
 const sectionHeading = ref<HTMLElement | null>(null)
+const runList = ref<HTMLUListElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
 const historyQuery = () => props.group === 'failed' ? { status: 'FAILED' } : props.group === 'completed' ? { status: 'SUCCESS' } : {}
 
@@ -22,6 +23,16 @@ function runStatusMessageKey(run: WorkflowRun) {
       && node.approval?.approvalStatus === 'pending' && node.approval.approved === false)
   return awaitingApproval ? 'status.awaitingApproval' : `status.${run.status}`
 }
+
+// 异步确认终态会卸载对应的进行中链接；只在焦点还在该链接上时保留区块位置。
+watch(() => props.snapshot?.items, items => {
+  if (props.group !== 'active' || !items) return
+  const focused = document.activeElement
+  if (focused instanceof HTMLAnchorElement && runList.value?.contains(focused)
+    && !items.some(run => run.id === focused.dataset.runId)) {
+    sectionHeading.value?.focus({ preventScroll: true })
+  }
+})
 
 function retryInline() {
   if (props.loading) return
@@ -52,9 +63,9 @@ function retryInline() {
         <button type="button" :aria-label="`${t('retry')} · ${t(`${group}Title`)}`" class="mt-2 font-medium text-primary underline" @click="retryInline">{{ t('retry') }}</button>
       </div>
       <p v-else-if="snapshot.items.length === 0" data-state="empty" class="py-8 text-sm text-text-muted">{{ t(`${group}Empty`) }}</p>
-      <ul v-if="snapshot.items.length" class="mt-4 divide-y divide-app-border">
+      <ul v-if="snapshot.items.length" ref="runList" class="mt-4 divide-y divide-app-border">
         <li v-for="run in snapshot.items" :key="run.id">
-          <RouterLink :to="`/runs/${encodeURIComponent(run.id)}`" data-link="run" class="group flex items-center justify-between gap-3 rounded-lg py-3 text-sm transition hover:bg-app-muted">
+          <RouterLink :to="`/runs/${encodeURIComponent(run.id)}`" data-link="run" :data-run-id="run.id" class="group flex items-center justify-between gap-3 rounded-lg py-3 text-sm transition hover:bg-app-muted">
             <div class="min-w-0">
               <p class="break-words font-medium text-text-primary group-hover:text-primary">{{ run.workflowName }}</p>
               <p class="mt-1 break-all text-xs text-text-muted">{{ run.id }} · {{ run.startedAt }}</p>

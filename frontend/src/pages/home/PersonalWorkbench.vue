@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell（工作台界面渲染与交互协调）
 import { ArrowUpRight, FolderKanban, Plus, RefreshCw } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -19,6 +19,29 @@ const loading = computed(() => home.workflows.loading || groups.some(group => ho
 const workflows = computed(() => [...(home.workflows.data ?? [])]
   .filter(workflow => Boolean(workflow.id) && workflow.id !== 'new')
   .slice(0, 4))
+
+// 只为本轮活动读取记住已确认的终态：在途收集，结果到达后只保留相交的 ID。
+const confirmedTerminalIds = shallowRef<ReadonlySet<string>>(new Set())
+watch(() => [home.active.loading, home.active.data, home.failed.data, home.completed.data] as const,
+  ([loading, active, failed, completed], previous) => {
+    if (!loading && !active) {
+      confirmedTerminalIds.value = new Set()
+      return
+    }
+    const ids = new Set(loading && !previous?.[0] ? [] : confirmedTerminalIds.value)
+    for (const run of failed?.items ?? []) if (run.status === 'failed') ids.add(run.id)
+    for (const run of completed?.items ?? []) if (run.status === 'success') ids.add(run.id)
+    confirmedTerminalIds.value = !loading && active
+      ? new Set(active.items.map(run => run.id).filter(id => ids.has(id)))
+      : ids
+  },
+  { immediate: true, flush: 'sync' },
+)
+const activeRunSnapshot = computed(() => {
+  const source = home.active.data
+  if (!source || !confirmedTerminalIds.value.size) return source
+  return { ...source, items: source.items.filter(run => !confirmedTerminalIds.value.has(run.id)) }
+})
 
 function refresh() {
   if (!auth.isAuthenticated) return
@@ -89,7 +112,7 @@ onBeforeUnmount(() => home.clearPersonal())
         <p class="mt-4 text-xs leading-5 text-text-muted">{{ t('savedOnly') }}</p>
       </section>
       <div class="grid items-stretch gap-5 xl:grid-cols-3">
-        <HomeRunSection v-for="group in groups" :key="group" :group="group" :loading="home[group].loading" :error="home[group].error" :loaded="home[group].loaded" :snapshot="home[group].data" @retry="home.loadRuns(group)" />
+        <HomeRunSection v-for="group in groups" :key="group" :group="group" :loading="home[group].loading" :error="home[group].error" :loaded="home[group].loaded" :snapshot="group === 'active' ? activeRunSnapshot : home[group].data" @retry="home.loadRuns(group)" />
       </div>
     </main>
   </div>
