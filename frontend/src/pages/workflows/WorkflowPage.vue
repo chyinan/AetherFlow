@@ -140,11 +140,16 @@ watch(() => route.fullPath, (to, from) => {
     comfyUiImportError.value = null
     comfyUiImportNotice.value = null
   }
-  showingWorkflowTemplates.value = false
-  workflowStore.invalidateWorkflowTemplatesLoad()
+  invalidateWorkflowTemplatePicker()
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
+let workflowTemplatePickerRevision = 0
+function invalidateWorkflowTemplatePicker() {
+  workflowTemplatePickerRevision += 1
+  showingWorkflowTemplates.value = false
+  workflowStore.invalidateWorkflowTemplatesLoad()
+}
 const workflowTemplateDialog = ref<HTMLElement | null>(null)
 useModalFocus(showingWorkflowTemplates, workflowTemplateDialog, () => { showingWorkflowTemplates.value = false })
 const comfyUiImportError = ref<string | null>(null)
@@ -328,6 +333,8 @@ async function handleComfyUiFileChange(event: Event) {
     workflowStore.setNodes(graph.nodes)
     workflowStore.setEdges(graph.edges)
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
+    // 导入成功即换成新画布，即使地址未变，也不再接收旧画布的模板回执。
+    invalidateWorkflowTemplatePicker()
   } catch (error) {
     if (canApply()) comfyUiImportError.value = importErrorMessage(error)
     else reportEditConflict()
@@ -793,8 +800,8 @@ async function openWorkflowTemplates(event?: MouseEvent) {
   if (workflowStore.workflowTemplatesLoading) {
     return
   }
-  const navigationRevision = pageNavigationRevision
-  const ownsRequest = () => pageActive && navigationRevision === pageNavigationRevision
+  const pickerRevision = workflowTemplatePickerRevision
+  const ownsRequest = () => pageActive && pickerRevision === workflowTemplatePickerRevision
   workflowStore.setRunError(null)
   try {
     const templates = await workflowStore.loadWorkflowTemplates()

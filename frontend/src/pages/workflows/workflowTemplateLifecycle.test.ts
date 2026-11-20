@@ -3,6 +3,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
+import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
+import { apiClient } from '@/api/client/apiClient'
 import { i18n } from '@/i18n'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowDefinition } from '@/types/workflow'
@@ -12,7 +15,7 @@ const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), listWorkflowTemplates: vi.
 vi.mock('@/services/api/workflowApi', async original => ({ ...await original<typeof import('@/services/api/workflowApi')>(), workflowApi: api }))
 vi.mock('@/stores/runStore', () => ({ useRunStore: () => ({ currentRun: null, logs: [], loadRuns: vi.fn(), selectRunForWorkflow: vi.fn(), subscribeCurrentRun: vi.fn(), clearCurrentRun: vi.fn() }) }))
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ loadFiles: vi.fn() }) }))
-vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ currentProject: null, loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
+vi.mock('@/stores/projectStore', () => ({ useProjectStore: () => ({ currentProject: null, projects: [], projectWorkflows: vi.fn(), loadProjects: vi.fn(), selectProjectByWorkflow: vi.fn(), updateWorkflowStatus: vi.fn(), linkWorkflowToProject: vi.fn() }) }))
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
@@ -28,21 +31,22 @@ let errors: unknown[]
 beforeEach(() => {
   vi.resetAllMocks()
   errors = []
+  vi.stubGlobal('TextDecoder', TextDecoder)
   i18n.global.locale.value = 'zh-CN'
   api.getWorkflow.mockImplementation(async (id: string) => definition(id))
   api.listWorkflowTemplates.mockImplementation(async () => [definition('sample')])
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
-async function setup() {
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals() })
+async function setup(path = '/workflows/101') {
   const pinia = createPinia(); setActivePinia(pinia); const store = useWorkflowStore()
   vi.spyOn(store, 'loadNodeTemplates').mockResolvedValue(true)
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/workflows/:id', component: WorkflowPage },
     { path: '/elsewhere', component: { template: '<p>其他页面</p>' } },
   ] })
-  await router.push('/workflows/101'); await router.isReady()
-  wrapper = mount(RouterView, { global: { plugins: [pinia, router, i18n],
+  await router.push(path); await router.isReady()
+  wrapper = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router, i18n],
     config: { errorHandler: error => errors.push(error) },
     stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true, teleport: true },
   } })
@@ -183,5 +187,139 @@ describe('模板请求代次与拒绝导航的对照', () => {
     expect(templateDialog().exists()).toBe(true)
     expect(store.nodes[0]!.data.config.prompt).toBe('未保存')
     expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+  })
+})
+
+const comfyJson = JSON.stringify({
+  '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'test.safetensors' } },
+  '2': { class_type: 'CLIPTextEncode', inputs: { text: '测试提示词', clip: ['1', 1] } },
+  '3': { class_type: 'CLIPTextEncode', inputs: { text: '', clip: ['1', 1] } },
+  '4': { class_type: 'EmptyLatentImage', inputs: { width: 512, height: 512, batch_size: 1 } },
+  '5': { class_type: 'KSampler', inputs: { seed: 1, steps: 15, cfg: 7, sampler_name: 'euler',
+    scheduler: 'normal', denoise: 1, model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0] } },
+  '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+  '7': { class_type: 'SaveImage', inputs: { images: ['6', 0], filename_prefix: '测试' } },
+})
+function importedWorkflow(): WorkflowDefinitionDTO {
+  return { name: '新导入的图片工作流', nodes: [
+    { nodeId: 'import-start', nodeType: 'START', config: { next: 'prompt' } },
+    { nodeId: 'prompt', nodeType: 'PROMPT', config: { prompt: '测试提示词', stylePreset: 'comfyui-import', next: 'image' } },
+    { nodeId: 'image', nodeType: 'IMAGE_GENERATION', config: { provider: 'COMFYUI', mode: 'workflow', workflowJson: comfyJson, next: 'end' } },
+    { nodeId: 'end', nodeType: 'END', config: {} },
+  ] }
+}
+
+async function chooseComfyFile() {
+  const opener = wrapper!.get<HTMLButtonElement>('[data-action="import-comfyui"]')
+  opener.element.focus()
+  await opener.trigger('click')
+  const input = wrapper!.get<HTMLInputElement>('input[type="file"]')
+  const file = new File([comfyJson], 'illustration.json', { type: 'application/json' })
+  vi.spyOn(file, 'arrayBuffer').mockResolvedValue(new TextEncoder().encode(comfyJson).buffer as ArrayBuffer)
+  Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
+  await input.trigger('change')
+  await flushPromises()
+  return opener.element
+}
+
+describe('同一地址中导入 ComfyUI 替换当前画布', () => {
+  it.each(['成功', '失败'] as const)('已被替换画布的模板请求迟到%s不抢焦点、不覆盖错误', async (result) => {
+    const { store, router } = await setup()
+    const old = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(old.promise)
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValueOnce(importedWorkflow())
+    await openTemplates()
+    const focused = await chooseComfyFile()
+    expect(errors).toEqual([])
+    expect(post).toHaveBeenCalledExactlyOnceWith('/workflows/definitions/import/comfyui',
+      expect.objectContaining({ name: 'illustration', workflowJson: comfyJson }), { source: 'workflow' })
+    expect(store.workflowName).toBe('新导入的图片工作流')
+    expect(store.dirty).toBe(true)
+    expect(router.currentRoute.value.fullPath).toBe('/workflows/101')
+    store.setRunError('新画布的真实运行错误')
+    focused.focus()
+    expect(document.activeElement).toBe(focused)
+
+    if (result === '成功') old.resolve([definition('old-template')])
+    else old.reject(new Error('上一张画布的模板错误'))
+    await flushPromises()
+
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(focused)
+    expect(store.runError).toBe('新画布的真实运行错误')
+    expect(store.workflowTemplates).toEqual([])
+    expect(store.workflowTemplatesError).toBeNull()
+    expect(wrapper!.text()).not.toContain('上一张画布的模板错误')
+    expect(errors).toEqual([])
+  })
+  it('同为 new 的画布替换后可立即重开模板，旧收尾不能影响新列表', async () => {
+    const { store, router } = await setup('/workflows/new?name=现有草稿')
+    const oldPath = router.currentRoute.value.fullPath
+    expect(store.workflowId).toBe('new')
+    const old = deferred<WorkflowDefinition[]>()
+    const current = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+    vi.spyOn(apiClient, 'post').mockResolvedValueOnce(importedWorkflow())
+    await openTemplates()
+    await chooseComfyFile()
+
+    expect(errors).toEqual([])
+    expect(store.workflowId).toBe('new')
+    expect(store.workflowName).toBe('新导入的图片工作流')
+    expect(router.currentRoute.value.fullPath).toBe(oldPath)
+    expect(templatesButton().attributes('disabled')).toBeUndefined()
+    await openTemplates()
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(2)
+    old.resolve([definition('old-template')])
+    await flushPromises()
+    expect(store.workflowTemplatesLoading).toBe(true)
+    expect(templateDialog().exists()).toBe(false)
+    current.resolve([definition('new-template')])
+    await flushPromises()
+    expect(templateDialog().text()).toContain('工作流 new-template')
+    expect(templateDialog().text()).not.toContain('工作流 old-template')
+    expect(store.workflowName).toBe('新导入的图片工作流')
+  })
+  it('转换完成前已显示的旧选择器，在导入成功替换画布后退出', async () => {
+    const { store } = await setup()
+    const templates = deferred<WorkflowDefinition[]>()
+    const conversion = deferred<WorkflowDefinitionDTO>()
+    api.listWorkflowTemplates.mockReturnValueOnce(templates.promise)
+    vi.spyOn(apiClient, 'post').mockReturnValueOnce(conversion.promise)
+    await openTemplates()
+    await chooseComfyFile()
+    templates.resolve([definition('sample')]); await flushPromises()
+    const dialog = templateDialog()
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.element.contains(document.activeElement)).toBe(true)
+
+    conversion.resolve(importedWorkflow()); await flushPromises()
+    expect(store.workflowName).toBe('新导入的图片工作流')
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(templatesButton().element)
+  })
+  it.each(['转换失败', '拒绝替换'] as const)('%s不改变原图，原模板请求仍可完成', async (outcome) => {
+    const { store } = await setup()
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    const post = vi.spyOn(apiClient, 'post').mockRejectedValueOnce(new Error('转换暂不可用'))
+    await openTemplates()
+    if (outcome === '拒绝替换') {
+      store.updateNodeConfig('start-101', 'prompt', '必须保留的修改')
+      vi.mocked(window.confirm).mockReturnValue(false)
+    }
+    await chooseComfyFile()
+
+    if (outcome === '转换失败') {
+      expect(post).toHaveBeenCalledTimes(1)
+      expect(wrapper!.text()).toContain('转换暂不可用')
+    } else {
+      expect(post).not.toHaveBeenCalled()
+      expect(store.nodes[0]!.data.config.prompt).toBe('必须保留的修改')
+    }
+    expect(templatesButton().attributes('disabled')).toBeDefined()
+    expect(store.workflowName).toBe('工作流 101')
+    pending.resolve([definition('sample')]); await flushPromises()
+    expect(templateDialog().text()).toContain('工作流 sample')
   })
 })
