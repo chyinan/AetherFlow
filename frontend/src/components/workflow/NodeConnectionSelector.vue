@@ -206,7 +206,8 @@ function validateForm(requireName: boolean) {
   return ''
 }
 async function testForm() {
-  if (!alive || !open.value || saving.value) return
+  // 测试按钮在请求期间保留焦点；拦截键盘或指针的重复激活。
+  if (!alive || !open.value || testing.value || saving.value) return
   const error = validateForm(false)
   invalidateForm()
   if (error) { formError.value = error; return }
@@ -425,7 +426,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <p v-if="formProbe?.status !== 'usable'" class="text-xs text-text-muted">{{ t('testRequired') }}</p>
           <div class="flex flex-wrap justify-end gap-2 border-t border-app-border pt-4">
             <button data-testid="cancel-connection" type="button" class="rounded-lg border border-app-border px-3 py-2 text-sm" @click="close()">{{ saving ? t('closeWhileSaving') : t('cancel') }}</button>
-            <button data-testid="test-connection" type="button" class="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-50" :disabled="testing || saving" @click="testForm">{{ testing ? t('testing') : t('test') }}</button>
+            <button data-testid="test-connection" type="button" class="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-50 aria-disabled:opacity-50" :disabled="saving" :aria-disabled="testing ? 'true' : undefined" @click="testForm">{{ testing ? t('testing') : t('test') }}</button>
             <button data-testid="save-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" :disabled="saving || testing || formProbe?.status !== 'usable'" @click="save">{{ saving ? t('saving') : t('save') }}</button>
           </div>
         </section>
