@@ -171,6 +171,102 @@ describe('保存响应丢失后的页面反馈', () => {
     expect(wrapper!.find('[data-testid="save-recovery-hint"]').text()).toContain(i18n.global.t('workflow.saveRecoveryCommitted'))
   })
 
+  it('核对确认 A 后编辑 B 会明确提示 B 尚未保存，普通保存后撤下核对提示', async () => {
+    http.put.mockImplementationOnce(async (url: string, payload: WorkflowDefinitionDTO) => {
+      remoteVersion += 1
+      remotePayload = payload
+      throw networkError(url)
+    }).mockImplementationOnce(async (_url: string, payload: WorkflowDefinitionDTO) => {
+      remoteVersion += 1
+      remotePayload = payload
+      return definition(remoteVersion, remotePayload)
+    })
+    const { store, router } = await setup()
+    store.updateNodeConfig('start-1', 'variables', { prompt: '已提交的 A' })
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(recoveryHint().text()).toBe(i18n.global.t('workflow.saveRecoveryCommitted'))
+    expect(saveButton().text()).toBe(i18n.global.t('workflow.saved'))
+    expect(store.backendVersion).toBe(6)
+
+    store.updateNodeConfig('start-1', 'variables', { prompt: '尚未保存的 B' })
+    await flushPromises()
+    expect.soft(recoveryHint().text()).toBe(i18n.global.t('workflow.saveRecoveryCommittedWithNewerEdits'))
+    expect(saveButton().text()).toBe(i18n.global.t('workflow.saveWorkflow'))
+    expect(store.dirty).toBe(true)
+    expect(store.nodes[0]?.data.config.variables).toEqual({ prompt: '尚未保存的 B' })
+    expect(http.put).toHaveBeenCalledTimes(1)
+
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(http.put).toHaveBeenCalledTimes(2)
+    expect(http.put.mock.calls.at(-1)?.[1]).toMatchObject({ version: 6, nodes: [{
+      nodeId: 'start-1', config: { variables: { prompt: '尚未保存的 B' } },
+    }] })
+    expect(recoveryHint().exists()).toBe(false)
+    expect(saveButton().text()).toBe(i18n.global.t('workflow.saved'))
+
+    await router.push('/elsewhere')
+    await router.push('/workflows/201?projectId=11')
+    await flushPromises()
+    expect(store.backendVersion).toBe(7)
+    expect(store.nodes[0]?.data.config.variables).toEqual({ prompt: '尚未保存的 B' })
+    expect(recoveryHint().exists()).toBe(false)
+  })
+
+  it.each([false, true])('重试核对 A 并成功保存 B 后撤下 A 的提示（提交 B 后是否继续编辑：%s）', async (editAgain) => {
+    http.put.mockImplementationOnce(async (url: string, payload: WorkflowDefinitionDTO) => {
+      remoteVersion += 1
+      remotePayload = payload
+      throw networkError(url)
+    })
+    const { store, router } = await setup()
+    http.get.mockRejectedValueOnce(networkError('/workflows/definitions/201'))
+    store.updateNodeConfig('start-1', 'variables', { prompt: '已提交但尚未确认的 A' })
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(wrapper!.get('[role="alert"]').text()).toContain(i18n.global.t('workflow.saveRecoveryRetryable'))
+    expect(store.backendVersion).toBe(5)
+    expect(store.pendingSaveSubmission?.expectedVersion).toBe(5)
+    expect(http.put).toHaveBeenCalledTimes(1)
+
+    store.updateNodeConfig('start-1', 'variables', { prompt: '要保存的 B' })
+    let finishWrite!: () => void
+    http.put.mockImplementationOnce((_url: string, payload: WorkflowDefinitionDTO) =>
+      new Promise<WorkflowDefinitionEntity>((resolve) => {
+        finishWrite = () => {
+          remoteVersion += 1
+          remotePayload = payload
+          resolve(definition(remoteVersion, remotePayload))
+        }
+      }))
+    await saveButton().trigger('click')
+    await flushPromises()
+
+    expect(recoveryHint().text()).toBe(i18n.global.t('workflow.saveRecoveryCommittedWithNewerEdits'))
+    expect(saveButton().text()).toBe(i18n.global.t('workflow.saving'))
+    expect(http.put).toHaveBeenCalledTimes(2)
+    expect(http.put.mock.calls.at(-1)?.[1]).toMatchObject({ version: 6, nodes: [{
+      nodeId: 'start-1', config: { variables: { prompt: '要保存的 B' } },
+    }] })
+    if (editAgain) store.updateNodeConfig('start-1', 'variables', { prompt: '提交 B 之后编辑的 C' })
+
+    finishWrite()
+    await flushPromises()
+    expect.soft(recoveryHint().exists()).toBe(false)
+    expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+    expect(saveButton().text()).toBe(i18n.global.t(editAgain ? 'workflow.saveWorkflow' : 'workflow.saved'))
+    expect(store.backendVersion).toBe(7)
+    expect(store.dirty).toBe(editAgain)
+    expect(store.pendingSaveSubmission).toBeNull()
+    expect(store.nodes[0]?.data.config.variables).toEqual({ prompt: editAgain ? '提交 B 之后编辑的 C' : '要保存的 B' })
+    expect(http.put).toHaveBeenCalledTimes(2)
+    expect(http.post).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe('/workflows/201?projectId=11')
+  })
+
   it('远端被他人修改时页面明确冲突且不继续导航', async () => {
     http.put.mockImplementation(async (url: string) => {
       throw networkError(url)
