@@ -52,7 +52,7 @@ async function copyOutput() {
         <button type="button" class="rounded px-2 py-1 text-primary hover:bg-primary-soft" :aria-pressed="mode === 'raw'" data-testid="output-raw" @click="mode = 'raw'">{{ t('raw') }}</button>
         <button type="button" class="rounded px-2 py-1 text-primary hover:bg-primary-soft" :aria-pressed="mode === 'formatted'" :title="t('formatHint')" data-testid="output-formatted" @click="mode = 'formatted'">{{ t('formatted') }}</button>
       </template>
-      <button type="button" class="rounded border border-app-border px-2 py-1 text-primary disabled:opacity-50" :disabled="copyState === 'copying'" data-testid="copy-output" @click="copyOutput">{{ t(copyState === 'copying' ? 'copying' : 'copy') }}</button>
+      <button type="button" class="rounded border border-app-border px-2 py-1 text-primary aria-disabled:cursor-wait aria-disabled:opacity-50" :aria-disabled="copyState === 'copying' || undefined" data-testid="copy-output" @click="copyOutput">{{ t(copyState === 'copying' ? 'copying' : 'copy') }}</button>
       <button v-if="output !== ''" type="button" class="rounded px-2 py-1 text-primary hover:bg-primary-soft" :aria-expanded="expanded" :aria-controls="contentId" data-testid="expand-output" @click="expanded = !expanded">{{ t(expanded ? 'collapse' : 'expand') }}</button>
     </div>
     <pre v-if="output !== ''" :id="contentId" :aria-label="t('result')" class="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-text-secondary [overflow-wrap:anywhere]" :class="expanded ? 'max-h-96 overflow-auto' : 'max-h-24 overflow-hidden'" :tabindex="expanded ? 0 : undefined" data-testid="output-content">{{ content }}</pre>
