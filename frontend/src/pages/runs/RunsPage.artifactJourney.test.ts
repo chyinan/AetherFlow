@@ -4,7 +4,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), subscribe: vi.fn((_options: unknown, _handlers: unknown) => vi.fn()) }))
+import type { WorkflowRun } from '@/types/run'
+
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  subscribe: vi.fn((_options: unknown, _handlers: { onRunPatch: (patch: Partial<WorkflowRun>) => void }) => vi.fn()),
+}))
 // 仅替换传输边界，运行与文件 store、API 映射、页面和路由均使用产品代码。
 vi.mock('@/api/client/apiClient', async original => ({ ...await original<typeof import('@/api/client/apiClient')>(), apiClient: { get: mocks.get } }))
 vi.mock('@/services/realtime/realtimeClient', () => ({ realtimeClient: { subscribeRun: mocks.subscribe } }))
@@ -90,6 +95,75 @@ it('运行详情链接以当前 run.id 打开成品页，真实文件映射只�
   expect(router.currentRoute.value.fullPath).toBe(source)
   router.forward(); await flushPromises()
   expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual(['/runs/run-2'])
+})
+
+it('查看运行中已生成的成品时，完成事件触发的刷新和失败重试不移除已确认的卡片', async () => {
+  const original = mocks.get.getMockImplementation()!
+  const completion = deferred<unknown>()
+  const retry = deferred<unknown>()
+  const source = '/runs/run-42?q=meeting&pageSize=50#detail'
+  const target = { ...runs[1]!, id: 42, status: 'RUNNING' }
+  const runArtifact = { ...files[1]!, workflowId: '42', objectKey: 'workflow/exports/42/export/hash-meeting-summary.md' }
+  mocks.get.mockImplementation((url: string) => {
+    if (url === '/files') return Promise.resolve({ items: [files[0], runArtifact], total: 2, page: 1, pageSize: 100 })
+    if (url === '/workflow-instances') return Promise.resolve({ items: [runs[0], target], total: runs.length })
+    if (url === '/workflow-instances/42') return Promise.resolve(target)
+    if (url === '/workflow/runtime/observability/42') {
+      return Promise.resolve({ workflowId: '42', runtimeState: 'RUNNING', progress: 0.5 })
+    }
+    return original(url)
+  })
+  const { router, store } = await setup(source)
+  expect(store.currentRun?.backendStatus).toBe('RUNNING')
+  const handlers = mocks.subscribe.mock.lastCall?.[1]
+  expect(handlers).toBeDefined()
+
+  await wrapper!.get('[data-testid="view-run-artifacts"]').trigger('click'); await flushPromises()
+  expect(router.currentRoute.value.query.runId).toBe('run-42')
+  const card = wrapper!.get('[title="meeting-summary.md"]').element
+  const artifactCount = () => wrapper!.get('[data-testid="artifact-section"] > div > span').text()
+  const fileActionsDisabled = () => wrapper!.findAll<HTMLButtonElement>('[data-testid="artifact-section"] article button').map(button => button.element.disabled)
+  const artifactStatus = () => wrapper!.get('[data-testid="artifact-section"] [role="status"]').text()
+  expect(artifactCount()).toBe('1')
+  expect(fileActionsDisabled()).toEqual([false, false, false])
+
+  const active = mocks.get.getMockImplementation()!
+  let refreshes = 0
+  mocks.get.mockImplementation(url => {
+    if (url === '/files') return ++refreshes === 1 ? completion.promise : retry.promise
+    return active(url)
+  })
+
+  // 从真实路由进入成品页后，模拟流传输只交付终态回执；刷新链路仍使用真实 Pinia 与 API 映射。
+  handlers!.onRunPatch({ runtimeWorkflowId: '42', backendStatus: 'SUCCESS', status: 'success', progress: 100 })
+  await flushPromises()
+  expect(store.currentRun?.backendStatus).toBe('SUCCESS')
+  expect(refreshes).toBe(1)
+  expect.soft(wrapper!.element.querySelector('[title="meeting-summary.md"]')).toBe(card)
+  expect.soft(artifactCount()).toBe('1')
+  expect.soft(artifactStatus()).toContain('显示上次读取的成品')
+  expect.soft(fileActionsDisabled()).toEqual([true, true, true])
+
+  completion.reject(new Error('模拟成品刷新失败')); await flushPromises()
+  expect.soft(wrapper!.element.querySelector('[title="meeting-summary.md"]')).toBe(card)
+  expect.soft(artifactCount()).toBe('1')
+  expect.soft(artifactStatus()).toContain('显示上次读取的成品')
+  expect.soft(fileActionsDisabled()).toEqual([true, true, true])
+  expect(wrapper!.get('[role="alert"]').text()).toContain('模拟成品刷新失败')
+
+  await wrapper!.get('[role="alert"] button').trigger('click'); await flushPromises()
+  expect(refreshes).toBe(2)
+  expect.soft(wrapper!.element.querySelector('[title="meeting-summary.md"]')).toBe(card)
+  expect.soft(artifactStatus()).toContain('显示上次读取的成品')
+  expect.soft(fileActionsDisabled()).toEqual([true, true, true])
+  const final = { ...runArtifact, id: 103, name: 'final-summary.md' }
+  retry.resolve({ items: [files[0], runArtifact, final], total: 3, page: 1, pageSize: 100 }); await flushPromises()
+  expect(router.currentRoute.value.query.runId).toBe('run-42')
+  expect(artifactCount()).toBe('2')
+  expect(fileActionsDisabled()).toEqual([false, false, false, false, false, false])
+  expect(wrapper!.find('[title="final-summary.md"]').exists()).toBe(true)
+  expect(wrapper!.find('[data-testid="artifact-section"] [role="status"]').exists()).toBe(false)
+  expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
 })
 
 it('文件深链接刷新时也能由 API 元数据重新建立关联，不依赖先访问过运行页', async () => {

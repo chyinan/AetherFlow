@@ -12,6 +12,7 @@ const props = defineProps<{
   layout?: 'grid' | 'single'
   deletingIds?: string[]
   downloadingIds?: string[]
+  actionsDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -52,7 +53,7 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
           <button
             type="button"
             class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-primary/30 hover:bg-primary-soft hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="props.downloadingIds?.includes(file.id)"
+            :disabled="props.actionsDisabled || props.downloadingIds?.includes(file.id)"
             :title="t('files.download')"
             :aria-label="t('files.download')"
             @click="emit('download', file.id)"
@@ -62,7 +63,7 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
           <button
             type="button"
             class="grid h-8 w-8 place-items-center rounded-md border border-app-border bg-white text-text-secondary transition hover:border-status-error/30 hover:bg-red-50 hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="props.deletingIds?.includes(file.id)"
+            :disabled="props.actionsDisabled || props.deletingIds?.includes(file.id)"
             :title="t('files.delete')"
             :aria-label="t('files.delete')"
             @click="emit('delete', file.id)"
@@ -93,7 +94,8 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
         </div>
         <button
           type="button"
-          class="mt-3 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-primary transition hover:border-primary/30 hover:bg-primary-soft"
+          class="mt-3 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-primary transition hover:border-primary/30 hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="props.actionsDisabled"
           @click="emit('toggleSource', file.id)"
         >
           {{ file.source === 'input' ? t('files.markAsArtifact') : t('files.markAsInput') }}
