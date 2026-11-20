@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useWorkflowStore } from '@/stores/workflowStore'
@@ -46,7 +46,7 @@ const workflowStore = useWorkflowStore()
 const { t } = useI18n()
 const activeTab = ref<'node' | 'tool'>('node')
 const search = ref('')
-const hoveredTemplate = ref<NodeTemplate | null>(null)
+const previewedTemplate = ref<NodeTemplate | null>(null)
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
   start: Upload,
@@ -126,6 +126,11 @@ const visibleTemplates = computed(() => {
   })
 })
 
+// 筛选、切换分类或目录更新移除当前条目时，不保留已失效的详情，也不在条目重新出现时自动恢复。
+watch(visibleTemplates, (templates) => {
+  if (previewedTemplate.value && !templates.includes(previewedTemplate.value)) previewedTemplate.value = null
+})
+
 const groupedTemplates = computed(() =>
   groupOrder
     .map((group) => ({
@@ -195,8 +200,8 @@ function selectTemplate(template: NodeTemplate) {
             type="button"
             :disabled="isNodeTemplateBlocked(template)"
             class="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-app-bg2 disabled:cursor-not-allowed disabled:bg-app-muted"
-            @mouseenter="hoveredTemplate = template"
-            @focus="hoveredTemplate = template"
+            @mouseenter="previewedTemplate = template"
+            @focus="previewedTemplate = template"
             @click="selectTemplate(template)"
           >
             <span class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
@@ -220,21 +225,21 @@ function selectTemplate(template: NodeTemplate) {
       </div>
     </section>
 
-    <aside v-if="hoveredTemplate" class="hidden w-[260px] rounded-xl border border-app-border bg-white p-4 shadow-panel xl:block">
+    <aside v-if="previewedTemplate" class="hidden w-[260px] rounded-xl border border-app-border bg-white p-4 shadow-panel xl:block">
       <div class="flex items-center gap-3">
         <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
-          <component :is="iconMap[hoveredTemplate.kind]" class="h-4 w-4" />
+          <component :is="iconMap[previewedTemplate.kind]" class="h-4 w-4" />
         </span>
         <div class="min-w-0">
-          <p class="truncate text-sm font-semibold text-text-primary">{{ templateLabel(hoveredTemplate) }}</p>
-          <p class="truncate text-xs text-text-muted">{{ hoveredTemplate.provider ?? t(`workflow.catalog.categories.${hoveredTemplate.category}`) }}</p>
+          <p class="truncate text-sm font-semibold text-text-primary">{{ templateLabel(previewedTemplate) }}</p>
+          <p class="truncate text-xs text-text-muted">{{ previewedTemplate.provider ?? t(`workflow.catalog.categories.${previewedTemplate.category}`) }}</p>
         </div>
       </div>
-      <p class="mt-3 text-sm leading-6 text-text-secondary">{{ templateDescription(hoveredTemplate) }}</p>
+      <p class="mt-3 text-sm leading-6 text-text-secondary">{{ templateDescription(previewedTemplate) }}</p>
       <div class="mt-4 rounded-lg border border-app-border bg-app-bg2 p-3">
         <p class="text-xs font-semibold text-text-muted">{{ t('common.outputs') }}</p>
         <div class="mt-2 flex flex-wrap gap-1">
-          <span v-for="output in hoveredTemplate.outputs" :key="output" class="rounded bg-white px-2 py-1 text-[11px] text-text-secondary">
+          <span v-for="output in previewedTemplate.outputs" :key="output" class="rounded bg-white px-2 py-1 text-[11px] text-text-secondary">
             {{ output }}
           </span>
         </div>

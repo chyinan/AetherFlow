@@ -53,7 +53,7 @@ async function openMenu() {
   const menu = view.getComponent(NodeAddMenu)
   const option = (kind: WorkflowNodeKind) => menu.findAll('button').find(button =>
     button.text().startsWith(i18n.global.t(`workflow.catalog.items.${kind}.label`)))!
-  return { view, store, source, option, capabilities }
+  return { view, menu, store, source, option, capabilities }
 }
 
 describe('节点加号菜单的能力提示', () => {
@@ -141,5 +141,72 @@ describe('节点加号菜单的能力提示', () => {
     const added = store.nodes.find(node => node.data.kind === 'llm')!
     expect(store.edges).toEqual([expect.objectContaining({ source: source.id, target: added.id })])
     expect(view.findComponent(NodeAddMenu).exists()).toBe(false)
+  })
+})
+
+describe('节点加号菜单的条目详情', () => {
+  it('键盘聚焦的节点切换到工具后不再显示，返回时也不会恢复旧详情', async () => {
+    const { menu, option, store } = await openMenu()
+    const nodesTab = menu.findAll('button').find(button => button.text() === i18n.global.t('workflow.catalog.tabs.nodes'))!
+    const toolsTab = menu.findAll('button').find(button => button.text() === i18n.global.t('workflow.catalog.tabs.tools'))!
+    await option('prompt').trigger('focus')
+    expect(menu.get('aside').text()).toContain(i18n.global.t('workflow.catalog.items.prompt.label'))
+
+    await toolsTab.trigger('click')
+    expect(option('prompt')).toBeUndefined()
+    expect(menu.find('aside').exists()).toBe(false)
+
+    await nodesTab.trigger('click')
+    expect(option('prompt')).toBeDefined()
+    expect(menu.find('aside').exists()).toBe(false)
+    await option('prompt').trigger('focus')
+    expect(menu.get('aside').text()).toContain(i18n.global.t('workflow.catalog.items.prompt.label'))
+    expect(store.dirty).toBe(false)
+  })
+
+  it('搜索仍包含悬停项时保留详情，排除后不展示或在清空时恢复它', async () => {
+    const { menu, option } = await openMenu()
+    const search = menu.get('input')
+    await option('prompt').trigger('mouseenter')
+    const details = menu.get('aside').text()
+
+    await search.setValue('prompt')
+    expect(menu.get('aside').text()).toBe(details)
+    await search.setValue('synthetic-node-that-does-not-exist')
+    expect(menu.text()).toContain(i18n.global.t('common.noResult'))
+    expect(menu.find('aside').exists()).toBe(false)
+
+    await search.setValue('')
+    expect(option('prompt')).toBeDefined()
+    expect(menu.find('aside').exists()).toBe(false)
+    await option('prompt').trigger('mouseenter')
+    expect(menu.get('aside').text()).toBe(details)
+  })
+
+  it('目录替换同类条目时不继续展示旧输出，重新聚焦才能查看新输出', async () => {
+    const { menu, option, store } = await openMenu()
+    await option('prompt').trigger('focus')
+    const oldOutputs = store.templates.find(template => template.kind === 'prompt')!.outputs
+    expect(oldOutputs.length).toBeGreaterThan(0)
+    expect(menu.get('aside').text()).toContain(oldOutputs[0]!)
+
+    store.templates = store.templates.map(template => template.kind === 'prompt'
+      ? { ...template, outputs: ['syntheticNewOutput'] }
+      : template)
+    await nextTick()
+    expect(option('prompt')).toBeDefined()
+    expect(menu.find('aside').exists()).toBe(false)
+
+    await option('prompt').trigger('focus')
+    expect(menu.get('aside').text()).toContain('syntheticNewOutput')
+  })
+
+  it('只替换其他目录项时保留当前可见项的输出详情', async () => {
+    const { menu, option, store } = await openMenu()
+    await option('prompt').trigger('focus')
+    const details = menu.get('aside').text()
+    store.templates = store.templates.map(template => template.kind === 'llm' ? { ...template } : template)
+    await nextTick()
+    expect(menu.get('aside').text()).toBe(details)
   })
 })
