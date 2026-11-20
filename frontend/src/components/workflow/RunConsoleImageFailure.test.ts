@@ -12,7 +12,7 @@ vi.mock('@/stores/uiStore', () => ({ useUiStore: () => state.ui }))
 let wrappers: ReturnType<typeof mount>[] = []
 
 beforeEach(() => {
-  state.run = reactive({ currentRun: { id: 'run-1', workflowId: 'workflow-1', status: 'failed' }, logsLoading: false,
+  state.run = reactive({ currentRun: { id: 'run-1', workflowId: 'workflow-1', status: 'failed' }, logsLoading: false, logHistoryRetryByRunId: {},
     logs: [{ id: 'log-1', time: '10:00', level: 'error', nodeId: 'image-1', message: 'secret-prefix [IMAGE_EXECUTION:COMFYUI:QUEUE:sampler:REJECTED] secret-body' }] })
   state.workflow = reactive({ workflowId: 'workflow-1', backendDefinitionId: null,
     nodes: [{ id: 'image-1', selected: false, data: { kind: 'image-generation' } }, { id: 'image-2', selected: true, data: { kind: 'upscale' } }] })

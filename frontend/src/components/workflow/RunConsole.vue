@@ -2,6 +2,7 @@
 import { PanelRightClose, Play } from 'lucide-vue-next'
 import { computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import ImageExecutionFailureCard from '@/components/run/ImageExecutionFailureCard.vue'
@@ -11,12 +12,18 @@ import { useUiStore } from '@/stores/uiStore'
 import { workflowRunBelongsToWorkflow } from '@/utils/workflowRunState'
 import { requestNodeConfigFieldFocus } from '@/utils/focusNodeConfig'
 import { parseImageExecutionFailure, type ImageExecutionFailure } from '@/utils/imageExecutionFailure'
+import { runConsoleMessages } from './runConsoleMessages'
 
 const runStore = useRunStore()
 const workflowStore = useWorkflowStore()
 const uiStore = useUiStore()
 const visibleLogs = computed(() => runStore.logs.slice(-24).map((log) => ({ ...log, imageFailure: log.imageFailure ?? parseImageExecutionFailure(log.message) })))
 const { t } = useI18n()
+const { t: consoleText } = useI18n({ useScope: 'local', messages: runConsoleMessages })
+const unavailableLogRunId = computed(() => {
+  const runId = runStore.currentRun?.id
+  return runId && runStore.logHistoryRetryByRunId[runId] ? runId : undefined
+})
 const emit = defineEmits<{
   close: []
 }>()
@@ -62,6 +69,14 @@ async function locate(nodeId: string | undefined, failure: ImageExecutionFailure
       <p v-if="runStore.logsLoading" class="rounded bg-white/5 px-2 py-1 text-slate-400">
         {{ t('runs.loading') }}
       </p>
+      <div v-else-if="unavailableLogRunId" class="mb-2 rounded border border-amber-300/30 bg-amber-300/10 px-2 py-1 text-amber-200">
+        <p role="status" data-testid="run-console-saved-logs-unavailable">{{ consoleText('savedLogsUnavailable') }}</p>
+        <RouterLink
+          :to="{ name: 'run-detail', params: { id: unavailableLogRunId } }"
+          data-testid="run-console-log-history"
+          class="inline-block underline underline-offset-2"
+        >{{ consoleText('openRunDetails') }}</RouterLink>
+      </div>
       <p v-else-if="visibleLogs.length === 0" class="rounded bg-white/5 px-2 py-1 text-slate-400">
         {{ t('runs.noLogs') }}
       </p>
