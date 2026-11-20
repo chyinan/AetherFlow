@@ -5,7 +5,7 @@ import { listDefinitions, listDefinitionVersions, type WorkflowDefinitionEntity,
 const props = defineProps<{ config: Record<string, unknown> }>()
 const emit = defineEmits<{ update: [name: string, value: unknown]; patch: [values: Record<string, unknown>] }>()
 const definitions = ref<WorkflowDefinitionEntity[]>([])
-const versions = ref<WorkflowVersionSummary[]>([])
+const versions = ref<WorkflowVersionSummary[] | null>(null)
 const definitionsError = ref('')
 const versionsError = ref('')
 const loadingDefinitions = ref(false)
@@ -18,6 +18,18 @@ let generation = 0
 let request: AbortController | null = null
 const definitionId = computed(() => Number(props.config.definitionId) || 0)
 const selectedVersion = computed(() => Number(props.config.definitionVersion) || 0)
+const versionListed = computed(() => versions.value?.some(item => item.version === selectedVersion.value))
+const pinnedVersionMissing = computed(() => Boolean(selectedVersion.value) && versionListed.value === false)
+const versionFeedback = computed(() => {
+  if (versionsError.value) return versionsError.value
+  if (pinnedVersionMissing.value) {
+    const kept = `版本列表中没有已固定的 v${selectedVersion.value}；原版本保持不变`
+    return versions.value?.length
+      ? `${kept}，请选择其他可用版本或重试列表`
+      : `${kept}，没有可调用的不可变版本`
+  }
+  return versions.value?.length === 0 ? '该工作流还没有可调用的不可变版本' : ''
+})
 const fields = [
   { name: 'inputMappings', label: '输入映射', hint: '子输入变量名 → 父变量路径，例如 {"text":"request.text"}' },
   { name: 'outputMappings', label: '输出映射', hint: '父输出变量名 → 子变量路径，例如 {"answer":"result.items[0].text"}' },
@@ -53,7 +65,7 @@ async function loadVersions(id: number) {
   const token = ++generation
   request?.abort()
   request = new AbortController()
-  versions.value = []
+  versions.value = null
   versionsError.value = ''
   loadingVersions.value = false
   if (!id) return
@@ -62,7 +74,6 @@ async function loadVersions(id: number) {
     const data = await listDefinitionVersions(id, request.signal)
     if (token !== generation || !active) return
     versions.value = data
-    versionsError.value = data.length ? '' : '该工作流还没有可调用的不可变版本'
   } catch {
     if (token === generation && active) versionsError.value = '无法读取版本；已选择的版本号保持不变'
   } finally {
@@ -119,13 +130,13 @@ function updateMapping(name: string, event: Event) {
     <label class="block text-sm font-semibold">固定版本
       <select data-config-field="definitionVersion" class="mt-2 w-full rounded-lg border border-app-border p-2" :disabled="!definitionId || loadingVersions" :value="selectedVersion" @change="selectVersion">
         <option :value="0">请选择固定版本</option>
-        <option v-if="selectedVersion && !versions.some(item => item.version === selectedVersion)" :value="selectedVersion">v{{ selectedVersion }}（待验证）</option>
+        <option v-if="selectedVersion && !versionListed" :value="selectedVersion">v{{ selectedVersion }}（{{ pinnedVersionMissing ? '列表中未找到' : '待验证' }}）</option>
         <option v-for="item in versions" :key="item.version" :value="item.version">v{{ item.version }} · {{ item.createdAt ?? '' }}</option>
       </select>
     </label>
     <p v-if="loadingVersions" role="status" class="text-sm text-text-secondary">正在读取版本…</p>
-    <div v-if="versionsError" class="text-sm text-status-error">
-      <p role="alert">{{ versionsError }}</p>
+    <div v-if="versionFeedback" class="text-sm text-status-error">
+      <p role="alert">{{ versionFeedback }}</p>
       <button type="button" data-action="retry-versions" :disabled="!definitionId || loadingVersions" @click="loadVersions(definitionId)">重试版本列表</button>
     </div>
     <label v-for="field in fields" :key="field.name" class="block text-sm font-semibold">{{ field.label }}
