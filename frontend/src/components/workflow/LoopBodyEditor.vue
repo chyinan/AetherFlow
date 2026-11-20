@@ -13,9 +13,13 @@ const nodes = computed<BodyNode[]>(() => Array.isArray(props.modelValue) ? props
 const selectedType = ref('WHISPER')
 const jsonErrors = ref<Record<string, string>>({})
 const available = computed(() => props.catalog.filter(item => !['START', 'END', 'CONDITION', 'LOOP', 'ITERATION', 'QUESTION_CLASSIFIER'].includes(item.type ?? item.nodeType ?? '')))
-watch(() => props.modelValue, () => { jsonErrors.value = {} })
+let localBodyUpdate: BodyNode[] | undefined
+function emitBodyUpdate(next: BodyNode[]) {
+  localBodyUpdate = next
+  emit('update:modelValue', next)
+}
 function update(index: number, patch: Partial<BodyNode>) {
-  emit('update:modelValue', nodes.value.map((node, i) => i === index ? { ...node, ...patch } : node))
+  emitBodyUpdate(nodes.value.map((node, i) => i === index ? { ...node, ...patch } : node))
 }
 function add() {
   if (nodes.value.length >= 100) return
@@ -27,13 +31,13 @@ function add() {
   if (selectedType.value === 'WHISPER') { delete config.fileUrl; delete config.fileId; config.fileUrlVariable = 'item' }
   if (selectedType.value === 'HTTP_REQUEST') { delete config.url; delete config.bodyJson; delete config.bodyVariable; config.urlVariable = 'item'; config.method = 'GET'; config.errorStrategy = 'FAIL' }
   if (selectedType.value === 'IMAGE_GENERATION') { delete config.prompt; config.promptVariable = 'item' }
-  emit('update:modelValue', [...nodes.value, { nodeId: `step-${serial}`, nodeType: selectedType.value, displayName: item?.displayName ?? selectedType.value, config }])
+  emitBodyUpdate([...nodes.value, { nodeId: `step-${serial}`, nodeType: selectedType.value, displayName: item?.displayName ?? selectedType.value, config }])
 }
 function move(index: number, offset: number) {
   const target = index + offset
   if (target < 0 || target >= nodes.value.length) return
   const next = [...nodes.value]; [next[index], next[target]] = [next[target]!, next[index]!]
-  emit('update:modelValue', next)
+  emitBodyUpdate(next)
 }
 function fields(node: BodyNode) {
   const connectionFields = ['connectionId', 'provider', 'checkpoint', 'vae', 'lora', 'sampler', 'scheduler', 'upscaler']
@@ -42,6 +46,34 @@ function fields(node: BodyNode) {
     && !(['IMAGE_GENERATION', 'UPSCALE'].includes(node.nodeType) && connectionFields.includes(field.name))
     && !(node.nodeType === 'TEMPLATE_TRANSFORM' && node.config.transformMode === 'structured' && ['mapping', 'template', 'outputVariable'].includes(field.name)))
 }
+function isJsonField(field: WorkflowNodeConfigSchema) {
+  return field.type === 'OBJECT' || field.type === 'ARRAY'
+}
+watch(() => props.modelValue, (next, previous) => {
+  // 只延续当前组件发出且父级已接纳的局部编辑；撤销、重载和替换仍丢弃未提交原文。
+  const fromLocalEdit = localBodyUpdate !== undefined && toRaw(next) === localBodyUpdate
+  localBodyUpdate = undefined
+  if (!fromLocalEdit || !Array.isArray(previous)) {
+    jsonErrors.value = {}
+    return
+  }
+  if (!Object.keys(jsonErrors.value).length) return
+  const previousSteps = new Map(previous.map((node: BodyNode) => [node.nodeId, node]))
+  const retained: Record<string, string> = {}
+  for (const node of nodes.value) {
+    const before = previousSteps.get(node.nodeId)
+    if (before?.nodeType !== node.nodeType) continue
+    for (const field of fields(node)) {
+      const key = `${node.nodeId}:${field.name}`
+      const draft = jsonErrors.value[key]
+      if (draft !== undefined && isJsonField(field) && !field.options?.length
+        && Object.is(toRaw(before.config[field.name]), toRaw(node.config[field.name]))) {
+        retained[key] = draft
+      }
+    }
+  }
+  jsonErrors.value = retained
+})
 function applyValues(values: Record<string, unknown>, nodeId: string) {
   const index = nodes.value.findIndex(node => node.nodeId === nodeId)
   if (index >= 0) update(index, { config: { ...nodes.value[index]!.config, ...values } })
@@ -51,11 +83,10 @@ function change(index: number, field: WorkflowNodeConfigSchema, event: Event) {
   const input = event.target as HTMLInputElement
   let result: unknown = input.value
   const key = `${nodes.value[index]?.nodeId}:${field.name}`
-  const jsonField = field.type === 'OBJECT' || field.type === 'ARRAY'
   try {
     if (field.type === 'NUMBER' || field.type === 'INTEGER') result = input.value === '' ? undefined : Number(input.value)
     if (field.type === 'BOOLEAN') result = input.checked
-    if (jsonField) result = input.value.trim() ? JSON.parse(input.value) : undefined
+    if (isJsonField(field)) result = input.value.trim() ? JSON.parse(input.value) : undefined
     delete jsonErrors.value[key]
     update(index, { config: { ...nodes.value[index]!.config, [field.name]: result } })
   } catch { jsonErrors.value[key] = input.value }
@@ -72,13 +103,13 @@ function displayDraft(node: BodyNode, field: WorkflowNodeConfigSchema) {
     <p v-if="!nodes.length" class="text-xs text-text-muted">{{ t('workflow.inspector.loopEditor.empty') }}</p>
     <article v-for="(node, index) in nodes" :key="node.nodeId" class="space-y-2 rounded-lg border border-app-border bg-app-muted p-3" :data-body-id="node.nodeId">
       <div class="flex items-center gap-2"><span class="text-xs">{{ index + 1 }} · {{ node.nodeType }}</span><input :aria-label="t('workflow.inspector.loopEditor.stepName')" class="min-w-0 flex-1 rounded px-2 py-1 text-sm" :value="node.displayName" @input="update(index, { displayName: ($event.target as HTMLInputElement).value })" /></div>
-      <div class="flex gap-2 text-xs"><button type="button" :aria-label="t('workflow.inspector.loopEditor.moveUp')" :disabled="index === 0" @click="move(index, -1)">{{ t('workflow.inspector.loopEditor.moveUp') }}</button><button type="button" :aria-label="t('workflow.inspector.loopEditor.moveDown')" :disabled="index === nodes.length - 1" @click="move(index, 1)">{{ t('workflow.inspector.loopEditor.moveDown') }}</button><button type="button" :aria-label="t('workflow.inspector.loopEditor.deleteStep')" @click="emit('update:modelValue', nodes.filter((_, i) => i !== index))">{{ t('workflow.inspector.loopEditor.deleteStep') }}</button></div>
+      <div class="flex gap-2 text-xs"><button type="button" :aria-label="t('workflow.inspector.loopEditor.moveUp')" :disabled="index === 0" @click="move(index, -1)">{{ t('workflow.inspector.loopEditor.moveUp') }}</button><button type="button" :aria-label="t('workflow.inspector.loopEditor.moveDown')" :disabled="index === nodes.length - 1" @click="move(index, 1)">{{ t('workflow.inspector.loopEditor.moveDown') }}</button><button type="button" :aria-label="t('workflow.inspector.loopEditor.deleteStep')" @click="emitBodyUpdate(nodes.filter((_, i) => i !== index))">{{ t('workflow.inspector.loopEditor.deleteStep') }}</button></div>
       <NodeConnectionSelector v-if="node.nodeType === 'IMAGE_GENERATION' || node.nodeType === 'UPSCALE'" :node-id="node.nodeId" :node-type="node.nodeType" :config="node.config" @apply="applyValues" @update-config="(key, value) => applyValues({ [key]: value }, node.nodeId)" />
       <StructuredMappingEditor v-if="node.nodeType === 'TEMPLATE_TRANSFORM' && node.config.transformMode === 'structured'" :node-id="node.nodeId" :config="node.config" @apply="applyValues" />
       <label v-for="field in fields(node)" :key="field.name" class="block text-xs"><span>{{ field.name }}{{ field.required ? ' *' : '' }}</span>
         <select v-if="field.options?.length" class="mt-1 w-full rounded border p-2" :value="value(node, field)" @change="change(index, field, $event)"><option v-for="option in field.options" :key="String(option)" :value="option">{{ option }}</option></select>
         <input v-else-if="field.type === 'BOOLEAN'" type="checkbox" :checked="Boolean(value(node, field))" @change="change(index, field, $event)" />
-        <textarea v-else-if="field.type === 'OBJECT' || field.type === 'ARRAY'" class="mt-1 w-full rounded border p-2 font-mono" :value="displayDraft(node, field)" @change="change(index, field, $event)" />
+        <textarea v-else-if="isJsonField(field)" class="mt-1 w-full rounded border p-2 font-mono" :value="displayDraft(node, field)" @change="change(index, field, $event)" />
         <input v-else class="mt-1 w-full rounded border p-2" :type="field.type === 'NUMBER' || field.type === 'INTEGER' ? 'number' : 'text'" :value="value(node, field)" @input="change(index, field, $event)" />
         <span v-if="jsonErrors[`${node.nodeId}:${field.name}`]" class="text-status-error" role="alert">{{ t('workflow.inspector.loopEditor.invalidJson') }}</span>
       </label>
