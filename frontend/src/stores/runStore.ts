@@ -231,6 +231,7 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
 type RunRecoveryOptions = {
   readonly expectedRunId?: string
   readonly selectionRequestId?: number
+  readonly archiveReady?: Promise<'settled' | 'failed'>
 }
 
 export const useRunStore = defineStore('run', {
@@ -456,34 +457,40 @@ export const useRunStore = defineStore('run', {
         this.logs = cachedLogs ?? []
         // 缓存可能仅含恢复或实时事件；一次历史读取失败后，下次打开仍要读日志。
         const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryRetryByRunId[runId] === true
-        let selectedLogs = cachedLogs ?? []
-        let logReadError: string | undefined
-        if (needsLogRead) {
-          try {
-            selectedLogs = await runApi.getLogs(runId)
-          } catch (error) {
-            if (!toApiError(error, 'runtime').retryable) throw error
-            // 日志读取暂时失败时保留已读日志，不阻断该运行的概况、事件恢复及实时订阅。
-            logReadError = errorMessage(error)
+        const isCurrentRun = () => isCurrentSelection() && this.currentRun?.id === runId
+        const readSavedLogs = async () => {
+          let selectedLogs = cachedLogs ?? []
+          let logReadError: string | undefined
+          if (needsLogRead) {
+            try {
+              selectedLogs = await runApi.getLogs(runId)
+            } catch (error) {
+              if (!isCurrentRun()) return
+              if (!toApiError(error, 'runtime').retryable) throw error
+              logReadError = errorMessage(error)
+            }
           }
+          if (!isCurrentRun()) return
+          if (logReadError) {
+            this.logHistoryRetryByRunId[runId] = true
+            this.error = logReadError
+          } else if (needsLogRead) {
+            delete this.logHistoryRetryByRunId[runId]
+          }
+          this.logs = mergeLogs(selectedLogs, this.logs)
+          this.logsByRunId[runId] = this.logs
         }
-        if (!isCurrentSelection() || this.currentRun?.id !== runId) {
-          return
-        }
-        if (logReadError) {
-          this.logHistoryRetryByRunId[runId] = true
-          this.error = logReadError
-        } else if (needsLogRead) {
-          delete this.logHistoryRetryByRunId[runId]
-        }
-        // 同一运行的刷新保留请求期间收到的实时日志。
-        // 展示顺序由 mergeLogs 按事件时间决定，请求到达顺序不参与排序。
-        this.logs = mergeLogs(selectedLogs, this.logs)
-        this.logsByRunId[runId] = this.logs
-        await this.recoverCurrentRunRuntime({ expectedRunId: runId, selectionRequestId })
-        if (!isCurrentSelection() || this.currentRun?.id !== runId) {
-          return
-        }
+        // 归档日志不阻塞进度或节点输出，但日志仍按原先的归档→恢复顺序合并。
+        const savedLogs = readSavedLogs()
+        await Promise.all([
+          savedLogs,
+          this.recoverCurrentRunRuntime({
+            expectedRunId: runId,
+            selectionRequestId,
+            archiveReady: savedLogs.then(() => 'settled', () => 'failed'),
+          }),
+        ])
+        if (!isCurrentRun()) return
         this.subscribeCurrentRun()
       } catch (error) {
         if (isCurrentSelection()) {
@@ -799,11 +806,11 @@ export const useRunStore = defineStore('run', {
       const nodeVersions = { ...(expectedRunId ? this.nodeUpdateVersions[expectedRunId] : undefined) }
       // 只丢弃跨越取消完成的旧恢复；之后主动读取已取消运行仍可补齐历史日志。
       const wasCancelled = Boolean(targetRun && isCancelledRun(targetRun))
-      const isCurrentTarget = () => Boolean(
+      const isCurrentTarget = (allowCancelled = wasCancelled) => Boolean(
         targetRun
         && expectedRunId
         && this.currentRun?.id === expectedRunId
-        && (wasCancelled || !isCancelledRun(this.currentRun))
+        && (allowCancelled || !isCancelledRun(this.currentRun))
         && this.selectionRequestId === selectionRequestId
         && this.runtimeRecoveryRequestId === recoveryRequestId,
       )
@@ -811,9 +818,9 @@ export const useRunStore = defineStore('run', {
         return
       }
 
-      const reportRecoveryFailure = (error: unknown, partial: boolean) => {
+      const reportRecoveryFailure = (error: unknown, partial: boolean, showAsMainError: boolean) => {
         const message = errorMessage(error)
-        this.error = message
+        if (showAsMainError) this.error = message
         const occurredAt = new Date()
         const summary = partial
           ? 'Runtime recovery incomplete; showing available details.'
@@ -833,7 +840,8 @@ export const useRunStore = defineStore('run', {
       try {
         recovery = await runApi.recoverRuntime(targetRun)
       } catch (error) {
-        if (isCurrentTarget()) reportRecoveryFailure(error, false)
+        const showAsMainError = !options.archiveReady || await options.archiveReady !== 'failed'
+        if (isCurrentTarget()) reportRecoveryFailure(error, false, showAsMainError)
         return
       }
 
@@ -860,6 +868,11 @@ export const useRunStore = defineStore('run', {
         this.patchCurrentRun(recovery.runPatch)
       }
 
+      // 若本次恢复确认取消，仍接受自己的历史；等待期间外部确认的取消则使它失效。
+      const recoveredCancellation = recovery.runPatch?.backendStatus === 'CANCELLED'
+        && Boolean(this.currentRun && isCancelledRun(this.currentRun))
+      const showAsMainError = !options.archiveReady || await options.archiveReady !== 'failed'
+      if (!isCurrentTarget(wasCancelled || recoveredCancellation)) return
       if (recovery.logs.length > 0) {
         // 恢复出的完整历史是权威快照，覆盖同 ID 的旧内容；
         // 展示顺序仍由事件时间决定，较旧的历史不会把最新窗口挤掉。
@@ -869,7 +882,7 @@ export const useRunStore = defineStore('run', {
         }
       }
 
-      if (recovery.failure) reportRecoveryFailure(recovery.failure.error, true)
+      if (recovery.failure) reportRecoveryFailure(recovery.failure.error, true, showAsMainError)
     },
     subscribeCurrentRun() {
       if (!this.currentRun) {
