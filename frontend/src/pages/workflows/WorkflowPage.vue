@@ -985,11 +985,9 @@ function templateByKind(kind: WorkflowNodeKind) {
   return workflowStore.templates.find((template) => template.kind === kind)
 }
 
-function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
+function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction): boolean {
   const template = templateByKind(action.nodeKind)
-  if (!template) {
-    return
-  }
+  if (!template) return false
 
   const node = action.type === 'add-node-after'
     ? workflowStore.addNodeAfter(action.sourceNodeId, template)
@@ -998,9 +996,9 @@ function handleCopilotCanvasAction(action: WorkflowCopilotCanvasAction) {
         y: 160 + workflowStore.nodes.length * 30,
       })
 
-  if (node) {
-    uiStore.setSelectedNode(node.id)
-  }
+  if (!node) return false
+  uiStore.setSelectedNode(node.id)
+  return true
 }
 
 function handleCopilotWorkflowDraft(request: CopilotWorkflowDraftApplyRequest, allowUnavailableCustomDrafts = false) {
@@ -1271,7 +1269,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
             :apply-workflow-draft="handleCopilotWorkflowDraft"
             :apply-canvas-edit="handleCopilotCanvasEdit"
             :save-custom-node-drafts="saveCopilotCustomNodeDrafts"
-            @apply-canvas-action="handleCopilotCanvasAction"
+            :apply-canvas-action="handleCopilotCanvasAction"
             @close="showCopilot = false"
           />
         </div>

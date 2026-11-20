@@ -1687,6 +1687,7 @@ export const jaJP = {
       applyMediaDraft: 'メディア要約の下書きを適用',
       applyMediaDraftHint: 'ビデオ要約チェーンを現在のキャンバスに追加します。',
       applied: '適用しました',
+      notApplied: 'ノードを追加できませんでした。元のノードがキャンバスにあり、提案されたノードが利用可能か確認してから、再試行するか提案を求め直してください。',
     },
   },
 } satisfies typeof enUS

@@ -37,6 +37,7 @@ const props = defineProps<{
   context?: WorkflowCopilotSnapshot
   applyWorkflowDraft?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
   applyCanvasEdit?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
+  applyCanvasAction?: (action: WorkflowCopilotCanvasAction) => boolean
   saveCustomNodeDrafts?: (definitions: CustomDefinition[], signal?: AbortSignal) => Promise<void>
 }>()
 type CustomNodePreview = {
@@ -76,7 +77,7 @@ const providers = ref<ModelProvider[]>([])
 const selectedModelId = ref('')
 const conversationId = ref<string>()
 const historyNotice = ref('')
-const appliedActionIds = ref(new Set<string>())
+const canvasActionResults = ref(new Map<string, boolean>())
 const plannerMode = ref(false)
 const plannerController = ref<AbortController | null>(null)
 const chatController = ref<AbortController | null>(null)
@@ -114,7 +115,6 @@ const { t: presentationText } = useI18n({ useScope: 'local', messages: {
 } })
 const emit = defineEmits<{
   close: []
-  'apply-canvas-action': [action: WorkflowCopilotCanvasAction]
 }>()
 
 const messages = ref<CopilotMessage[]>([
@@ -396,7 +396,7 @@ function resetConversationState() {
   cancelledPlanMessageId.value = null
   canvasEditPendingId.value = null
   canvasEditResults.value.clear()
-  appliedActionIds.value.clear()
+  canvasActionResults.value.clear()
   loading.value = false
   conversationSelectionPending.value = false
   conversationIdentityUnconfirmed.value = false
@@ -749,6 +749,12 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     rememberConversation(assistantMessage.conversationId ?? conversationId.value)
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
     if (current) {
+      // 建议在流式回复中已可点击，最终消息替换本地 ID 时保留添加回执。
+      const result = canvasActionResults.value.get(assistantMessageId)
+      if (result !== undefined && assistantMessage.id !== assistantMessageId) {
+        canvasActionResults.value.delete(assistantMessageId)
+        canvasActionResults.value.set(assistantMessage.id, result)
+      }
       messages.value[assistantMessageIndex] = {
         ...current,
         ...assistantMessage,
@@ -1152,11 +1158,10 @@ async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
 }
 
 function applyCanvasAction(message: CopilotMessage) {
-  if (!message.action || appliedActionIds.value.has(message.id)) {
+  if (!message.action || !props.applyCanvasAction || canvasActionResults.value.get(message.id) === true) {
     return
   }
-  emit('apply-canvas-action', message.action.payload)
-  appliedActionIds.value = new Set([...appliedActionIds.value, message.id])
+  canvasActionResults.value.set(message.id, props.applyCanvasAction(message.action.payload))
 }
 
 async function applyWorkflowPlan(message: CopilotMessage) {
@@ -1261,7 +1266,7 @@ function actionButtonLabel(message: CopilotMessage) {
   if (!message.action) {
     return ''
   }
-  if (appliedActionIds.value.has(message.id)) {
+  if (canvasActionResults.value.get(message.id) === true) {
     return t('copilot.actions.applied')
   }
   const action = message.action.payload
@@ -1507,11 +1512,14 @@ onMounted(() => {
             v-if="message.action"
             type="button"
             class="mt-3 inline-flex max-w-full items-center rounded-md border border-ai/25 bg-ai-soft px-2.5 py-1.5 text-xs font-medium text-ai transition hover:border-ai/40 hover:bg-ai/10 disabled:cursor-default disabled:opacity-55"
-            :disabled="appliedActionIds.has(message.id)"
+            :disabled="!props.applyCanvasAction || canvasActionResults.get(message.id) === true"
             @click="applyCanvasAction(message)"
           >
             {{ actionButtonLabel(message) }}
           </button>
+          <p v-if="canvasActionResults.get(message.id) === false" class="mt-2 text-xs text-status-warning" role="status">
+            {{ t('copilot.actions.notApplied') }}
+          </p>
         </article>
       </div>
 

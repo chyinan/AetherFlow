@@ -1685,6 +1685,7 @@ export const enUS = {
       applyMediaDraft: 'Apply media summary draft',
       applyMediaDraftHint: 'Add the video summary chain to the current canvas.',
       applied: 'Applied',
+      notApplied: 'Could not add the node. Check that the original node is still on the canvas and the suggested node is available, then retry or ask for a new suggestion.',
     },
   },
 }
