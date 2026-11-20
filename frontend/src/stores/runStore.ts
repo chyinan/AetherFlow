@@ -27,6 +27,14 @@ import { useWorkflowStore } from './workflowStore'
 let stopRealtime: (() => void) | null = null
 const refreshedArtifactRuns = new Set<string>()
 const cancellationCleanupRequestVersions = new WeakMap<object, Map<number, number>>()
+type ColdHistorySelection = {
+  runId: string
+  historyRequestId: number
+  selectionRequestId: number
+  keepDetail: boolean
+  settlePage: (row: WorkflowRun | undefined) => void
+}
+const coldHistorySelections = new WeakMap<object, ColdHistorySelection>()
 
 function nextCancellationCleanupRequestVersion(store: object, instanceId: number) {
   let versions = cancellationCleanupRequestVersions.get(store)
@@ -228,6 +236,16 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
   }
 }
 
+function mergeColdHistoryRow(detail: WorkflowRun, row: WorkflowRun) {
+  // 分页在独立详情之前发出，不用旧摘要覆盖详情；但服务端确认的终态仍有效。
+  if (!isBackendTerminalRun(row)) return mergeRunSnapshot(detail, row, true)
+  return mergeRunSnapshot(detail, {
+    ...detail,
+    status: row.status, backendStatus: row.backendStatus, progress: row.progress,
+    durationMs: row.durationMs, nodeStates: row.nodeStates,
+  })
+}
+
 type RunRecoveryOptions = {
   readonly expectedRunId?: string
   readonly selectionRequestId?: number
@@ -284,7 +302,15 @@ export const useRunStore = defineStore('run', {
           ? mergeRunSnapshot(listedRun, this.currentRun)
           : this.currentRun)
       }
+      const coldSelection = scope === 'history' ? coldHistorySelections.get(this) : undefined
       const mergedRuns = loadedRuns.map((run) => {
+        const selected = this.currentRun
+        if (coldSelection?.runId === run.id && selected?.id === run.id
+          && coldSelection.historyRequestId === this.historyRequestId
+          && coldSelection.selectionRequestId === this.selectionRequestId
+          && (coldSelection.keepDetail || isBackendTerminalRun(run))) {
+          return mergeColdHistoryRow(selected, run)
+        }
         const current = currentRuns.get(run.id)
         return current ? mergeRunSnapshot(current, run,
           (updateVersions[run.id] ?? 0) !== (this.runUpdateVersions[run.id] ?? 0)) : run
@@ -301,6 +327,12 @@ export const useRunStore = defineStore('run', {
     },
     async loadHistoryPage(query: RunPageQuery) {
       const requestId = ++this.historyRequestId
+      const cold = coldHistorySelections.get(this)
+      if (cold?.selectionRequestId === this.selectionRequestId) {
+        // 同一明确目标不随筛选重选；新版侧栏请求取代旧页，只有新版可继续确认摘要。
+        cold.historyRequestId = requestId
+        cold.keepDetail = this.currentRun?.id !== cold.runId
+      }
       const isCurrentLoad = () => requestId === this.historyRequestId
       const updateVersions = { ...this.runUpdateVersions }
       this.historyLoading = true
@@ -317,6 +349,12 @@ export const useRunStore = defineStore('run', {
         if (isCurrentLoad()) this.historyError = errorMessage(error)
       } finally {
         if (isCurrentLoad()) this.historyLoading = false
+        const pending = coldHistorySelections.get(this)
+        if (pending?.historyRequestId === requestId) {
+          coldHistorySelections.delete(this)
+          pending.settlePage(isCurrentLoad() && pending.selectionRequestId === this.selectionRequestId && !this.historyError
+            ? this.historyRuns.find(run => run.id === pending.runId) : undefined)
+        }
       }
     },
     async loadWorkflowRuns(workflowId: string, definitionId?: number | null) {
@@ -428,14 +466,23 @@ export const useRunStore = defineStore('run', {
       }
       await this.loadRuns()
     },
-    async selectRun(runId: string, options: { refreshLogs?: boolean; historyReady?: Promise<void>; skipList?: boolean; prefetchedRun?: WorkflowRun } = {}) {
+    async selectRun(runId: string, options: {
+      refreshLogs?: boolean
+      historyReady?: Promise<void>
+      skipList?: boolean
+      prefetchedRun?: WorkflowRun
+      isColdHistoryTargetCurrent?: () => boolean
+    } = {}) {
       const selectionRequestId = ++this.selectionRequestId
+      coldHistorySelections.delete(this)
       const isCurrentSelection = () => this.selectionRequestId === selectionRequestId
+        && (options.isColdHistoryTargetCurrent?.() ?? true)
+      const pendingHistory = options.isColdHistoryTargetCurrent ? options.historyReady : undefined
       this.loading = true
       this.logsLoading = true
       this.error = null
       try {
-        if (options.historyReady) await options.historyReady
+        if (options.historyReady && !pendingHistory) await options.historyReady
         if (!isCurrentSelection()) return
         if (!options.skipList) await this.loadRuns({ selectDefault: false })
         if (!isCurrentSelection()) {
@@ -443,9 +490,53 @@ export const useRunStore = defineStore('run', {
         }
         this.loading = true
         this.logsLoading = true
-        const localRun = options.prefetchedRun ?? (options.skipList ? this.historyRuns : this.runs).find((run) => run.id === runId)
         const updateVersion = this.runUpdateVersions[runId] ?? 0
-        let selectedRun = localRun ?? (await runApi.getRun(runId))
+        let selectedRun: WorkflowRun
+        if (pendingHistory) {
+          // 只有当前查询已经确认的分页行可用于恢复；挂起查询不使用上一页缓存。
+          const findPageRow = () => isCurrentSelection() && !this.historyLoading && !this.historyError
+            ? this.historyRuns.find(run => run.id === runId) : undefined
+          const pageRow = this.historyLoading
+            ? new Promise<WorkflowRun | undefined>(settlePage => {
+                coldHistorySelections.set(this, {
+                  runId, historyRequestId: this.historyRequestId, selectionRequestId, keepDetail: true, settlePage,
+                })
+              })
+            : Promise.resolve(findPageRow())
+          const instance = runApi.getRun(runId)
+          try {
+            const first = await Promise.race([instance, pageRow.then<WorkflowRun | 'page'>(row => row ? 'page' : instance)])
+            const row = findPageRow()
+            if (first === 'page' && row) {
+              selectedRun = row
+              // 不为已确认分页行等候实例；实例若稍后证实终态，只补齐终态，不覆盖较新详情。
+              void instance.then(receipt => {
+                const current = this.currentRun
+                if (!isCurrentSelection() || current?.id !== runId
+                  || isBackendTerminalRun(current) || !isBackendTerminalRun(receipt)) return
+                this.patchCurrentRun(mergeColdHistoryRow(current, receipt))
+                if (isCancelledRun(receipt)) this.stopRunRealtime()
+              }, () => undefined)
+            } else if (first === 'page') {
+              // 在应用结果前查询已换页：旧页不再能确认目标，只接受独立实例结果。
+              selectedRun = await instance
+            } else {
+              // 同轮分页已确认时保持原摘要路径，唯独不丢弃实例接口已确认的终态。
+              selectedRun = row ? mergeColdHistoryRow(row, first) : first
+            }
+          } catch (error) {
+            // 不因侧栏未返回而隐藏实例失败；若同一页稍后证实该条记录，仍可用来恢复。
+            void pageRow.then(row => {
+              if (row && row === findPageRow()) {
+                void this.selectRun(runId, { skipList: true, prefetchedRun: row, refreshLogs: options.refreshLogs })
+              }
+            })
+            throw error
+          }
+        } else {
+          const localRun = options.prefetchedRun ?? (options.skipList ? this.historyRuns : this.runs).find((run) => run.id === runId)
+          selectedRun = localRun ?? (await runApi.getRun(runId))
+        }
         if (!isCurrentSelection()) {
           return
         }
@@ -497,7 +588,7 @@ export const useRunStore = defineStore('run', {
           this.error = errorMessage(error)
         }
       } finally {
-        if (isCurrentSelection()) {
+        if (this.selectionRequestId === selectionRequestId) {
           this.loading = false
           this.logsLoading = false
         }
@@ -521,15 +612,16 @@ export const useRunStore = defineStore('run', {
       }
       return this.currentRun
     },
-    clearCurrentRun() {
+    clearCurrentRun(options: { keepHistoryLoading?: boolean } = {}) {
       this.selectionRequestId += 1
+      coldHistorySelections.delete(this)
       this.runsLoadRequestId += 1
       this.stopRealtime()
       this.currentRun = null
       this.logs = []
       this.loading = false
       this.logsLoading = false
-      this.historyLoading = false
+      if (!options.keepHistoryLoading) this.historyLoading = false
       this.error = null
     },
     appendLog(entry: RunLogEntry) {
