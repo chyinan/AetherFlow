@@ -54,6 +54,8 @@
 
 Whisper 节点提供“环境状态与设置说明”，不是每个节点独立选择模型的连接管理器。当前 Python AI Service 仍只加载一个模型。
 
+环境向导打开时，Ctrl/Cmd+Z、Ctrl/Cmd+Shift+Z 和 Ctrl/Cmd+Y 不会撤销或重做背后的画布。输入框仍使用系统的文本撤销重做，关闭向导后画布快捷键恢复。
+
 界面显示启用状态、当前模型/设备/计算类型、实际加载的模型、依赖与 FFmpeg 状态，以及可复制的当前环境变量。根据说明在 Python 服务进程/容器中配置，然后由部署者手动重建或重启服务。仅刷新面板不会应用新配置。Compose 现已透传 `.env.example` 中已有的 `WHISPER_DEVICE` 和 `WHISPER_COMPUTE_TYPE`。
 
 状态读取不加载模型、不安装依赖、不下载模型，也不检查任意模型目录。正常启用后的服务启动按 faster-whisper 原有行为加载配置模型；若未预置模型，它可能需要从模型源获取文件，应由部署者提前安排。详见 [Python 环境说明](../python-ai-service/README.md)。
