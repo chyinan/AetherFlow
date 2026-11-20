@@ -157,6 +157,12 @@ function onKeydown(event: KeyboardEvent) {
     close()
     return
   }
+  const key = event.key.toLowerCase()
+  if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'y')) {
+    // 只隔离背后画布的撤销重做，保留输入框的原生默认行为。
+    event.stopPropagation()
+    return
+  }
   if (event.key !== 'Tab') return
   const focusable = Array.from(dialog.value?.querySelectorAll<HTMLElement>('*') ?? []).filter(
     (element) => element.tabIndex >= 0 && !element.matches(':disabled') && element.matches('button, input, select, textarea, a[href], [tabindex]'),
