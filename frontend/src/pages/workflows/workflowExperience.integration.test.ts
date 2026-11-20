@@ -70,6 +70,45 @@ describe('真实工作流页面体验集成', () => {
     expect(selector().element.value).toBe('transcription'); expect(wrapper!.get('[data-variable-field="sourceVariable"]').text()).toContain('asr (asr)')
     store.edges = []; await flushPromises(); expect(wrapper!.get('[data-variable-field="sourceVariable"]').text()).toContain('绑定可能已失效')
   })
+  it('用键盘操作首跑向导收起按钮后，焦点回到可以立即重新打开的工具栏入口', async () => {
+    const { store } = await setup()
+    const toolbar = wrapper!.get<HTMLButtonElement>('[data-action="workflow-guide"]')
+    toolbar.element.focus()
+    toolbar.element.click()
+    await flushPromises()
+    expect(document.activeElement).toBe(toolbar.element)
+
+    for (let visit = 0; visit < 2; visit++) {
+      const close = wrapper!.get('[data-testid="workflow-starter-guide"]').findAll('button')
+        .find((button) => button.text() === '收起向导')!
+      close.element.focus()
+      expect(document.activeElement).toBe(close.element)
+      close.element.click()
+      await flushPromises()
+      expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(false)
+      expect(document.activeElement).toBe(toolbar.element)
+      toolbar.element.click()
+      await flushPromises()
+    }
+
+    expect(store.dirty).toBe(false)
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+  it('工具栏入口准确声明首跑向导的展开状态与可见内容', async () => {
+    await setup()
+    const toolbar = wrapper!.get<HTMLButtonElement>('[data-action="workflow-guide"]')
+    expect(toolbar.attributes('aria-expanded')).toBe('false')
+    await toolbar.trigger('click')
+    expect(toolbar.attributes('aria-expanded')).toBe('true')
+    const guide = wrapper!.get('[data-testid="workflow-starter-guide"]')
+    expect(document.getElementById(toolbar.element.getAttribute('aria-controls') ?? '')).toBe(guide.element)
+    toolbar.element.focus()
+    await toolbar.trigger('click')
+    expect(toolbar.attributes('aria-expanded')).toBe('false')
+    expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(toolbar.element)
+  })
   it('模板应用打开首跑向导，关闭可重新进入，不沿用旧运行的成功状态', async () => {
     const { store, runs } = await setup()
     runs.currentRun = { id: 'old', workflowId: 'other', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
