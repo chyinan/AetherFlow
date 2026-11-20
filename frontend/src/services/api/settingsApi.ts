@@ -237,7 +237,8 @@ function mapModelProvider(config: ProviderConfigEntry, runtimeProvider?: ModelPr
     region,
     status: installed ? 'installed' : 'available',
     description: stringOr(config.description, runtimeProvider?.runtime ?? 'Provider preset'),
-    defaultModel: stringOr(runtimeProvider?.defaultModel, stringOr(config.defaultModel, '-')),
+    // 运行目录按路由分组，可能是另一个预设；可编辑的默认模型以当前预设为准。
+    defaultModel: stringOr(config.defaultModel, stringOr(runtimeProvider?.defaultModel, '-')),
     baseUrl: stringOr(config.baseUrl, '-'),
     enabled,
     configured,
