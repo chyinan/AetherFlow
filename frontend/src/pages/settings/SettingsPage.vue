@@ -125,6 +125,15 @@ const telegramForm = ref({
   botToken: '',
   chatId: '',
 })
+const telegramDraftChanged = computed(() => {
+  const saved = settingsStore.telegramIntegration
+  const draft = telegramForm.value
+  return draft.enabled !== (saved?.enabled ?? false)
+    || draft.chatId.trim() !== (saved?.chatId ?? '').trim()
+    || Boolean(draft.botToken.trim())
+})
+const telegramTestDisabled = computed(() => telegramTesting.value || telegramSaving.value
+  || !settingsStore.telegramIntegration?.enabled || telegramDraftChanged.value)
 const urlFetchTesting = ref(false)
 const urlFetchMessage = ref('')
 const urlFetchResult = ref<UrlFetchResponse | null>(null)
@@ -786,7 +795,7 @@ async function saveTelegramIntegration() {
 
 async function testTelegramIntegration() {
   const session = sessionGeneration
-  if (!requireAdminAction() || telegramTesting.value || telegramSaving.value || !settingsStore.telegramIntegration?.enabled) return
+  if (!requireAdminAction() || telegramTestDisabled.value) return
   telegramTesting.value = true
   telegramMessage.value = ''
   try {
@@ -1862,15 +1871,21 @@ watch(
             </div>
 
             <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <p class="text-xs text-text-muted">
-                {{ t('settings.telegramLastTest') }}:
-                <span class="font-medium text-text-secondary">{{ settingsStore.telegramIntegration?.lastTestStatus || t('settings.telegramUntested') }}</span>
-              </p>
+              <div>
+                <p class="text-xs text-text-muted">
+                  {{ t('settings.telegramLastTest') }}:
+                  <span class="font-medium text-text-secondary">{{ settingsStore.telegramIntegration?.lastTestStatus || t('settings.telegramUntested') }}</span>
+                </p>
+                <p v-if="telegramDraftChanged" id="telegram-test-save-required" class="mt-1 text-xs text-text-secondary">
+                  {{ t('settings.telegramTestSaveRequired') }}
+                </p>
+              </div>
               <div class="flex flex-wrap gap-2">
                 <button
                   class="inline-flex h-10 items-center gap-2 rounded-md border border-app-border bg-white px-3 text-sm font-medium text-text-secondary hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
-                  :disabled="telegramTesting || telegramSaving || !settingsStore.telegramIntegration?.enabled"
+                  :disabled="telegramTestDisabled"
+                  :aria-describedby="telegramDraftChanged ? 'telegram-test-save-required' : undefined"
                   @click="testTelegramIntegration"
                 >
                   <Send class="h-4 w-4" />
