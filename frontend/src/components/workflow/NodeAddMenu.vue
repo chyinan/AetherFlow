@@ -46,6 +46,8 @@ const workflowStore = useWorkflowStore()
 const { t } = useI18n()
 const activeTab = ref<'node' | 'tool'>('node')
 const search = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+const searchLabel = computed(() => t(activeTab.value === 'node' ? 'workflow.catalog.searchNodes' : 'workflow.catalog.searchTools'))
 const previewedTemplate = ref<NodeTemplate | null>(null)
 
 const iconMap: Record<WorkflowNodeKind, Component> = {
@@ -141,6 +143,17 @@ const groupedTemplates = computed(() =>
     .filter((group) => group.templates.length > 0),
 )
 
+function onEscape(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  event.stopPropagation()
+  emit('close')
+}
+
+defineExpose({
+  focusSearch: () => searchInput.value?.focus({ preventScroll: true }),
+})
+
 function selectTemplate(template: NodeTemplate) {
   if (isNodeTemplateBlocked(template)) return
   emit('select', template)
@@ -148,7 +161,7 @@ function selectTemplate(template: NodeTemplate) {
 </script>
 
 <template>
-  <div class="fixed z-40 flex items-start gap-2" :style="panelStyle" @click.stop>
+  <div class="fixed z-40 flex items-start gap-2" :style="panelStyle" @click.stop @keydown.esc="onEscape">
     <section class="w-[288px] overflow-hidden rounded-xl border border-app-border bg-white shadow-panel">
       <div class="flex items-center justify-between border-b border-app-border px-3 pt-3">
         <div class="flex items-center gap-4">
@@ -183,9 +196,11 @@ function selectTemplate(template: NodeTemplate) {
         <label class="flex items-center gap-2 rounded-md border border-app-border bg-app-muted px-3 py-2 text-sm">
           <Search class="h-4 w-4 shrink-0 text-text-muted" />
           <input
+            ref="searchInput"
             v-model="search"
             class="min-w-0 flex-1 bg-transparent outline-none placeholder:text-text-muted"
-            :placeholder="activeTab === 'node' ? t('workflow.catalog.searchNodes') : t('workflow.catalog.searchTools')"
+            :placeholder="searchLabel"
+            :aria-label="searchLabel"
           />
         </label>
       </div>
