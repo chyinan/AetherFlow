@@ -151,6 +151,91 @@ describe('节点连接弹窗模态交互', () => {
     expect(mocks.createNodeConnection).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['usable', '连接可用', '本次可读取服务目录'],
+    ['unreachable', '无法连接', '本次服务连接超时'],
+    ['missing_model', '缺少必要选项或模型', '未发现可用的 Checkpoint'],
+    ['unconfigured', '未配置', '服务未提供此节点需要的能力'],
+  ] as const)('结构化诊断 %s 更新已挂载的状态区而不移动焦点', async (status, label, message) => {
+    const { dialog } = await openForm()
+    const announcement = dialog.querySelector<HTMLElement>('[role="status"]')!
+    const initialText = announcement?.textContent?.trim()
+    const { test, resolve } = startPendingTest(dialog)
+    await flushPromises()
+    const pendingText = announcement?.textContent?.trim()
+
+    resolve({ ...usable, status, message, warnings: ['仅用于详情的目录说明'] })
+    await flushPromises()
+
+    const card = dialog.querySelector('[data-testid="form-status"]')
+    expect(card?.textContent).toContain(label)
+    expect(card?.textContent).toContain(message)
+    expect(announcement?.getAttribute('role')).toBe('status')
+    expect(announcement.getAttribute('aria-atomic')).toBe('true')
+    expect(initialText).toBe('')
+    expect(pendingText).toBe('')
+    expect(card?.querySelector('[role="status"]')).toBe(announcement)
+    expect(announcement.textContent).toContain(label)
+    expect(announcement.textContent).toContain(message)
+    expect(announcement.textContent).not.toContain('仅用于详情的目录说明')
+    expect(card?.textContent).toContain('仅用于详情的目录说明')
+    expect(document.activeElement).toBe(test)
+    expect(dialog.querySelector<HTMLButtonElement>('[data-testid="save-connection"]')!.disabled).toBe(status !== 'usable')
+    expect(mocks.createNodeConnection).not.toHaveBeenCalled()
+    expect(mocks.updateNodeConnection).not.toHaveBeenCalled()
+    expect(wrapper!.emitted('apply')).toBeUndefined()
+    expect(wrapper!.emitted('updateConfig')).toBeUndefined()
+  })
+
+  it('重试、修改地址和关闭时只保留当前向导的结果；请求异常由原有 alert 提示', async () => {
+    const { dialog, opener, name } = await openForm()
+    const announcement = dialog.querySelector<HTMLElement>('[role="status"]')!
+    const url = dialog.querySelector<HTMLInputElement>('[data-testid="connection-url"]')!
+    const first = startPendingTest(dialog)
+    first.resolve({ ...usable, message: '首次目录结果' })
+    await flushPromises()
+    expect(announcement?.getAttribute('role')).toBe('status')
+    expect(announcement.textContent).toContain('首次目录结果')
+
+    const second = startPendingTest(dialog)
+    await flushPromises()
+    expect(announcement.textContent?.trim()).toBe('')
+    second.resolve({ ...usable, message: '首次目录结果' })
+    await flushPromises()
+    expect(announcement.textContent).toContain('首次目录结果')
+
+    const third = startPendingTest(dialog)
+    name.focus()
+    third.reject(new Error('模拟读取失败'))
+    await flushPromises()
+    expect(announcement.textContent?.trim()).toBe('')
+    expect(dialog.querySelector('[data-testid="form-error"][role="alert"]')?.textContent).toContain('模拟读取失败')
+    expect(document.activeElement).toBe(name)
+
+    const old = startPendingTest(dialog)
+    url.value = 'http://changed-service:8188'
+    url.dispatchEvent(new Event('input', { bubbles: true }))
+    mocks.probeNodeConnection.mockResolvedValueOnce({ ...usable, message: '最新地址目录结果' })
+    old.test.click()
+    await flushPromises()
+    old.resolve({ ...usable, message: '过期地址结果' })
+    await flushPromises()
+    expect(announcement.textContent).toContain('最新地址目录结果')
+    expect(announcement.textContent).not.toContain('过期地址结果')
+    expect(dialog.querySelector('[data-testid="form-error"]')).toBeNull()
+    expect(mocks.probeNodeConnection).toHaveBeenCalledTimes(5)
+
+    expect(key(old.test, 'Escape').defaultPrevented).toBe(true)
+    await flushPromises()
+    expect(announcement.isConnected).toBe(false)
+    expect(document.activeElement).toBe(opener)
+    opener.click()
+    await flushPromises()
+    const reopened = document.querySelector('[role="status"]')
+    expect(reopened).not.toBe(announcement)
+    expect(reopened?.textContent?.trim()).toBe('')
+  })
+
   it('从在途测试按钮按 Escape 可立即退出并忽略迟到响应', async () => {
     const { dialog, opener } = await openForm()
     const { test, resolve } = startPendingTest(dialog)

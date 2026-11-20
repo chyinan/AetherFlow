@@ -411,17 +411,26 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <p class="text-xs leading-5 text-text-muted">{{ t('noCredentials') }}</p><p class="text-xs leading-5 text-text-muted">{{ t('scope') }}</p>
           <p v-if="saving" role="status" class="text-xs leading-5 text-text-secondary">{{ t('savePending', { name: pendingSave?.name }) }}</p>
           <p v-if="formError" data-testid="form-error" role="alert" class="text-sm text-status-error">{{ formError }}</p>
-          <div v-if="formProbe" data-testid="form-status" class="space-y-2 rounded-lg bg-app-bg2 p-3 text-xs leading-5">
-            <p class="font-semibold" :class="formProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'">{{ t(`status.${formProbe.status}`) }}</p><p>{{ formProbe.message }}</p><p class="text-text-muted">{{ t('backend') }}</p>
-            <p v-for="warning in formProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
-            <div data-testid="form-checklist" class="space-y-1 border-t border-app-border pt-2">
-              <p class="font-semibold">{{ t('checklistTitle') }}</p>
-              <p v-for="issue in formChecklist" :key="issue.id" class="text-status-warning">{{ issueMessage(issue) }}</p>
-              <p v-if="!formChecklist.length">{{ t('checklistClear') }}</p>
-              <p class="text-text-muted">{{ t('formChecklistHint') }}</p>
+          <!-- 状态区先挂载，只播报结果标题和说明；详细目录和清单仍可按需查看。 -->
+          <div :data-testid="formProbe ? 'form-status' : undefined" :class="formProbe ? 'space-y-2 rounded-lg bg-app-bg2 p-3 text-xs leading-5' : 'sr-only'">
+            <div role="status" aria-atomic="true" class="space-y-2">
+              <template v-if="formProbe">
+                <p class="font-semibold" :class="formProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'">{{ t(`status.${formProbe.status}`) }}</p>
+                <p>{{ formProbe.message }}</p>
+              </template>
             </div>
-            <p class="font-semibold">{{ t('discovered') }}</p>
-            <p v-for="catalog in probeCatalogs" :key="catalog" class="break-words">{{ t(({ checkpoints: 'checkpoint', vaes: 'vae', loras: 'lora', samplers: 'sampler', schedulers: 'scheduler', upscalers: 'upscaler' })[catalog]) }}: {{ !knownCatalog(catalog, formProbe) ? t('unknownCatalog') : options(catalog, formProbe).join(', ') || t('emptyCatalog') }}</p>
+            <template v-if="formProbe">
+              <p class="text-text-muted">{{ t('backend') }}</p>
+              <p v-for="warning in formProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
+              <div data-testid="form-checklist" class="space-y-1 border-t border-app-border pt-2">
+                <p class="font-semibold">{{ t('checklistTitle') }}</p>
+                <p v-for="issue in formChecklist" :key="issue.id" class="text-status-warning">{{ issueMessage(issue) }}</p>
+                <p v-if="!formChecklist.length">{{ t('checklistClear') }}</p>
+                <p class="text-text-muted">{{ t('formChecklistHint') }}</p>
+              </div>
+              <p class="font-semibold">{{ t('discovered') }}</p>
+              <p v-for="catalog in probeCatalogs" :key="catalog" class="break-words">{{ t(({ checkpoints: 'checkpoint', vaes: 'vae', loras: 'lora', samplers: 'sampler', schedulers: 'scheduler', upscalers: 'upscaler' })[catalog]) }}: {{ !knownCatalog(catalog, formProbe) ? t('unknownCatalog') : options(catalog, formProbe).join(', ') || t('emptyCatalog') }}</p>
+            </template>
           </div>
           <p v-if="formProbe?.status !== 'usable'" class="text-xs text-text-muted">{{ t('testRequired') }}</p>
           <div class="flex flex-wrap justify-end gap-2 border-t border-app-border pt-4">
