@@ -587,6 +587,8 @@ export const jaJP = {
         nodeType: 'ループ本体のノードタイプ',
         addStep: 'ステップを追加',
         invalidJson: '有効な JSON を入力してください。既存の設定は変更されていません。',
+        expectedJsonObject: 'JSON オブジェクトを入力してください。既存の設定は変更されていません。',
+        expectedJsonArray: 'JSON 配列を入力してください。既存の設定は変更されていません。',
       },
       parallelMode: '並列モード',
       maxParallelism: '最大並列数',

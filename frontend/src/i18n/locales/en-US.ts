@@ -585,6 +585,8 @@ export const enUS = {
         nodeType: 'Loop body node type',
         addStep: 'Add step',
         invalidJson: 'Enter valid JSON. The existing configuration has not been changed.',
+        expectedJsonObject: 'Enter a JSON object. The existing configuration has not been changed.',
+        expectedJsonArray: 'Enter a JSON array. The existing configuration has not been changed.',
       },
       parallelMode: 'Parallel mode',
       maxParallelism: 'Max parallelism',

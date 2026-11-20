@@ -126,3 +126,67 @@ it('局部切换映射编辑方式后不恢复被隐藏的无效 JSON', async ()
   expect(JSON.parse((wrapper.get('textarea').element as HTMLTextAreaElement).value)).toEqual(nodes[0]!.config.mapping)
   wrapper.unmount()
 })
+
+
+it.each([
+  ['OBJECT', 'true', 'JSON 对象'],
+  ['OBJECT', '["left"]', 'JSON 对象'],
+  ['ARRAY', '"left"', 'JSON 数组'],
+  ['ARRAY', '{"left":1}', 'JSON 数组'],
+])('按目录校验 %s 字段的 JSON 顶层类型（%s）', async (fieldType, raw, expectedType) => {
+  const configuration = { value: fieldType === 'OBJECT' ? { left: 1 } : ['left'] }
+  const nodes = [{ nodeId: 'step-1', nodeType: 'VARIABLE_AGGREGATE', displayName: '聚合', config: configuration }]
+  const wrapper = mountEditor({
+    modelValue: nodes,
+    catalog: [{ type: 'VARIABLE_AGGREGATE', configSchema: [{ name: 'value', type: fieldType }] }],
+  })
+  const textarea = wrapper.get<HTMLTextAreaElement>('textarea')
+  await textarea.setValue(raw)
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  expect(textarea.element.value).toBe(raw)
+  expect(wrapper.get('[role="alert"]').text()).toContain(expectedType)
+  wrapper.unmount()
+})
+
+it.each([
+  ['VARIABLE_AGGREGATE', 'variables', 'ARRAY', '["left"]', ['left']],
+  ['TEMPLATE_TRANSFORM', 'mapping', 'OBJECT', '{"nested":[null,true]}', { nested: [null, true] }],
+  ['VARIABLE_AGGREGATE', 'variables', 'ARRAY', '  ', undefined],
+  ['TEMPLATE_TRANSFORM', 'mapping', 'OBJECT', 'null', null],
+  ['IMAGE_GENERATION', 'workflow', 'OBJECT', JSON.stringify('\uFEFF  {"1":{"class_type":"Example"}}'), '\uFEFF  {"1":{"class_type":"Example"}}'],
+])('保留 %s.%s 的原有可提交 JSON 输入：%s %s', async (nodeType, name, type, raw, expected) => {
+  const wrapper = mount(LoopBodyEditor, {
+    props: {
+      modelValue: [{ nodeId: 'step-1', nodeType, displayName: nodeType, config: {} }],
+      catalog: [{ type: nodeType, configSchema: [{ name, type }] }],
+    },
+    global: { plugins: [i18n], stubs: { NodeConnectionSelector: true } },
+  })
+  await wrapper.get('textarea').setValue(raw)
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([
+    { nodeId: 'step-1', nodeType, displayName: nodeType, config: { [name]: expected } },
+  ])
+  wrapper.unmount()
+})
+
+
+it.each(['["item"]', '不是 JSON'])('拒绝不包含 JSON 对象的旧图像工作流文本：%s', async legacyText => {
+  const wrapper = mount(LoopBodyEditor, {
+    props: {
+      modelValue: [{
+        nodeId: 'step-1', nodeType: 'IMAGE_GENERATION', displayName: '图像生成',
+        config: { workflow: { '1': { class_type: 'Example' } } },
+      }],
+      catalog: [{ type: 'IMAGE_GENERATION', configSchema: [{ name: 'workflow', type: 'OBJECT' }] }],
+    },
+    global: { plugins: [i18n], stubs: { NodeConnectionSelector: true } },
+  })
+  const textarea = wrapper.get<HTMLTextAreaElement>('textarea')
+  const raw = JSON.stringify(legacyText)
+  await textarea.setValue(raw)
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  expect(textarea.element.value).toBe(raw)
+  expect(wrapper.get('[role="alert"]').text()).toContain('JSON 对象')
+  wrapper.unmount()
+})
