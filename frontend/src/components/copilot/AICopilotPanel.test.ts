@@ -34,6 +34,7 @@ import { conversationSessionKey, readConversationSelection, writeConversationSel
 import type { CopilotMessage } from '@/types/copilot'
 import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan'
 import type { WorkflowGraphNode } from '@/types/workflow'
+import { createWorkflowNodeDataFromTemplate } from '@/utils/workflowNodeClone'
 
 function panelContext(workflowId = 'workflow-current', editRevision = 3) {
   return {
@@ -93,6 +94,142 @@ describe('AICopilotPanel', () => {
     return { message: { id: 'edit-1', conversationId: 'conv-edit', role: 'assistant', content: '添加开始节点', createdAt: '22:30' },
       edit: { status: 'READY', explanation: '添加开始节点', operations: [{ type: 'add_node', nodeId: 'ai-start', kind: 'start' }] } }
   }
+
+  function largeCanvas(count: number, editRevision = 3) {
+    const context = panelContext('workflow-large-canvas', editRevision)
+    const nodes: WorkflowGraphNode[] = Array.from({ length: count }, (_, index) => ({
+      id: `node-${index}`,
+      type: 'workflow',
+      position: { x: index * 200, y: 0 },
+      data: createWorkflowNodeDataFromTemplate(context.templates.find((template) =>
+        template.kind === (index === 0 ? 'start' : index === count - 1 ? 'output' : 'llm'))!, ''),
+    }))
+    const edges = nodes.slice(1).map((node, index) => ({ id: `edge-${index}`, source: nodes[index].id, target: node.id }))
+    return { ...context, nodes, edges }
+  }
+
+  it.each([
+    ['zh-CN', '当前画布有 101 个节点，超过直接编辑上限（100 个）。可切换到“对话”，或在较小的画布上重试。'],
+    ['en-US', 'This canvas has 101 nodes. Direct Edit supports up to 100. Switch to Chat or try again on a smaller canvas.'],
+    ['ja-JP', 'このキャンバスには 101 個のノードがあります。直接編集の上限は 100 個です。「チャット」に切り替えるか、ノード数の少ないキャンバスでお試しください。'],
+  ] as const)('大型画布的直接编辑限制明确可见，并保留输入（%s）', async (locale, expected) => {
+    const previousLocale = i18n.global.locale.value
+    i18n.global.locale.value = locale
+    const applyCanvasEdit = vi.fn()
+    const wrapper = mount(AICopilotPanel, {
+      props: { context: largeCanvas(101), applyCanvasEdit, saveCustomNodeDrafts: vi.fn() }, global: { plugins: [i18n] },
+    })
+    try {
+      await flushPromises()
+      const composer = wrapper.get<HTMLTextAreaElement>('form textarea')
+      await composer.setValue('保留这条草稿')
+      const design = wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.quickDraftWorkflow'))!
+      const before = wrapper.findAll('article').length
+      await composer.trigger('keydown', { key: 'Enter' })
+      await wrapper.get('form').trigger('submit')
+      await design.trigger('click')
+      await flushPromises()
+      expect(editCanvas).not.toHaveBeenCalled()
+      expect(stream).not.toHaveBeenCalled()
+      expect(planWorkflow).not.toHaveBeenCalled()
+      expect(validateCanvasEdit).not.toHaveBeenCalled()
+      expect(applyCanvasEdit).not.toHaveBeenCalled()
+      expect(wrapper.findAll('article')).toHaveLength(before)
+      expect(composer.element.value).toBe('保留这条草稿')
+
+      const notice = wrapper.findAll('[role="status"]').find((status) => status.text() === expected)
+      expect(notice?.text()).toBe(expected)
+      expect(composer.attributes('aria-describedby')).toBe(notice?.attributes('id'))
+      expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(true)
+      expect(design.element.disabled).toBe(true)
+      expect(wrapper.get('form').text()).not.toContain('可以要求生成 API 或 Python 自定义节点')
+    } finally {
+      wrapper.unmount()
+      i18n.global.locale.value = previousLocale
+    }
+  })
+
+  it('同一画布缩减到恰好 100 个节点后，用保留的草稿直接编辑', async () => {
+    const applyCanvasEdit = vi.fn().mockReturnValue(true)
+    editCanvas.mockResolvedValue({
+      message: { ...assistantMessage('已重命名'), id: 'edit-at-limit' },
+      edit: { status: 'READY', explanation: '已重命名', operations: [{ type: 'update_node', nodeId: 'node-1', label: '新名称' }] },
+    })
+    const wrapper = mount(AICopilotPanel, {
+      props: { context: largeCanvas(101), applyCanvasEdit, saveCustomNodeDrafts: vi.fn() }, global: { plugins: [i18n] },
+    })
+    try {
+      await flushPromises()
+      const composer = wrapper.get<HTMLTextAreaElement>('form textarea')
+      await composer.setValue('重命名第二个节点')
+      await wrapper.setProps({ context: largeCanvas(100, 4) })
+      expect(composer.attributes('aria-describedby')).toBeUndefined()
+      expect(composer.element.value).toBe('重命名第二个节点')
+      expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(false)
+      const design = wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.quickDraftWorkflow'))!
+      expect(design.element.disabled).toBe(false)
+      expect(wrapper.get('form').text()).toContain('可以要求生成 API 或 Python 自定义节点')
+      await composer.trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(editCanvas).toHaveBeenCalledTimes(1)
+      expect(editCanvas).toHaveBeenCalledWith('重命名第二个节点', expect.objectContaining({
+        context: expect.objectContaining({ workflow: expect.objectContaining({ nodeCount: 100 }) }),
+      }))
+      expect(validateCanvasEdit).toHaveBeenCalledTimes(1)
+      expect(applyCanvasEdit).toHaveBeenCalledWith(expect.objectContaining({
+        baseEditRevision: 4,
+        nodes: expect.arrayContaining([expect.objectContaining({ id: 'node-1', data: expect.objectContaining({ label: '新名称' }) })]),
+      }))
+      expect(composer.element.value).toBe('')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('大型画布可切换到对话并发送原草稿，不触发直接编辑', async () => {
+    stream.mockResolvedValue(assistantMessage('回答'))
+    const wrapper = mount(AICopilotPanel, {
+      props: { context: largeCanvas(101), applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] },
+    })
+    try {
+      await flushPromises()
+      const composer = wrapper.get<HTMLTextAreaElement>('form textarea')
+      await composer.setValue('查看当前画布')
+      await wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.editor.chatMode'))!.trigger('click')
+      expect(composer.attributes('aria-describedby')).toBeUndefined()
+      expect(composer.element.value).toBe('查看当前画布')
+      expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(false)
+      expect(wrapper.findAll('button').find((button) => button.text() === i18n.global.t('copilot.quickDraftWorkflow'))!.element.disabled).toBe(false)
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(stream).toHaveBeenCalledTimes(1)
+      expect(stream.mock.calls[0][0]).toContain('查看当前画布')
+      expect(editCanvas).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each(['copilot.quickSuggestNextNode', 'copilot.quickExplainLatestError'])('大型画布仍可使用问答快捷操作 %s', async (key) => {
+    stream.mockResolvedValue(assistantMessage('回答'))
+    const wrapper = mount(AICopilotPanel, {
+      props: { context: largeCanvas(101), applyCanvasEdit: vi.fn() }, global: { plugins: [i18n] },
+    })
+    try {
+      await flushPromises()
+      const composer = wrapper.get<HTMLTextAreaElement>('form textarea')
+      await composer.setValue('尚未发送的草稿')
+      const action = wrapper.findAll('button').find((button) => button.text() === i18n.global.t(key))!
+      expect(action.element.disabled).toBe(false)
+      await action.trigger('click')
+      await flushPromises()
+      expect(stream).toHaveBeenCalledTimes(1)
+      expect(editCanvas).not.toHaveBeenCalled()
+      expect(composer.element.value).toBe('尚未发送的草稿')
+    } finally {
+      wrapper.unmount()
+    }
+  })
 
   it('preserves multiline chat prompts and sends Enter without stealing an IME commit', async () => {
     const context = panelContext()

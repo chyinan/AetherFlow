@@ -1638,6 +1638,7 @@ export const enUS = {
       notApplied: 'Canvas unchanged: {reason}', invalid: 'Canvas validation failed.',
       stale: 'The canvas changed while generating. Send your request again against the latest graph.',
       runtimeWarning: 'Draft updated. Resolve these issues before running:',
+      canvasNodeLimit: 'This canvas has {count} nodes. Direct Edit supports up to {limit}. Switch to Chat or try again on a smaller canvas.',
       designRequest: 'Create or improve the workflow from the current canvas and our previous requirements. Ask one question if the requirements are unclear.',
     },
     title: 'AI Copilot',
