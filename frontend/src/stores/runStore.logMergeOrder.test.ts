@@ -203,6 +203,36 @@ describe('运行日志合并的顺序与内容选择', () => {
     expect(ids(store.logs)).toEqual(['same-1', 'same-2'])
   })
 
+  it.each(['归档先读完', '运行先恢复'] as const)('%s时，消重和等时间戳日志窗口都保持原有顺序', async (order) => {
+    const store = useRunStore()
+    store.initialized = true
+    store.runs = [run('run-a')]
+    const archived = deferred<RunLogEntry[]>()
+    const recovery = deferred<Awaited<ReturnType<typeof import('@/services/api/runApi').runApi.recoverRuntime>>>()
+    const sameTime = (from: number, to: number) => events(from, to).map(log => ({
+      ...log, occurredAt: '2026-01-01T00:00:00.000Z',
+    }))
+    runApiMocks.getLogs.mockReturnValue(archived.promise)
+    runApiMocks.recoverRuntime.mockReturnValue(recovery.promise)
+
+    const selecting = store.selectRun('run-a')
+    await flushPromises()
+    if (order === '归档先读完') {
+      archived.resolve(sameTime(151, 350))
+      await flushPromises()
+      recovery.resolve({ nodePatches: [], logs: sameTime(1, 250) })
+    } else {
+      recovery.resolve({ nodePatches: [], logs: sameTime(1, 250) })
+      await flushPromises()
+      archived.resolve(sameTime(151, 350))
+    }
+
+    await selecting
+    // 沿用串行合并的等时间戳稳定顺序，不随两个请求回执先后改变。
+    expect(ids(store.logs)).toEqual(ids(events(151, 250)))
+    expect(ids(store.logsByRunId['run-a'])).toEqual(ids(store.logs))
+  })
+
   it('缺少时间戳的旧记录保留在窗口内且顺序确定', async () => {
     const store = useRunStore()
     store.initialized = true
