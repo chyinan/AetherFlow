@@ -256,3 +256,128 @@ describe('刷新当前批次页时继续查看已读结果', () => {
     },
   )
 })
+
+describe('批次翻页失败后仍可导航', () => {
+  beforeEach(() => { mocks.get.mockReset() })
+
+  function pageButton(wrapper: ReturnType<typeof mount<typeof LoopRunResults>>, name: string) {
+    return wrapper.findAll('button').find(button => button.text() === name)
+  }
+
+  it.each([
+    ['后一页', '下一页', '上一页', 50, 0],
+    ['前一页', '上一页', '下一页', 0, 50],
+  ] as const)('读取%s失败后可以返回先前可读的页', async (_name, go, back, failingOffset, previousOffset) => {
+    const failed = deferred<ReturnType<typeof batchPage>>()
+    mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset)))
+    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch' } })
+    try {
+      await flushPromises()
+      if (previousOffset > 0) {
+        await pageButton(wrapper, '下一页')!.trigger('click')
+        await flushPromises()
+      }
+      expect(wrapper.get('summary').text()).toContain(`第 ${previousOffset + 1} 项`)
+
+      mocks.get.mockReturnValueOnce(failed.promise)
+      await pageButton(wrapper, go)!.trigger('click')
+      expect(mocks.get).toHaveBeenLastCalledWith(1, 'batch', failingOffset)
+      expect(wrapper.find('details').exists()).toBe(false)
+      expect.soft(pageButton(wrapper, back)?.element.disabled).toBe(true)
+      failed.reject(new Error('这一页暂时不可用'))
+      await flushPromises()
+      expect(wrapper.get('[role="alert"]').text()).toContain('请重试')
+
+      // 上一页或下一页在失败后仍应能返回，旧条目不能冒充请求的那一页。
+      const returnButton = pageButton(wrapper, back)
+      expect(returnButton?.element.disabled, `翻页失败后应仍可点击「${back}」`).toBe(false)
+      expect(wrapper.get('h3').text()).toBe('逐项结果')
+      await returnButton!.trigger('click')
+      await flushPromises()
+      expect(mocks.get).toHaveBeenLastCalledWith(1, 'batch', previousOffset)
+      expect(wrapper.get('summary').text()).toContain(`第 ${previousOffset + 1} 项`)
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('已确认批次缩短但最后有效页读取失败时，只保留新范围内的导航', async () => {
+    mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset, 152)))
+    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    try {
+      await flushPromises()
+      for (let page = 0; page < 2; page++) {
+        await pageButton(wrapper, '下一页')!.trigger('click')
+        await flushPromises()
+      }
+      expect(wrapper.get('summary').text()).toContain('第 101 项')
+
+      mocks.get.mockResolvedValueOnce(batchPage(100, 98))
+        .mockRejectedValueOnce(new Error('最后一页暂时不可用'))
+      await wrapper.setProps({ runStatus: 'FAILED' })
+      await flushPromises()
+      expect(mocks.get.mock.calls.map(call => call[2])).toEqual([0, 50, 100, 100, 50])
+      expect(wrapper.get('[role="alert"]').text()).toContain('请重试')
+      expect(wrapper.find('details').exists()).toBe(false)
+      expect(pageButton(wrapper, '上一页')?.element.disabled).toBe(false)
+      expect(pageButton(wrapper, '下一页')?.element.disabled).toBe(true)
+
+      mocks.get.mockResolvedValueOnce(batchPage(0, 98))
+      await pageButton(wrapper, '上一页')!.trigger('click')
+      await flushPromises()
+      expect(mocks.get).toHaveBeenLastCalledWith(1, 'batch', 0)
+      expect(wrapper.get('h3').text()).toContain('98')
+      expect(wrapper.get('summary').text()).toContain('第 1 项')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('刷新会重试失败的页，确认结果为空后不保留分页按钮', async () => {
+    mocks.get.mockResolvedValueOnce(batchPage(0)).mockRejectedValueOnce(new Error('临时失败'))
+      .mockResolvedValueOnce(batchPage(50))
+    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    try {
+      await flushPromises()
+      await pageButton(wrapper, '下一页')!.trigger('click')
+      await flushPromises()
+      await pageButton(wrapper, '刷新')!.trigger('click')
+      await flushPromises()
+      expect(mocks.get.mock.calls.map(call => call[2])).toEqual([0, 50, 50])
+      expect(wrapper.get('summary').text()).toContain('第 51 项')
+      mocks.get.mockResolvedValueOnce(batchPage(50, 0))
+      await wrapper.setProps({ runStatus: 'RUNNING' })
+      await flushPromises()
+      expect(mocks.get).toHaveBeenLastCalledWith(1, 'batch', 50)
+      expect(wrapper.find('details').exists()).toBe(false)
+      expect(pageButton(wrapper, '上一页')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it.each([
+    [2, 'batch'],
+    [1, 'another-batch'],
+  ] as const)('更换运行/节点 %s/%s 后不会沿用原批次的分页', async (instanceId, nodeId) => {
+    const stale = deferred<ReturnType<typeof batchPage>>()
+    mocks.get.mockResolvedValueOnce(batchPage(0)).mockReturnValueOnce(stale.promise)
+      .mockRejectedValueOnce(new Error('新批次暂时不可用'))
+    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch' } })
+    try {
+      await flushPromises()
+      await pageButton(wrapper, '下一页')!.trigger('click')
+      await wrapper.setProps({ instanceId, nodeId })
+      await flushPromises()
+      stale.resolve(batchPage(50, 102))
+      await flushPromises()
+      expect(mocks.get).toHaveBeenLastCalledWith(instanceId, nodeId, 0)
+      expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+      expect(wrapper.find('details').exists()).toBe(false)
+      expect(pageButton(wrapper, '下一页')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+})
