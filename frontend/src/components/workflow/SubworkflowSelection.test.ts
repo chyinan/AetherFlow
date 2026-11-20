@@ -250,3 +250,32 @@ it('关闭重开隔离旧定义列表响应，并可恢复双失败', async () =
   expect(selector('definitionId').findAll('option').map(x => x.element.value)).toEqual(['0', '7', '8', '9'])
   expect(config()).toMatchObject({ definitionId: 7, definitionVersion: 2 })
 })
+
+it('固定版本从清单缺失时保留映射与原历史，改选可撤销并准确恢复缺失提示', async () => {
+  api.listDefinitionVersions.mockResolvedValue([{ definitionId: 7, version: 3 }])
+  const { store, config, errors } = await setup('subworkflow')
+  const depth = store.historyPast.length
+  const warning = '版本列表中没有已固定的 v2'
+  const mappings = { inputMappings: { text: 'original.text' }, outputMappings: { answer: 'original.answer' } }
+  expect(wrapper!.text()).toContain(warning)
+  expect(selector('definitionVersion').element.value).toBe('2')
+  expect(config()).toMatchObject({ definitionId: 7, definitionVersion: 2, ...mappings })
+  expect(store.historyPast).toHaveLength(depth)
+
+  await selector('definitionVersion').setValue('3')
+  expect(wrapper!.text()).not.toContain(warning)
+  expect(config()).toMatchObject({ definitionId: 7, definitionVersion: 3, ...mappings })
+  expect(store.historyPast).toHaveLength(depth + 1)
+  expect(store.undo()).toBe(true); await flushPromises()
+  expect(wrapper!.text()).toContain(warning)
+  expect(selector('definitionVersion').element.value).toBe('2')
+  expect(config()).toMatchObject({ definitionId: 7, definitionVersion: 2, ...mappings })
+  expect(store.redo()).toBe(true); await flushPromises()
+  expect(wrapper!.text()).not.toContain(warning)
+  expect(config()).toMatchObject({ definitionId: 7, definitionVersion: 3, ...mappings })
+  expect(api.listDefinitionVersions).toHaveBeenCalledTimes(1)
+  expect(api.listDefinitions).toHaveBeenCalledTimes(1)
+  expect(api.createDefinition).not.toHaveBeenCalled()
+  expect(api.updateDefinition).not.toHaveBeenCalled()
+  expect(errors).toEqual([])
+})

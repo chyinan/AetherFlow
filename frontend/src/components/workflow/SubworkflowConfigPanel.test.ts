@@ -176,3 +176,88 @@ describe('固定版本子流程配置', () => {
     expect(wrapper.emitted('update')).toBeUndefined()
   })
 })
+
+describe('固定子流程版本列表的已确认状态', () => {
+  const versionField = '[data-config-field="definitionVersion"]'
+  const retry = '[data-action="retry-versions"]'
+  const missing = '版本列表中没有已固定的 v2'
+
+  it('仅在非空版本列表成功且不含固定版本后区分缺失，可重试而不写入配置', async () => {
+    const first = deferred<unknown[]>()
+    const reread = deferred<unknown[]>()
+    api.listDefinitionVersions.mockReturnValueOnce(first.promise).mockReturnValueOnce(reread.promise)
+    const wrapper = render(); await flushPromises()
+    const select = wrapper.get<HTMLSelectElement>(versionField)
+    expect(select.element.selectedOptions[0]?.textContent).toContain('待验证')
+    expect(wrapper.text()).not.toContain(missing)
+    expect(wrapper.find(retry).exists()).toBe(false)
+
+    first.resolve([{ definitionId: 7, version: 3 }]); await flushPromises()
+    expect({ selection: select.element.value, caption: select.element.selectedOptions[0]?.textContent, feedback: wrapper.text() }).toEqual({
+      selection: '2', caption: 'v2（列表中未找到）', feedback: expect.stringContaining(missing),
+    })
+    expect(wrapper.get('[role="alert"]').text()).toContain('请选择其他可用版本')
+    expect(select.element.disabled).toBe(false)
+    expect(wrapper.emitted()).toEqual({})
+
+    await wrapper.get(retry).trigger('click')
+    expect(select.element.value).toBe('2')
+    expect(select.element.selectedOptions[0]?.textContent).toContain('待验证')
+    expect(wrapper.text()).not.toContain(missing)
+    expect(select.element.disabled).toBe(true)
+    reread.resolve([{ definitionId: 7, version: 3 }, { definitionId: 7, version: 2 }]); await flushPromises()
+    expect(select.element.value).toBe('2')
+    expect(select.element.selectedOptions[0]?.textContent).not.toContain('待验证')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.emitted('update')).toBeUndefined()
+    expect(wrapper.emitted('patch')).toBeUndefined()
+    expect(api.listDefinitionVersions.mock.calls.map(([id]) => id)).toEqual([7, 7])
+    expect(api.listDefinitions).toHaveBeenCalledTimes(1)
+  })
+
+  it('成功收到空列表时仍保留并标明缺失的固定版本', async () => {
+    api.listDefinitionVersions.mockResolvedValueOnce([])
+    const wrapper = render(); await flushPromises()
+    const select = wrapper.get<HTMLSelectElement>(versionField)
+    expect(select.element.value).toBe('2')
+    expect(select.element.selectedOptions[0]?.textContent).toContain('列表中未找到')
+    expect(wrapper.get('[role="alert"]').text()).toContain(missing)
+    expect(wrapper.get('[role="alert"]').text()).toContain('没有可调用的不可变版本')
+    expect(wrapper.find(retry).exists()).toBe(true)
+    expect(wrapper.emitted()).toEqual({})
+  })
+
+  it('显式改选同一定义已列出的版本后清除缺失提示，不重读目录', async () => {
+    api.listDefinitionVersions.mockResolvedValueOnce([{ definitionId: 7, version: 3 }])
+    const config = { definitionId: 7, definitionVersion: 2, inputMappings: { text: 'request.text' } }
+    const wrapper = render(config); await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain(missing)
+    await wrapper.get(versionField).setValue('3')
+    expect(wrapper.emitted('update')).toEqual([['definitionVersion', 3]])
+    expect(config.definitionVersion).toBe(2)
+    await wrapper.setProps({ config: { ...config, definitionVersion: 3 } })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find(retry).exists()).toBe(false)
+    expect(wrapper.get<HTMLSelectElement>(versionField).element.value).toBe('3')
+    expect(api.listDefinitionVersions).toHaveBeenCalledTimes(1)
+  })
+
+  it('请求失败仅提示读取失败，不把持久固定版本当作列表已确认缺失', async () => {
+    api.listDefinitionVersions.mockRejectedValueOnce(new Error('temporary'))
+    const wrapper = render(); await flushPromises()
+    expect(wrapper.get<HTMLSelectElement>(versionField).element.selectedOptions[0]?.textContent).toContain('待验证')
+    expect(wrapper.text()).not.toContain(missing)
+    expect(wrapper.get('[role="alert"]').text()).toContain('无法读取版本')
+    expect(wrapper.find(retry).exists()).toBe(true)
+    expect(wrapper.emitted()).toEqual({})
+  })
+
+  it.each([undefined, 0])('尚未固定版本 %s 的正常空清单提示不误称缺失', async (version) => {
+    api.listDefinitionVersions.mockResolvedValueOnce([])
+    const wrapper = render({ definitionId: 7, definitionVersion: version }); await flushPromises()
+    expect(wrapper.get<HTMLSelectElement>(versionField).element.value).toBe('0')
+    expect(wrapper.get('[role="alert"]').text()).toContain('该工作流还没有可调用的不可变版本')
+    expect(wrapper.text()).not.toContain('版本列表中没有已固定的')
+    expect(wrapper.emitted()).toEqual({})
+  })
+})
