@@ -679,7 +679,6 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     return
   }
   beginConversationInteraction()
-  const followFreeformChat = !options.intent
   const intent = options.intent ?? (props.context ? 'freeform-workflow-question' : undefined)
   const requestText = options.requestText?.trim() || (
     intent ? `${text}\n\n${workflowCopilotPrompt(intent)}` : text
@@ -702,7 +701,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     createdAt: nowText(),
     action: options.action,
   })
-  if (followFreeformChat) followChatTail(true)
+  followChatTail(true)
   const controller = new AbortController()
   chatController.value = controller
   const scopeKeyAtStart = conversationSessionKey(props.context)
@@ -740,7 +739,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
             ...current,
             content: current.content + delta,
           }
-          if (followFreeformChat) followChatTail()
+          followChatTail()
         }
       },
     })
@@ -760,7 +759,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         ...assistantMessage,
         action: options.action,
       }
-      if (followFreeformChat) followChatTail()
+      followChatTail()
     }
   } catch (error) {
     if (!stillCurrent()) return
@@ -773,7 +772,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
         ...current,
         content: current.content ? `${current.content}\n\n${failureMessage}` : failureMessage,
       }
-      if (followFreeformChat) followChatTail()
+      followChatTail()
     }
   } finally {
     if (chatController.value === controller && sessionAtStart === plannerSessionSequence) {
