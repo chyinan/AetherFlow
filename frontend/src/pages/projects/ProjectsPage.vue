@@ -295,14 +295,16 @@ function openProject(project: ProjectSummary) {
   })
 }
 
-onMounted(async () => {
-  await Promise.allSettled([
-    projectStore.loadProjects(),
+onMounted(() => {
+  void Promise.allSettled([
+    projectStore.loadProjects().finally(() => {
+      // 空状态只依赖项目和工作流列表，不等待补充指标。
+      projectsLoaded.value = true
+    }),
     runStore.loadRuns(),
     fileStore.loadFiles(),
     difyStore.loadSurface({ includeProviderTelemetry: false }),
   ])
-  projectsLoaded.value = true
 })
 
 async function retryLoadProjects() {
