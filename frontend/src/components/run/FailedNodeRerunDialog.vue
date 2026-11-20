@@ -49,11 +49,13 @@ function retryPreview() {
   void loadPreview(focusOwner)
 }
 
-async function submit() {
+async function submit(event: MouseEvent) {
   if (!canSubmit.value || !preview.value) return
   const current = generation
   const request = preview.value
   submitting.value = true
+  // 确认按钮即将禁用，先把焦点留在对话框内，不聚焦会触发操作的按钮。
+  if (event.currentTarget === document.activeElement) panel.value?.focus({ preventScroll: true })
   error.value = ''
   try {
     const result = await rerunFailedNode(request.sourceInstanceId, request.nodeId, request.revision)
