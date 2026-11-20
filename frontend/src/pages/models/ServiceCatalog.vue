@@ -14,6 +14,7 @@ import { isWorkflowCapabilitySnapshot } from '@/utils/capabilitySupport'
 const { t, te } = useI18n({ useScope: 'local', messages: modelRoleMessages })
 const auth = useAuthStore()
 const workflow = useWorkflowStore()
+const pageHeading = ref<HTMLElement | null>(null)
 const snapshot = ref<AiWorkflowCapabilities | null>(null)
 const loading = ref(false)
 const failed = ref(false)
@@ -27,8 +28,12 @@ const services = computed(() => [...new Set(snapshot.value?.supportedNodeTypes ?
   reason: snapshot.value?.unavailableReasons[type],
 })))
 const availableCount = computed(() => services.value.filter((service) => service.available).length)
-async function refresh() {
+async function refresh(inlineRetryEvent?: MouseEvent) {
   if (loading.value || auth.isAdmin || !auth.isAuthenticated) return
+  // 加载状态会替换错误区，仅在重试按钮正持有焦点时，先把焦点留在稳定的页标题。
+  if (inlineRetryEvent && inlineRetryEvent.currentTarget === document.activeElement) {
+    pageHeading.value?.focus({ preventScroll: true })
+  }
   const current = ++requestId
   const owner = identity.value
   loading.value = true
@@ -57,8 +62,8 @@ onBeforeUnmount(() => { alive = false; requestId += 1 })
 <template>
   <section data-testid="service-catalog" class="flex h-full min-h-0 flex-col">
     <header class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border bg-white px-5 py-4">
-      <div class="flex items-start gap-3"><Brain class="mt-1 h-5 w-5 text-ai" /><div><h1 class="text-lg font-semibold text-text-primary">{{ t('title') }}</h1><p class="text-sm text-text-muted">{{ t('subtitle') }}</p></div></div>
-      <button type="button" data-testid="refresh-capabilities" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm disabled:opacity-50" :disabled="loading" @click="refresh"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />{{ t('refresh') }}</button>
+      <div class="flex items-start gap-3"><Brain class="mt-1 h-5 w-5 text-ai" /><div><h1 ref="pageHeading" tabindex="-1" class="rounded-sm text-lg font-semibold text-text-primary focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-primary">{{ t('title') }}</h1><p class="text-sm text-text-muted">{{ t('subtitle') }}</p></div></div>
+      <button type="button" data-testid="refresh-capabilities" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm disabled:opacity-50" :disabled="loading" @click="refresh()"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />{{ t('refresh') }}</button>
     </header>
     <main class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6" :aria-busy="loading">
       <div class="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-4">
