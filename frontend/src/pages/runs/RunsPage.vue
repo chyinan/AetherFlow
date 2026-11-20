@@ -417,7 +417,7 @@ function refreshRuns() {
 }
 
 const canRetryColdDetail = computed(() => Boolean(
-  runStore.error && !selectedDetailReady.value && selectedRouteId.value === coldDetailTarget.value,
+  selectedRouteId.value && runStore.error && !selectedDetailReady.value && selectedRouteId.value === coldDetailTarget.value,
 ))
 
 function retryLoad() {
