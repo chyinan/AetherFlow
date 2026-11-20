@@ -101,7 +101,6 @@ const monitorEventRows = computed(() =>
     ...log,
     timeParts: formatMonitorTime(log.time),
     feedbackLabel: feedbackText(log.feedback),
-    statusBadge: eventStatusBadge(log.status),
   })),
 )
 
@@ -224,7 +223,9 @@ function actorText(value: string) {
 }
 
 function selectedTraceSummary(conversation: ConversationLog) {
-  const status = conversation.status === 'failed' ? t('monitor.failedCases') : t('monitor.successful')
+  const status = conversation.status === 'warning'
+    ? t('status.warning')
+    : conversation.status === 'failed' ? t('monitor.failedCases') : t('monitor.successful')
   return `${conversation.app} · ${status}`
 }
 
@@ -259,18 +260,15 @@ function eventSeverityClass(status: ConversationLog['status']) {
   return ''
 }
 
-function eventStatusBadge(status: ConversationLog['status']): 'success' | 'running' | 'failed' {
-  if (status === 'success') return 'success'
-  if (status === 'running') return 'running'
-  return 'failed'
-}
-
 function eventDotClass(status: ConversationLog['status']) {
   if (status === 'failed') {
     return 'bg-status-error ring-status-error/15'
   }
   if (status === 'running') {
     return 'bg-status-running ring-status-running/15'
+  }
+  if (status === 'warning') {
+    return 'bg-status-warning ring-status-warning/15'
   }
   return 'bg-status-success ring-status-success/15'
 }
@@ -478,7 +476,7 @@ onBeforeUnmount(() => { requestEpoch += 1 })
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <p class="truncate text-sm font-semibold leading-6 text-text-primary">{{ log.app }}</p>
-                      <StatusBadge :status="log.statusBadge" />
+                      <StatusBadge :status="log.status" />
                       <span class="rounded-full border border-app-border bg-app-bg2 px-2 py-0.5 text-[11px] uppercase tracking-wide text-text-muted">
                         {{ log.channel }}
                       </span>
@@ -509,7 +507,7 @@ onBeforeUnmount(() => { requestEpoch += 1 })
                   <h2 id="monitor-selected-trace-title" class="text-sm font-semibold text-text-primary">{{ t('monitor.selectedTrace') }}</h2>
                   <p class="mt-1 truncate text-xs text-text-muted">{{ selectedTraceSummary(selectedConversation) }}</p>
                 </div>
-                <StatusBadge :status="eventStatusBadge(selectedConversation.status)" />
+                <StatusBadge :status="selectedConversation.status" />
               </div>
               <div class="mt-4 rounded-lg border border-app-border bg-app-bg2 p-3">
                 <p class="text-xs font-medium uppercase tracking-wide text-text-muted">{{ t('monitor.eventMessage') }}</p>
@@ -562,7 +560,7 @@ onBeforeUnmount(() => { requestEpoch += 1 })
                     <p class="truncate text-sm font-medium text-text-primary">{{ log.app }}</p>
                     <div class="flex shrink-0 items-center gap-2">
                       <span v-if="selectedConversation?.id === log.id" class="text-xs font-medium text-primary">{{ copy.reviewSelected }}</span>
-                      <StatusBadge :status="log.status === 'success' ? 'success' : log.status === 'running' ? 'running' : 'failed'" />
+                      <StatusBadge :status="log.status" />
                     </div>
                   </div>
                   <p class="mt-2 text-xs leading-5 text-text-secondary">

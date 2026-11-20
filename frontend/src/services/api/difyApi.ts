@@ -235,7 +235,13 @@ function metric(id: string, label: string, value: string | number, delta: string
   return { id, label, value: String(value), delta, tone }
 }
 
+function isRecoveredProviderFailover(log: ProviderRuntimeLog) {
+  // 后端仅在备用提供商成功后记录这条无错误详情的 FAILOVER；实际失败另有 ERROR。
+  return stringOr(log.eventType, '').toUpperCase() === 'FAILOVER' && !stringOr(log.errorMessage, '')
+}
+
 function isFailedProviderLog(log: ProviderRuntimeLog) {
+  if (isRecoveredProviderFailover(log)) return false
   const level = String(log.level ?? '').trim().toLowerCase()
   const eventType = String(log.eventType ?? '').trim().toUpperCase()
   const message = String(log.message ?? log.errorMessage ?? '').trim().toUpperCase()
@@ -385,6 +391,7 @@ export const difyApi = {
     const response = await getProviderLogs(50)
     return (response.logs ?? []).map((log, index): ConversationLog => {
       const estimatedCostUsd = logMetadataNumber(log, 'estimatedCostUsd')
+      const status = isRecoveredProviderFailover(log) ? 'warning' : log.level === 'error' ? 'failed' : 'success'
       return {
         id: stringOr(log.id, `ai-log-${index + 1}`),
         time: stringOr(log.time, stringOr(log.occurredAt, '-')),
@@ -392,11 +399,11 @@ export const difyApi = {
         user: 'system-service',
         channel: 'api',
         intent: stringOr(log.message, stringOr(log.eventType, 'provider event')),
-        status: log.level === 'error' ? 'failed' : 'success',
+        status,
         tokens: logMetadataNumber(log, 'totalTokens'),
         cost: estimatedCostUsd === null ? '--' : formatObservedUsd(estimatedCostUsd),
         feedback: 'none',
-        reviewRequired: log.level === 'error',
+        reviewRequired: status === 'failed',
         reviewReason: stringOr(log.errorMessage, ''),
         latencyMs: numberOr(log.latencyMillis),
       }
