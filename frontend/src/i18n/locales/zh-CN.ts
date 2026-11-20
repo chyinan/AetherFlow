@@ -1694,6 +1694,7 @@ export const zhCN = {
       applyMediaDraft: '应用媒体摘要草稿',
       applyMediaDraftHint: '把视频摘要链路添加到当前画布。',
       applied: '已应用',
+      notApplied: '未能添加节点。请检查原节点是否仍在画布上以及推荐节点是否可用，然后重试或重新获取建议。',
     },
   },
 }

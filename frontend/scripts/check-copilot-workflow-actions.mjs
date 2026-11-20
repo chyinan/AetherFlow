@@ -51,7 +51,7 @@ for (const token of [
 
 for (const token of [
   'message.action',
-  'apply-canvas-action',
+  'props.applyCanvasAction(message.action.payload)',
   'runQuickAction',
   'copilotApi.planWorkflow',
   'applyWorkflowPlan',
@@ -65,7 +65,7 @@ for (const token of [
 
 for (const token of [
   'copilotContext',
-  'handleCopilotCanvasAction',
+  ':apply-canvas-action="handleCopilotCanvasAction"',
   ':context="copilotContext"',
   'handleCopilotWorkflowDraft',
 ]) {
