@@ -94,3 +94,35 @@ it('English loop-body labels stay accessible and invalid JSON leaves the existin
   expect(nodes[0]!.config.mapping).toEqual({ value: 'item' })
   wrapper.unmount()
 })
+
+it('局部切换映射编辑方式后不恢复被隐藏的无效 JSON', async () => {
+  const nodes = [{
+    nodeId: 'step-1', nodeType: 'TEMPLATE_TRANSFORM', displayName: 'Transform',
+    config: { transformMode: 'text', template: 'Hello', mapping: { operation: 'select', sourcePath: 'item' } },
+  }]
+  const catalog = [{ type: 'TEMPLATE_TRANSFORM', configSchema: [
+    { name: 'transformMode', type: 'STRING', options: ['text', 'structured'] },
+    { name: 'mapping', type: 'OBJECT' },
+  ] }]
+  const wrapper = mount(LoopBodyEditor, {
+    props: { modelValue: nodes, catalog },
+    global: { plugins: [i18n], stubs: { StructuredMappingEditor: true } },
+  })
+  const input = wrapper.get('textarea')
+  ;(input.element as HTMLTextAreaElement).value = '{'
+  await input.trigger('change')
+  expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+
+  // 使用与 NodeInspector 一样的方式接纳当前组件发出的局部更新。
+  const acceptLastUpdate = async () => {
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')!.at(-1)![0] })
+  }
+  await wrapper.get('article select').setValue('structured')
+  await acceptLastUpdate()
+  expect(wrapper.find('textarea').exists()).toBe(false)
+  await wrapper.get('article select').setValue('text')
+  await acceptLastUpdate()
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  expect(JSON.parse((wrapper.get('textarea').element as HTMLTextAreaElement).value)).toEqual(nodes[0]!.config.mapping)
+  wrapper.unmount()
+})
