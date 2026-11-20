@@ -139,6 +139,61 @@ describe('运行时间线完整结果', () => {
     expect(wrapper.get('[data-testid="copy-status"]').text()).not.toContain('已复制')
   })
 
+  it('等待复制完成时保持待处理复制按钮在键盘顺序内，重复激活只写一次', async () => {
+    const pending = deferred()
+    writeText.mockReturnValueOnce(pending.promise)
+    const wrapper = render('完整长文本', 'run-1', document.body)
+    const copy = wrapper.get<HTMLButtonElement>('[data-testid="copy-output"]')
+    const expand = wrapper.get<HTMLButtonElement>('[data-testid="expand-output"]')
+    copy.element.focus()
+    await copy.trigger('click')
+    expect(copy.text()).toBe('正在复制')
+
+    // jsdom 不运行 Tab 默认动作；离开后尝试重新聚焦，确定待处理控件仍可进入焦点序列。
+    expand.element.focus()
+    expect(document.activeElement).toBe(expand.element)
+    copy.element.focus()
+    expect(document.activeElement).toBe(copy.element)
+    expect(copy.attributes('aria-disabled')).toBe('true')
+    expect(copy.element.disabled).toBe(false)
+
+    // 原生点击和已排队的按键激活均经过同一处理器的防重入判断。
+    copy.element.click()
+    copy.element.click()
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('完整长文本')
+
+    pending.resolve()
+    await flushPromises()
+    expect(document.activeElement).toBe(copy.element)
+    expect(copy.attributes('aria-disabled')).not.toBe('true')
+    expect(copy.text()).toBe('复制完整内容')
+    expect(wrapper.get('[data-testid="copy-status"]').text()).toBe('已复制完整内容')
+  })
+
+  it('同一节点的拒绝回执解除等待状态，键盘用户可直接重试', async () => {
+    const pending = deferred()
+    writeText.mockReturnValueOnce(pending.promise)
+    const wrapper = render('完整长文本', 'run-1', document.body)
+    const copy = wrapper.get<HTMLButtonElement>('[data-testid="copy-output"]')
+    const expand = wrapper.get<HTMLButtonElement>('[data-testid="expand-output"]')
+    copy.element.focus()
+    await copy.trigger('click')
+    expect(copy.attributes('aria-disabled')).toBe('true')
+    expect(copy.element.disabled).toBe(false)
+    expand.element.focus()
+    pending.reject(new Error('复制接口拒绝'))
+    await flushPromises()
+    expect(document.activeElement).toBe(expand.element)
+    expect(copy.attributes('aria-disabled')).not.toBe('true')
+    expect(wrapper.get('[data-testid="copy-status"]').text()).toContain('手动选择并复制')
+    copy.element.focus()
+    copy.element.click()
+    await flushPromises()
+    expect(document.activeElement).toBe(copy.element)
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-testid="copy-status"]').text()).toBe('已复制完整内容')
+  })
+
   it('复制期间重复点击去重，切换同名节点的新运行隔离展开和迟到成功状态', async () => {
     const pending = deferred()
     writeText.mockReturnValueOnce(pending.promise)
