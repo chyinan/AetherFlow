@@ -59,7 +59,13 @@ async function submit() {
     const result = await rerunFailedNode(request.sourceInstanceId, request.nodeId, request.revision)
     if (current === generation) emit('completed', result.id)
   } catch (failure) {
-    if (current === generation) error.value = toApiError(failure, 'workflow').message || t('runs.rerunFailed')
+    if (current === generation) {
+      const apiError = toApiError(failure, 'workflow')
+      // 此接口的 409 也可能要求用相同预览重试，只作废后端明确判过期的预览。
+      const isConflict = apiError.status === 409 || apiError.code === 409 || apiError.code === '409'
+      if (isConflict && apiError.message === '运行快照已变化，请重新预览重跑范围') preview.value = null
+      error.value = apiError.message || t('runs.rerunFailed')
+    }
   } finally {
     if (current === generation) submitting.value = false
   }
