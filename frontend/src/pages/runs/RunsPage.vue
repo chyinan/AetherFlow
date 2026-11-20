@@ -106,6 +106,9 @@ const cancellingRunIds = ref(new Set<string>())
 const cancellationErrors = ref<Record<string, string>>({})
 const cancellationCleanupErrorState = ref<{ runId: string; selectionGeneration: number; message: string } | null>(null)
 const retryingCancellationCleanupRunIds = ref(new Set<string>())
+const cancellationCleanupRegion = ref<HTMLElement | null>(null)
+const cancellationCleanupManualRefresh = ref<symbol | null>(null)
+const refreshingCancellationCleanup = computed(() => cancellationCleanupManualRefresh.value !== null)
 let cancellationCleanupSelectionGeneration = 0
 let cancellationCleanupFeedbackRequestId = 0
 const cancellationCleanupError = computed(() => {
@@ -203,6 +206,26 @@ async function refreshCancellationCleanup() {
   }
 }
 
+async function refreshCancellationCleanupFromPanel(event: MouseEvent) {
+  if (!selectedDetailReady.value || !cancellationCleanupError.value
+    || refreshingCancellationCleanup.value || retryingCancellationCleanup.value) return
+  const button = event.currentTarget
+  const request = Symbol()
+  cancellationCleanupManualRefresh.value = request
+  try {
+    await refreshCancellationCleanup()
+  } finally {
+    if (active && cancellationCleanupManualRefresh.value === request) {
+      // 刷新按钮即将离开时，只交接仍留在原按钮上的焦点。
+      if (selectedDetailReady.value && document.activeElement === button
+        && (!cancellationCleanupError.value || runStore.currentRun?.cancellationCleanup?.retryable)) {
+        cancellationCleanupRegion.value?.focus({ preventScroll: true })
+      }
+      cancellationCleanupManualRefresh.value = null
+    }
+  }
+}
+
 function beginCancellationCleanupFeedback(runId: string) {
   const selectionGeneration = cancellationCleanupSelectionGeneration
   const requestId = ++cancellationCleanupFeedbackRequestId
@@ -233,19 +256,21 @@ watch([
     if (!previous || previous[0] !== runId) {
       cancellationCleanupSelectionGeneration += 1
       cancellationCleanupErrorState.value = null
+      cancellationCleanupManualRefresh.value = null
     }
     if (!runId || backendStatus !== 'CANCELLED') {
       cancellationCleanupErrorState.value = null
+      cancellationCleanupManualRefresh.value = null
       if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
       cancellationCleanupPoll = undefined
       return
     }
-    if (!cleanup) void refreshCancellationCleanup()
+    if (!cleanup && !refreshingCancellationCleanup.value) void refreshCancellationCleanup()
     if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
     if (cleanup?.retryable || ['PENDING', 'PROCESSING', 'FAILED'].includes(cleanup?.status ?? '')) {
       cancellationCleanupPoll = setInterval(() => {
-        // 定时读取不抢占重试回执；重新打开且缺少状态时仍允许首次读取。
-        if (!retryingCancellationCleanup.value) void refreshCancellationCleanup()
+        // 定时读取不抢占用户主动刷新或清理重试的回执。
+        if (!retryingCancellationCleanup.value && !refreshingCancellationCleanup.value) void refreshCancellationCleanup()
       }, 5_000)
     }
   }, { immediate: true, flush: 'sync' })
@@ -595,9 +620,13 @@ watch(
               </div>
 
               <section
-                v-if="runStore.currentRun.backendStatus === 'CANCELLED' && (runStore.currentRun.cancellationCleanup || cancellationCleanupError)"
+                v-if="runStore.currentRun.backendStatus === 'CANCELLED' && (runStore.currentRun.cancellationCleanup || cancellationCleanupError || refreshingCancellationCleanup)"
+                ref="cancellationCleanupRegion"
                 data-testid="cancel-cleanup-status"
-                class="mt-4 rounded-md border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary"
+                tabindex="-1"
+                :aria-label="t('runs.cleanupTitle')"
+                :aria-busy="refreshingCancellationCleanup"
+                class="mt-4 rounded-md border border-app-border bg-app-bg2 p-3 text-sm text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 <p class="font-semibold text-text-primary">{{ t('runs.cleanupTitle') }}</p>
                 <p v-if="cancellationCleanupMessage" class="mt-1">{{ cancellationCleanupMessage }}</p>
@@ -608,20 +637,21 @@ watch(
                   {{ t('runs.cleanupLoadFailed') }} {{ cancellationCleanupError }}
                 </p>
                 <button
-                  v-if="runStore.currentRun.cancellationCleanup?.retryable"
+                  v-if="refreshingCancellationCleanup || (!runStore.currentRun.cancellationCleanup?.retryable && cancellationCleanupError)"
+                  type="button"
+                  class="mt-2 rounded border border-app-border px-3 py-1.5 text-xs font-medium disabled:opacity-50 aria-disabled:opacity-50"
+                  :disabled="retryingCancellationCleanup"
+                  :aria-disabled="refreshingCancellationCleanup"
+                  @click="refreshCancellationCleanupFromPanel"
+                >{{ refreshingCancellationCleanup ? t('runs.loading') : t('runs.cleanupRefresh') }}</button>
+                <button
+                  v-else-if="runStore.currentRun.cancellationCleanup?.retryable"
                   type="button"
                   data-testid="retry-cancel-cleanup"
                   class="mt-2 rounded border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary disabled:opacity-50"
                   :disabled="retryingCancellationCleanup"
                   @click="retryCancellationCleanup"
                 >{{ retryingCancellationCleanup ? t('runs.cleanupRetrying') : t('runs.cleanupRetry') }}</button>
-                <button
-                  v-else-if="cancellationCleanupError"
-                  type="button"
-                  class="mt-2 rounded border border-app-border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-                  :disabled="retryingCancellationCleanup"
-                  @click="refreshCancellationCleanup"
-                >{{ t('runs.cleanupRefresh') }}</button>
               </section>
 
               <div class="mt-4 grid gap-3 md:grid-cols-4">
