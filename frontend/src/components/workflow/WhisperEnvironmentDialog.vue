@@ -35,7 +35,7 @@ const applied = ref(false)
 const verification = ref<ReturnType<typeof verifyWhisperSetup> | null>(null)
 const snippet = computed(() => buildWhisperEnvironmentSnippet(snapshot.value))
 const suggestedSnippet = computed(() => buildWhisperSuggestedSnippet(draft.value, deployment.value))
-const blockers = computed(() => getWhisperSetupBlockers(snapshot.value))
+const blockers = computed(() => snapshot.value ? getWhisperSetupBlockers(snapshot.value) : [])
 const detected = computed(() => snapshot.value?.status !== 'unreachable' ? snapshot.value : null)
 const validDraft = computed(() => isValidWhisperSetupDraft(draft.value))
 const canContinue = computed(() => !!deployment.value && (step.value < 2 || validDraft.value) && (step.value !== 3 || applied.value))
@@ -261,6 +261,7 @@ onBeforeUnmount(() => {
               <h4 class="text-sm font-medium text-text-primary">{{ t('prerequisitesTitle') }}</h4>
               <p class="text-xs leading-5 text-text-secondary">{{ t('prerequisitesHint') }}</p>
               <p v-if="loading" class="text-xs leading-5 text-text-secondary">{{ t('prerequisitePending') }}</p>
+              <p v-else-if="!snapshot" class="text-xs leading-5 text-text-secondary">{{ t('prerequisiteUnknown') }}</p>
               <ul v-else-if="blockers.length" data-testid="whisper-prerequisite-blockers" class="list-disc space-y-2 rounded-lg bg-amber-50 py-3 pl-7 pr-3 text-xs leading-5 text-amber-900"><li v-for="blocker in blockers" :key="blocker" :data-blocker="blocker">{{ t(`blockers.${blocker}`) }}</li></ul>
               <p v-else class="text-xs leading-5 text-text-secondary">{{ t('prerequisiteClear') }}</p>
               <p class="text-xs leading-5 text-text-secondary">{{ t('prerequisites') }}</p>

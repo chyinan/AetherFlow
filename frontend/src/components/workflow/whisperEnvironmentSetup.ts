@@ -45,8 +45,8 @@ export function buildWhisperSuggestedSnippet(draft: WhisperSetupDraft, deploymen
   ].join('\n')
 }
 
-export function getWhisperSetupBlockers(environment: WhisperEnvironment | null): WhisperSetupBlocker[] {
-  if (!environment || environment.status === 'unreachable') return ['unreachable']
+export function getWhisperSetupBlockers(environment: WhisperEnvironment): WhisperSetupBlocker[] {
+  if (environment.status === 'unreachable') return ['unreachable']
   const blockers: WhisperSetupBlocker[] = []
   if (!environment.enabled) blockers.push('disabled')
   if (!environment.dependencyAvailable) blockers.push('dependency')

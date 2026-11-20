@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { AxiosError, AxiosHeaders } from 'axios'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
@@ -126,6 +127,33 @@ describe('Whisper prerequisite refresh', () => {
     },
   )
 
+  it.each([
+    ['en-US', 429, 'Too many requests', 'Prerequisite status is unknown. Select Refresh actual status to retry.'],
+    ['zh-CN', 503, 'Gateway temporarily unavailable', '前置条件状态未知，请点击「刷新实际状态」重试。'],
+    ['ja-JP', 429, 'Too many requests', '前提条件の状態は不明です。「実際の状態を更新」を選んで再試行してください。'],
+  ] as const)('does not diagnose a rejected status request as a Python outage (%s, HTTP %i)', async (locale, status, reason, unknownText) => {
+    await open(locale)
+    await selectHost()
+    const config = { headers: new AxiosHeaders(), url: '/ai/node-connections/whisper' }
+    transport.get.mockRejectedValueOnce(new AxiosError(reason, AxiosError.ERR_BAD_RESPONSE, config, undefined, {
+      config, status, statusText: reason, headers: new AxiosHeaders(), data: { message: reason },
+    }))
+
+    await click('refresh')
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(reason)
+    expect(dialog().querySelector('[data-testid="whisper-status"]')).toBeNull()
+    expect(blockers()).toEqual([])
+    expect(prerequisites().textContent).toContain(unknownText)
+    expect(button('refresh').disabled).toBe(false)
+    expect(button('next').disabled).toBe(false)
+    expect(refreshCapabilities).toHaveBeenCalledTimes(2)
+
+    transport.get.mockResolvedValueOnce({ ...healthy, status: 'unreachable', loadedModel: null })
+    await click('refresh')
+    expect(prerequisites().textContent).not.toContain(unknownText)
+    expect(blockers()).toEqual(['unreachable'])
+  })
+
   it('keeps an edited suggestion through a completed read failure and a successful retry', async () => {
     await open()
     await selectHost()
@@ -138,7 +166,8 @@ describe('Whisper prerequisite refresh', () => {
     transport.get.mockRejectedValueOnce(new Error('Temporary read failure'))
     await click('refresh')
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Could not read the Whisper environment')
-    expect(blockers()).toEqual(['unreachable'])
+    expect(blockers()).toEqual([])
+    expect(prerequisites().textContent).toContain('Prerequisite status is unknown')
     expect(button('next').disabled).toBe(false)
 
     await click('refresh')

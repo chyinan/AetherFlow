@@ -42,8 +42,7 @@ describe('Whisper 部署建议', () => {
 })
 
 describe('Whisper 前置条件与验证', () => {
-  it('没有快照或后端不可达时仅报告未知，不猜测缺依赖或模型', () => {
-    expect(getWhisperSetupBlockers(null)).toEqual(['unreachable'])
+  it('快照明确表示后端不可达时，不进一步猜测缺依赖或模型', () => {
     const offline = { ...environment, status: 'unreachable' as const, enabled: false, dependencyAvailable: false, ffmpegAvailable: false, loadedModel: null }
     expect(getWhisperSetupBlockers(offline)).toEqual(['unreachable'])
     expect(verifyWhisperSetup(offline, draft)).toEqual({ success: false, blockers: ['unreachable'], mismatches: [] })
