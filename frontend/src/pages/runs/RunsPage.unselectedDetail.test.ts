@@ -170,9 +170,9 @@ it('完成结果列表失败时不会把此前失败的运行当作当前结果�
   expect(listCalls()).toHaveLength(3)
 })
 
-it('没有选中运行时，运行详情的上一条日志错误不会覆盖当前列表错误', async () => {
+it('未选中运行时，页面提示只显示当前列表错误，且重试仍读取当前筛选', async () => {
   failOldArchive = true
-  await setup()
+  const router = await setup()
   const pending = deferred<ReturnType<typeof page>>()
   completedPage = pending.promise
   await openCompletedHistory()
@@ -181,6 +181,30 @@ it('没有选中运行时，运行详情的上一条日志错误不会覆盖当�
 
   expect(view!.text()).toContain(historyFailure)
   expect(view!.text()).not.toContain(archiveFailure)
+  expect(useRunStore().error).toContain(archiveFailure)
+  expect(router.currentRoute.value.fullPath).toBe('/runs?status=SUCCESS')
+  expectNoPreviousDetail()
+
+  const retry = view!.findAll<HTMLButtonElement>('main button').find(button => button.text() === i18n.global.t('runs.retryLoad'))!
+  expect(retry.element.disabled).toBe(false)
+  const refreshed = deferred<ReturnType<typeof page>>()
+  completedPage = refreshed.promise
+  await retry.trigger('click')
+  await flushPromises()
+
+  expect(listCalls()).toHaveLength(3)
+  expect(listCalls().at(-1)?.[1]?.params).toMatchObject({ status: 'SUCCESS', page: 1, pageSize: 20 })
+  expect(view!.find('[data-testid="history-loading"]').exists()).toBe(true)
+  expect(router.currentRoute.value.fullPath).toBe('/runs?status=SUCCESS')
+  expectNoPreviousDetail()
+
+  refreshed.resolve(page(completed))
+  await flushPromises()
+  expect(router.currentRoute.value.fullPath).toBe('/runs/run-2?status=SUCCESS')
+  expect(detail().get('h2').text()).toBe(completed.workflowName)
+  expect(detail().text()).toContain(completedLog)
+  expect(view!.text()).not.toContain(historyFailure)
+  expect(mocks.get.mock.calls.filter(([url]) => url === '/workflow-instances/1/logs')).toHaveLength(1)
 })
 
 it('当前列表确实为空时不选择缓存里的旧运行；按完整 ID 仍可查看它', async () => {
