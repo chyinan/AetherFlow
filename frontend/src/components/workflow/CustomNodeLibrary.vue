@@ -25,6 +25,7 @@ function open() { returnFocus = document.activeElement as HTMLElement; bodyOverf
 function close() { fileReadSequence++; cancelWrite(); visible.value = false; document.body.style.overflow = bodyOverflow; error.value = ''; transfer.value = ''; nextTick(() => returnFocus?.focus()) }
 function reset(kind: CustomDefinition['kind']) { fileReadSequence++; cancelWrite(); draft.value = defaultCustomDefinition(kind); selected.value = ''; headers.value = '{}'; body.value = kind === 'API' ? '{"text":"{{inputs.text}}"}' : ''; error.value = ''; message.value = '' }
 function load() {
+  if (!selected.value) { reset('API'); return }
   fileReadSequence++; cancelWrite()
   const definition = definitions.value.find(item => customDefinitionKey(item) === selected.value)
   if (!definition) return

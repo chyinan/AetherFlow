@@ -129,6 +129,112 @@ describe('自定义节点模板库交互', () => {
   })
 })
 
+describe('自定义节点模板库的版本选择', () => {
+  const storedApi = {
+    ...defaultCustomDefinition('API'), id: 'saved-api', version: '2.3.4', name: '已保存 API', description: '旧 API 草稿说明',
+    request: { method: 'PATCH', url: 'https://example.test/old', headers: { 'X-Example': 'old' }, body: { old: true } },
+  } as const
+  const storedCode = {
+    ...defaultCustomDefinition('CODE'), id: 'saved-code', version: '3.2.1', name: '已保存代码', description: '旧代码草稿说明',
+    code: 'def main(payload):\n    return {"result": "old"}\n',
+  } as const
+
+  function control<T extends HTMLElement>(label: string, selector: string): T {
+    const labels = document.querySelectorAll('section[role="dialog"] label')
+    const input = [...labels].find(element => element.firstChild?.textContent?.trim() === label)?.querySelector<T>(selector)
+    if (!input) throw new Error(`未找到控件：${label}`)
+    return input
+  }
+
+  async function setupVersionSelection() {
+    const store = useWorkflowStore()
+    await store.saveCustomDefinitions([storedApi, storedCode])
+    wrappers.push(mount(CustomNodeLibrary, { attachTo: document.body }))
+    await click('自定义节点 · API / 代码')
+    return { store, select: control<HTMLSelectElement>('编辑已有版本（变更内容需提升版本号）', 'select') }
+  }
+
+  async function choose(select: HTMLSelectElement, value: string) {
+    select.focus()
+    select.value = value
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+  }
+
+  function setName(name: string) {
+    const input = control<HTMLInputElement>('名称', 'input')
+    input.value = name
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it.each([['API', storedApi], ['CODE', storedCode]] as const)('从已保存 %s 版本选择「新模板」会开始干净的默认草稿', async (kind, definition) => {
+    const { store, select } = await setupVersionSelection()
+    await choose(select, `${definition.id}@${definition.version}`)
+    expect(control<HTMLInputElement>('模板 ID', 'input').value).toBe(definition.id)
+    expect(document.querySelector('section[role="dialog"]')?.textContent).toContain(`类型：${kind}`)
+    setName('未保存的编辑'); await flushPromises()
+    const before = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+
+    await choose(select, '')
+    const fresh = defaultCustomDefinition('API')
+    expect(select.value).toBe('')
+    expect(document.activeElement).toBe(select)
+    expect(control<HTMLInputElement>('模板 ID', 'input').value).toBe(fresh.id)
+    expect(control<HTMLInputElement>('版本', 'input').value).toBe(fresh.version)
+    expect(control<HTMLInputElement>('名称', 'input').value).toBe(fresh.name)
+    expect(control<HTMLInputElement>('说明', 'input').value).toBe('')
+    expect(control<HTMLSelectElement>('方法', 'select').value).toBe(fresh.request?.method)
+    expect(control<HTMLInputElement>('URL', 'input').value).toBe(fresh.request?.url)
+    expect(control<HTMLTextAreaElement>('请求头（JSON 对象）', 'textarea').value).toBe('{}')
+    expect(JSON.parse(control<HTMLTextAreaElement>('JSON 请求体（留空为无请求体）', 'textarea').value)).toEqual(fresh.request?.body)
+    expect(document.querySelector('section[role="dialog"]')?.textContent).not.toContain('从本机库移除')
+    expect(store.customDefinitions).toEqual([storedApi, storedCode])
+    expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBe(before)
+  })
+
+  it('开始新草稿清除上一版保存回执，随后显式保存只新增一份', async () => {
+    const { store, select } = await setupVersionSelection()
+    await choose(select, 'saved-api@2.3.4')
+    await click('保存模板')
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('已保存到本机模板库')
+    const before = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+
+    await choose(select, '')
+    expect(document.querySelector('[role="status"]')).toBeNull()
+    expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBe(before)
+    await click('保存模板')
+    expect(store.customDefinitions).toEqual([storedApi, storedCode, defaultCustomDefinition('API')])
+    expect(select.value).toBe('my-api@1.0.0')
+  })
+
+  it('开始新草稿清除上一版的不可变版本报错', async () => {
+    const { store, select } = await setupVersionSelection()
+    await choose(select, 'saved-code@3.2.1')
+    setName('有改动的同版本')
+    await click('保存模板')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('请提升版本后保存')
+    const before = localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)
+
+    await choose(select, '')
+    expect(document.querySelector('[role="alert"]')).toBeNull()
+    expect(control<HTMLInputElement>('名称', 'input').value).toBe(defaultCustomDefinition('API').name)
+    expect(store.customDefinitions).toEqual([storedApi, storedCode])
+    expect(localStorage.getItem(CUSTOM_NODE_STORAGE_KEY)).toBe(before)
+  })
+
+  it('切换已有版本仍加载对应类型，显式新建代码按钮仍从代码默认值开始', async () => {
+    const { store, select } = await setupVersionSelection()
+    await choose(select, 'saved-code@3.2.1')
+    expect(control<HTMLTextAreaElement>('代码', 'textarea').value).toBe(storedCode.code)
+    await choose(select, 'saved-api@2.3.4')
+    expect(control<HTMLInputElement>('URL', 'input').value).toBe(storedApi.request.url)
+    await click('新建代码模板')
+    expect(select.value).toBe('')
+    expect(control<HTMLTextAreaElement>('代码', 'textarea').value).toBe(defaultCustomDefinition('CODE').code)
+    expect(store.customDefinitions).toEqual([storedApi, storedCode])
+  })
+})
+
 describe('自定义节点表单与本地调试', () => {
   it('输入错误后预览失败，修正可恢复且不调用网络或运行代码', async () => {
     const definition = defaultCustomDefinition('CODE'), network = vi.spyOn(globalThis, 'fetch')
