@@ -85,6 +85,9 @@ const canvasActionResults = ref(new Map<string, boolean>())
 const plannerMode = ref(false)
 const plannerController = ref<AbortController | null>(null)
 const chatController = ref<AbortController | null>(null)
+const streamingChatMessageId = ref<string | null>(null)
+const stoppedChatMessageIds = ref(new Set<string>())
+let streamingChatTurnSequence = 0
 const plannerPendingMessageId = ref<string | null>(null)
 const cancelledPlanMessageId = ref<string | null>(null)
 type PlanPreview = {
@@ -117,9 +120,18 @@ let panelDisposed = false
 const PENDING_DRAFT_REDACT_DEPTH = 6
 const { locale, t } = useI18n()
 const { t: presentationText } = useI18n({ useScope: 'local', messages: {
-  'zh-CN': { send: '发送消息', modelLoadFailed: '无法加载模型列表', retryModels: '重试加载模型' },
-  'en-US': { send: 'Send message', modelLoadFailed: 'Could not load the model list', retryModels: 'Retry loading models' },
-  'ja-JP': { send: 'メッセージを送信', modelLoadFailed: 'モデル一覧を読み込めませんでした', retryModels: 'モデルの読み込みを再試行' },
+  'zh-CN': {
+    send: '发送消息', modelLoadFailed: '无法加载模型列表', retryModels: '重试加载模型',
+    stopChat: '停止接收', chatStopped: '已停止接收此回复。',
+  },
+  'en-US': {
+    send: 'Send message', modelLoadFailed: 'Could not load the model list', retryModels: 'Retry loading models',
+    stopChat: 'Stop receiving', chatStopped: 'Stopped receiving this reply.',
+  },
+  'ja-JP': {
+    send: 'メッセージを送信', modelLoadFailed: 'モデル一覧を読み込めませんでした', retryModels: 'モデルの読み込みを再試行',
+    stopChat: '受信を停止', chatStopped: 'この返信の受信を停止しました。',
+  },
 } })
 const emit = defineEmits<{
   close: []
@@ -400,6 +412,8 @@ function resetConversationState() {
   chatController.value?.abort()
   plannerController.value = null
   chatController.value = null
+  streamingChatMessageId.value = null
+  stoppedChatMessageIds.value.clear()
   plannerPendingMessageId.value = null
   cancelledPlanMessageId.value = null
   canvasEditPendingId.value = null
@@ -730,15 +744,16 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   )
   const sessionAtStart = plannerSessionSequence
   const workflowIdAtStart = props.context?.workflowId
+  const turn = ++streamingChatTurnSequence
   messages.value.push({
-    id: `user-${Date.now()}`,
+    id: `copilot-chat-user-${turn}`,
     role: 'user',
     content: text,
     createdAt: nowText(),
   })
   if (!options.preserveComposerDraft) prompt.value = ''
   loading.value = true
-  const assistantMessageId = `copilot-stream-${Date.now()}`
+  const assistantMessageId = `copilot-stream-${turn}`
   messages.value.push({
     id: assistantMessageId,
     role: 'assistant',
@@ -749,6 +764,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   followChatTail(true)
   const controller = new AbortController()
   chatController.value = controller
+  streamingChatMessageId.value = assistantMessageId
   const scopeKeyAtStart = conversationSessionKey(props.context)
   const stillCurrent = () => !controller.signal.aborted && chatController.value === controller
     && sessionAtStart === plannerSessionSequence && workflowIdAtStart === props.context?.workflowId
@@ -821,11 +837,27 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     }
   } finally {
     if (chatController.value === controller && sessionAtStart === plannerSessionSequence) {
-      chatController.value = null
-      loading.value = false
-      if (conversationIdentityUnconfirmed.value) historyNotice.value = t('copilot.historyIdentityUnconfirmed')
+      finishStreamingChat()
     }
   }
+}
+
+function finishStreamingChat() {
+  chatController.value = null
+  streamingChatMessageId.value = null
+  loading.value = false
+  if (conversationIdentityUnconfirmed.value) historyNotice.value = t('copilot.historyIdentityUnconfirmed')
+}
+
+function stopStreamingChat(event: MouseEvent) {
+  const controller = chatController.value
+  const id = streamingChatMessageId.value
+  if (!controller || !id) return
+  controller.abort()
+  stoppedChatMessageIds.value.add(id)
+  finishStreamingChat()
+  followChatTail()
+  if (event.currentTarget === document.activeElement) promptInput.value?.focus({ preventScroll: true })
 }
 
 function setDirectEditMode(enabled: boolean) {
@@ -1419,6 +1451,7 @@ onMounted(() => {
           </div>
           <div v-if="message.role === 'assistant'" class="copilot-markdown" v-html="renderCopilotMarkdown(message.content)" />
           <p v-else class="whitespace-pre-line">{{ message.content }}</p>
+          <p v-if="stoppedChatMessageIds.has(message.id)" class="mt-2 text-xs text-text-muted" role="status">{{ presentationText('chatStopped') }}</p>
           <p v-if="canvasEditResults.has(message.id)" class="mt-2 whitespace-pre-line rounded-md border px-2.5 py-2 text-xs leading-5" :class="canvasEditResults.get(message.id)?.success ? 'border-status-success/25 bg-green-50 text-status-success' : 'border-status-warning/30 bg-amber-50 text-status-warning'" role="status">
             {{ canvasEditResults.get(message.id)?.text }}
           </p>
@@ -1620,7 +1653,8 @@ onMounted(() => {
             <Send class="h-4 w-4" />
           </button>
         </div>
-        <button v-if="directEditMode && chatController" type="button" class="mt-2 rounded-md border border-app-border px-2.5 py-1.5 text-xs text-text-secondary" @click="cancelCanvasEdit">{{ t('copilot.editor.cancel') }}</button>
+        <button v-if="streamingChatMessageId" type="button" class="mt-2 rounded-md border border-app-border px-2.5 py-1.5 text-xs text-text-secondary" @click="stopStreamingChat">{{ presentationText('stopChat') }}</button>
+        <button v-else-if="canvasEditPendingId" type="button" class="mt-2 rounded-md border border-app-border px-2.5 py-1.5 text-xs text-text-secondary" @click="cancelCanvasEdit">{{ t('copilot.editor.cancel') }}</button>
         <button
           v-if="plannerController"
           type="button"
