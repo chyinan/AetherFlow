@@ -376,10 +376,13 @@ function openRunWorkflow() {
   }
 }
 
-async function selectRun(runId: string) {
-  const generation = ++detailNavigationGeneration
+function selectRun(runId: string) {
   const location = { name: 'run-detail', params: { id: runId }, query: route.query }
-  const expectedPath = router.resolve(location).fullPath
+  return focusAfterRunNavigation(router.resolve(location).fullPath, () => router.push(location))
+}
+
+async function focusAfterRunNavigation(expectedPath: string, navigate: () => ReturnType<typeof router.push>) {
+  const generation = ++detailNavigationGeneration
   let focusIntentChanged = false
   const recordFocusIntent = () => { focusIntentChanged = true }
   // 等待导航时重新聚焦、继续输入或再次点击都属于更新的用户意图。
@@ -391,11 +394,11 @@ async function selectRun(runId: string) {
   detailFocusCleanups.add(cleanupIntentListeners)
   intentEvents.forEach(event => document.addEventListener(event, recordFocusIntent))
   try {
-    const failure = await router.push(location)
+    const failure = await navigate()
     if (isNavigationFailure(failure) && !isNavigationFailure(failure, NavigationFailureType.duplicated)) return
     await nextTick()
     // 只有本次主动打开仍是当前意图时才交接焦点；后退和外部导航不会走这里。
-    if (!active || focusIntentChanged || generation !== detailNavigationGeneration || selectedRouteId.value !== runId || route.fullPath !== expectedPath) return
+    if (!active || focusIntentChanged || generation !== detailNavigationGeneration || route.fullPath !== expectedPath) return
     const region = runDetailRegion.value
     region?.focus({ preventScroll: true })
     if (!window.matchMedia?.('(min-width: 1280px)').matches) {
@@ -698,7 +701,12 @@ watch(
                 </div>
               </div>
 
-              <SubworkflowChildRuns v-if="runStore.currentRun.backendInstanceId" :key="runStore.currentRun.id" :instance-id="runStore.currentRun.backendInstanceId" />
+              <SubworkflowChildRuns
+                v-if="runStore.currentRun.backendInstanceId"
+                :key="runStore.currentRun.id"
+                :instance-id="runStore.currentRun.backendInstanceId"
+                @follow-run-link="(path, navigation) => focusAfterRunNavigation(path, () => navigation)"
+              />
 
               <div class="mt-3 flex flex-wrap items-center gap-2">
                 <RouterLink
