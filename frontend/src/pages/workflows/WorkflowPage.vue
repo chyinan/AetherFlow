@@ -145,6 +145,8 @@ watch(() => route.fullPath, (to, from) => {
     importingComfyUi.value = false
     comfyUiImportError.value = null
     comfyUiImportNotice.value = null
+    showComfyUiDraftReady.value = false
+    clearBlankImportFocus()
   }
   invalidateWorkflowTemplatePicker()
 }, { flush: 'sync' })
@@ -168,6 +170,14 @@ useModalFocus(showingWorkflowTemplates, workflowTemplateDialog, () => { showingW
 const comfyUiImportError = ref<string | null>(null)
 const comfyUiImportNotice = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
+const workflowHeading = ref<HTMLHeadingElement | null>(null)
+const showComfyUiDraftReady = ref(false)
+const comfyUiDraftMessage = computed(() => showComfyUiDraftReady.value ? t('workflow.importComfyUiDraftReady') : '')
+let queuedBlankImportFocus: ReturnType<typeof trackBlankImportFocus> | null = null
+let stopBlankImportFocusTracking: (() => void) | undefined
+watch(() => workflowStore.backendDefinitionId, (id) => {
+  if (id !== null) showComfyUiDraftReady.value = false
+}, { flush: 'sync' })
 const currentWorkflowRun = computed(() =>
   runStore.currentRun && workflowRunBelongsToWorkflow(
     runStore.currentRun,
@@ -287,7 +297,36 @@ function resolveWorkflowProjectId() {
   return numericProjectId(associatedProject?.id)
 }
 
-function openComfyUiFilePicker() {
+function trackBlankImportFocus(opener: HTMLButtonElement) {
+  const isOriginalFocus = (target: EventTarget | null) => target === opener
+    || target === document.body || target === comfyUiFileInput.value
+  let retained = isOriginalFocus(document.activeElement)
+  const onFocus = (event: FocusEvent) => { if (!isOriginalFocus(event.target)) retained = false }
+  const onInteraction = () => { retained = false }
+  const stop = () => {
+    document.removeEventListener('focusin', onFocus, true)
+    document.removeEventListener('pointerdown', onInteraction, true)
+    document.removeEventListener('keydown', onInteraction, true)
+    if (stopBlankImportFocusTracking === stop) stopBlankImportFocusTracking = undefined
+  }
+  document.addEventListener('focusin', onFocus, true)
+  document.addEventListener('pointerdown', onInteraction, true)
+  document.addEventListener('keydown', onInteraction, true)
+  stopBlankImportFocusTracking = stop
+  return { opener, retained: () => retained, stop }
+}
+
+function clearBlankImportFocus() {
+  stopBlankImportFocusTracking?.()
+  queuedBlankImportFocus = null
+}
+
+function openComfyUiFilePicker(event: MouseEvent) {
+  clearBlankImportFocus()
+  const trigger = event.currentTarget
+  if (shouldShowEmptyWorkflowGuide.value && trigger instanceof HTMLButtonElement && document.activeElement === trigger) {
+    queuedBlankImportFocus = trackBlankImportFocus(trigger)
+  }
   comfyUiImportError.value = null
   comfyUiImportNotice.value = null
   comfyUiFileInput.value?.click()
@@ -301,14 +340,27 @@ function importErrorMessage(error: unknown) {
 async function handleComfyUiFileChange(event: Event) {
   const input = event.target
   if (!(input instanceof HTMLInputElement)) return
+  const fromBlankGuide = shouldShowEmptyWorkflowGuide.value
+  const importFocus = queuedBlankImportFocus
+  queuedBlankImportFocus = null
+  const opener = importFocus?.opener
   const file = input.files?.[0]
-  if (!file) return
+  if (!file) {
+    importFocus?.stop()
+    return
+  }
 
   // 捕获后立即清空选择器：即使导航使本次导入过期，也可以重新选择同一文件。
   input.value = ''
-  if (!confirmDiscardUnsavedChanges()) return
+  if (!confirmDiscardUnsavedChanges()) {
+    importFocus?.stop()
+    return
+  }
 
   const requestId = ++comfyUiImportSequence
+  const interactionRevision = editorInteractionRevision.value
+  if (!importFocus) stopBlankImportFocusTracking?.()
+  showComfyUiDraftReady.value = false
   const editRevision = workflowStore.editRevision
   const projectId = resolveWorkflowProjectId()
   // 导入归属只看导入代次：更新一代导入或真正离开当前工作流才会作废，
@@ -339,6 +391,11 @@ async function handleComfyUiFileChange(event: Event) {
       return
     }
     const graph = mapBackendDefinitionGraph(imported.nodes)
+    // 原入口即将卸载。浏览器可能已因按钮禁用而将焦点交回 body，
+    // 但用户在等待期间主动操作页面或转移焦点时，不应抢回焦点。
+    const transferFocus = fromBlankGuide && importFocus?.retained() && opener?.isConnected
+      && interactionRevision === editorInteractionRevision.value && !pendingNavigation.value
+      && (document.activeElement === opener || document.activeElement === document.body)
 
     workflowStore.resetToEmptyWorkflow()
     // 导入替换整张画布，但地址可能不变；不要把旧图的临时运行输入带给新图。
@@ -351,10 +408,19 @@ async function handleComfyUiFileChange(event: Event) {
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
     // 导入成功即换成新画布，即使地址未变，也不再接收旧画布的模板回执。
     invalidateWorkflowTemplatePicker()
+    showComfyUiDraftReady.value = fromBlankGuide
+    if (transferFocus) {
+      await nextTick()
+      if (ownsRequest() && importFocus?.retained() && !pendingNavigation.value
+        && !opener?.isConnected && document.activeElement === document.body) {
+        workflowHeading.value?.focus()
+      }
+    }
   } catch (error) {
     if (canApply()) comfyUiImportError.value = importErrorMessage(error)
     else reportEditConflict()
   } finally {
+    importFocus?.stop()
     if (ownsRequest()) importingComfyUi.value = false
   }
 }
@@ -529,6 +595,7 @@ function resetWorkflow() {
   }
   showStarterGuide.value = false
   showPreflight.value = false
+  showComfyUiDraftReady.value = false
   workflowStore.clearCurrentWorkflow()
   uiStore.setSelectedNode(null)
 }
@@ -694,6 +761,7 @@ onBeforeUnmount(() => {
   saveNavigation = null
   stopGuardingSaveNavigation()
   comfyUiImportSequence += 1
+  clearBlankImportFocus()
   workflowStore.invalidateWorkflowTemplatesLoad()
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('keydown', handleEditorKeydown)
@@ -846,6 +914,7 @@ function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates
   if (!confirmDiscardUnsavedChanges()) {
     return
   }
+  showComfyUiDraftReady.value = false
   workflowStore.useWorkflowTemplate(template)
   runPromptValues.value = {}
   runPromptInputError.value = ''
@@ -1056,7 +1125,9 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     accept=".json,application/json"
     class="hidden"
     @change="handleComfyUiFileChange"
+    @cancel="clearBlankImportFocus"
   />
+  <p class="sr-only" role="status" data-testid="comfyui-import-draft-status">{{ comfyUiDraftMessage }}</p>
 
   <!-- 当前定义已明确读取失败时，不等辅助读取才提供重试和返回入口。 -->
   <section v-if="workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError)" class="grid h-full place-items-center bg-app-bg px-6">
@@ -1159,8 +1230,11 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
   <section v-else data-testid="workflow-editor" class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
     <header :inert="showingWorkflowTemplates || undefined" class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
-        <p class="text-sm font-semibold text-text-primary">{{ workflowStore.workflowName }}</p>
+        <h1 ref="workflowHeading" tabindex="-1" class="rounded-sm text-sm font-semibold text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ workflowStore.workflowName }}</h1>
         <p class="truncate text-xs text-text-muted">{{ t('workflow.mockWorkflow') }} · {{ workflowStore.nodes.length }} {{ t('common.nodes') }} · {{ workflowStore.edges.length }} {{ t('common.edges') }}</p>
+        <p v-if="comfyUiDraftMessage" class="mt-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary" data-testid="comfyui-import-draft-hint">
+          {{ comfyUiDraftMessage }}
+        </p>
         <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ workflowStore.savingError || workflowStore.runError }}
         </p>

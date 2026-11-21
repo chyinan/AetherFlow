@@ -34,6 +34,7 @@ const preview: WorkflowDefinitionDTO = { name: 'Imported', nodes: [
 let entity: any
 let importFails = false
 let saveFails = false
+let pendingImportConversion: Promise<void> | undefined
 vi.mock('@/stores/runStore', () => ({
   useRunStore: () => ({
     currentRun: null, logs: [], loadRuns: vi.fn(), selectRunForWorkflow: vi.fn(),
@@ -57,10 +58,12 @@ beforeEach(() => {
   vi.stubGlobal('TextDecoder', TextDecoder)
   localStorage.clear()
   importFails = false; saveFails = false
+  pendingImportConversion = undefined
   entity = { id: 101, name: 'Existing', version: 1, projectId: 11, definitionJson: JSON.stringify({ nodes: [] }) }
   http.get.mockImplementation(async (url: string) => { if (url.startsWith('/workflows/definitions/')) return JSON.parse(JSON.stringify(entity)); throw new Error('Unexpected GET '+url) })
   http.post.mockImplementation(async (url: string, payload: any) => {
     if (url.endsWith('/import/comfyui')) {
+      await pendingImportConversion
       if (importFails) throw new Error('temporary import failure')
       const result = JSON.parse(JSON.stringify({ ...preview, name: payload.name, projectId: payload.projectId }))
       const image = result.nodes.find((node: any) => node.nodeId === 'image-generation')
@@ -99,6 +102,7 @@ async function setup(path = '/workflows/101?projectId=11') {
   await router.push(path)
   await router.isReady()
   wrapper = mount(RouterView, {
+    attachTo: document.body,
     global: {
       plugins: [pinia, router, i18n],
       stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
@@ -235,6 +239,150 @@ describe('audit19：空白入口的成功导入必须进入可编辑画布', () 
   await redo(); await redo()
   expect(JSON.stringify({ nodes: store.nodes, edges: store.edges })).toBe(before)
  })
+})
+
+
+function holdImportConversion() {
+  let finish!: () => void
+  pendingImportConversion = new Promise<void>((resolve) => { finish = resolve })
+  return async () => { finish(); await flushPromises() }
+}
+
+const importAction = () => wrapper!.get<HTMLButtonElement>('[data-action="import-comfyui"]')
+const importDraftStatus = () => wrapper!.find('[data-testid="comfyui-import-draft-status"]')
+const editorHeading = () => wrapper!.get('[data-testid="workflow-editor"] h1')
+
+describe('从空白入口导入后的未保存草稿', () => {
+  it.each([false, true])('原按钮消失后聚焦新画布标题并播报草稿状态（等待时失焦：%s）', async (blurWhilePending) => {
+    const { store } = await setup('/workflows/new')
+    const finish = holdImportConversion()
+    const opener = importAction()
+    const originalStatus = importDraftStatus().exists() ? importDraftStatus().element : undefined
+    opener.element.focus()
+    expect(document.activeElement).toBe(opener.element)
+    await opener.trigger('click')
+    await importFile()
+    expect(opener.element.disabled).toBe(true)
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+    if (blurWhilePending) opener.element.blur()
+
+    await finish()
+
+    expect(opener.element.isConnected).toBe(false)
+    expect(store.dirty).toBe(true)
+    expect(http.post.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/import/comfyui'])
+    expect.soft(document.activeElement?.textContent).toBe('import')
+    expect.soft(importDraftStatus().exists()).toBe(true)
+    if (!importDraftStatus().exists()) return
+    expect(importDraftStatus().element).toBe(originalStatus)
+    expect(importDraftStatus().attributes('role')).toBe('status')
+    expect(wrapper!.get('[data-testid="comfyui-import-draft-hint"]').text()).toBe(importDraftStatus().text())
+    expect(importDraftStatus().text()).toBe(i18n.global.t('workflow.importComfyUiDraftReady'))
+    expect(document.activeElement).toBe(editorHeading().element)
+  })
+
+  it.each([false, true])('转换等待期间选择外部焦点，不抢回焦点，但仍宣布成功（外部焦点先释放：%s）', async (releaseNewFocus) => {
+    await setup('/workflows/new')
+    const finish = holdImportConversion()
+    const other = document.createElement('button')
+    document.body.prepend(other)
+    try {
+      importAction().element.focus()
+      await importAction().trigger('click')
+      await importFile()
+      other.focus()
+      expect(document.activeElement).toBe(other)
+      if (releaseNewFocus) other.blur()
+      await finish()
+      expect(document.activeElement).toBe(releaseNewFocus ? document.body : other)
+      expect(importDraftStatus().text()).toBe(i18n.global.t('workflow.importComfyUiDraftReady'))
+    } finally { other.remove() }
+  })
+
+  it.each(['pointerdown', 'keydown'])('更新的页面外部 %s 操作不把焦点拉到新画布标题', async (eventName) => {
+    const { store } = await setup('/workflows/new')
+    const finish = holdImportConversion()
+    importAction().element.focus()
+    await importAction().trigger('click')
+    await importFile()
+    importAction().element.blur()
+    document.body.dispatchEvent(new Event(eventName, { bubbles: true }))
+    await finish()
+    expect(store.dirty).toBe(true)
+    expect(document.activeElement).toBe(document.body)
+    expect(importDraftStatus().text()).toBe(i18n.global.t('workflow.importComfyUiDraftReady'))
+  })
+
+  it('取消选择会释放焦点意图，重新打开选择器可正常移交焦点', async () => {
+    await setup('/workflows/new')
+    const opener = importAction()
+    opener.element.focus()
+    await opener.trigger('click')
+    await wrapper!.get('input[type="file"]').trigger('cancel')
+    expect(importDraftStatus().exists() ? importDraftStatus().text() : '').toBe('')
+    expect(http.post).not.toHaveBeenCalled()
+    await opener.trigger('click')
+    await importFile()
+    expect(document.activeElement).toBe(editorHeading().element)
+  })
+
+  it('同一画布保存失败保留草稿状态，成功落库后清除且继续编辑不会恢复该状态', async () => {
+    const { store, router } = await setup('/workflows/new')
+    await importAction().trigger('click')
+    await importFile()
+    const status = () => importDraftStatus().text()
+    expect(status()).toBe(i18n.global.t('workflow.importComfyUiDraftReady'))
+    saveFails = true
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(status()).toBe(i18n.global.t('workflow.importComfyUiDraftReady'))
+    saveFails = false
+    await saveButton().trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/workflows/201')
+    expect(status()).toBe('')
+    store.updateNodeConfig('prompt', 'prompt', '保存后的新编辑')
+    await flushPromises()
+    expect(status()).toBe('')
+  })
+
+  it('工具栏入口仍存在的导入不改其焦点、不显示空白入口的成功提示', async () => {
+    const { store } = await setup()
+    const opener = importAction()
+    opener.element.focus()
+    await opener.trigger('click')
+    await importFile()
+    expect(store.dirty).toBe(true)
+    expect(importAction().element).toBe(opener.element)
+    expect(document.activeElement).toBe(opener.element)
+    expect(importDraftStatus().exists() ? importDraftStatus().text() : '').toBe('')
+  })
+
+  it('已离开空白页时不宣布迟到的旧导入，也不把焦点从新页移走', async () => {
+    const { store, router } = await setup('/workflows/new')
+    const finish = holdImportConversion()
+    importAction().element.focus()
+    await importAction().trigger('click')
+    await importFile()
+    await router.push('/projects')
+    await finish()
+    expect(router.currentRoute.value.path).toBe('/projects')
+    expect(wrapper!.text()).toContain('项目列表')
+    expect(importDraftStatus().exists()).toBe(false)
+    expect(store.dirty).toBe(false)
+  })
+
+  it('失败转换保持空白入口，不宣布导入成功', async () => {
+    await setup('/workflows/new')
+    importFails = true
+    const action = importAction()
+    action.element.focus()
+    await action.trigger('click')
+    await importFile()
+    expect(importAction().element).toBe(action.element)
+    expect(wrapper!.get('[role="alert"]').text()).toBe('temporary import failure')
+    expect(importDraftStatus().exists() ? importDraftStatus().text() : '').toBe('')
+  })
 })
 
 function editorAlerts() {
