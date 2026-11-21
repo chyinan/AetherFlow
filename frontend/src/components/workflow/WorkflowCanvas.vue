@@ -21,7 +21,8 @@ const workflowStore = useWorkflowStore()
 const uiStore = useUiStore()
 const flow = useVueFlow()
 const { t } = useI18n()
-const addMenu = ref<{ sourceNodeId: string; x: number; y: number } | null>(null)
+const addMenu = ref<{ sourceNodeId: string; x: number; y: number; opener: HTMLButtonElement | null } | null>(null)
+const addMenuComponent = ref<InstanceType<typeof NodeAddMenu> | null>(null)
 const suppressNextPaletteClick = ref(false)
 const nodeSearch = ref('')
 const nodeSearchInput = ref<HTMLInputElement | null>(null)
@@ -137,11 +138,29 @@ function templateDescription(template: NodeTemplate) {
 }
 
 function openAddMenu(nodeId: string, event: MouseEvent) {
+  const opener = event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null
+  // 键盘触发的 click 没有指针坐标，使用原按钮的位置。
+  const keyboard = event.detail === 0
+  const anchor = keyboard ? opener?.getBoundingClientRect() : undefined
   addMenu.value = {
     sourceNodeId: nodeId,
-    x: event.clientX,
-    y: event.clientY,
+    x: anchor?.right ?? event.clientX,
+    y: anchor?.top ?? event.clientY,
+    opener,
   }
+  if (keyboard) {
+    const openedMenu = addMenu.value
+    void nextTick(() => {
+      if (addMenu.value === openedMenu) addMenuComponent.value?.focusSearch()
+    })
+  }
+}
+
+async function closeAddMenu() {
+  const opener = addMenu.value?.opener
+  addMenu.value = null
+  await nextTick()
+  if (!addMenu.value && opener?.isConnected) opener.focus({ preventScroll: true })
 }
 
 async function addNodeAfter(template: NodeTemplate) {
@@ -392,9 +411,10 @@ defineExpose({
 
     <NodeAddMenu
       v-if="addMenu"
+      ref="addMenuComponent"
       :x="addMenu.x"
       :y="addMenu.y"
-      @close="addMenu = null"
+      @close="closeAddMenu"
       @select="addNodeAfter"
     />
   </div>

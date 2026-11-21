@@ -39,7 +39,7 @@ afterEach(() => {
   canvas = undefined
 })
 
-async function openMenu() {
+async function openMenu(input: 'detached' | 'keyboard' | 'pointer' = 'detached', realLibrary = false) {
   const pinia = createPinia()
   const store = useWorkflowStore(pinia)
   const capabilities = unavailableWorkflowCapabilities(unavailableReason)
@@ -47,13 +47,28 @@ async function openMenu() {
   const source = store.addNodeFromTemplate(nodeTemplates.find(item => item.kind === 'start')!, { x: 0, y: 0 })!
   store.markSaved()
 
-  const view = mount(WorkflowCanvas, { global: { plugins: [pinia, i18n], stubs: { CustomNodeLibrary: true } } })
+  const view = mount(WorkflowCanvas, {
+    attachTo: input === 'detached' ? undefined : document.body,
+    global: { plugins: [pinia, i18n], stubs: { CustomNodeLibrary: !realLibrary } },
+  })
   canvas = view
-  await view.get(`button[aria-label="${i18n.global.t('workflow.addNextNode')}"]`).trigger('click')
+  const opener = view.get<HTMLButtonElement>(`button[aria-label="${i18n.global.t('workflow.addNextNode')}"]`)
+  if (input !== 'detached') {
+    vi.spyOn(opener.element, 'getBoundingClientRect').mockReturnValue(new DOMRect(180, 130, 28, 28))
+    opener.element.focus()
+  }
+  if (input === 'keyboard') {
+    // 原生键盘激活按钮产生 detail 为 0 的 click；jsdom 不合成按键默认动作。
+    opener.element.click()
+    await nextTick()
+  } else {
+    opener.element.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1, clientX: 250, clientY: 135 }))
+    await nextTick()
+  }
   const menu = view.getComponent(NodeAddMenu)
   const option = (kind: WorkflowNodeKind) => menu.findAll('button').find(button =>
     button.text().startsWith(i18n.global.t(`workflow.catalog.items.${kind}.label`)))!
-  return { view, menu, store, source, option, capabilities }
+  return { view, menu, store, source, option, capabilities, opener }
 }
 
 describe('节点加号菜单的能力提示', () => {
@@ -208,5 +223,103 @@ describe('节点加号菜单的条目详情', () => {
     store.templates = store.templates.map(template => template.kind === 'llm' ? { ...template } : template)
     await nextTick()
     expect(menu.get('aside').text()).toBe(details)
+  })
+})
+
+describe('节点加号菜单的键盘焦点', () => {
+  it('通过键盘打开时可直接搜索；关闭后再次打开也能搜索', async () => {
+    const { view, menu, opener, store } = await openMenu('keyboard')
+    const search = menu.get<HTMLInputElement>('input')
+    expect(document.activeElement).toBe(search.element)
+    await search.setValue('prompt')
+    expect(menu.findAll('button').some(button => button.text().startsWith(i18n.global.t('workflow.catalog.items.prompt.label')))).toBe(true)
+
+    await menu.get<HTMLButtonElement>(`button[title="${i18n.global.t('common.close')}"]`).trigger('click')
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
+    opener.element.click()
+    await nextTick()
+    const reopened = view.getComponent(NodeAddMenu).get<HTMLInputElement>('input')
+    expect(document.activeElement).toBe(reopened.element)
+    expect(reopened.element.value).toBe('')
+    expect(store.dirty).toBe(false)
+  })
+
+  it.each([
+    ['keyboard', '218px', '106px'],
+    ['pointer', '260px', '111px'],
+  ] as const)('%s 打开时分别沿用加号按钮或指针的坐标', async (input, left, top) => {
+    const { menu } = await openMenu(input)
+    expect((menu.element as HTMLElement).style.left).toBe(left)
+    expect((menu.element as HTMLElement).style.top).toBe(top)
+  })
+
+  it.each(['搜索框', '节点选项'] as const)('在%s按 Escape 只关闭菜单，并返回原节点按钮', async target => {
+    const { view, menu, opener, option, store, source } = await openMenu('keyboard')
+    const field = target === '搜索框' ? menu.get('input') : option('prompt')
+    field.element.focus()
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    field.element.dispatchEvent(event)
+    await nextTick()
+
+    expect.soft(view.findComponent(NodeAddMenu).exists()).toBe(false)
+    expect.soft(event.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(opener.element)
+    expect(store.nodes.map(node => node.id)).toEqual([source.id])
+    expect(store.edges).toEqual([])
+    expect(store.dirty).toBe(false)
+  })
+
+  it('显式关闭时，焦点离开即将移除的关闭按钮并返回触发入口', async () => {
+    const { view, menu, opener } = await openMenu('pointer')
+    expect(document.activeElement).toBe(opener.element)
+    const close = menu.get<HTMLButtonElement>(`button[title="${i18n.global.t('common.close')}"]`)
+    close.element.focus()
+    close.element.click()
+    await nextTick()
+
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
+  })
+
+  it('输入法组合输入中的 Escape 不关闭菜单', async () => {
+    const { view, menu } = await openMenu('keyboard')
+    const search = menu.get<HTMLInputElement>('input')
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: true })
+    search.element.dispatchEvent(event)
+    await nextTick()
+
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(true)
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('自定义节点模板库消费第一次 Escape，不同时关闭外面的菜单', async () => {
+    const { view, menu, opener } = await openMenu('keyboard', true)
+    const library = menu.findAll('button').find(button => button.text() === '自定义节点 · API / 代码')!
+    library.element.focus()
+    library.element.click()
+    await nextTick()
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="自定义节点模板库"]')!
+    expect(document.activeElement).toBe(dialog)
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(dialog.isConnected).toBe(false)
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(true)
+    expect(document.activeElement).toBe(library.element)
+
+    library.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(false)
+    expect(document.activeElement).toBe(opener.element)
+  })
+
+  it('单击菜单外的画布搜索框时保留新焦点，而不把焦点拉回原节点', async () => {
+    const { view } = await openMenu('keyboard')
+    const outside = view.get<HTMLInputElement>('input[type="search"]')
+    outside.element.focus()
+    await outside.trigger('click')
+
+    expect(view.findComponent(NodeAddMenu).exists()).toBe(false)
+    expect(document.activeElement).toBe(outside.element)
   })
 })
