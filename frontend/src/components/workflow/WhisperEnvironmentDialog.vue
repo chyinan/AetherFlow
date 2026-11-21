@@ -33,6 +33,8 @@ const deployment = ref<WhisperDeployment | ''>('')
 const draft = ref(createWhisperSetupDraft())
 const applied = ref(false)
 const verification = ref<ReturnType<typeof verifyWhisperSetup> | null>(null)
+const verifyRequested = ref(false)
+const verifyReadError = computed(() => verifyRequested.value ? error.value : '')
 const snippet = computed(() => buildWhisperEnvironmentSnippet(snapshot.value))
 const suggestedSnippet = computed(() => buildWhisperSuggestedSnippet(draft.value, deployment.value))
 const blockers = computed(() => snapshot.value ? getWhisperSetupBlockers(snapshot.value) : [])
@@ -57,6 +59,10 @@ function resetCopy() {
   copyState.value = 'idle'
   suggestionCopyState.value = 'idle'
 }
+function resetVerification() {
+  verifyRequested.value = false
+  verification.value = null
+}
 async function refresh(verify = false) {
   if (!opened.value || loading.value || (verify && (step.value !== 4 || !applied.value || !validDraft.value))) return
   const sequence = ++requestSequence
@@ -66,6 +72,7 @@ async function refresh(verify = false) {
   error.value = ''
   capabilityError.value = false
   snapshot.value = null
+  verifyRequested.value = verify
   verification.value = null
   resetCopy()
   try {
@@ -109,7 +116,7 @@ function close(restoreFocus = true) {
   deployment.value = ''
   draft.value = createWhisperSetupDraft()
   applied.value = false
-  verification.value = null
+  resetVerification()
   if (restoreFocus) opener.value?.focus()
 }
 function finish() {
@@ -124,7 +131,7 @@ async function moveStep(direction: -1 | 1) {
   const target = step.value + direction
   if (target < 0 || target >= steps.length) return
   ++proposalRevision
-  verification.value = null
+  resetVerification()
   resetCopy()
   step.value = target
   const nodeId = props.nodeId
@@ -181,12 +188,12 @@ function onKeydown(event: KeyboardEvent) {
 watch([deployment, () => draft.value.model, () => draft.value.device, () => draft.value.computeType], () => {
   ++proposalRevision
   applied.value = false
-  verification.value = null
+  resetVerification()
   resetCopy()
 }, { flush: 'sync' })
 watch(applied, () => {
   ++proposalRevision
-  verification.value = null
+  resetVerification()
 }, { flush: 'sync' })
 watch(() => props.nodeId, () => close(false), { flush: 'sync' })
 onBeforeUnmount(() => {
@@ -214,8 +221,8 @@ onBeforeUnmount(() => {
           </ol>
           <section class="space-y-3" :aria-label="t('detected')">
             <h3 class="text-sm font-semibold text-text-primary">{{ t('detected') }}</h3>
-            <p v-if="loading" role="status" class="flex items-center gap-2 text-text-secondary"><LoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true" />{{ t('loading') }}</p>
-            <p v-else-if="error" role="alert" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('loadError') }}: {{ error }}</p>
+            <p v-if="loading" :role="verifyRequested ? undefined : 'status'" class="flex items-center gap-2 text-text-secondary"><LoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true" />{{ t('loading') }}</p>
+            <p v-else-if="error && !verifyReadError" role="alert" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('loadError') }}: {{ error }}</p>
             <p v-if="capabilityError" role="alert" data-testid="whisper-capability-error" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('capabilityLoadError') }}</p>
             <template v-if="snapshot">
               <div class="space-y-2" aria-live="polite">
@@ -306,8 +313,12 @@ onBeforeUnmount(() => {
                 <div><dt class="text-text-muted">{{ t('suggestedDevice') }}</dt><dd class="mt-1 break-all text-text-primary">{{ draft.device }}</dd></div>
                 <div><dt class="text-text-muted">{{ t('suggestedComputeType') }}</dt><dd class="mt-1 break-all text-text-primary">{{ draft.computeType }}</dd></div>
               </dl>
-              <div data-testid="whisper-verification" :data-result="verification ? (verification.success ? 'passed' : 'failed') : 'pending'" role="status" class="space-y-2 rounded-lg border p-3 text-xs leading-5" :class="verification?.success ? 'border-status-success/25 bg-status-success/10 text-status-success' : 'border-app-border bg-app-bg2 text-text-secondary'">
-                <p>{{ t(verification ? (verification.success ? 'verifySuccess' : 'verifyFailure') : 'verifyPending') }}</p>
+              <div v-if="verifyReadError" data-testid="whisper-verification" data-result="read-error" role="alert" class="space-y-2 rounded-lg border border-status-error/30 bg-red-50 p-3 text-xs leading-5 text-status-error">
+                <p>{{ t('loadError') }}: {{ verifyReadError }}</p>
+                <p>{{ t('verifyReadRetry') }}</p>
+              </div>
+              <div v-else data-testid="whisper-verification" :data-result="verification ? (verification.success ? 'passed' : 'failed') : 'pending'" role="status" class="space-y-2 rounded-lg border p-3 text-xs leading-5" :class="verification?.success ? 'border-status-success/25 bg-status-success/10 text-status-success' : 'border-app-border bg-app-bg2 text-text-secondary'">
+                <p>{{ t(verification ? (verification.success ? 'verifySuccess' : 'verifyFailure') : verifyRequested && loading ? 'verifyLoading' : 'verifyPending') }}</p>
                 <template v-if="verification && !verification.success">
                   <div v-if="mismatchDetails.length" data-testid="whisper-mismatches" class="space-y-2">
                     <p class="font-medium">{{ t('mismatches') }}</p>
