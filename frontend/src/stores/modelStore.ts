@@ -64,6 +64,19 @@ export const useModelStore = defineStore('model', {
       if (this.providers.length > 0 && this.snapshotIdentity === currentIdentity() && this.snapshotManagement === management) return
       await this.refreshStatus({ management })
     },
+    async enterManagementPage() {
+      const management = useAuthStore().isAdmin
+      if (management && this.snapshotManagement && this.snapshotIdentity === currentIdentity()) {
+        // 同一管理上下文重返页面时，已发出的动作继续负责写入和确认读取。
+        if (this.switchingProviderId || this.recoveringProviderId) return
+        if (this.operationRefreshWarning) {
+          await this.refreshStatus({ management: true })
+          return
+        }
+      }
+      this.clearSnapshot()
+      if (management) await this.loadModels({ management: true })
+    },
     clearSnapshot() {
       this.refreshRequestId += 1
       this.operationRequestId += 1

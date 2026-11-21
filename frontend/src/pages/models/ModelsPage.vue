@@ -91,8 +91,7 @@ function recoverProvider() {
 }
 
 watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canManageProviders.value], () => {
-  modelStore.clearSnapshot()
-  if (canManageProviders.value) void modelStore.loadModels({ management: true })
+  void modelStore.enterManagementPage()
 }, { immediate: true })
 </script>
 
