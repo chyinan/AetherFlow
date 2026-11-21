@@ -24,8 +24,7 @@ interface PresentationStore {
   operationRefreshWarning: null
   switchingProviderId: null
   recoveringProviderId: null
-  loadModels: ReturnType<typeof vi.fn>
-  clearSnapshot: ReturnType<typeof vi.fn>
+  enterManagementPage: ReturnType<typeof vi.fn>
   selectProvider: ReturnType<typeof vi.fn>
   refreshStatus: ReturnType<typeof vi.fn>
   switchSelectedProviderToPrimary: ReturnType<typeof vi.fn>
@@ -107,7 +106,7 @@ beforeEach(() => {
     get selectedProviderModels() { return this.models.filter((entry: ModelCatalogItem) => entry.providerId === this.selectedProviderId) },
     get onlineProviderCount() { return this.providers.filter((entry: ModelProvider) => entry.status === 'online').length },
     get readyModelCount() { return this.models.filter((entry: ModelCatalogItem) => entry.status === 'ready').length },
-    loadModels: vi.fn(async () => undefined), clearSnapshot: vi.fn(),
+    enterManagementPage: vi.fn(async () => undefined),
     selectProvider: vi.fn((id: string) => { store.selectedProviderId = id }),
     refreshStatus: vi.fn(async () => undefined),
     switchSelectedProviderToPrimary: mocks.forbidden, recoverSelectedProvider: mocks.forbidden,
