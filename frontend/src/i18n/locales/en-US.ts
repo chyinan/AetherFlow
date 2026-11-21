@@ -378,6 +378,7 @@ export const enUS = {
     importComfyUiDefaultName: 'Imported ComfyUI workflow',
     importComfyUiDescription: 'Imported from ComfyUI workflow.json.',
     importComfyUiEdited: 'This import was not applied because the workflow changed. Your edits were kept. Choose the file again to retry.',
+    importComfyUiDraftReady: 'ComfyUI workflow imported as an unsaved draft. Review the canvas, then save to keep the workflow.',
     loading: 'Loading workflow...',
     loadFailed: 'Failed to load workflow',
     loadFailedUnknown: 'Unknown error',

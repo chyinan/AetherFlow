@@ -384,6 +384,7 @@ export const zhCN = {
     importComfyUiDefaultName: '导入的 ComfyUI 工作流',
     importComfyUiDescription: '从 ComfyUI workflow.json 导入。',
     importComfyUiEdited: '工作流在导入期间发生了更改，本次结果未应用。已保留你的编辑；如需导入，请重新选择该文件。',
+    importComfyUiDraftReady: '已导入 ComfyUI 工作流，当前是未保存的草稿。请检查画布，再保存以保留此工作流。',
     loading: '正在加载工作流...',
     loadFailed: '加载工作流失败',
     loadFailedUnknown: '未知错误',
