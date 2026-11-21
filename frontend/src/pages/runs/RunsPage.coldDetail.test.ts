@@ -2,7 +2,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { AxiosError } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { createMemoryHistory, createRouter, NavigationFailureType, RouterView, type Router } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const realtime = vi.hoisted(() => ({ subscribeRun: vi.fn((_options: { runId: string }) => vi.fn()) }))
@@ -15,6 +15,7 @@ vi.mock('@/stores/uiStore', () => ({ useUiStore: () => ({ startNotificationStrea
 import { axiosInstance } from '@/api/client/apiClient'
 import { i18n } from '@/i18n'
 import { useRunStore } from '@/stores/runStore'
+import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 import RunsPage from './RunsPage.vue'
 
 const list = '/workflow-instances'
@@ -74,7 +75,7 @@ afterEach(() => {
   axiosInstance.defaults.adapter = nativeAdapter
 })
 
-async function setup(path: string) {
+async function setup(path: string, configure?: (router: Router) => void) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -82,6 +83,8 @@ async function setup(path: string) {
     { path: '/runs/:id', name: 'run-detail', component: RunsPage },
     { path: '/files', component: { template: '<div />' } },
   ] })
+  observeWorkflowNavigation(router)
+  configure?.(router)
   await router.push(path)
   wrapper = mount(RouterView, { global: { plugins: [pinia, router, i18n], stubs: { SubworkflowChildRuns: true } } })
   store = useRunStore()
@@ -403,4 +406,114 @@ it('侧栏换新筛选后先确认明确目标时，不等待旧分页或独立�
   await flushPromises()
   expect(run.currentRun).toMatchObject({ workflowName: '新筛选可用摘要', backendStatus: 'SUCCESS' })
   expect(count(logs(42))).toBe(1)
+})
+
+it('首屏历史回执不能替换正在打开的指定 ID，也不改变筛选条件', async () => {
+  const waiting = hold<ReturnType<typeof page>>()
+  const navigation = hold<boolean>()
+  overrides[list] = () => waiting.response
+  const { router, run } = await setup('/runs?status=RUNNING', router => {
+    router.beforeEach(to => to.params.id === 'run-42' ? navigation.response : true)
+  })
+
+  await openId(42)
+  expect(observeWorkflowNavigation(router).pending?.params.id).toBe('run-42')
+  waiting.resolve(page(dto(1), dto(2)))
+  await flushPromises()
+  expect.soft(router.currentRoute.value.name).toBe('runs')
+  expect.soft(count(logs(1))).toBe(0)
+
+  navigation.resolve(true)
+  await flushPromises()
+  expect.soft(router.currentRoute.value.params.id).toBe('run-42')
+  expect.soft(run.currentRun?.id).toBe('run-42')
+  expect(router.currentRoute.value.query.status).toBe('RUNNING')
+  expect(count(list)).toBe(1)
+})
+
+it('列表回执和直接打开同一轮到达时，不覆盖主动打开', async () => {
+  const waiting = hold<ReturnType<typeof page>>()
+  const navigation = hold<boolean>()
+  overrides[list] = () => waiting.response
+  const { router } = await setup('/runs', router => {
+    router.beforeEach(to => to.params.id === 'run-42' ? navigation.response : true)
+  })
+
+  await wrapper!.get('[data-testid="history-direct-id"]').setValue('42')
+  waiting.resolve(page(dto(1), dto(2)))
+  await wrapper!.get('[data-testid="history-open-id"]').trigger('submit')
+  await flushPromises()
+  expect.soft(router.currentRoute.value.name).toBe('runs')
+  expect.soft(observeWorkflowNavigation(router).pending?.params.id).toBe('run-42')
+
+  navigation.resolve(true)
+  await flushPromises()
+  expect(router.currentRoute.value.params.id).toBe('run-42')
+})
+
+it('列表返回时等待导航离开，获准后不再打开旧列表的首条运行', async () => {
+  const waiting = hold<ReturnType<typeof page>>()
+  const navigation = hold<boolean>()
+  overrides[list] = () => waiting.response
+  const { router } = await setup('/runs', router => {
+    router.beforeEach(to => to.path === '/files' ? navigation.response : true)
+  })
+
+  const leaving = router.push('/files')
+  await flushPromises()
+  waiting.resolve(page(dto(1), dto(2)))
+  await flushPromises()
+  expect.soft(router.currentRoute.value.name).toBe('runs')
+
+  navigation.resolve(true)
+  expect.soft(await leaving).toBeUndefined()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.path).toBe('/files')
+  expect.soft(count(logs(1))).toBe(0)
+})
+
+it('导航取消并留在列表时，从已读当前页恢复默认项，不重复读列表', async () => {
+  const waiting = hold<ReturnType<typeof page>>()
+  const navigation = hold<boolean>()
+  overrides[list] = () => waiting.response
+  const { router, run } = await setup('/runs?status=RUNNING', router => {
+    router.beforeEach(to => to.path === '/files' ? navigation.response : true)
+  })
+
+  const leaving = router.push('/files')
+  await flushPromises()
+  waiting.resolve(page(dto(1), dto(2)))
+  await flushPromises()
+  expect.soft(router.currentRoute.value.name).toBe('runs')
+  expect.soft(count(logs(1))).toBe(0)
+
+  navigation.resolve(false)
+  expect(await leaving).toMatchObject({ type: NavigationFailureType.aborted })
+  await flushPromises()
+  expect(run.currentRun?.id).toBe('run-1')
+  expect(router.currentRoute.value.query.status).toBe('RUNNING')
+  expect(count(list)).toBe(1)
+})
+
+it('等待中的本页关键词导航获准后，默认项使用新关键词而不是旧首行', async () => {
+  const waiting = hold<ReturnType<typeof page>>()
+  const navigation = hold<boolean>()
+  overrides[list] = () => waiting.response
+  const { router, run } = await setup('/runs?status=RUNNING', router => {
+    router.beforeEach(to => to.name === 'runs' && to.query.q === '其他记录' ? navigation.response : true)
+  })
+
+  await wrapper!.get('[data-testid="history-search"]').setValue('其他记录')
+  await wrapper!.get('[data-testid="history-filters"]').trigger('submit')
+  await flushPromises()
+  expect(observeWorkflowNavigation(router).pending?.query.q).toBe('其他记录')
+  waiting.resolve(page(dto(1), dto(2, '其他记录')))
+  await flushPromises()
+  expect.soft(router.currentRoute.value.name).toBe('runs')
+
+  navigation.resolve(true)
+  await flushPromises()
+  expect.soft(run.currentRun?.id).toBe('run-2')
+  expect.soft(router.currentRoute.value.query).toMatchObject({ status: 'RUNNING', q: '其他记录' })
+  expect(count(list)).toBe(1)
 })

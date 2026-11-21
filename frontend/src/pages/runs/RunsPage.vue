@@ -15,6 +15,7 @@ import type { RunNodeState } from '@/types/run'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 import { runArtifactsLocation } from '@/utils/runNavigation'
+import { pendingWorkflowNavigation } from '@/utils/workflowNavigation'
 import { runHistoryMessages } from './runHistoryMessages'
 import { directRunId, matchesRunHistorySearch, readRunHistoryQuery, runHistoryPageSizes, runHistoryStatuses } from './runHistoryQuery'
 
@@ -54,6 +55,7 @@ const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore
 let historyRequest: Promise<void> | undefined
 let routeGeneration = 0
 let detailNavigationGeneration = 0
+const defaultSelectionReady = ref(false)
 const detailFocusCleanups = new Set<() => void>()
 let active = true
 
@@ -325,6 +327,7 @@ const pageStatusSummary = computed(() => [
 
 async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>, intent: 'select' | 'refresh' | 'retry-detail' = 'select') {
   const generation = ++routeGeneration
+  defaultSelectionReady.value = false
   dismissedApprovalKey.value = null
   rerunNode.value = null
   if (runId) {
@@ -345,13 +348,25 @@ async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>
   coldDetailTarget.value = undefined
   await ready
   if (!active || generation !== routeGeneration || runStore.historyLoading || runStore.historyError) return
-  const firstRun = visibleRuns.value[0]
-  if (firstRun) {
-    await router.replace({ name: 'run-detail', params: { id: firstRun.id }, query: route.query })
-  } else {
-    runStore.clearCurrentRun()
-  }
+  defaultSelectionReady.value = true
 }
+
+watch(
+  [defaultSelectionReady, () => pendingWorkflowNavigation(router)],
+  async ([ready, pending]) => {
+    // 等较新的导航提交或取消，再按仍在显示的列表决定是否打开首条。
+    if (!active || !ready || pending || router.currentRoute.value.name !== 'runs'
+      || runStore.historyLoading || runStore.historyError) return
+    defaultSelectionReady.value = false
+    const firstRun = visibleRuns.value[0]
+    if (firstRun) {
+      await router.replace({ name: 'run-detail', params: { id: firstRun.id }, query: route.query })
+    } else {
+      runStore.clearCurrentRun()
+    }
+  },
+  { flush: 'post' },
+)
 
 watch(
   () => [selectedRouteId.value, historyKey.value] as const,
