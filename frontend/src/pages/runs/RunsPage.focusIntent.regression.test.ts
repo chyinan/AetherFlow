@@ -182,6 +182,10 @@ it('交错选择完成后清理各自监听，迟到旧导航不抢新输入焦�
 
 it.each([false, true])('交互交付：主动选择把焦点交给所选详情，仅窄屏定位详情（宽屏=%s）', async wide => {
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: wide }))
+  // 无网络夹具也应像服务器一样，只为 RUNNING 查询提供正在运行的记录。
+  for (const row of fixture.store.historyRuns as ReturnType<typeof run>[]) {
+    Object.assign(row, { status: 'running', backendStatus: 'RUNNING', progress: 8 })
+  }
   const router = await setup('/runs/run-1?status=RUNNING')
   const region = wrapper!.get<HTMLElement>('[data-testid="run-detail-region"]')
   const scroll = vi.fn()
