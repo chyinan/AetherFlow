@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft, Database, FileInput, FolderOpen, PackageCheck, RefreshCw } from 'lucide-vue-next'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -37,6 +37,21 @@ function clearRunFilter() {
 }
 
 const fileListUnsettled = computed(() => fileStore.loading || Boolean(fileStore.loadError))
+const confirmedRunFilterId = ref('')
+watch([runFilterId, fileListUnsettled], ([runId, unsettled], [previousRunId]) => {
+  // 冷进入仍要确认列表；未确认期间切换运行，不沿用任何旧快照。
+  if (!unsettled) confirmedRunFilterId.value = runId
+  else if (runId !== previousRunId) confirmedRunFilterId.value = ''
+})
+const showingPreviousRunArtifacts = computed(() =>
+  fileListUnsettled.value
+  && Boolean(runFilterId.value)
+  && confirmedRunFilterId.value === runFilterId.value
+  && visibleArtifacts.value.length > 0,
+)
+const showArtifactCount = computed(() => runFilterId.value
+  ? !fileListUnsettled.value || showingPreviousRunArtifacts.value
+  : showFileCount(visibleArtifacts.value.length))
 
 // 未确认的零不是空列表；已经显示的文件和计数仍保留。
 function showFileCount(count: number) {
@@ -158,20 +173,21 @@ async function toggleFileSource(fileId: string) {
                 <p class="text-sm font-semibold text-text-primary">{{ t('files.artifacts') }}</p>
                 <p class="text-xs text-text-muted">{{ runFilterId ? artifactText('filterHint') : t('files.artifactSectionHint') }}</p>
               </div>
-              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ (runFilterId ? !fileListUnsettled : showFileCount(visibleArtifacts.length)) ? visibleArtifacts.length : '—' }}</span>
+              <span class="rounded-md border border-app-border bg-white px-2 py-1 text-xs text-text-secondary">{{ showArtifactCount ? visibleArtifacts.length : '—' }}</span>
             </div>
             <p v-if="runFilterId && fileStore.loading" role="status" aria-busy="true" data-testid="run-artifact-loading" class="rounded-md border border-app-border bg-white p-4 text-sm text-text-secondary">
-              {{ artifactText('loading') }}
+              {{ artifactText(showingPreviousRunArtifacts ? 'refreshing' : 'loading') }}
             </p>
             <p v-else-if="runFilterId && fileStore.loadError" role="status" class="rounded-md border border-app-border bg-white p-4 text-sm text-text-secondary">
-              {{ artifactText('loadErrorHint') }}
+              {{ artifactText(showingPreviousRunArtifacts ? 'refreshErrorHint' : 'loadErrorHint') }}
             </p>
             <p v-else-if="runFilterId && visibleArtifacts.length === 0" role="status" data-testid="run-artifact-empty" class="rounded-lg border border-dashed border-app-border bg-white p-6 text-center text-sm text-text-muted">
               {{ artifactText('empty', { runId: runFilterId }) }}
             </p>
             <FileAssetList
-              v-else-if="runFilterId || showFileCount(visibleArtifacts.length)"
+              v-if="showArtifactCount && (!runFilterId || visibleArtifacts.length > 0)"
               :files="visibleArtifacts"
+              :actions-disabled="showingPreviousRunArtifacts"
               :deleting-ids="fileStore.deletingIds"
               :downloading-ids="fileStore.downloadingIds"
               layout="single"

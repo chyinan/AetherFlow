@@ -132,6 +132,43 @@ it('加载失败保留错误与重试入口，隐藏缓存及误导空态，重�
   expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
 })
 
+it('刷新中切换成品运行时不显示旧快照，后退也等待当前列表确认', async () => {
+  const { router, store } = await setup('/files?runId=run-1')
+  const pending = deferred<FileAsset[]>()
+  mocks.listFiles.mockReturnValueOnce(pending.promise)
+  const refresh = store.refreshArtifactsFromBackend()
+  await flushPromises()
+  expect.soft(shownRunLinks()).toEqual(['/runs/run-1'])
+
+  await router.push('/files?runId=run-2'); await flushPromises()
+  expect(shownRunLinks()).toEqual([])
+  expect(wrapper!.get('[data-testid="run-artifact-loading"]').text()).not.toContain('显示上次读取的成品')
+  router.back(); await flushPromises()
+  expect(router.currentRoute.value.query.runId).toBe('run-1')
+  expect(shownRunLinks()).toEqual([])
+  expect(wrapper!.find('[data-testid="run-artifact-empty"]').exists()).toBe(false)
+
+  pending.resolve(assets()); await refresh; await flushPromises()
+  expect(shownRunLinks()).toEqual(['/runs/run-1'])
+  expect(wrapper!.find('[data-testid="run-artifact-loading"]').exists()).toBe(false)
+  expect(mocks.listFiles).toHaveBeenCalledTimes(2)
+})
+
+it('刷新前空态不当作当前结果，重新确认仍为空后才恢复零计数和空态', async () => {
+  const { store } = await setup('/files?runId=run-404')
+  const pending = deferred<FileAsset[]>()
+  mocks.listFiles.mockReturnValueOnce(pending.promise)
+  const refresh = store.refreshArtifactsFromBackend()
+  await flushPromises()
+  const count = () => wrapper!.get('[data-testid="artifact-section"] > div > span').text()
+  expect(count()).toBe('—')
+  expect(wrapper!.find('[data-testid="run-artifact-empty"]').exists()).toBe(false)
+  expect(wrapper!.get('[data-testid="run-artifact-loading"]').text()).not.toContain('显示上次读取的成品')
+  pending.resolve(assets()); await refresh; await flushPromises()
+  expect(count()).toBe('0')
+  expect(wrapper!.get('[data-testid="run-artifact-empty"]').text()).toContain('run-404')
+})
+
 it('下载仍提交选中成品的文件 ID，等待禁用按钮，失败保留原有反馈和筛选', async () => {
   const { router, store } = await setup('/files?runId=run-2')
   const pending = deferred<Blob>()
