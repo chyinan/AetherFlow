@@ -981,7 +981,6 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
     async performSaveCurrentWorkflow(queue: WorkflowSaveQueue, options: SaveWorkflowOptions = {}) {
-      const editRevisionAtStart = this.editRevision
       const loadRequestAtStart = workflowLoadRequestCounter
       const saveRequestId = ++this.workflowSaveRequestSequence
       // 导航代次隔离工作流，同代重叠保存由最新请求独占反馈与元数据写回。
@@ -1003,6 +1002,8 @@ export const useWorkflowStore = defineStore('workflow', {
           }
           if (alreadySaved) return { workflowId: this.workflowId }
         }
+        // 重试可能先异步核对旧提交；以实际发出的新快照记录编辑代次。
+        const editRevisionAtSubmission = this.editRevision
         const currentWorkflow: WorkflowDefinition = {
           id: this.workflowId,
           name: this.workflowName,
@@ -1019,10 +1020,10 @@ export const useWorkflowStore = defineStore('workflow', {
         if (!this.backendDefinitionId && !this.createIntent) {
           // 记录创建键首次提交的意图；相同键的响应不能确认之后修改过的内容。
           this.createIdempotencyKey ??= crypto.randomUUID()
-          this.createIntent = { workflow: saveRequestWorkflow, editRevision: editRevisionAtStart }
+          this.createIntent = { workflow: saveRequestWorkflow, editRevision: editRevisionAtSubmission }
         }
         const createIntent = !this.backendDefinitionId ? this.createIntent : null
-        const savedRevision = createIntent?.editRevision ?? editRevisionAtStart
+        const savedRevision = createIntent?.editRevision ?? editRevisionAtSubmission
         const savedWorkflow = await workflowApi.saveWorkflow(
           // 允许修正被拒绝的定义；服务端若已落库则返回原记录，后面仍按首次 revision 保守确认。
           saveRequestWorkflow,
