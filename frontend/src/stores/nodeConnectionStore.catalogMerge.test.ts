@@ -42,6 +42,41 @@ describe('连接目录的全量与局部结果', () => {
     expect(store.ready).toBe(true)
   })
 
+  it('多个刚打开的面板只读取一次完整目录', async () => {
+    const pending = deferred<{ connections: NodeConnection[] }>()
+    mocks.getNodeConnections.mockReturnValueOnce(pending.promise)
+    const store = useNodeConnectionStore(createPinia())
+
+    const first = store.loadSharedConnections()
+    const second = store.loadSharedConnections()
+    expect(mocks.getNodeConnections).toHaveBeenCalledTimes(1)
+    expect(store.ready).toBe(false)
+
+    pending.resolve({ connections: [saved] })
+    expect(await Promise.all([first, second])).toEqual([true, true])
+    expect(store.ready).toBe(true)
+    expect(store.connections).toEqual([saved])
+  })
+
+  it('保存回执后的新面板不加入旧读取，旧响应不能覆盖新目录', async () => {
+    const stale = deferred<{ connections: NodeConnection[] }>()
+    const fresh = { ...saved, name: '服务端已更新', baseUrl: 'http://other:8188' }
+    mocks.getNodeConnections.mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce({ connections: [fresh] })
+    const store = useNodeConnectionStore(createPinia())
+    const first = store.loadSharedConnections()
+
+    await store.saveConnection(created, saved.id)
+    expect(await store.loadSharedConnections()).toBe(true)
+    expect(store.connections).toEqual([fresh])
+
+    stale.resolve({ connections: [saved] })
+    expect(await first).toBe(false)
+    expect(store.connections).toEqual([fresh])
+    expect(store.loading).toBe(false)
+    expect(mocks.getNodeConnections).toHaveBeenCalledTimes(2)
+  })
+
   it('目录读取失败后创建连接可以重试补齐目录', async () => {
     const failure = new Error('目录读取失败')
     mocks.getNodeConnections.mockRejectedValueOnce(failure)

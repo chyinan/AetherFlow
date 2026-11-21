@@ -32,6 +32,7 @@ export const useNodeConnectionStore = defineStore('nodeConnections', () => {
   const saveOutcome = ref<SaveOutcome | null>(null)
   let listSequence = 0
   let localRevision = 0
+  let catalogRead: { revision: number; result: Promise<boolean> } | null = null
 
   function mergeConnections(catalog: NodeConnection[], local: NodeConnection[]) {
     const merged = new Map<string, NodeConnection>()
@@ -41,7 +42,19 @@ export const useNodeConnectionStore = defineStore('nodeConnections', () => {
     return [...merged.values()]
   }
 
-  async function loadConnections() {
+  function loadConnections() {
+    const request = { revision: localRevision, result: fetchConnections() }
+    catalogRead = request
+    void request.result.then(() => { if (catalogRead === request) catalogRead = null })
+    return request.result
+  }
+
+  function loadSharedConnections() {
+    // 同时打开的面板共用一份目录；保存回执之后不能加入更旧的读取。
+    return catalogRead?.revision === localRevision ? catalogRead.result : loadConnections()
+  }
+
+  async function fetchConnections() {
     const sequence = ++listSequence
     // 本次读取开始时已保存的局部结果：读取之后服务端才是权威，读取之前保存的仍以本地为准。
     const startedAtRevision = localRevision
@@ -102,5 +115,5 @@ export const useNodeConnectionStore = defineStore('nodeConnections', () => {
     if (saveOutcome.value?.status === 'saved' && saveOutcome.value.connection.id === id) saveOutcome.value.applied = true
   }
 
-  return { connections, ready, loading, loadError, pendingSave, saveOutcome, loadConnections, saveConnection, markApplied }
+  return { connections, ready, loading, loadError, pendingSave, saveOutcome, loadConnections, loadSharedConnections, saveConnection, markApplied }
 })

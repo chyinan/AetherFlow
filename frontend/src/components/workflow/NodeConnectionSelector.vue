@@ -50,6 +50,7 @@ const refreshButton = ref<HTMLButtonElement | null>(null)
 const cancelProbeButton = ref<HTMLButtonElement | null>(null)
 const selectedCancelled = ref(false)
 let selectedSequence = 0
+let waitingForCatalog = false
 let formSequence = 0
 let alive = true
 let opener: HTMLElement | null = null
@@ -152,6 +153,7 @@ function finishSelectedProbe() {
   })
 }
 function cancelSelectedProbe() {
+  waitingForCatalog = false
   selectedSequence += 1
   selectedProbe.value = null
   selectedError.value = ''
@@ -277,7 +279,8 @@ async function refreshSelected() {
   selectedError.value = ''
   selectedCancelled.value = false
   probing.value = false
-  if (!ready.value || missingConnection.value) return
+  waitingForCatalog = !ready.value || missingConnection.value
+  if (waitingForCatalog) return
   probing.value = true
   try {
     const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value ? String(props.config.checkpoint ?? '').trim() : ''
@@ -291,13 +294,17 @@ async function refreshSelected() {
     if (alive && sequence === selectedSequence) finishSelectedProbe()
   }
 }
-async function loadConnections() {
+function loadConnections(shared = false) {
+  waitingForCatalog = true
   selectedSequence += 1
   selectedProbe.value = null
   selectedError.value = ''
   selectedCancelled.value = false
   probing.value = false
-  if (await connectionStore.loadConnections() && alive) void refreshSelected()
+  if (shared) void connectionStore.loadSharedConnections()
+  else void connectionStore.loadConnections()
+  // 挂载恰好赶上共享读取发布时，已有目录可直接用，不必等待下一次就绪变化。
+  if (ready.value) void refreshSelected()
 }
 function chooseConnection(event: Event) {
   const id = (event.target as HTMLSelectElement).value
@@ -331,7 +338,9 @@ function handleDialogKeydown(event: KeyboardEvent) {
 // 字段改正后不在后续输入中重新弹出，除非用户再次触发本地校验。
 watch(validationKey, (key) => { if (!key) validationTarget.value = null }, { flush: 'sync' })
 watch(() => [form.provider, form.baseUrl], () => { if (open.value) invalidateForm() }, { flush: 'sync' })
-watch(() => [props.nodeId, props.nodeType], () => { close(false); void loadConnections() }, { immediate: true, flush: 'sync' })
+// 目录就绪属于共享读取，不属于最后发起读取的面板；仅补齐仍在等待的诊断。
+watch(ready, (loaded) => { if (loaded && waitingForCatalog) void refreshSelected() })
+watch(() => [props.nodeId, props.nodeType], () => { close(false); loadConnections(true) }, { immediate: true, flush: 'sync' })
 watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'sync' })
 watch(saveOutcome, (outcome) => {
   if (outcome?.status !== 'saved') return
