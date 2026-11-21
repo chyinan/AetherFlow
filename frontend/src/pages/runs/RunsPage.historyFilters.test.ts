@@ -689,3 +689,108 @@ it.each([
     else process.env.TZ = previousTz
   }
 })
+
+it('本页选中的运行确认完成后只重取同一状态筛选页，不关闭详情或重读日志', async () => {
+  const query = { workflowId: 'wf-b', status: 'RUNNING', page: 2, pageSize: 20 }
+  const initial = list(query)
+  const selected = initial.items[0]!
+  const location = `/runs/run-${selected.id}?q=乙流程&workflowId=wf-b&status=RUNNING&page=2&pageSize=20`
+  const { router, store } = await setup(location)
+  expect(displayedIds()).toContain(`run-${selected.id}`)
+  const oldGet = mocks.get.getMockImplementation()!
+  const refresh = deferred<unknown>()
+  mocks.get.mockImplementation((url: string, options?: unknown) =>
+    url === '/workflow-instances' ? refresh.promise : oldGet(url, options))
+  const beforeOtherCalls = mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances').length
+
+  store.patchCurrentRun({ status: 'success', backendStatus: 'SUCCESS', progress: 100 })
+  await flushPromises()
+
+  expect(pageCalls()).toHaveLength(2)
+  expect(pageCalls()[1]).toEqual(pageCalls()[0])
+  expect(displayedIds()).not.toContain(`run-${selected.id}`)
+  expect(wrapper!.find('[data-testid="history-loading"]').exists()).toBe(true)
+  expect(wrapper!.get('[data-testid="run-detail-region"]').text()).toContain(`run-${selected.id}`)
+  expect(router.currentRoute.value.fullPath).toBe(location)
+
+  refresh.resolve({ ...initial, total: initial.total - 1, items: initial.items.slice(1) })
+  await flushPromises()
+
+  expect(pageCalls()).toHaveLength(2)
+  expect(wrapper!.get('[data-testid="history-page"]').text()).toContain(`共 ${initial.total - 1} 条`)
+  expect(wrapper!.find('[data-testid="history-outside"]').exists()).toBe(true)
+  expect(store.currentRun).toMatchObject({ id: `run-${selected.id}`, backendStatus: 'SUCCESS' })
+  expect(mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances')).toHaveLength(beforeOtherCalls)
+})
+
+it('投影延迟仍返回刚结束的旧行时不循环请求，隐藏旧总数并可显式重试', async () => {
+  const { store } = await setup('/runs/run-2?status=RUNNING')
+  expect(displayedIds()).toContain('run-2')
+  store.patchCurrentRun({ status: 'failed', backendStatus: 'FAILED', progress: 100 })
+  await flushPromises()
+
+  expect(pageCalls()).toHaveLength(2)
+  expect(displayedIds()).not.toContain('run-2')
+  expect(displayedIds()).toContain('run-3')
+  expect(wrapper!.find('[data-testid="history-page"]').exists()).toBe(false)
+  const pending = wrapper!.get('[data-testid="history-status-stale"]')
+  expect(pending.text()).toContain('总数尚未确认')
+  expect(wrapper!.get('[data-testid="history-next"]').attributes('disabled')).toBeDefined()
+  expect(store.currentRun).toMatchObject({ id: 'run-2', backendStatus: 'FAILED' })
+  await flushPromises()
+  expect(pageCalls()).toHaveLength(2)
+
+  const oldGet = mocks.get.getMockImplementation()!
+  const initial = list({ status: 'RUNNING' })
+  mocks.get.mockImplementation((url: string, options?: unknown) => url === '/workflow-instances'
+    ? Promise.resolve({ ...initial, total: initial.total - 1, items: initial.items.filter(row => row.id !== 2) })
+    : oldGet(url, options))
+  await pending.get('button').trigger('click')
+  await flushPromises()
+  expect(pageCalls()).toHaveLength(3)
+  expect(wrapper!.find('[data-testid="history-status-stale"]').exists()).toBe(false)
+  expect(wrapper!.get('[data-testid="history-page"]').text()).toContain(`共 ${initial.total - 1} 条`)
+})
+
+it('终态自动重取失败时保留详情，允许只重试列表', async () => {
+  const { store } = await setup('/runs/run-2?status=RUNNING')
+  const oldGet = mocks.get.getMockImplementation()!
+  mocks.get.mockImplementation((url: string, options?: unknown) => url === '/workflow-instances'
+    ? Promise.reject(new Error('投影暂时不可用'))
+    : oldGet(url, options))
+  store.patchCurrentRun({ status: 'failed', backendStatus: 'FAILED', progress: 100 })
+  await flushPromises()
+  expect(pageCalls()).toHaveLength(2)
+  expect(wrapper!.get('[data-testid="history-error"]').text()).toContain('这一页加载失败')
+  expect(wrapper!.get('[data-testid="run-detail-region"]').text()).toContain('run-2')
+  expect(store.currentRun?.backendStatus).toBe('FAILED')
+
+  const current = list({ status: 'RUNNING' })
+  mocks.get.mockImplementation((url: string, options?: unknown) => url === '/workflow-instances'
+    ? Promise.resolve({ ...current, total: current.total - 1, items: current.items.filter(row => row.id !== 2) })
+    : oldGet(url, options))
+  const beforeOtherCalls = mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances').length
+  await wrapper!.get('[data-testid="history-error"] button').trigger('click')
+  await flushPromises()
+  expect(mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances')).toHaveLength(beforeOtherCalls)
+  expect(wrapper!.find('[data-testid="history-error"]').exists()).toBe(false)
+  expect(pageCalls()).toHaveLength(3)
+})
+
+it.each([undefined, 'RUNNING'])('未筛选或选中详情原本不在本页时不因终态重取列表（%s）', async status => {
+  const { store } = await setup(status ? '/runs/run-81?status=RUNNING' : '/runs/run-2')
+  store.patchCurrentRun({ status: 'failed', backendStatus: 'FAILED', progress: 100 })
+  await flushPromises()
+  expect(pageCalls()).toHaveLength(1)
+  expect(wrapper!.find('[data-testid="history-status-stale"]').exists()).toBe(false)
+  if (!status) expect(displayedIds()).toContain('run-2')
+})
+
+it('仅从节点推断成功而运行仍未确认终态时不重取状态筛选页', async () => {
+  const { store } = await setup('/runs/run-2?status=RUNNING')
+  store.patchNodeState({ nodeId: 'end', label: '末节点', status: 'success' })
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ id: 'run-2', backendStatus: 'RUNNING', status: 'success' })
+  expect(pageCalls()).toHaveLength(1)
+  expect(displayedIds()).toContain('run-2')
+})

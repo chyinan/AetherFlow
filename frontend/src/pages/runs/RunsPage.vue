@@ -32,8 +32,17 @@ const directIdError = ref(false)
 const coldDetailTarget = ref<string>()
 const runDetailRegion = ref<HTMLElement | null>(null)
 const historyKey = computed(() => JSON.stringify([filters.value.workflowId, filters.value.status, filters.value.page, filters.value.pageSize]))
-const visibleRuns = computed(() => runStore.historyRuns.filter(run => matchesRunHistorySearch(run, filters.value.q)))
+const confirmedTerminalStatuses = new Set(['SUCCESS', 'FAILED', 'CANCELLED'])
+const historyStatusMismatches = computed(() => new Set(runStore.historyRuns
+  .filter(run => filters.value.status && run.backendStatus !== filters.value.status
+    && confirmedTerminalStatuses.has(run.backendStatus ?? ''))
+  .map(run => run.id)))
+const matchingStatusRuns = computed(() => runStore.historyRuns.filter(run => !historyStatusMismatches.value.has(run.id)))
+const visibleRuns = computed(() => matchingStatusRuns.value.filter(run => matchesRunHistorySearch(run, filters.value.q)))
+const historyStatusStale = computed(() => historyStatusMismatches.value.size > 0)
 const pageCount = computed(() => Math.max(1, Math.ceil(runStore.historyTotal / filters.value.pageSize)))
+const historyPageLabel = computed(() => historyText('page', { page: filters.value.page, pages: pageCount.value, total: runStore.historyTotal }))
+const historyPageTotalConfirmed = computed(() => !runStore.historyLoading && !runStore.historyError && !historyStatusStale.value)
 const selectedRouteId = computed(() => Array.isArray(route.params.id) ? route.params.id[0] : route.params.id)
 // 列表路由还没有选中运行；编辑器或上一次详情留下的缓存不属于这个路由。
 const selectedRun = computed(() => selectedRouteId.value && selectedRouteId.value === runStore.currentRun?.id
@@ -303,7 +312,7 @@ const approvalDialogRequest = computed<HumanApprovalRequestView | null>(() => {
   return candidate
 })
 
-const historyStatusCounts = computed(() => runStore.historyRuns.reduce((counts, run) => {
+const historyStatusCounts = computed(() => matchingStatusRuns.value.reduce((counts, run) => {
   counts[run.status] = (counts[run.status] ?? 0) + 1
   return counts
 }, {} as Record<string, number>))
@@ -356,6 +365,21 @@ watch(
   },
   { immediate: true },
 )
+
+let reconciliationKey = historyKey.value
+const reconciledTerminalRuns = new Set<string>()
+watch([historyKey, historyStatusMismatches, () => runStore.historyLoading, () => runStore.historyError], ([key, mismatches, loading, error]) => {
+  if (key !== reconciliationKey) {
+    reconciliationKey = key
+    reconciledTerminalRuns.clear()
+  }
+  if (!active || loading || error) return
+  const newTerminalRuns = [...mismatches].filter(id => !reconciledTerminalRuns.has(id))
+  if (newTerminalRuns.length === 0) return
+  newTerminalRuns.forEach(id => reconciledTerminalRuns.add(id))
+  // 运行事件可能先于列表投影持久化；同一查询对该终态只自动重取一次。
+  retryHistoryPage()
+})
 
 onBeforeUnmount(() => {
   active = false
@@ -591,15 +615,19 @@ watch(
               <p>{{ historyText('error') }}</p>
               <button type="button" class="mt-2 underline" @click="retryHistoryPage">{{ historyText('retry') }}</button>
             </div>
+            <div v-else-if="historyStatusStale" data-testid="history-status-stale" class="rounded border border-app-border p-3 text-sm text-text-muted">
+              <p role="status">{{ historyText('statusStale') }}</p>
+              <button type="button" class="mt-2 text-primary underline" @click="retryHistoryPage">{{ historyText('retry') }}</button>
+            </div>
             <div v-else-if="visibleRuns.length === 0" data-testid="history-empty" role="status" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
               <p>{{ filters.page > pageCount ? historyText('stale') : filters.q ? historyText('noMatch') : historyText('empty') }}</p>
               <button v-if="filters.page > 1" type="button" class="mt-2 text-primary underline" @click="updateFilters({ page: 1 })">{{ historyText('first') }}</button>
             </div>
-            <nav :aria-label="historyText('page', { page: filters.page, pages: pageCount, total: runStore.historyTotal })" class="mt-3 space-y-2 border-t border-app-border pt-3">
-              <p v-if="!runStore.historyLoading && !runStore.historyError" data-testid="history-page" class="text-xs text-text-muted">{{ historyText('page', { page: filters.page, pages: pageCount, total: runStore.historyTotal }) }}</p>
+            <nav :aria-label="historyPageTotalConfirmed ? historyPageLabel : historyText('pagination')" class="mt-3 space-y-2 border-t border-app-border pt-3">
+              <p v-if="historyPageTotalConfirmed" data-testid="history-page" class="text-xs text-text-muted">{{ historyPageLabel }}</p>
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <button type="button" data-testid="history-previous" class="rounded border border-app-border px-2 py-1 text-xs disabled:opacity-40" :disabled="runStore.historyLoading || filters.page <= 1" @click="updateFilters({ page: filters.page - 1 })">{{ historyText('previous') }}</button>
-                <button type="button" data-testid="history-next" class="rounded border border-app-border px-2 py-1 text-xs disabled:opacity-40" :disabled="runStore.historyLoading || Boolean(runStore.historyError) || filters.page >= pageCount" @click="updateFilters({ page: filters.page + 1 })">{{ historyText('next') }}</button>
+                <button type="button" data-testid="history-next" class="rounded border border-app-border px-2 py-1 text-xs disabled:opacity-40" :disabled="!historyPageTotalConfirmed || filters.page >= pageCount" @click="updateFilters({ page: filters.page + 1 })">{{ historyText('next') }}</button>
               </div>
               <label class="flex items-center justify-between text-xs text-text-muted">
                 {{ historyText('size') }}
