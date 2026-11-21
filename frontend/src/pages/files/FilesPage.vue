@@ -29,6 +29,10 @@ const visibleArtifacts = computed(() => runFilterId.value
   : fileStore.artifactFiles)
 const sourceRunLocation = computed(() => runReturnLocation(runFilterId.value, route.query.runReturnLocation))
 
+function resolveArtifactRunLocation(runId: string) {
+  return runId === runFilterId.value ? sourceRunLocation.value : undefined
+}
+
 function clearRunFilter() {
   const query = { ...route.query }
   delete query.runId
@@ -178,6 +182,7 @@ async function toggleFileSource(fileId: string) {
               @toggle-source="toggleFileSource"
               @download="downloadFile"
               @delete="deleteFile"
+              :resolve-run-location="resolveArtifactRunLocation"
             />
           </article>
         </section>

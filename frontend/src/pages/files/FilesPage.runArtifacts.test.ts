@@ -177,12 +177,15 @@ it('来源返回保存历史筛选和分页，清除运行筛选同时移除其�
   const source = '/runs/run-2?q=meeting&workflowId=workflow-10&status=FAILED&page=4&pageSize=50&tag=a&tag=b#detail'
   const { router } = await setup(`/files?runId=run-2&runReturnLocation=${encodeURIComponent(source)}&keep=yes#files`)
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
+  expect(shownRunLinks()).toEqual([source])
   await wrapper!.get('[data-testid="clear-run-filter"]').trigger('click'); await flushPromises()
   expect(router.currentRoute.value.query).toEqual({ keep: 'yes' })
   expect(router.currentRoute.value.hash).toBe('#files')
   expect(wrapper!.find('[data-testid="return-source-run"]').exists()).toBe(false)
+  expect(shownRunLinks()).toEqual(['/runs/run-1', '/runs/run-2'])
   router.back(); await flushPromises()
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
+  expect(shownRunLinks()).toEqual([source])
   await wrapper!.get('[data-testid="return-source-run"]').trigger('click'); await flushPromises()
   expect(router.currentRoute.value.fullPath).toBe(source)
 })
@@ -190,17 +193,22 @@ it('来源返回保存历史筛选和分页，清除运行筛选同时移除其�
 it('重复查询及路由变化只依据当前筛选生成返回入口，绝不沿用旧运行来源', async () => {
   const { router } = await setup('/files?runId=run-2&runId=run-1&runReturnLocation=%2Fruns%2Frun-2%3Fpage%3D3&runReturnLocation=%2Fruns%2Frun-1')
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2?page=3')
+  expect(shownRunLinks()).toEqual(['/runs/run-2?page=3'])
   await router.push({ query: { ...router.currentRoute.value.query, runId: 'run-1' } }); await flushPromises()
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-1')
+  expect(shownRunLinks()).toEqual(['/runs/run-1'])
   router.back(); await flushPromises()
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2?page=3')
+  expect(shownRunLinks()).toEqual(['/runs/run-2?page=3'])
   router.forward(); await flushPromises()
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-1')
+  expect(shownRunLinks()).toEqual(['/runs/run-1'])
 })
 
 it.each(['https://outside.example/runs/run-2', '//outside.example', '/runs/run-99?page=4', '/workflows/workflow-1'])('无效或不同来源的返回位置安全回退：%s', async source => {
   await setup(`/files?runId=run-2&runReturnLocation=${encodeURIComponent(source)}`)
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe('/runs/run-2')
+  expect(shownRunLinks()).toEqual(['/runs/run-2'])
 })
 
 it.each([

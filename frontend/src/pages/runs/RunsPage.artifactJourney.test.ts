@@ -79,7 +79,7 @@ it('运行详情链接以当前 run.id 打开成品页，真实文件映射只�
   expect(router.currentRoute.value.query).toEqual({ runId: 'run-2', runReturnLocation: source })
   expect(useFileStore().artifactFiles.map(file => file.linkedRunId)).toEqual(['run-1', 'run-2'])
   expect(wrapper!.findAll('[title="meeting-summary.md"]')).toHaveLength(1)
-  expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual(['/runs/run-2'])
+  expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual([source])
   expect(mocks.get.mock.calls.some(call => call[0].includes('/download'))).toBe(false)
   expect(wrapper!.get('[data-testid="return-source-run"]').attributes('href')).toBe(source)
   await wrapper!.get('[data-testid="return-source-run"]').trigger('click'); await flushPromises()
@@ -89,6 +89,8 @@ it('运行详情链接以当前 run.id 打开成品页，真实文件映射只�
   router.back(); await flushPromises()
   expect(router.currentRoute.value.fullPath).toBe(source)
   router.forward(); await flushPromises()
+  expect(router.currentRoute.value.query.runReturnLocation).toBe(source)
+  await router.push('/files?runId=run-2'); await flushPromises()
   expect(wrapper!.findAll('[data-testid="artifact-section"] a').map(link => link.attributes('href'))).toEqual(['/runs/run-2'])
 })
 
@@ -155,4 +157,46 @@ it('切换运行详情的等待和失败期间不泄漏旧失败节点编辑链�
   expect(wrapper!.find('[data-testid="edit-failed-node"]').exists()).toBe(false)
   pending.reject(new Error('模拟详情加载失败')); await flushPromises()
   expect(wrapper!.find('[data-testid="edit-failed-node"]').exists()).toBe(false)
+})
+
+it('运行成品卡片的来源链接恢复历史筛选、分页与已经可读的节点结果', async () => {
+  const source = '/runs/run-2?q=run-2&workflowId=101&status=SUCCESS&page=3&pageSize=50&tag=a&tag=b#detail'
+  const events = [{
+    eventId: 'completed-summary', eventType: 'NODE_COMPLETED', workflowId: '2',
+    nodeId: 'export-summary', runtimeState: 'SUCCESS', occurredAt: '2026-11-21T03:00:00Z',
+    attributes: { nodeType: 'EXPORT' },
+  }]
+  const original = mocks.get.getMockImplementation()!
+  mocks.get.mockImplementation((url: string) =>
+    url === '/workflow/runtime/events/2' ? Promise.resolve(events) : original(url))
+  const { router } = await setup(source)
+  const inspectResult = async () => {
+    const output = wrapper!.get('[data-testid="run-output"]')
+    expect(output.get('[data-testid="output-formatted"]').attributes('aria-pressed')).toBe('true')
+    expect(output.get('[data-testid="expand-output"]').attributes('aria-expanded')).toBe('false')
+    await output.get('[data-testid="output-raw"]').trigger('click')
+    await output.get('[data-testid="expand-output"]').trigger('click')
+    expect(output.get('[data-testid="output-content"]').element.textContent).toBe('{"nodeType":"EXPORT"}')
+    expect(output.get('[data-testid="expand-output"]').attributes('aria-expanded')).toBe('true')
+  }
+  await inspectResult()
+  await wrapper!.get('[data-testid="view-run-artifacts"]').trigger('click'); await flushPromises()
+  await wrapper!.get('[data-testid="artifact-section"] a').trigger('click'); await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(source)
+  expect(wrapper!.get('[data-testid="history-search"]').element).toHaveProperty('value', 'run-2')
+  expect(wrapper!.get('[data-testid="history-workflow"]').element).toHaveProperty('value', '101')
+  expect(wrapper!.get('[data-testid="history-status"]').element).toHaveProperty('value', 'SUCCESS')
+  expect(wrapper!.get('[data-testid="history-page-size"]').element).toHaveProperty('value', '50')
+  const historyCalls = mocks.get.mock.calls.filter(([path]) => path === '/workflow-instances')
+  expect(historyCalls.at(-1)?.[1]).toMatchObject({ params: { definitionId: 101, status: 'SUCCESS', page: 3, pageSize: 50 } })
+  // 跨页重挂载仍从原有折叠/格式化默认态开始，结果可再次查看。
+  await inspectResult()
+
+  router.back(); await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/files')
+  expect(wrapper!.get('[data-testid="artifact-section"] a').attributes('href')).toBe(source)
+  router.forward(); await flushPromises()
+  expect(router.currentRoute.value.fullPath).toBe(source)
+  await inspectResult()
 })
