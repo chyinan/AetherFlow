@@ -900,6 +900,7 @@ export const zhCN = {
     cleanupNotRequired: '没有需要清理的外部任务。',
     cleanupRetry: '重试任务清理',
     cleanupRetrying: '正在重试清理…',
+    cleanupRetryUnconfirmed: '未能确认任务清理重试请求。',
     cleanupLoadFailed: '读取任务清理状态失败。',
     cleanupRefresh: '刷新清理状态',
     rerunReused: '已复用，不重复调用',
