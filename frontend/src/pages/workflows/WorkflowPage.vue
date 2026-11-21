@@ -150,10 +150,17 @@ watch(() => route.fullPath, (to, from) => {
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 const showingWorkflowTemplates = ref(false)
+const workflowTemplateLoadFeedback = ref<{ status: 'retrying' } | { status: 'failed'; details: string } | null>(null)
+const workflowTemplateLoadErrorId = useId()
+const workflowTemplateLoadError = computed(() => workflowTemplateLoadFeedback.value?.status === 'failed'
+  ? workflowTemplateLoadFeedback.value.details : null)
+const workflowTemplateButtonLabel = computed(() => t(workflowTemplateLoadFeedback.value?.status === 'retrying'
+  ? 'workflow.retryingTemplates' : workflowTemplateLoadError.value ? 'workflow.retryTemplates' : 'workflow.templates'))
 let workflowTemplatePickerRevision = 0
 function invalidateWorkflowTemplatePicker() {
   workflowTemplatePickerRevision += 1
   showingWorkflowTemplates.value = false
+  workflowTemplateLoadFeedback.value = null
   workflowStore.invalidateWorkflowTemplatesLoad()
 }
 const workflowTemplateDialog = ref<HTMLElement | null>(null)
@@ -811,17 +818,22 @@ async function openWorkflowTemplates(event?: MouseEvent) {
   }
   const pickerRevision = workflowTemplatePickerRevision
   const ownsRequest = () => pageActive && pickerRevision === workflowTemplatePickerRevision
-  workflowStore.setRunError(null)
+  if (workflowTemplateLoadFeedback.value?.status === 'failed') {
+    workflowTemplateLoadFeedback.value = { status: 'retrying' }
+  }
   try {
     const templates = await workflowStore.loadWorkflowTemplates()
+    if (!ownsRequest() || !templates) return
+    workflowTemplateLoadFeedback.value = null
     await nextTick()
-    if (ownsRequest() && templates) {
+    if (ownsRequest()) {
       if (opener?.isConnected && !opener.matches(':disabled')) opener.focus({ preventScroll: true })
       showingWorkflowTemplates.value = true
     }
   } catch (error) {
     if (ownsRequest()) {
-      workflowStore.setRunError(`${t('workflow.templatesLoadFailed')}: ${runErrorMessage(error)}`)
+      // 模板列表的读取错误不能覆盖当前工作流的保存或启动反馈。
+      workflowTemplateLoadFeedback.value = { status: 'failed', details: runErrorMessage(error) }
       await nextTick()
       if (ownsRequest() && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
         opener.focus({ preventScroll: true })
@@ -1152,6 +1164,15 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ workflowStore.savingError || workflowStore.runError }}
         </p>
+        <p
+          v-if="workflowTemplateLoadError"
+          :id="workflowTemplateLoadErrorId"
+          data-testid="workflow-template-load-error"
+          class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error"
+          role="alert"
+        >
+          {{ t('workflow.templatesLoadFailed') }}: {{ workflowTemplateLoadError }}
+        </p>
         <p v-if="comfyUiImportError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ comfyUiImportError }}
         </p>
@@ -1203,11 +1224,13 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
           data-action="workflow-templates"
           class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
           :disabled="workflowStore.workflowTemplatesLoading"
+          :aria-describedby="workflowTemplateLoadError ? workflowTemplateLoadErrorId : undefined"
           @click="openWorkflowTemplates"
         >
           <LoaderCircle v-if="workflowStore.workflowTemplatesLoading" class="h-4 w-4 animate-spin" />
+          <RotateCcw v-else-if="workflowTemplateLoadError" class="h-4 w-4" />
           <Library v-else class="h-4 w-4" />
-          {{ t('workflow.templates') }}
+          {{ workflowTemplateButtonLabel }}
         </button>
         <button
           v-if="workflowStore.backendDefinitionId"

@@ -391,6 +391,8 @@ export const enUS = {
     templatesHint: 'Choose a server-validated workflow template to start editing.',
     noTemplates: 'No templates are available.',
     templatesLoadFailed: 'Failed to load templates',
+    retryTemplates: 'Retry loading templates',
+    retryingTemplates: 'Retrying template load…',
     copyWorkflow: 'Copy workflow',
     copyingWorkflow: 'Copying',
     copyFailed: 'Copy failed',
