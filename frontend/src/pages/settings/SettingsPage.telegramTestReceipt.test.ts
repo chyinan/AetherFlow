@@ -57,7 +57,12 @@ beforeEach(() => {
     else if (config.method === 'get') {
       if (url === telegramPath) data = await readTelegram(config)
       else if (url === '/settings/profile' || url === '/settings/billing') data = {}
-      else if (url === '/ai/provider/catalog' || url === '/ai/provider/config') data = { providers: [], models: [] }
+      else if (url === '/ai/provider/catalog') data = { providers: [], models: [] }
+      else if (url === '/ai/provider/config') data = { providers: [{
+        id: 'openai', name: 'OpenAI', providerType: 'openai-compatible',
+        baseUrl: 'https://openai.example.test/v1', defaultModel: 'fixture-model',
+        configured: false, enabled: false, tags: [],
+      }] }
       else if (['/settings/members', '/settings/data-sources', '/settings/api-extensions', '/settings/env-variables',
         '/settings/integrations', '/settings/audit-events'].some(path => path === url)) data = []
       else throw new Error(`非预期读取 ${url}`)

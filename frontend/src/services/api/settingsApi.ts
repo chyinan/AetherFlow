@@ -322,20 +322,18 @@ export const settingsApi = {
     await apiClient.delete(`/settings/members/${encodeURIComponent(memberId)}`, { source: 'auth' })
   },
   async listModelProviders(options: { includeConfig?: boolean } = {}) {
-    const includeConfig = options.includeConfig !== false
+    const runtimeProvidersRequest = modelApi.listProviders().catch(() => [] as ModelProvider[])
+    if (options.includeConfig === false) return fallbackModelProviders(await runtimeProvidersRequest)
+
     const [runtimeProviders, configCatalog] = await Promise.all([
-      modelApi.listProviders().catch(() => [] as ModelProvider[]),
-      includeConfig
-        ? getProviderConfigCatalog().catch(() => ({ providers: [] }))
-        : Promise.resolve({ providers: [] }),
+      runtimeProvidersRequest,
+      getProviderConfigCatalog(),
     ])
-    const runtimeByProviderKey = new Map(runtimeProviders.map((provider) => [providerKeyFromRuntime(provider), provider]))
+    // Python 服务即使未安装模型也会返回预设；Java 代理的空列表表示配置未确认。
     const configProviders = configCatalog.providers ?? []
+    if (configProviders.length === 0) throw new Error('Provider configuration catalog is unavailable')
 
-    if (configProviders.length === 0) {
-      return fallbackModelProviders(runtimeProviders)
-    }
-
+    const runtimeByProviderKey = new Map(runtimeProviders.map((provider) => [providerKeyFromRuntime(provider), provider]))
     return configProviders.map((config) => mapModelProvider(
       config,
       runtimeByProviderKey.get(stringOr(config.id, '')),
