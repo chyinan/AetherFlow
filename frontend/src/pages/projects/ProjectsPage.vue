@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useModalFocus } from '@/composables/useModalFocus'
@@ -13,6 +13,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useRunStore } from '@/stores/runStore'
 import type { ProjectHealth, ProjectSummary } from '@/types/project'
 import type { WorkflowSummary } from '@/types/workflow'
+import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 
 const projectStore = useProjectStore()
 const difyStore = useDifyStore()
@@ -60,6 +61,13 @@ const workflowDraftProjectId = ref('')
 const workflowDraftId = ref('')
 const renamingWorkflow = ref(false)
 const renameWorkflowFailed = ref(false)
+const workflowOpenFailed = ref(false)
+const workflowEditorOpening = shallowRef<{
+  from: RouteLocationNormalizedLoaded
+  target: string
+  navigation: ReturnType<typeof observeWorkflowNavigation>
+} | null>(null)
+const workflowDraftBusy = computed(() => renamingWorkflow.value || workflowEditorOpening.value !== null)
 let workflowPanelGeneration = 0
 const projectsLoaded = ref(false)
 const createProjectDialog = ref<HTMLElement | null>(null)
@@ -71,7 +79,7 @@ const deleteFocus = new Map<string, DeleteFocus>()
 onBeforeUnmount(() => deleteFocus.forEach(focus => focus.release()))
 
 useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject)
-useModalFocus(showWorkflowPanel, workflowDialog, closeWorkflowPanel)
+useModalFocus(showWorkflowPanel, workflowDialog, dismissWorkflowPanel)
 
 const firstProject = computed(() => projectStore.projects[0])
 const workflowCount = computed(() => {
@@ -127,7 +135,7 @@ function closeCreateProject() {
 onBeforeUnmount(closeCreateProject)
 
 function openCreateWorkflow(project: ProjectSummary) {
-  closeWorkflowPanel()
+  dismissWorkflowPanel()
   workflowDraftProjectId.value = project.id
   workflowDraftId.value = ''
   workflowDraftName.value = `${project.name}${t('projects.workflowSuffix')}`
@@ -136,7 +144,7 @@ function openCreateWorkflow(project: ProjectSummary) {
 }
 
 function openRenameWorkflow(project: ProjectSummary, workflow: WorkflowSummary) {
-  closeWorkflowPanel()
+  dismissWorkflowPanel()
   workflowDraftProjectId.value = project.id
   workflowDraftId.value = workflow.id
   workflowDraftName.value = workflow.name
@@ -149,14 +157,27 @@ function closeWorkflowPanel() {
   showWorkflowPanel.value = false
   renamingWorkflow.value = false
   renameWorkflowFailed.value = false
+  workflowEditorOpening.value = null
+  workflowOpenFailed.value = false
 }
 onBeforeUnmount(closeWorkflowPanel)
+
+function dismissWorkflowPanel() {
+  const opening = workflowEditorOpening.value
+  closeWorkflowPanel()
+  if (!opening || router.currentRoute.value !== opening.from) return
+  const pending = opening.navigation.pending
+  // 重选当前地址仅撤销本草稿尚未提交的路由，不增加历史条目，也不覆盖更晚的目的地。
+  if (!pending || pending.fullPath === opening.target) {
+    void router.replace(opening.from.fullPath).catch(() => {})
+  }
+}
 
 async function submitWorkflowDraft() {
   const name = workflowDraftName.value.trim()
   const projectId = workflowDraftProjectId.value
   const workflowId = workflowDraftId.value
-  if (!showWorkflowPanel.value || !name || !projectId || renamingWorkflow.value) {
+  if (!showWorkflowPanel.value || !name || !projectId || workflowDraftBusy.value) {
     return
   }
 
@@ -176,11 +197,26 @@ async function submitWorkflowDraft() {
     return
   }
 
-  closeWorkflowPanel()
-  await router.push({
-    path: '/workflows/new',
-    query: { projectId, name },
-  })
+  const target = { path: '/workflows/new', query: { projectId, name } }
+  const opening = {
+    from: router.currentRoute.value,
+    target: router.resolve(target).fullPath,
+    navigation: observeWorkflowNavigation(router),
+  }
+  workflowEditorOpening.value = opening
+  workflowOpenFailed.value = false
+  try {
+    const failure = await router.push(target)
+    if (workflowEditorOpening.value !== opening) return
+    if (!failure && router.currentRoute.value.fullPath === opening.target) closeWorkflowPanel()
+    else if (router.currentRoute.value === opening.from) workflowOpenFailed.value = true
+  } catch {
+    if (workflowEditorOpening.value === opening && router.currentRoute.value === opening.from) {
+      workflowOpenFailed.value = true
+    }
+  } finally {
+    if (workflowEditorOpening.value === opening) workflowEditorOpening.value = null
+  }
 }
 
 function parkDeleteFocus(projectId: string, workflowId: string, trigger: HTMLButtonElement) {
@@ -592,25 +628,27 @@ async function retryLoadProjects() {
             </p>
             <p id="project-workflow-dialog-hint" class="text-xs text-text-muted">{{ t('projects.workflowPanelHint') }}</p>
           </div>
-          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="closeWorkflowPanel">
+          <button type="button" class="rounded-md border border-app-border px-2 py-1 text-xs text-text-secondary" @click="dismissWorkflowPanel">
             {{ t('common.close') }}
           </button>
         </div>
 
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.workflowNameLabel') }}</span>
-          <input v-model="workflowDraftName" :disabled="renamingWorkflow" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
+          <input v-model="workflowDraftName" :disabled="workflowDraftBusy" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary" />
         </label>
 
         <p v-if="renameWorkflowFailed" role="alert" class="mt-4 text-sm text-status-warning">{{ t('projects.renameFailedHint') }}</p>
         <p v-if="renamingWorkflow" role="status" class="mt-4 text-sm text-text-muted">{{ t('projects.renamingHint') }}</p>
+        <p v-if="workflowEditorOpening" role="status" class="mt-4 text-sm text-text-muted">{{ t('projects.workflowOpeningHint') }}</p>
+        <p v-if="workflowOpenFailed" role="alert" class="mt-4 text-sm text-status-warning">{{ t('projects.workflowOpenFailedHint') }}</p>
 
         <div class="mt-5 flex justify-end gap-2">
-          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="closeWorkflowPanel">
+          <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="dismissWorkflowPanel">
             {{ t('common.close') }}
           </button>
-          <button type="submit" :disabled="renamingWorkflow || !workflowDraftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
-            {{ renamingWorkflow ? t('common.loading') : workflowDraftId ? t('common.save') : t('projects.createWorkflow') }}
+          <button type="submit" :disabled="workflowDraftBusy || !workflowDraftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
+            {{ workflowDraftBusy ? t('common.loading') : workflowDraftId ? t('common.save') : workflowOpenFailed ? t('common.retry') : t('projects.createWorkflow') }}
           </button>
         </div>
       </form>

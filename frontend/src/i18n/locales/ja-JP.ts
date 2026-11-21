@@ -341,6 +341,8 @@ export const jaJP = {
     createWorkflowTitle: 'ワークフロー作成',
     createWorkflow: 'ワークフローを作成',
     renameWorkflow: 'ワークフロー名を変更',
+    workflowOpeningHint: 'ワークフローエディターを開いています。この画面を閉じるとキャンセルできます。',
+    workflowOpenFailedHint: 'ワークフローエディターを開けませんでした。名前は入力欄に残っています。再試行できます。',
     renamingHint: '名前の変更リクエストを送信中です。この画面を閉じても送信済みのリクエストは取り消されません。',
     renameFailedHint: '名前の変更結果を確認できませんでした。入力内容は保持されています。ワークフロー一覧を確認してから再試行してください。',
     deleteWorkflow: 'ワークフローを削除',
