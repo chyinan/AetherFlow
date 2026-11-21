@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import {
@@ -32,9 +32,19 @@ const editingId = ref<string | null>(null)
 const form = reactive({ name: '', provider: 'COMFYUI' as ImageConnectionProvider, baseUrl: '' })
 const formProbe = ref<NodeConnectionProbe | null>(null)
 const formError = ref('')
+type ValidationTarget = { field: 'name'; requireName: boolean } | { field: 'url' }
+const validationTarget = shallowRef<ValidationTarget | null>(null)
+const validationKey = computed(() => {
+  const target = validationTarget.value
+  if (target?.field === 'name') return validateName(target.requireName)
+  if (target?.field === 'url') return validateUrl()
+  return null
+})
+const validationMessage = computed(() => validationKey.value ? t(validationKey.value) : '')
 const testing = ref(false)
 const saving = computed(() => Boolean(pendingSave.value))
 const nameInput = ref<HTMLInputElement | null>(null)
+const urlInput = ref<HTMLInputElement | null>(null)
 const selectorRoot = ref<HTMLElement | null>(null)
 const refreshButton = ref<HTMLButtonElement | null>(null)
 const cancelProbeButton = ref<HTMLButtonElement | null>(null)
@@ -178,6 +188,7 @@ function close(restoreFocus = true) {
   const returnTo = open.value && saving.value ? selectorRoot.value : opener
   open.value = false
   invalidateForm()
+  validationTarget.value = null
   editingId.value = null
   form.name = ''
   form.baseUrl = ''
@@ -196,21 +207,37 @@ async function showWizard(connection?: NodeConnection) {
   await nextTick()
   if (open.value) nameInput.value?.focus()
 }
-function validateForm(requireName: boolean) {
-  if (requireName && !form.name.trim()) return t('requiredName')
-  if (form.name.trim().length > 80) return t('nameTooLong')
+function validateName(requireName: boolean) {
+  if (requireName && !form.name.trim()) return 'requiredName'
+  if (form.name.trim().length > 80) return 'nameTooLong'
+  return null
+}
+function validateUrl() {
   try {
     const url = new URL(form.baseUrl.trim())
-    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) return t('invalidUrl')
-  } catch { return t('invalidUrl') }
-  return ''
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) return 'invalidUrl'
+  } catch { return 'invalidUrl' }
+  return null
+}
+function validateForm(requireName: boolean) {
+  const target: ValidationTarget | null = validateName(requireName) ? { field: 'name', requireName }
+    : validateUrl() ? { field: 'url' } : null
+  validationTarget.value = target
+  if (!target) return true
+  const previousFocus = document.activeElement
+  // 先更新错误描述，再定位字段；关闭或另有焦点操作时不抢焦点。
+  void nextTick(() => {
+    if (!open.value || target !== validationTarget.value || previousFocus !== document.activeElement) return
+    const field = target.field === 'name' ? nameInput.value : urlInput.value
+    field?.focus()
+  })
+  return false
 }
 async function testForm() {
   // 测试按钮在请求期间保留焦点；拦截键盘或指针的重复激活。
   if (!alive || !open.value || testing.value || saving.value) return
-  const error = validateForm(false)
   invalidateForm()
-  if (error) { formError.value = error; return }
+  if (!validateForm(false)) return
   const sequence = formSequence
   const nodeId = props.nodeId
   testing.value = true
@@ -226,13 +253,12 @@ async function testForm() {
 }
 async function save() {
   if (!alive || !open.value || saving.value || testing.value || formProbe.value?.status !== 'usable') return
-  const error = validateForm(true)
-  if (error) { formError.value = error; return }
+  formError.value = ''
+  if (!validateForm(true)) return
   const sequence = formSequence
   const nodeId = props.nodeId
   const payload = { name: form.name.trim(), provider: form.provider, baseUrl: form.baseUrl.trim(), ...(form.provider === 'COMFYUI' && importedComfyApiNodeTypes.value.length ? { workflowNodeTypes: importedComfyApiNodeTypes.value } : {}) }
   const id = editingId.value
-  formError.value = ''
   try {
     const connection = await connectionStore.saveConnection(payload, id)
     // 目录保存已完成；仅仍有效的原向导可以把连接应用到它发起时的节点。
@@ -302,6 +328,8 @@ function handleDialogKeydown(event: KeyboardEvent) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
 }
+// 字段改正后不在后续输入中重新弹出，除非用户再次触发本地校验。
+watch(validationKey, (key) => { if (!key) validationTarget.value = null }, { flush: 'sync' })
 watch(() => [form.provider, form.baseUrl], () => { if (open.value) invalidateForm() }, { flush: 'sync' })
 watch(() => [props.nodeId, props.nodeType], () => { close(false); void loadConnections() }, { immediate: true, flush: 'sync' })
 watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'sync' })
@@ -405,9 +433,11 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <div class="flex items-center justify-between gap-3"><h2 :id="`connection-title-${nodeId}`" class="text-base font-semibold">{{ editingId ? t('editTitle') : t('addTitle') }}</h2><button type="button" :aria-label="t('close')" class="rounded p-2 text-text-muted" @click="close()">×</button></div>
           <p class="text-sm leading-6 text-text-secondary">{{ t('addressHint') }}</p>
           <p v-if="editingId" class="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-status-warning">{{ t('editShared') }}</p>
-          <label class="block text-sm font-medium">{{ t('name') }}<input ref="nameInput" v-model="form.name" data-testid="connection-name" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving" maxlength="80" /></label>
+          <label class="block text-sm font-medium">{{ t('name') }}<input ref="nameInput" v-model="form.name" data-testid="connection-name" :aria-invalid="validationTarget?.field === 'name' || undefined" :aria-describedby="validationTarget?.field === 'name' ? fieldId('wizard-error') : undefined" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving" maxlength="80" /></label>
+          <p v-if="validationTarget?.field === 'name'" :id="fieldId('wizard-error')" data-testid="form-error" role="alert" class="text-sm text-status-error">{{ validationMessage }}</p>
           <label class="block text-sm font-medium">{{ t('provider') }}<select v-model="form.provider" data-testid="connection-provider" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving"><option value="COMFYUI">ComfyUI</option><option value="STABLE_DIFFUSION_WEBUI">Stable Diffusion WebUI</option></select></label>
-          <label class="block text-sm font-medium">{{ t('url') }}<input v-model="form.baseUrl" data-testid="connection-url" type="url" placeholder="http://service-host:8188" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving" autocomplete="off" spellcheck="false" /></label>
+          <label class="block text-sm font-medium">{{ t('url') }}<input ref="urlInput" v-model="form.baseUrl" data-testid="connection-url" :aria-invalid="validationTarget?.field === 'url' || undefined" :aria-describedby="validationTarget?.field === 'url' ? fieldId('wizard-error') : undefined" type="url" placeholder="http://service-host:8188" class="mt-1 w-full rounded-lg border border-app-border px-3 py-2" :disabled="saving" autocomplete="off" spellcheck="false" /></label>
+          <p v-if="validationTarget?.field === 'url'" :id="fieldId('wizard-error')" data-testid="form-error" role="alert" class="text-sm text-status-error">{{ validationMessage }}</p>
           <p class="text-xs leading-5 text-text-muted">{{ t('noCredentials') }}</p><p class="text-xs leading-5 text-text-muted">{{ t('scope') }}</p>
           <p v-if="saving" role="status" class="text-xs leading-5 text-text-secondary">{{ t('savePending', { name: pendingSave?.name }) }}</p>
           <p v-if="formError" data-testid="form-error" role="alert" class="text-sm text-status-error">{{ formError }}</p>
