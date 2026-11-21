@@ -55,6 +55,32 @@ const { t: pt } = useI18n({ useScope: 'local', messages: {
 } })
 const ct = pt
 const showPreflight = ref(false)
+const preflightId = useId()
+const preflightTrigger = ref<HTMLButtonElement | null>(null)
+const preflightPanel = ref<InstanceType<typeof WorkflowPreflight> | null>(null)
+let preflightOpener: HTMLButtonElement | null = null
+
+function openPreflight(opener: HTMLButtonElement | null) {
+  // 迟到的二次检查不能替换已打开清单的入口，除非发起按钮仍持有焦点。
+  if (!showPreflight.value || document.activeElement === opener) preflightOpener = opener
+  showPreflight.value = true
+}
+
+function closePreflight(restoreFocus = false) {
+  const opener = preflightOpener
+  showPreflight.value = false
+  preflightOpener = null
+  if (!restoreFocus || pendingNavigation.value || showingWorkflowTemplates.value) return
+  const target = opener?.isConnected && !opener.disabled && !opener.closest('[inert]')
+    ? opener
+    : preflightTrigger.value
+  target?.focus()
+}
+
+function togglePreflight() {
+  if (showPreflight.value) closePreflight()
+  else openPreflight(preflightTrigger.value)
+}
 const showStarterGuide = ref(false)
 const starterGuideId = useId()
 const starterGuideTrigger = ref<HTMLButtonElement | null>(null)
@@ -64,7 +90,10 @@ function hideStarterGuide() {
   starterGuideTrigger.value?.focus()
 }
 function locateStarterNode(nodeId: string, field: string) { void locatePreflightIssue({ id: 'guide', level: 'unknown', code: '', nodeId, field }) }
-function startGuidedRun() { showPreflight.value = true; void startRun() }
+function startGuidedRun(event: MouseEvent) {
+  openPreflight(event.currentTarget as HTMLButtonElement)
+  void startRun(event)
+}
 function openGuidedResults() { if (currentWorkflowRun.value) void router.push(`/runs/${currentWorkflowRun.value.id}`) }
 const preflightIssues = computed(() => buildWorkflowPreflight({ id: workflowStore.workflowId, name: workflowStore.workflowName, nodes: workflowStore.nodes, edges: workflowStore.edges }, workflowStore.templates, { catalogLoaded: workflowStore.nodeCatalogLoaded, capabilitiesLoaded: workflowStore.capabilitiesLoaded, runtimeFileId: selectedInputFileId() }))
 async function locatePreflightIssue(issue: PreflightIssue) {
@@ -870,25 +899,39 @@ function runErrorMessage(error: unknown) {
   return details || t('workflow.runFailedUnknown')
 }
 
-function blockInvalidRunInput() {
+async function focusPreflightBlockers(opener: HTMLButtonElement) {
+  const navigationRevision = pageNavigationRevision
+  await nextTick()
+  // 等待清单挂载；用户已移开焦点或正在离开页面时，不接管焦点。
+  if (pageActive && navigationRevision === pageNavigationRevision
+    && !pendingNavigation.value && !showingWorkflowTemplates.value
+    && preflightOpener === opener && document.activeElement === opener) {
+    preflightPanel.value?.focusBlockers()
+  }
+}
+
+function blockInvalidRunInput(opener: HTMLButtonElement) {
   const missingInput = preflightIssues.value.find((issue) => issue.code === 'missingInputFile')
   if (preflightIssues.value.some((issue) => issue.level === 'blocking')) {
-    showPreflight.value = true
+    openPreflight(opener)
     if (missingInput) {
       workflowStore.setRunError(t('workflow.runRequiresFileId'))
       void locatePreflightIssue(missingInput)
+    } else if (document.activeElement === opener) {
+      void focusPreflightBlockers(opener)
     }
     return true
   }
   return false
 }
 
-async function startRun() {
+async function startRun(event: MouseEvent) {
   if (runButtonBusy.value || workflowStore.saving) {
     return
   }
 
-  if (blockInvalidRunInput()) return
+  const opener = event.currentTarget as HTMLButtonElement
+  if (blockInvalidRunInput(opener)) return
   const missingPromptInput = runPromptInputs.value.find(({ variable }) => !runPromptValues.value[variable]?.trim())
   if (missingPromptInput) {
     runPromptInputError.value = t('workflow.runPromptInputRequired', { variable: missingPromptInput.variable })
@@ -919,7 +962,7 @@ async function startRun() {
       await fileStore.loadFiles()
       if (!ownsWorkflow()) return
     }
-    if (blockInvalidRunInput()) return
+    if (blockInvalidRunInput(opener)) return
     // 只提交用户本次明确配置的输入，不从全局文件列表猜测。
     const fileId = selectedInputFileId()
 
@@ -1270,7 +1313,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
           :aria-controls="showStarterGuide ? starterGuideId : undefined"
           @click="showStarterGuide = !showStarterGuide"
         >{{ pt('guide') }}</button>
-        <button type="button" data-action="workflow-preflight" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" @click="showPreflight = !showPreflight">{{ pt('title') }}</button>
+        <button ref="preflightTrigger" type="button" data-action="workflow-preflight" class="rounded-md border border-app-border px-3 py-2 text-sm text-primary" :aria-expanded="showPreflight" :aria-controls="showPreflight ? preflightId : undefined" @click="togglePreflight">{{ pt('title') }}</button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-70" :title="runButtonBusy ? runButtonLabel : undefined" :disabled="runButtonBusy || workflowStore.saving" @click="startRun">
           <LoaderCircle v-if="runButtonBusy && !currentWorkflowRunWaiting" class="h-4 w-4 animate-spin" />
           <PauseCircle v-else-if="currentWorkflowRunWaiting" class="h-4 w-4" />
@@ -1297,7 +1340,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       <p v-if="runPromptInputError" data-run-input-error role="alert" class="text-sm text-status-error">{{ runPromptInputError }}</p>
     </section>
 
-    <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :id="starterGuideId" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="hideStarterGuide" /><WorkflowPreflight v-if="showPreflight" :issues="preflightIssues" @close="showPreflight = false" @locate="locatePreflightIssue" /></div>
+    <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :id="starterGuideId" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="hideStarterGuide" /><WorkflowPreflight v-if="showPreflight" :id="preflightId" ref="preflightPanel" :issues="preflightIssues" @close="closePreflight" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
       <div class="contents" :inert="showingWorkflowTemplates || undefined">
       <WorkflowCanvas ref="canvasRef" />
