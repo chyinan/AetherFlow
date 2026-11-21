@@ -8,6 +8,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import type { FileAsset } from '@/types/file'
 
 const props = defineProps<{
+  resolveRunLocation?: (runId: string) => string | undefined
   files: FileAsset[]
   layout?: 'grid' | 'single'
   deletingIds?: string[]
@@ -82,7 +83,7 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
           <p v-if="file.workflowId" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
             {{ t('files.workflowId') }}: {{ file.workflowId }}
           </p>
-          <RouterLink v-if="file.linkedRunId" :to="`/runs/${file.linkedRunId}`" class="truncate rounded bg-white px-2 py-1 text-primary transition hover:bg-primary-soft">
+          <RouterLink v-if="file.linkedRunId" :to="props.resolveRunLocation?.(file.linkedRunId) ?? `/runs/${file.linkedRunId}`" class="truncate rounded bg-white px-2 py-1 text-primary transition hover:bg-primary-soft">
             {{ t('files.run') }}: {{ file.linkedRunId }}
           </RouterLink>
           <p v-if="file.artifactKind" class="truncate rounded bg-white px-2 py-1 text-text-secondary">
