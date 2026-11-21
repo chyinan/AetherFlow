@@ -591,6 +591,8 @@ export const zhCN = {
         nodeType: '循环体节点类型',
         addStep: '添加步骤',
         invalidJson: '请输入有效 JSON。现有配置尚未更改。',
+        expectedJsonObject: '请输入 JSON 对象。现有配置尚未更改。',
+        expectedJsonArray: '请输入 JSON 数组。现有配置尚未更改。',
       },
       parallelMode: '并行模式',
       maxParallelism: '最大并行度',

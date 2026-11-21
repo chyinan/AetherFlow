@@ -38,14 +38,14 @@ beforeEach(() => {
 })
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
 
-async function setup(kind: 'loop' | 'subworkflow') {
+async function setup(kind: 'loop' | 'iteration' | 'subworkflow') {
   const pinia = createPinia()
   setActivePinia(pinia)
   vi.spyOn(useModelStore(), 'loadModels').mockResolvedValue(undefined)
   vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue(undefined)
   const store = useWorkflowStore()
   store.resetToEmptyWorkflow()
-  const node = store.addNodeFromTemplate({ ...nodeTemplates.find(t => t.kind === 'loop')!, kind }, { x: 0, y: 0 })!
+  const node = store.addNodeFromTemplate({ ...nodeTemplates.find(t => t.kind === (kind === 'iteration' ? 'iteration' : 'loop'))!, kind }, { x: 0, y: 0 })!
   if (kind === 'subworkflow') {
     store.updateNodeConfigValues(node.id, {
       definitionId: 7, definitionVersion: 2,
@@ -265,4 +265,64 @@ it('同 ID 工作流替换后仍聚合当前文本，并撤销到新图而非旧
   expect(store.undo()).toBe(true)
   expect(store.nodes.find(item => item.id === node.id)?.data.config.url).toBe(replacementUrl)
   expect(store.undo()).toBe(false)
+})
+
+
+it.each(['loop', 'iteration'] as const)('实际 %s 循环配置不提交 JSON 类型不匹配的草稿', async kind => {
+  api.getNodeCatalog.mockResolvedValue([
+    { type: 'VARIABLE_AGGREGATE', displayName: '变量聚合', configSchema: [{ name: 'variables', type: 'ARRAY' }] },
+    { type: 'SUBWORKFLOW', displayName: '子工作流', configSchema: [{ name: 'inputMappings', type: 'OBJECT', required: true }] },
+  ])
+  const { store, node, config, errors } = await setup(kind)
+  const original = [
+    { nodeId: 'step-1', nodeType: 'VARIABLE_AGGREGATE', displayName: '聚合', config: { variables: ['left', 'right'] } },
+    { nodeId: 'step-2', nodeType: 'SUBWORKFLOW', displayName: '子工作流', config: {
+      definitionId: 7, definitionVersion: 2, inputMappings: { text: 'request.text' }, outputMappings: { summary: 'summary' },
+    } },
+  ]
+  store.updateNodeConfig(node.id, 'bodyNodes', original)
+  await flushPromises()
+  const revision = store.editRevision
+  const historyLength = store.historyPast.length
+  const arrayField = wrapper!.get<HTMLTextAreaElement>('[data-body-id="step-1"] textarea')
+  const objectField = wrapper!.get<HTMLTextAreaElement>('[data-body-id="step-2"] textarea')
+  const arrayDraft = '{"left": "right"}'
+  const objectDraft = '["request.text"]'
+  await arrayField.setValue(arrayDraft)
+  await objectField.setValue(objectDraft)
+
+  expect(config().bodyNodes).toEqual(original)
+  expect(store.editRevision).toBe(revision)
+  expect(store.historyPast).toHaveLength(historyLength)
+  expect(wrapper!.get('[data-body-id="step-1"] [role="alert"]').text()).toContain('JSON 数组')
+  expect(wrapper!.get('[data-body-id="step-2"] [role="alert"]').text()).toContain('JSON 对象')
+
+  await wrapper!.get('[data-body-id="step-2"] [aria-label="上移步骤"]').trigger('click')
+  expect(arrayField.element.value).toBe(arrayDraft)
+  expect(objectField.element.value).toBe(objectDraft)
+  expect(wrapper!.findAll('[data-test="loop-body-editor"] [role="alert"]')).toHaveLength(2)
+
+  const mappedBody = () => mapWorkflowToDefinitionDTO({
+    id: store.workflowId, name: store.workflowName, nodes: store.nodes, edges: store.edges,
+  }).nodes?.find(item => item.nodeId === node.id)?.config?.bodyNodes
+  expect(mappedBody()).toEqual([original[1], original[0]])
+  await arrayField.setValue('["left"]')
+  expect(wrapper!.find('[data-body-id="step-1"] [role="alert"]').exists()).toBe(false)
+  expect(objectField.element.value).toBe(objectDraft)
+  expect(wrapper!.find('[data-body-id="step-2"] [role="alert"]').exists()).toBe(true)
+  await objectField.setValue('{"text":"answer.text"}')
+  expect(wrapper!.findAll('[data-test="loop-body-editor"] [role="alert"]')).toHaveLength(0)
+  expect(mappedBody()).toEqual([
+    { ...original[1], config: { ...original[1]!.config, inputMappings: { text: 'answer.text' } } },
+    { ...original[0], config: { variables: ['left'] } },
+  ])
+
+  await arrayField.setValue('false')
+  expect(wrapper!.find('[data-body-id="step-1"] [role="alert"]').exists()).toBe(true)
+  expect(store.undo()).toBe(true)
+  await flushPromises()
+  expect(wrapper!.find('[data-body-id="step-1"] [role="alert"]').exists()).toBe(false)
+  expect(JSON.parse(arrayField.element.value)).toEqual(['left'])
+  expect(JSON.parse(objectField.element.value)).toEqual({ text: 'request.text' })
+  expect(errors).toEqual([])
 })
