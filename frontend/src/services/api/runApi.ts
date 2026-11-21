@@ -194,6 +194,7 @@ function mapBackendRun(view: WorkflowRunViewDTO): WorkflowRun {
     definitionId,
     currentNodeId: view.currentNodeId,
     backendStatus: view.status,
+    ...(typeof view.updatedAt === 'string' ? { snapshotUpdatedAt: view.updatedAt } : {}),
     status: mapRuntimeStateToRunStatus(toRuntimeState(view.status)),
     startedAt: formatDateTime(view.startedAt ?? view.updatedAt),
     durationMs: Math.max(0, Number(view.durationMs ?? 0)),
