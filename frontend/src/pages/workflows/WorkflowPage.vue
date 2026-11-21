@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Copy, FileJson, FolderKanban, Library, LoaderCircle, PauseCircle, Play, Plus, Redo2, RotateCcw, Save, Undo2, Upload, Workflow, X } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter, type RouteLocationNormalized } from 'vue-router'
 
@@ -157,14 +157,19 @@ const workflowTemplateLoadError = computed(() => workflowTemplateLoadFeedback.va
 const workflowTemplateButtonLabel = computed(() => t(workflowTemplateLoadFeedback.value?.status === 'retrying'
   ? 'workflow.retryingTemplates' : workflowTemplateLoadError.value ? 'workflow.retryTemplates' : 'workflow.templates'))
 let workflowTemplatePickerRevision = 0
+let workflowTemplatePickerIntent: { opener: HTMLElement | null } | null = null
+function closeWorkflowTemplatePicker() {
+  workflowTemplatePickerIntent = null
+  showingWorkflowTemplates.value = false
+}
 function invalidateWorkflowTemplatePicker() {
   workflowTemplatePickerRevision += 1
-  showingWorkflowTemplates.value = false
+  closeWorkflowTemplatePicker()
   workflowTemplateLoadFeedback.value = null
   workflowStore.invalidateWorkflowTemplatesLoad()
 }
 const workflowTemplateDialog = ref<HTMLElement | null>(null)
-useModalFocus(showingWorkflowTemplates, workflowTemplateDialog, () => { showingWorkflowTemplates.value = false })
+useModalFocus(showingWorkflowTemplates, workflowTemplateDialog, closeWorkflowTemplatePicker)
 const comfyUiImportError = ref<string | null>(null)
 const comfyUiImportNotice = ref<string | null>(null)
 const comfyUiFileInput = ref<HTMLInputElement | null>(null)
@@ -540,25 +545,28 @@ function confirmDiscardUnsavedChanges() {
   return window.confirm(t('workflow.unsavedChangesConfirm'))
 }
 
-type PendingNavigation = { fromPath: string; fullPath: string; resolve: (allowed: boolean) => void }
-const pendingNavigation = ref<PendingNavigation | null>(null)
+type PendingNavigation = { fromPath: string; target: RouteLocationNormalized; resolve: (allowed: boolean) => void }
+const pendingNavigation = shallowRef<PendingNavigation | null>(null)
+const leaveDialogReady = ref(false)
 const leaveSaveBusy = ref(false)
 let leaveSaveSequence = 0
 const leaveSaveError = ref('')
-let approvedNavigation: { fromPath: string; fullPath: string; editRevision: number } | null = null
+let approvedNavigation: { fromPath: string; target: RouteLocationNormalized; editRevision: number } | null = null
 
 function settleNavigation(allowed: boolean) {
   const pending = pendingNavigation.value
   if (!pending) return
   pendingNavigation.value = null
+  leaveDialogReady.value = false
   // 弹窗结束即释放本次导航的等待锁；同一画布仍由 Store 的 saving 防止重复保存。
   leaveSaveSequence += 1
   leaveSaveBusy.value = false
   leaveSaveError.value = ''
   approvedNavigation = allowed
-    ? { fromPath: pending.fromPath, fullPath: pending.fullPath, editRevision: workflowStore.editRevision }
+    ? { fromPath: pending.fromPath, target: pending.target, editRevision: workflowStore.editRevision }
     : null
   pending.resolve(allowed)
+  if (!allowed) void resumeWorkflowTemplatePicker()
 }
 
 function discardNavigation() {
@@ -575,6 +583,7 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
   // 新目标取代旧目标；旧保存只能结束请求，不能替用户决定新的导航。
+  const handingOffTemplateModal = showingWorkflowTemplates.value || (pendingNavigation.value !== null && !leaveDialogReady.value)
   settleNavigation(false)
   approvedNavigation = null
   // 纯节点定位或锚点只改变查看上下文，不替换画布，也不能丢弃未保存内容。
@@ -583,7 +592,17 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
     && routeQueryString(to.query.name) === routeQueryString(from.query.name)) return true
   if (!workflowStore.dirty) return true
   return new Promise<boolean>((resolve) => {
-    pendingNavigation.value = { fromPath: from.fullPath, fullPath: to.fullPath, resolve }
+    pendingNavigation.value = { fromPath: from.fullPath, target: to, resolve }
+    if (!handingOffTemplateModal) {
+      leaveDialogReady.value = true
+      return
+    }
+    // 先释放模板弹窗的键盘与滚动锁，再交给离开确认。
+    showingWorkflowTemplates.value = false
+    const pending = pendingNavigation.value
+    void nextTick(() => {
+      if (pendingNavigation.value === pending) leaveDialogReady.value = true
+    })
   })
 }
 
@@ -626,7 +645,7 @@ const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
-  if (approvedNavigation?.fullPath === to.fullPath && approvedNavigation.fromPath === from.fullPath
+  if (approvedNavigation?.target === to && approvedNavigation.fromPath === from.fullPath
     && approvedNavigation.editRevision !== workflowStore.editRevision) return requestNavigation(to, from)
   return true
 })
@@ -646,7 +665,15 @@ function invalidateRunStart() {
   pendingStart = null
 }
 
+function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
+  if (approvedNavigation?.target === to) approvedNavigation = null
+  // 较新的、未弹确认的导航也可能失败；只在实际仍留在原地址时恢复。
+  if (route.fullPath === from.fullPath) void resumeWorkflowTemplatePicker()
+}
+
+const stopWatchingNavigationError = router.onError((_error, to, from) => finishWorkflowNavigation(to, from))
 const stopWatchingStartNavigation = router.afterEach((to, from, failure) => {
+  finishWorkflowNavigation(to, from)
   // 被拒绝的导航不撤销当前操作；成功离开再返回也必须产生新的代次。
   if (failure || to.fullPath === from.fullPath) return
   if (activeRunStart?.canonicalRoute === to.fullPath) return
@@ -656,6 +683,7 @@ const stopWatchingStartNavigation = router.afterEach((to, from, failure) => {
 onBeforeUnmount(() => {
   invalidateRunStart()
   stopWatchingStartNavigation()
+  stopWatchingNavigationError()
 })
 
 onMounted(async () => {
@@ -809,6 +837,19 @@ async function copyWorkflow() {
   }
 }
 
+async function resumeWorkflowTemplatePicker() {
+  // 留页后继续上一次选择；允许离开时须等导航提交或失败，不提前抢焦点。
+  await nextTick()
+  const intent = workflowTemplatePickerIntent
+  if (!pageActive || !intent || showingWorkflowTemplates.value
+    || pendingNavigation.value || approvedNavigation || workflowNavigation.pending) return
+  const { opener } = intent
+  if (opener?.isConnected && !opener.matches(':disabled') && !opener.closest('[inert]')) {
+    opener.focus({ preventScroll: true })
+  }
+  showingWorkflowTemplates.value = true
+}
+
 async function openWorkflowTemplates(event?: MouseEvent) {
   const opener = event?.currentTarget instanceof HTMLElement
     ? event.currentTarget
@@ -825,17 +866,15 @@ async function openWorkflowTemplates(event?: MouseEvent) {
     const templates = await workflowStore.loadWorkflowTemplates()
     if (!ownsRequest() || !templates) return
     workflowTemplateLoadFeedback.value = null
-    await nextTick()
-    if (ownsRequest()) {
-      if (opener?.isConnected && !opener.matches(':disabled')) opener.focus({ preventScroll: true })
-      showingWorkflowTemplates.value = true
-    }
+    workflowTemplatePickerIntent = { opener }
+    await resumeWorkflowTemplatePicker()
   } catch (error) {
     if (ownsRequest()) {
       // 模板列表的读取错误不能覆盖当前工作流的保存或启动反馈。
       workflowTemplateLoadFeedback.value = { status: 'failed', details: runErrorMessage(error) }
       await nextTick()
-      if (ownsRequest() && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
+      if (ownsRequest() && !pendingNavigation.value && !approvedNavigation && !workflowNavigation.pending
+        && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
         opener.focus({ preventScroll: true })
       }
     }
@@ -851,7 +890,7 @@ function applyWorkflowTemplate(template: (typeof workflowStore.workflowTemplates
   runPromptInputError.value = ''
   showStarterGuide.value = supportsStarterGuide.value
   uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
-  showingWorkflowTemplates.value = false
+  closeWorkflowTemplatePicker()
 }
 
 function selectedInputFileId() {
@@ -1048,7 +1087,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
-  <UnsavedNavigationDialog :open="Boolean(pendingNavigation)" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
+  <UnsavedNavigationDialog :open="leaveDialogReady" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
   <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"
@@ -1344,7 +1383,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
               <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
               <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
             </div>
-            <button type="button" class="rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="showingWorkflowTemplates = false">
+            <button type="button" class="rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="closeWorkflowTemplatePicker">
               <X class="h-5 w-5" />
             </button>
           </div>

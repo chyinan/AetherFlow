@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { createMemoryHistory, createRouter, isNavigationFailure, RouterView } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TextDecoder, TextEncoder } from 'node:util'
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
@@ -38,8 +38,8 @@ beforeEach(() => {
   api.saveWorkflow.mockImplementation(async (workflow: WorkflowDefinition) => workflow)
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals() })
-async function setup(path = '/workflows/101') {
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.style.overflow = ''; vi.restoreAllMocks(); vi.unstubAllGlobals() })
+async function setup(path = '/workflows/101', stubTeleport = true) {
   const pinia = createPinia(); setActivePinia(pinia); const store = useWorkflowStore()
   vi.spyOn(store, 'loadNodeTemplates').mockResolvedValue(true)
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -49,7 +49,7 @@ async function setup(path = '/workflows/101') {
   await router.push(path); await router.isReady()
   wrapper = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router, i18n],
     config: { errorHandler: error => errors.push(error) },
-    stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true, teleport: true },
+    stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true, teleport: stubTeleport },
   } })
   await flushPromises()
   return { store, router }
@@ -277,6 +277,164 @@ describe('模板请求代次与拒绝导航的对照', () => {
     expect(templateDialog().exists()).toBe(true)
     expect(store.nodes[0]!.data.config.prompt).toBe('未保存')
     expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('模板选择器与未保存离开确认的交接', () => {
+  const leaveDialog = () => document.querySelector<HTMLElement>('[data-testid="unsaved-navigation-dialog"]')!
+  const leaveChoice = (action: 'stay' | 'discard') => leaveDialog().querySelector<HTMLButtonElement>(`[data-action="leave-${action}"]`)!
+  const pressEscape = () => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'Escape', bubbles: true, cancelable: true,
+  }))
+
+  it('晚到的模板只在 Escape 留页后显示，之后独立关闭并归还焦点', async () => {
+    const { store, router } = await setup('/workflows/101', false)
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    const opener = templatesButton().element
+    opener.focus()
+    await openTemplates()
+    store.updateNodeConfig('start-101', 'prompt', '要保留的输入')
+    const navigation = router.push('/workflows/102'); await flushPromises()
+    expect(document.activeElement).toBe(leaveChoice('stay'))
+
+    pending.resolve([definition('sample')]); await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(leaveChoice('stay'))
+    expect(document.body.style.overflow).toBe('hidden')
+    pressEscape()
+    expect(isNavigationFailure(await navigation)).toBe(true)
+    await flushPromises()
+    expect(templateDialog().text()).toContain('工作流 sample')
+    expect(templateDialog().element.contains(document.activeElement)).toBe(true)
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    expect(store.nodes[0]!.data.config.prompt).toBe('要保留的输入')
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+
+    pressEscape(); await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(opener)
+    expect(document.body.style.overflow).toBe('')
+    expect(errors).toEqual([])
+  })
+
+  it('先打开的模板在离开确认期间暂停，留页后仍浏览同一列表', async () => {
+    const { store, router } = await setup('/workflows/101', false)
+    const opener = templatesButton().element
+    opener.focus()
+    store.updateNodeConfig('start-101', 'prompt', '已编辑')
+    await openTemplates()
+    expect(templateDialog().element.contains(document.activeElement)).toBe(true)
+    const navigation = router.push('/workflows/102'); await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(leaveChoice('stay'))
+    expect(document.body.style.overflow).toBe('hidden')
+    leaveChoice('stay').click()
+    expect(isNavigationFailure(await navigation)).toBe(true)
+    await flushPromises()
+    expect(templateDialog().text()).toContain('工作流 sample')
+    expect(templateDialog().element.contains(document.activeElement)).toBe(true)
+    pressEscape(); await flushPromises()
+    expect(document.activeElement).toBe(opener)
+    expect(document.body.style.overflow).toBe('')
+    expect(store.nodes[0]!.data.config.prompt).toBe('已编辑')
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+    expect(errors).toEqual([])
+  })
+
+  it.each(['通过', '拒绝'] as const)('确认离开后等待异步路由守卫，按最终%s结果决定是否恢复模板', async (outcome) => {
+    const { store, router } = await setup('/workflows/101', false)
+    const pending = deferred<WorkflowDefinition[]>()
+    const routing = deferred<boolean>()
+    const guard = vi.fn(() => routing.promise)
+    router.beforeResolve(guard)
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    await openTemplates()
+    store.updateNodeConfig('start-101', 'prompt', '可舍弃的输入')
+    const navigation = router.push('/workflows/102'); await flushPromises()
+    leaveChoice('discard').click()
+    await flushPromises()
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(leaveDialog()).toBeNull()
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    pending.resolve([definition('sample')]); await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+
+    const accepted = outcome === '通过'
+    routing.resolve(accepted)
+    expect(isNavigationFailure(await navigation)).toBe(!accepted)
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe(accepted ? '/workflows/102' : '/workflows/101')
+    if (accepted) {
+      expect(templateDialog().exists()).toBe(false)
+    } else {
+      expect(templateDialog().text()).toContain('工作流 sample')
+      expect(templateDialog().element.contains(document.activeElement)).toBe(true)
+      expect(store.nodes[0]!.data.config.prompt).toBe('可舍弃的输入')
+      pressEscape(); await flushPromises()
+      expect(document.activeElement).toBe(templatesButton().element)
+    }
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+    expect(document.body.style.overflow).toBe('')
+    expect(errors).toEqual([])
+  })
+
+  it('被拒绝的定位导航取代已确认的离开时，仍可回到原来的模板列表', async () => {
+    const { store, router } = await setup('/workflows/101', false)
+    const pending = deferred<WorkflowDefinition[]>()
+    const routing = deferred<boolean>()
+    const locating = deferred<boolean>()
+    const guard = vi.fn(to => to.path === '/workflows/102' ? routing.promise : locating.promise)
+    router.beforeResolve(guard)
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    await openTemplates()
+    store.updateNodeConfig('start-101', 'prompt', '尚未保存的输入')
+    const oldNavigation = router.push('/workflows/102'); await flushPromises()
+    leaveChoice('discard').click(); await flushPromises()
+    expect(guard).toHaveBeenCalledTimes(1)
+    pending.resolve([definition('sample')]); await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+
+    const newNavigation = router.push('/workflows/101?nodeId=start-101'); await flushPromises()
+    expect(guard).toHaveBeenCalledTimes(2)
+    expect(leaveDialog()).toBeNull()
+    routing.resolve(true)
+    expect(isNavigationFailure(await oldNavigation)).toBe(true)
+    await flushPromises()
+    expect(templateDialog().exists()).toBe(false)
+    locating.resolve(false)
+    expect(isNavigationFailure(await newNavigation)).toBe(true)
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/workflows/101')
+    expect(templateDialog().text()).toContain('工作流 sample')
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+    expect(store.nodes[0]!.data.config.prompt).toBe('尚未保存的输入')
+    pressEscape(); await flushPromises()
+    expect(document.activeElement).toBe(templatesButton().element)
+    expect(document.body.style.overflow).toBe('')
+    expect(errors).toEqual([])
+  })
+
+  it('留页时保留等待确认期间的模板失败与同一画布的重试入口', async () => {
+    const { store, router } = await setup('/workflows/101', false)
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    await openTemplates()
+    store.updateNodeConfig('start-101', 'prompt', '已编辑')
+    const navigation = router.push('/workflows/102'); await flushPromises()
+    pending.reject(new Error('模板目录暂时不可用')); await flushPromises()
+    expect(document.activeElement).toBe(leaveChoice('stay'))
+    pressEscape()
+    expect(isNavigationFailure(await navigation)).toBe(true)
+    await flushPromises()
+    expect(templateLoadError().text()).toContain('模板目录暂时不可用')
+    expect(templatesButton().text()).toBe('重试加载模板')
+    await openTemplates()
+    expect(templateDialog().text()).toContain('工作流 sample')
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(2)
+    expect(store.nodes[0]!.data.config.prompt).toBe('已编辑')
+    expect(errors).toEqual([])
   })
 })
 
