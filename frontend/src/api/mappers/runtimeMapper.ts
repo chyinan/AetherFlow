@@ -288,6 +288,11 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       if (previous) {
         if (terminalNodeStatus(previous.status) && previous.status !== patch.status) return
         const merged = { ...previous, ...patch }
+        // 空的工作流等待摘要只确认现有等待状态，不应抹掉该节点真正的等待结果。
+        if (event.eventType === 'WORKFLOW_WAITING' && patch.output === event.eventType
+          && previous.status === 'paused' && patch.status === 'paused' && previous.output?.startsWith('{')) {
+          merged.output = previous.output
+        }
         const approval = mergeHumanApprovalState(previous.status, previous.approval, patch.status, patch.approval)
         if (approval !== undefined) merged.approval = approval
         else delete merged.approval
