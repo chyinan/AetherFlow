@@ -1643,6 +1643,7 @@ export const zhCN = {
     historyUnavailable: '所选历史会话已不存在。为避免按错误模式发送，请先明确选择聊天或编辑模式。',
     historyIdentityUnconfirmed: '连接在确认会话编号前中断，无法安全恢复这次对话。为避免误接其他会话，已暂停发送；请点击“新对话”重新提供完整问题。',
     historyLoadFailed: '历史记录或规划模式加载失败；已保留会话和输入。请重试，或先明确选择聊天/编辑模式后再发送。',
+    historyDiscoveryFailed: '未能查找此处的对话历史。可以重试查找；现在发送可能会开启新对话。',
     newConversationHint: '清空聊天上下文并开启新会话，保留当前画布和历史记录',
     editor: {
       modeLabel: 'Copilot 模式', chatMode: '对话', editMode: '直接编辑画布',
