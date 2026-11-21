@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { LoaderCircle, PanelRightClose, Send, Sparkles, SquarePen } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { toApiError } from '@/api/client/apiError'
@@ -87,7 +87,6 @@ const plannerController = ref<AbortController | null>(null)
 const chatController = ref<AbortController | null>(null)
 const plannerPendingMessageId = ref<string | null>(null)
 const cancelledPlanMessageId = ref<string | null>(null)
-const applyingPlan = ref(false)
 type PlanPreview = {
   messageId: string
   baseWorkflowId: string
@@ -105,6 +104,9 @@ type PlanPreview = {
   issues: string[]
 }
 const planPreview = ref<PlanPreview | null>(null)
+// 同一会话可以重新规划；上一个预览的最终校验不能锁住新预览。
+const applyingPlanPreview = shallowRef<PlanPreview | null>(null)
+const applyingPlan = computed(() => planPreview.value !== null && applyingPlanPreview.value === planPreview.value)
 let planValidationSequence = 0
 let conversationLoadSequence = 0
 let plannerSessionSequence = 0
@@ -408,7 +410,7 @@ function resetConversationState() {
   conversationIdentityUnconfirmed.value = false
   conversationHistoryModeUnknown.value = false
   historyRetryAvailable.value = false
-  applyingPlan.value = false
+  applyingPlanPreview.value = null
   conversationId.value = undefined
   historyNotice.value = ''
   plannerMode.value = false
@@ -1221,10 +1223,11 @@ async function applyWorkflowPlan(message: CopilotMessage) {
     return
   }
   const sessionAtStart = plannerSessionSequence
-  const ownsPreview = () => sessionAtStart === plannerSessionSequence && planPreview.value?.messageId === message.id
+  const ownsPreview = () => sessionAtStart === plannerSessionSequence
+    && applyingPlanPreview.value === preview && planPreview.value === preview
   const previewBaseIsCurrent = () => !planPreview.value?.stale
     && previewBaseMatches(preview, currentPlannerBase())
-  applyingPlan.value = true
+  applyingPlanPreview.value = preview
   let awaitingValidation = true
   try {
     const validation = await workflowApi.validateCopilotDraft(preview.workflow, message.plan.recipe)
@@ -1287,8 +1290,8 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       issues: [apiError.message],
     }
   } finally {
-    // 旧会话的最终校验不能解除新会话正在应用的等待锁。
-    if (sessionAtStart === plannerSessionSequence) applyingPlan.value = false
+    // 只能释放本次请求的锁，不能解锁后来开始的新预览应用。
+    if (applyingPlanPreview.value === preview) applyingPlanPreview.value = null
   }
 }
 

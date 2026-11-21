@@ -266,6 +266,76 @@ it('同一会话连续点击保持单飞，当前请求失败后重新规划可�
     expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.applied'));
 });
 
+it.each([
+    ['直接澄清', '旧请求先成功'], ['直接澄清', '旧请求先失败'],
+    ['退出再规划', '旧请求后失败'],
+] as const)('%s 后新预览无需等待旧应用校验：%s', async (transition, timing) => {
+    const { store, apply, context } = await setup();
+    await preview();
+    const oldApply = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(oldApply.promise);
+    const oldButton = button('copilot.planner.apply').element as HTMLButtonElement;
+    oldButton.click();
+    await flushPromises();
+    expect(oldButton.disabled).toBe(true);
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(2);
+
+    const refinedPlan = readyMediaPlan();
+    refinedPlan.requirements.instruction = '只提取决定和行动项';
+    planWorkflow.mockResolvedValueOnce(planMessage(context.value, refinedPlan, 'refined-plan'));
+    if (transition === '退出再规划') {
+        await button('copilot.planner.leaveMode').trigger('click');
+        await preview();
+    } else {
+        await wrapper!.get('form textarea').setValue('改成只提取决定和行动项');
+        await wrapper!.get('form').trigger('submit');
+        await flushPromises();
+    }
+    expect(planWorkflow).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ conversationId: 'conv-1' }));
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(3);
+    expect(wrapper!.text()).toContain('只提取决定和行动项');
+    expect(store.nodes).toHaveLength(0);
+
+    const newButton = button('copilot.planner.apply').element as HTMLButtonElement;
+    const wasBlocked = newButton.disabled;
+    const newApply = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(newApply.promise);
+    newButton.click();
+    newButton.click();
+    await flushPromises();
+    const beforeOldSettled = validateCopilotDraft.mock.calls.length;
+    if (wasBlocked) {
+        oldApply.resolve(ready);
+        newApply.resolve(ready);
+        await flushPromises();
+    }
+    expect(wasBlocked).toBe(false);
+    expect(beforeOldSettled).toBe(4);
+    expect(newButton.disabled).toBe(true);
+    expect(apply).not.toHaveBeenCalled();
+
+    if (timing !== '旧请求后失败') {
+        if (timing === '旧请求先成功') oldApply.resolve(ready);
+        else oldApply.reject(new Error('旧方案校验失败，不应出现'));
+        await flushPromises();
+        expect(newButton.disabled).toBe(true);
+        newButton.click();
+        expect(validateCopilotDraft).toHaveBeenCalledTimes(4);
+        expect(apply).not.toHaveBeenCalled();
+    }
+    newApply.resolve(ready);
+    await flushPromises();
+    if (timing === '旧请求后失败') {
+        oldApply.reject(new Error('旧方案校验失败，不应出现'));
+        await flushPromises();
+    }
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(store.nodes.find(node => node.data.kind === 'summary')?.data.config.prompt).toBe('只提取决定和行动项');
+    expect(store.historyPast).toHaveLength(1);
+    expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.applied'));
+    expect(wrapper!.text()).not.toContain('旧方案校验失败，不应出现');
+});
+
 it.each(['success', 'failure'] as const)('新会话应用已经完成时旧请求迟到 %s 不更改结果', async outcome => {
     const { store, apply } = await setup();
     await preview();
