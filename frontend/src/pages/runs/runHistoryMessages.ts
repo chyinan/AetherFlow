@@ -8,6 +8,7 @@ export const runHistoryMessages = {
     scope: '已加载本页统计，不受名称 / ID 关键词影响', page: '第 {page} 页 / 共 {pages} 页 · 筛选结果共 {total} 条', size: '每页条数', previous: '上一页', next: '下一页',
     noMatch: '本页没有匹配结果。可清除关键词或翻页；这不表示其他页没有匹配运行', empty: '当前工作流 / 状态条件下没有运行记录', outside: '当前打开的运行不在这一页的筛选结果中；详情仍可独立查看',
     loading: '正在加载这一页…', error: '这一页加载失败，未显示旧筛选结果', retry: '重试此页', stale: '页码已超出当前结果范围', first: '返回第一页', detailLoading: '正在加载目标运行…',
+    pagination: '运行记录分页', statusStale: '部分运行已结束，不再匹配当前状态。列表尚未同步，总数尚未确认；可重试此页。',
   },
   'en-US': {
     viewArtifacts: 'View this run’s artifacts',
@@ -18,6 +19,7 @@ export const runHistoryMessages = {
     scope: 'Loaded page counts, before name / ID keyword filtering', page: 'Page {page} of {pages} · {total} filtered runs', size: 'Page size', previous: 'Previous page', next: 'Next page',
     noMatch: 'No matches on this page. Clear the keyword or change pages; other pages may still have matching runs', empty: 'No runs match this workflow / status filter', outside: 'The open run is outside this page’s filtered results. Its details remain available independently',
     loading: 'Loading this page…', error: 'This page failed to load. Previous filter results are hidden', retry: 'Retry page', stale: 'This page is beyond the current result range', first: 'Go to first page', detailLoading: 'Loading the selected run…',
+    pagination: 'Run history pagination', statusStale: 'Some runs have ended and no longer match this status. The list has not caught up, so the total is unconfirmed. Retry this page to check again.',
   },
   'ja-JP': {
     viewArtifacts: 'この実行の成果物を表示',
@@ -28,5 +30,6 @@ export const runHistoryMessages = {
     scope: '読み込み済みページの件数。名前・ID キーワードでの絞り込み前', page: '{page} / {pages} ページ · 絞り込み結果 {total} 件', size: '表示件数', previous: '前のページ', next: '次のページ',
     noMatch: 'このページには一致する実行がありません。キーワードを解除するかページを変更してください。他のページには存在する可能性があります', empty: 'このワークフロー / 状態に一致する実行はありません', outside: '表示中の実行はこのページの絞り込み結果に含まれません。詳細は独立して閲覧できます',
     loading: 'このページを読み込み中…', error: 'このページを読み込めません。以前の絞り込み結果は非表示です', retry: 'このページを再試行', stale: 'ページ番号が現在の結果範囲を超えています', first: '最初のページへ', detailLoading: '選択した実行を読み込み中…',
+    pagination: '実行履歴のページ切り替え', statusStale: '終了した実行が現在の状態に一致しなくなりました。一覧がまだ同期されていないため、合計件数は未確定です。このページを再試行できます。',
   },
 }
