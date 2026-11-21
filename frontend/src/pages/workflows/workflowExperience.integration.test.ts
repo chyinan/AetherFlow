@@ -13,6 +13,7 @@ import { useFileStore } from '@/stores/fileStore'
 import { useRunStore } from '@/stores/runStore'
 import { mapWorkflowToDefinitionDTO } from '@/api/mappers/workflowMapper'
 import { mapBackendDefinitionGraph } from '@/services/api/workflowApi'
+import { nodeTemplates } from '@/services/mock/workflowMock'
 import type { WorkflowDefinition, WorkflowNodeKind, WorkflowGraphNode } from '@/types/workflow'
 import WorkflowPage from './WorkflowPage.vue'
 const api = vi.hoisted(() => ({ getWorkflow: vi.fn(), saveWorkflow: vi.fn(), startRun: vi.fn(), listWorkflowTemplates: vi.fn(), getNodeCatalog: vi.fn() }))
@@ -24,7 +25,8 @@ const graph = (): WorkflowDefinition => ({ id: '101', name: '会议', backendDef
 let wrapper: VueWrapper | undefined
 beforeEach(() => { vi.clearAllMocks(); api.getWorkflow.mockImplementation(async () => graph()); api.getNodeCatalog.mockResolvedValue([]); api.saveWorkflow.mockImplementation(async (value: WorkflowDefinition) => value); api.listWorkflowTemplates.mockResolvedValue([graph()]); api.startRun.mockRejectedValue(new Error('服务端能力预检拒绝')); vi.spyOn(window, 'confirm').mockReturnValue(true) })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
-async function setup() {
+async function setup(definition: () => WorkflowDefinition = graph) {
+  api.getWorkflow.mockImplementation(async () => definition())
   const pinia = createPinia(); setActivePinia(pinia)
   const store = useWorkflowStore(); const runs = useRunStore()
   vi.spyOn(store, 'loadNodeTemplates').mockResolvedValue(true)
@@ -119,6 +121,123 @@ describe('真实工作流页面体验集成', () => {
     await guide.findAll('button').find((button) => button.text() === '收起向导')!.trigger('click')
     expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(false)
     await wrapper!.get('[data-action="workflow-guide"]').trigger('click'); expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(true)
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('运行前检查的键盘修复流程', () => {
+  const disclosure = () => wrapper!.get<HTMLButtonElement>('[data-action="workflow-preflight"]')
+  const checklist = () => wrapper!.get('[data-testid="workflow-preflight"]')
+  const blockers = () => checklist().findAll('h3').find(heading => heading.text() === '阻塞 (1)')!
+  const close = () => checklist().findAll('button').find(button => button.text() === '关闭检查')!
+
+  async function setupTextWorkflow() {
+    const ready = await setup(() => ({
+      id: '101', name: '文本摘要', backendDefinitionId: 101, backendVersion: 1,
+      nodes: [node('start', 'start'), node('draft', 'prompt', { prompt: '示例文本' }),
+        node('review', 'prompt', { prompt: ' ' }), node('summary', 'summary', { textVariable: 'prompt' }),
+        node('end', 'output')],
+      edges: [{ id: 'start-draft', source: 'start', target: 'draft' },
+        { id: 'draft-review', source: 'draft', target: 'review' },
+        { id: 'review-summary', source: 'review', target: 'summary' },
+        { id: 'summary-end', source: 'summary', target: 'end' }],
+    }))
+    // 与服务端节点目录一致：PROMPT 的 prompt 为必填文本。
+    const promptSchema = [{ name: 'prompt', type: 'STRING', required: true, ui: { mode: 'basic', control: 'textarea' } }]
+    ready.store.templates = nodeTemplates.map(template => template.kind === 'prompt'
+      ? { ...template, configSchema: promptSchema }
+      : template)
+    ready.store.nodeCatalog = [{ type: 'PROMPT', configSchema: promptSchema }]
+    ready.store.nodeCatalogLoaded = true
+    await flushPromises()
+    return ready
+  }
+
+  it('工具栏运行受阻后聚焦阻塞分类，重复关闭回到发起的运行按钮', async () => {
+    await setupTextWorkflow()
+    const run = runButton()
+    run.element.focus()
+    for (let visit = 0; visit < 2; visit++) {
+      await run.trigger('click')
+      await flushPromises()
+      expect(checklist().findAll('[data-level="blocking"]')).toHaveLength(1)
+      expect(document.activeElement).toBe(blockers().element)
+      expect(blockers().attributes('tabindex')).toBe('-1')
+      const closeButton = close()
+      closeButton.element.focus()
+      await closeButton.trigger('click')
+      expect(wrapper!.find('[data-testid="workflow-preflight"]').exists()).toBe(false)
+      expect(document.activeElement).toBe(run.element)
+    }
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
+  it('手动展开不抢焦点，按钮披露状态和真实面板相符，面板内关闭返回入口', async () => {
+    await setupTextWorkflow()
+    const toolbar = disclosure()
+    toolbar.element.focus()
+    await toolbar.trigger('click')
+    expect(document.activeElement).toBe(toolbar.element)
+    expect(toolbar.attributes('aria-expanded')).toBe('true')
+    expect(document.getElementById(toolbar.attributes('aria-controls') ?? '')).toBe(checklist().element)
+    const closeButton = close()
+    closeButton.element.focus()
+    await closeButton.trigger('click')
+    expect(toolbar.attributes('aria-expanded')).toBe('false')
+    expect(toolbar.attributes('aria-controls')).toBeUndefined()
+    expect(document.activeElement).toBe(toolbar.element)
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
+  it('可定位真实配置、修复必填项、关闭并重试，非阻塞提醒仍交由服务端校验', async () => {
+    const { store } = await setupTextWorkflow()
+    const run = runButton()
+    run.element.focus()
+    await run.trigger('click')
+    await flushPromises()
+    const issue = checklist().get<HTMLButtonElement>('[data-level="blocking"] button')
+    issue.element.focus()
+    await issue.trigger('click')
+    await flushPromises()
+    const prompt = wrapper!.get<HTMLTextAreaElement>('[data-config-field="prompt"]')
+    expect(document.activeElement).toBe(prompt.element)
+    expect(useUiStore().selectedNodeId).toBe('review')
+    await prompt.setValue('请用三句话概括')
+    expect(store.dirty).toBe(true)
+    expect(checklist().findAll('[data-level="blocking"]')).toHaveLength(0)
+    expect(checklist().findAll('[data-level="warning"]').length).toBeGreaterThan(0)
+    expect(api.startRun).not.toHaveBeenCalled()
+    const closeButton = close()
+    closeButton.element.focus()
+    await closeButton.trigger('click')
+    expect(document.activeElement).toBe(run.element)
+    await run.trigger('click')
+    await flushPromises()
+    expect(api.saveWorkflow).toHaveBeenCalledTimes(1)
+    expect(api.startRun).toHaveBeenCalledTimes(1)
+    expect(api.startRun.mock.calls[0]?.[1]).toEqual({})
+    expect(wrapper!.text()).toContain('服务端能力预检拒绝')
+    expect(wrapper!.find('[data-testid="workflow-preflight"]').exists()).toBe(false)
+  })
+
+  it('清单挂载前用户已经转移焦点、未聚焦关闭按钮时，均不抢焦点', async () => {
+    await setupTextWorkflow()
+    const run = runButton()
+    const toolbar = disclosure()
+    run.element.focus()
+    run.element.click()
+    toolbar.element.focus()
+    await flushPromises()
+    expect(checklist().findAll('[data-level="blocking"]')).toHaveLength(1)
+    expect(document.activeElement).toBe(toolbar.element)
+    const closeButton = close()
+    expect(document.activeElement).not.toBe(closeButton.element)
+    closeButton.element.click()
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="workflow-preflight"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(toolbar.element)
     expect(api.startRun).not.toHaveBeenCalled()
   })
 })
