@@ -1309,7 +1309,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     </div>
   </section>
 
-  <section v-else data-testid="workflow-editor" class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
+  <section v-else data-testid="workflow-editor" class="relative grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
     <header :inert="showingWorkflowTemplates || undefined" class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <h1 ref="workflowHeading" tabindex="-1" class="rounded-sm text-sm font-semibold text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ workflowStore.workflowName }}</h1>
@@ -1493,35 +1493,36 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       </Transition>
 
       </div>
-      <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid place-items-center bg-slate-950/25 p-4">
-        <section ref="workflowTemplateDialog" tabindex="-1" class="w-full max-w-xl rounded-xl border border-app-border bg-white p-5 shadow-panel" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
-              <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
-            </div>
-            <button type="button" class="rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="closeWorkflowTemplatePicker">
-              <X class="h-5 w-5" />
-            </button>
+    </div>
+    <!-- 可用空间按整个编辑器计算，避免向导或预检面板压缩画布时截断弹框。 -->
+    <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] place-items-center overflow-hidden bg-slate-950/25 p-4">
+      <section ref="workflowTemplateDialog" tabindex="-1" class="min-h-0 w-full min-w-0 max-h-full max-w-xl overflow-y-auto overscroll-contain rounded-xl border border-app-border bg-white p-5 shadow-panel [overflow-wrap:anywhere]" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
+            <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
           </div>
-          <div class="mt-4 grid gap-2">
-            <button
-              v-for="template in workflowStore.workflowTemplates"
-              :key="template.id"
-              type="button"
-              class="rounded-lg border border-app-border px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/20"
-              @click="applyWorkflowTemplate(template)"
-            >
-              <p class="text-sm font-semibold text-text-primary">{{ template.name }}</p>
-              <p class="mt-1 text-xs text-text-muted">{{ template.description || t('workflow.templatesHint') }}</p>
-              <p class="mt-2 text-[11px] text-text-muted">{{ template.nodes.length }} {{ t('common.nodes') }} · {{ template.edges.length }} {{ t('common.edges') }}</p>
-            </button>
-            <p v-if="workflowStore.workflowTemplates.length === 0" class="rounded-lg border border-dashed border-app-border px-4 py-6 text-center text-sm text-text-muted">
-              {{ t('workflow.noTemplates') }}
-            </p>
-          </div>
-        </section>
-      </div>
+          <button type="button" class="shrink-0 rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="closeWorkflowTemplatePicker">
+            <X class="h-5 w-5" />
+          </button>
+        </div>
+        <div class="mt-4 grid gap-2">
+          <button
+            v-for="template in workflowStore.workflowTemplates"
+            :key="template.id"
+            type="button"
+            class="rounded-lg border border-app-border px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/20"
+            @click="applyWorkflowTemplate(template)"
+          >
+            <p class="text-sm font-semibold text-text-primary">{{ template.name }}</p>
+            <p class="mt-1 text-xs text-text-muted">{{ template.description || t('workflow.templatesHint') }}</p>
+            <p class="mt-2 text-[11px] text-text-muted">{{ template.nodes.length }} {{ t('common.nodes') }} · {{ template.edges.length }} {{ t('common.edges') }}</p>
+          </button>
+          <p v-if="workflowStore.workflowTemplates.length === 0" class="rounded-lg border border-dashed border-app-border px-4 py-6 text-center text-sm text-text-muted">
+            {{ t('workflow.noTemplates') }}
+          </p>
+        </div>
+      </section>
     </div>
   </section>
   </div>
