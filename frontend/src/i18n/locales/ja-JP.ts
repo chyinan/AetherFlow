@@ -395,6 +395,8 @@ export const jaJP = {
     templatesHint: 'サーバーで検証済みのテンプレートから編集を開始します。',
     noTemplates: '利用できるテンプレートはありません。',
     templatesLoadFailed: 'テンプレートの読み込みに失敗しました',
+    retryTemplates: 'テンプレートを再読み込み',
+    retryingTemplates: 'テンプレートを再読み込み中…',
     copyWorkflow: 'ワークフローをコピー',
     copyingWorkflow: 'コピー中',
     copyFailed: 'コピーに失敗しました',

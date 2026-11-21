@@ -399,6 +399,8 @@ export const zhCN = {
     templatesHint: '选择由服务端校验过的模板开始编辑。',
     noTemplates: '暂无可用模板。',
     templatesLoadFailed: '模板加载失败',
+    retryTemplates: '重试加载模板',
+    retryingTemplates: '正在重试加载模板…',
     copyWorkflow: '复制工作流',
     copyingWorkflow: '复制中',
     copyFailed: '复制失败',
