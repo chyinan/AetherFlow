@@ -215,7 +215,12 @@ describe('保存响应丢失后的页面反馈', () => {
     expect(recoveryHint().exists()).toBe(false)
   })
 
-  it.each([false, true])('重试核对 A 并成功保存 B 后撤下 A 的提示（提交 B 后是否继续编辑：%s）', async (editAgain) => {
+  it.each([
+    { editWhileChecking: false, editAfterWrite: false },
+    { editWhileChecking: false, editAfterWrite: true },
+    { editWhileChecking: true, editAfterWrite: false },
+    { editWhileChecking: true, editAfterWrite: true },
+  ])('重试时按实际提交区分已保存内容（核对时编辑：$editWhileChecking，提交后编辑：$editAfterWrite）', async ({ editWhileChecking, editAfterWrite }) => {
     http.put.mockImplementationOnce(async (url: string, payload: WorkflowDefinitionDTO) => {
       remoteVersion += 1
       remotePayload = payload
@@ -232,7 +237,11 @@ describe('保存响应丢失后的页面反馈', () => {
     expect(store.pendingSaveSubmission?.expectedVersion).toBe(5)
     expect(http.put).toHaveBeenCalledTimes(1)
 
-    store.updateNodeConfig('start-1', 'variables', { prompt: '要保存的 B' })
+    store.updateNodeConfig('start-1', 'variables', { prompt: '点击重试时的 B' })
+    let finishCheck!: () => void
+    http.get.mockImplementationOnce(() => new Promise<WorkflowDefinitionEntity>((resolve) => {
+      finishCheck = () => resolve(definition(remoteVersion, remotePayload))
+    }))
     let finishWrite!: () => void
     http.put.mockImplementationOnce((_url: string, payload: WorkflowDefinitionDTO) =>
       new Promise<WorkflowDefinitionEntity>((resolve) => {
@@ -245,25 +254,37 @@ describe('保存响应丢失后的页面反馈', () => {
     await saveButton().trigger('click')
     await flushPromises()
 
+    expect(recoveryHint().text()).toBe(i18n.global.t('workflow.saveRecoveryReconciling'))
+    expect(saveButton().text()).toBe(i18n.global.t('workflow.saving'))
+    expect(http.put).toHaveBeenCalledTimes(1)
+    const submittedPrompt = editWhileChecking ? '重试核对期间编辑的 C' : '点击重试时的 B'
+    if (editWhileChecking) store.updateNodeConfig('start-1', 'variables', { prompt: submittedPrompt })
+
+    finishCheck()
+    await flushPromises()
     expect(recoveryHint().text()).toBe(i18n.global.t('workflow.saveRecoveryCommittedWithNewerEdits'))
     expect(saveButton().text()).toBe(i18n.global.t('workflow.saving'))
     expect(http.put).toHaveBeenCalledTimes(2)
     expect(http.put.mock.calls.at(-1)?.[1]).toMatchObject({ version: 6, nodes: [{
-      nodeId: 'start-1', config: { variables: { prompt: '要保存的 B' } },
+      nodeId: 'start-1', config: { variables: { prompt: submittedPrompt } },
     }] })
-    if (editAgain) store.updateNodeConfig('start-1', 'variables', { prompt: '提交 B 之后编辑的 C' })
+    const localPrompt = editAfterWrite ? '提交之后编辑的 D' : submittedPrompt
+    if (editAfterWrite) store.updateNodeConfig('start-1', 'variables', { prompt: localPrompt })
+    const historyLength = store.historyPast.length
 
     finishWrite()
     await flushPromises()
-    expect.soft(recoveryHint().exists()).toBe(false)
+    expect(recoveryHint().exists()).toBe(false)
     expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
-    expect(saveButton().text()).toBe(i18n.global.t(editAgain ? 'workflow.saveWorkflow' : 'workflow.saved'))
     expect(store.backendVersion).toBe(7)
-    expect(store.dirty).toBe(editAgain)
     expect(store.pendingSaveSubmission).toBeNull()
-    expect(store.nodes[0]?.data.config.variables).toEqual({ prompt: editAgain ? '提交 B 之后编辑的 C' : '要保存的 B' })
+    expect(store.nodes[0]?.data.config.variables).toEqual({ prompt: localPrompt })
+    expect(store.historyPast).toHaveLength(historyLength)
     expect(http.put).toHaveBeenCalledTimes(2)
+    expect(http.get).toHaveBeenCalledTimes(3)
     expect(http.post).not.toHaveBeenCalled()
+    expect.soft(saveButton().text()).toBe(i18n.global.t(editAfterWrite ? 'workflow.saveWorkflow' : 'workflow.saved'))
+    expect(store.dirty).toBe(editAfterWrite)
     expect(router.currentRoute.value.fullPath).toBe('/workflows/201?projectId=11')
   })
 
