@@ -345,6 +345,8 @@ export const zhCN = {
     createWorkflowTitle: '新建工作流',
     createWorkflow: '创建工作流',
     renameWorkflow: '重命名工作流',
+    workflowOpeningHint: '正在打开工作流编辑器，关闭窗口可取消本次打开。',
+    workflowOpenFailedHint: '未能打开工作流编辑器。名称已保留，可以重试。',
     renamingHint: '正在提交重命名请求。关闭窗口不会取消已提交的请求。',
     renameFailedHint: '未能确认重命名结果，草稿已保留。请核对工作流列表后再重试。',
     deleteWorkflow: '删除工作流',

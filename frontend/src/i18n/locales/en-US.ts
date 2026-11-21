@@ -339,6 +339,8 @@ export const enUS = {
     createWorkflowTitle: 'Create workflow',
     createWorkflow: 'Create workflow',
     renameWorkflow: 'Rename workflow',
+    workflowOpeningHint: 'Opening the workflow editor. Close this dialog to cancel.',
+    workflowOpenFailedHint: 'Could not open the workflow editor. Your workflow name is still here. You can retry.',
     renamingHint: 'Submitting the rename request. Closing this window does not cancel a submitted request.',
     renameFailedHint: 'The rename result could not be confirmed. Your draft is preserved. Check the workflow list before retrying.',
     deleteWorkflow: 'Delete workflow',
