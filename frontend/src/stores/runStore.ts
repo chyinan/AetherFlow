@@ -260,6 +260,7 @@ export const useRunStore = defineStore('run', {
     workflowRuns: [] as WorkflowRun[],
     workflowRunsId: null as string | null,
     workflowRequestId: 0,
+    workflowRunLookup: null as { selectionRequestId: number; workflowId: string; definitionId?: number | null; loading: boolean } | null,
     currentRun: null as WorkflowRun | null,
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
@@ -373,14 +374,14 @@ export const useRunStore = defineStore('run', {
         if (!isCurrentLoad()) return
         this.mergeLoadedRuns(result.items, updateVersions, 'workflow')
         this.workflowRunsId = workflowId
+        return this.workflowRuns
       } catch (error) {
         if (isCurrentLoad()) this.error = errorMessage(error)
       }
     },
-    async loadRuns(options: { selectDefault?: boolean; workflowId?: string; definitionId?: number | null } = {}) {
+    async loadRuns(options: { selectDefault?: boolean; workflowId?: string; definitionId?: number | null } = {}): Promise<WorkflowRun[] | void> {
       if (options.workflowId) {
-        await this.loadWorkflowRuns(options.workflowId, options.definitionId)
-        return
+        return this.loadWorkflowRuns(options.workflowId, options.definitionId)
       }
       const selectDefault = options.selectDefault ?? true
       const runsLoadRequestId = ++this.runsLoadRequestId
@@ -597,9 +598,21 @@ export const useRunStore = defineStore('run', {
     async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
       // 工作流最近运行可能不在全局第一页，必须按工作流定向读取。
       const selectionRequestId = ++this.selectionRequestId
-      await this.loadRuns({ selectDefault: false, workflowId, definitionId })
-      if (selectionRequestId !== this.selectionRequestId || this.workflowRunsId !== workflowId) return null
-      const run = this.workflowRuns.find((item) =>
+      const lookup = { selectionRequestId, workflowId, definitionId, loading: true }
+      this.workflowRunLookup = lookup
+      // 启动前还会用兼容 workflowId 参数读取列表，不能用它确认本次定向查找。
+      const loaded = await this.loadRuns({ selectDefault: false, workflowId, definitionId })
+      if (selectionRequestId !== this.selectionRequestId || !loaded) {
+        // 自身读取失败或被替代，且仍是同一选择时，应继续提供原地重试。
+        if (this.workflowRunLookup?.selectionRequestId === selectionRequestId) {
+          this.workflowRunLookup = selectionRequestId === this.selectionRequestId
+            ? { ...lookup, loading: false }
+            : null
+        }
+        return null
+      }
+      this.workflowRunLookup = null
+      const run = loaded.find((item) =>
         item.workflowId === workflowId
         || (typeof definitionId === 'number' && item.definitionId === definitionId),
       )
