@@ -720,7 +720,8 @@ interface SendPromptOptions {
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
-  if (conversationSelectionPending.value || conversationIdentityUnconfirmed.value) return
+  // 回车直接进入发送逻辑，也要遵守与发送按钮相同的在途锁。
+  if (interactionPending.value) return
   if (conversationHistoryModeUnknown.value) {
     historyNotice.value = t('copilot.historyLoadFailed')
     return
@@ -734,7 +735,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     return
   }
   const text = value.trim()
-  if (!text || loading.value) {
+  if (!text) {
     return
   }
   beginConversationInteraction()
