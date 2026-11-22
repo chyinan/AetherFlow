@@ -52,7 +52,7 @@ export interface WorkflowRun {
   queueName: string
   progress: number
   nodeStates: RunNodeState[]
-  artifactCount: number
+  artifactCount?: number
   artifactNames: string[]
 }
 

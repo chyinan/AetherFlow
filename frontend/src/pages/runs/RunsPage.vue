@@ -626,7 +626,9 @@ watch(
               <div class="mt-2 h-1.5 rounded-full bg-app-muted">
                 <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${run.progress}%` }" />
               </div>
-              <p class="mt-2 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} {{ t('runs.artifacts') }}</p>
+              <p class="mt-2 text-xs text-text-muted">
+                {{ run.startedAt }}<span v-if="run.artifactCount !== undefined"> · {{ run.artifactCount }} {{ t('runs.artifacts') }}</span>
+              </p>
             </button>
             <p v-if="runStore.historyLoading" role="status" data-testid="history-loading" class="py-4 text-sm text-text-muted">{{ historyText('loading') }}</p>
             <div v-else-if="runStore.historyError" role="alert" data-testid="history-error" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
