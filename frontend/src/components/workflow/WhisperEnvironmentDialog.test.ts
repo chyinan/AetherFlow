@@ -477,6 +477,59 @@ describe('Whisper 部署感知配置向导', () => {
     await edit('suggested-model', 'base')
     expect(button('next').disabled).toBe(false)
   })
+  it.each([
+    ['host', 'suggested-model', 'C:/模型/转写', false],
+    ['compose', 'suggested-computeType', '/models/中文转写', true],
+  ] as const)('%s 验证失败后编辑建议，输入法 Escape 仅取消组合文本而不关闭向导', async (deployment, fieldName, model, legacyEvent) => {
+    render()
+    await open()
+    await reachSuggestion(deployment)
+    await edit('suggested-model', model)
+    await edit('suggested-device', 'cuda')
+    await edit('suggested-computeType', 'float16')
+    await next()
+    field('applied').click()
+    await flushPromises()
+    await next()
+    button('verify').click()
+    await flushPromises()
+    expect(verificationResult()).toBe('failed')
+    await back()
+    await back()
+
+    const input = field(fieldName)
+    const previousValue = input.value
+    input.focus()
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+    input.value = previousValue + 'wen'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: 'wen' }))
+    const composingEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing: !legacyEvent })
+    if (legacyEvent) Object.defineProperty(composingEscape, 'keyCode', { value: 229 })
+    const outsideKeydown = vi.fn()
+    window.addEventListener('keydown', outsideKeydown)
+    input.dispatchEvent(composingEscape)
+    window.removeEventListener('keydown', outsideKeydown)
+    await flushPromises()
+    expect(modal()?.querySelector('[data-testid="whisper-step-suggestion"]')).toBeTruthy()
+    expect(composingEscape.defaultPrevented).toBe(false)
+    expect(outsideKeydown).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+
+    // jsdom 不执行原生输入法操作；这里模拟取消组合文本后的输入框值。
+    input.value = previousValue
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+    await next()
+    const snippet = modal()?.querySelector('[data-testid="whisper-suggested-snippet"]')?.textContent
+    expect(snippet).toContain(deployment === 'host' ? `$env:WHISPER_MODEL='${model}'` : `WHISPER_MODEL="${model}"`)
+    expect(snippet).toContain(deployment === 'host' ? "$env:WHISPER_DEVICE='cuda'" : 'WHISPER_DEVICE=cuda')
+    expect(snippet).toContain(deployment === 'host' ? "$env:WHISPER_COMPUTE_TYPE='float16'" : 'WHISPER_COMPUTE_TYPE=float16')
+    const ordinaryEscape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    button('back').dispatchEvent(ordinaryEscape)
+    await flushPromises()
+    expect(ordinaryEscape.defaultPrevented).toBe(true)
+    expect(modal()).toBeNull()
+    expect(document.activeElement).toBe(button('open'))
+  })
   it('勾选手工应用或普通刷新不能算验证；仅重新读取且匹配时通过', async () => {
     api.getWhisperEnvironment.mockResolvedValue(suggestedEnvironment)
     render()

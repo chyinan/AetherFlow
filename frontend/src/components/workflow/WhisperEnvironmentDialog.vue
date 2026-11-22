@@ -159,8 +159,10 @@ async function copySnippet(suggestion = false) {
 }
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
-    event.preventDefault()
     event.stopPropagation()
+    // 输入法正在选词时交给系统取消组合文本，不关闭向导或丢弃建议。
+    if (event.isComposing || event.keyCode === 229) return
+    event.preventDefault()
     close()
     return
   }
