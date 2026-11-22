@@ -872,8 +872,10 @@ export const useWorkflowStore = defineStore('workflow', {
       this.markDirty()
       return true
     },
-    async loadWorkflow(workflowId: string, options: { initialName?: string } = {}): Promise<boolean> {
+    async loadWorkflow(workflowId: string, options: { initialName?: string; isCurrent?: () => boolean } = {}): Promise<boolean> {
       const requestId = ++workflowLoadRequestCounter
+      // 页面离开后不提交迟到的定义或错误；同一读取负责清理自己的忙碌标记。
+      const isCurrentLoad = () => requestId === workflowLoadRequestCounter && (options.isCurrent?.() ?? true)
       saveQueues.delete(this)
       this.nodeDragSnapshot = null
       this.loading = true
@@ -886,7 +888,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.pendingSaveSubmission = null
       try {
         const workflow = await workflowApi.getWorkflow(workflowId)
-        if (requestId !== workflowLoadRequestCounter) {
+        if (!isCurrentLoad()) {
           return false
         }
 
@@ -920,7 +922,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.runError = null
         return true
       } catch (error) {
-        if (requestId !== workflowLoadRequestCounter) {
+        if (!isCurrentLoad()) {
           return false
         }
         const details = error instanceof Error && error.message
