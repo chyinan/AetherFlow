@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Activity, AlertTriangle, ArrowRight, Boxes, CircleStop, RefreshCw } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isNavigationFailure, NavigationFailureType, useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, useRoute, useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
 
 import { toApiError } from '@/api/client/apiError'
 import type { RuntimeExecutionSnapshot } from '@/api/modules/runtime'
@@ -149,13 +149,36 @@ const cancellationCleanupMessage = computed(() => {
   if (cleanup.status === 'FAILED' || cleanup.lastError) return t('runs.cleanupFailed')
   return t('runs.cleanupPending')
 })
-const rerunNode = ref<RunNodeState | null>(null)
+const rerunTarget = shallowRef<{ node: RunNodeState; source: RouteLocationNormalizedLoaded } | null>(null)
+const rerunReceipt = shallowRef<{ instanceId: number; source: RouteLocationNormalizedLoaded } | null>(null)
 const canRerun = computed(() => selectedDetailReady.value && runStore.currentRun?.backendStatus === 'FAILED' && Boolean(runStore.currentRun?.backendInstanceId))
 
-async function completeRerun(instanceId: number) {
-  rerunNode.value = null
-  await router.push({ name: 'run-detail', params: { id: `run-${instanceId}` }, query: route.query })
+function openRerun(node: RunNodeState) {
+  rerunReceipt.value = null
+  rerunTarget.value = { node, source: router.currentRoute.value }
 }
+
+function completeRerun(instanceId: number) {
+  const target = rerunTarget.value
+  rerunTarget.value = null
+  if (target) rerunReceipt.value = { instanceId, source: target.source }
+}
+
+watch(
+  [rerunReceipt, router.currentRoute, () => pendingWorkflowNavigation(router)],
+  async ([receipt, location, pending]) => {
+    if (!active || !receipt) return
+    // 只从提交重跑的原页面打开派生运行，不抢占返回、筛选等较新的导航。
+    if (location !== receipt.source) {
+      rerunReceipt.value = null
+      return
+    }
+    if (pending) return
+    rerunReceipt.value = null
+    await router.push({ name: 'run-detail', params: { id: `run-${receipt.instanceId}` }, query: location.query })
+  },
+  { flush: 'post' },
+)
 
 
 type HumanApprovalCompletion = {
@@ -329,7 +352,7 @@ async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>
   const generation = ++routeGeneration
   defaultSelectionReady.value = false
   dismissedApprovalKey.value = null
-  rerunNode.value = null
+  rerunTarget.value = null
   if (runId) {
     // 普通列表行、已知摘要和整页刷新保持原路径；只让在途列表中未确认的明确目标独立读取。
     const cold = intent === 'retry-detail' || (intent === 'select' && Boolean(ready)
@@ -510,11 +533,11 @@ watch(
 <template>
   <section class="grid h-full grid-rows-[56px_minmax(0,1fr)]">
     <FailedNodeRerunDialog
-      v-if="rerunNode && canRerun && runStore.currentRun?.backendInstanceId"
+      v-if="rerunTarget && canRerun && runStore.currentRun?.backendInstanceId"
       :instance-id="runStore.currentRun.backendInstanceId"
-      :node-id="rerunNode.nodeId"
-      :node-label="rerunNode.label"
-      @close="rerunNode = null"
+      :node-id="rerunTarget.node.nodeId"
+      :node-label="rerunTarget.node.label"
+      @close="rerunTarget = null"
       @completed="completeRerun"
     />
     <HumanApprovalDialog
@@ -767,7 +790,7 @@ watch(
               </div>
             </div>
             <div v-show="selectedDetailReady" class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
-              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="rerunNode = $event" />
+              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="openRerun" />
               <LogStream class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
             </div>
           </section>
