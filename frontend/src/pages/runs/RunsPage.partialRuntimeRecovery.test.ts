@@ -16,6 +16,7 @@ vi.mock('@/stores/uiStore', () => ({
 
 import { axiosInstance } from '@/api/client/apiClient'
 import { i18n } from '@/i18n'
+import LogStream from '@/components/run/LogStream.vue'
 import { useRunStore } from '@/stores/runStore'
 import RunsPage from './RunsPage.vue'
 
@@ -30,6 +31,8 @@ let terminalA: boolean
 let progressA: number
 let heldObservationA: Promise<void> | undefined
 let heldLogsA: Promise<void> | undefined
+let heldEventsA: Promise<void> | undefined
+let emptyEventsA: boolean
 let resultA: string
 let overlapLogsA: boolean
 let archiveErrorStatus: number
@@ -53,6 +56,8 @@ beforeEach(() => {
   progressA = 0.42
   heldObservationA = undefined
   heldLogsA = undefined
+  heldEventsA = undefined
+  emptyEventsA = false
   resultA = '普通节点的完整文字结果 101'
   overlapLogsA = false
   archiveErrorStatus = 503
@@ -64,6 +69,7 @@ beforeEach(() => {
     requests.push(url)
     if (url === obsA && heldObservationA) await heldObservationA
     if (url === logsA && heldLogsA) await heldLogsA
+    if (url === eventsA && heldEventsA) await heldEventsA
     if (unavailable.has(url)) throw failedRead(config)
     const id = url.endsWith('/102') || url.endsWith('/102/logs') ? 102 : 101
     let data: unknown
@@ -83,7 +89,7 @@ beforeEach(() => {
         progress: id === 101 ? (terminalA ? 1 : progressA) : 0.42,
       }
     } else if (url.startsWith('/workflow/runtime/events/')) {
-      data = [{
+      data = id === 101 && emptyEventsA ? [] : [{
         eventId: `event-${id}`, eventType: 'NODE_COMPLETED', workflowId: String(id),
         nodeId: 'render-text', runtimeState: 'RUNNING', occurredAt,
         attributes: { output: id === 101 ? resultA : `普通节点的完整文字结果 ${id}` },
@@ -105,7 +111,10 @@ async function open() {
   setActivePinia(pinia)
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/runs/:id', name: 'run-detail', component: RunsPage }],
+    routes: [
+      { path: '/runs/:id', name: 'run-detail', component: RunsPage },
+      { path: '/files', name: 'files', component: { template: '<div />' } },
+    ],
   })
   await router.push('/runs/run-101')
   await router.isReady()
@@ -117,6 +126,20 @@ async function open() {
 async function ready() {
   await vi.waitFor(() => expect(useRunStore().loading).toBe(false), { timeout: 2000 })
   await flushPromises()
+}
+
+function logPanel() {
+  return wrapper!.getComponent(LogStream)
+}
+
+const logNotices = {
+  'zh-CN': { loading: '正在读取运行日志…', unavailable: '未能读取已保存日志，当前内容可能不完整。可用顶部的刷新操作重试。' },
+  'en-US': { loading: 'Loading runtime logs…', unavailable: 'Saved logs could not be read and the displayed logs may be incomplete. Use Refresh at the top to try again.' },
+  'ja-JP': { loading: 'ランタイムログを読み込み中…', unavailable: '保存済みログを読み込めなかったため、表示中のログは不完全な可能性があります。ページ上部の更新から再試行できます。' },
+}
+
+function notice(kind: 'loading' | 'unavailable') {
+  return logNotices[i18n.global.locale.value][kind]
 }
 
 function command(key: string) {
@@ -267,6 +290,8 @@ it('已保存日志仍在读取时，初次打开即可查看权威终态和节�
     const { store } = await open()
     expect(requests.filter(url => url === logsA)).toHaveLength(1)
     expect(store.logsLoading).toBe(true)
+    expect(logPanel().text()).toContain(notice('loading'))
+    expect(logPanel().text()).not.toContain(i18n.global.t('runs.noLogs'))
     expect(wrapper!.text()).not.toContain('已保存日志 101:0')
     expect(store.currentRun).toMatchObject({ id: 'run-101', backendStatus: 'SUCCESS', progress: 100 })
     expect(command('runs.cancel')).toBeUndefined()
@@ -278,6 +303,7 @@ it('已保存日志仍在读取时，初次打开即可查看权威终态和节�
     archive.release()
     await ready()
     expect(wrapper!.text()).toContain('已保存日志 101:0')
+    expect(logPanel().text()).not.toContain(notice('loading'))
     expect(wrapper!.get('[data-testid="expand-output"]').attributes('aria-expanded')).toBe('true')
     const recovered = store.logs.filter(log => log.id === 'event-101')
     expect(recovered).toHaveLength(1)
@@ -304,6 +330,7 @@ it('刷新等待归档日志时，保留展开状态并显示本次恢复的结�
     await command('runs.refresh')!.trigger('click')
     await flushPromises()
     expect(requests.filter(url => url === logsA)).toHaveLength(2)
+    expect(logPanel().text()).toContain(notice('loading'))
     expect(wrapper!.text()).toContain('已保存日志 101:0')
     expect(store.currentRun).toMatchObject({ id: 'run-101', backendStatus: 'SUCCESS', progress: 100 })
     expect(wrapper!.get('[data-testid="output-content"]').text()).toContain(resultA)
@@ -312,6 +339,8 @@ it('刷新等待归档日志时，保留展开状态并显示本次恢复的结�
     archive.release()
     await ready()
     expect(store.error).toContain('HTTP 503: 运行日志暂时不可用')
+    expect(logPanel().text()).toContain(notice('unavailable'))
+    expect(logPanel().text()).toContain('已保存日志 101:0')
     expect(wrapper!.get('[data-testid="output-content"]').text()).toContain(resultA)
     expect(command('runs.retryLoad')!.attributes('disabled')).toBeUndefined()
     unavailable.delete(logsA)
@@ -319,6 +348,7 @@ it('刷新等待归档日志时，保留展开状态并显示本次恢复的结�
     await command('runs.retryLoad')!.trigger('click')
     await ready()
     expect(store.error).toBeNull()
+    expect(logPanel().text()).not.toContain(notice('unavailable'))
     expect(wrapper!.text()).toContain('已保存日志 101:1')
     expect(wrapper!.get('[data-testid="expand-output"]').attributes('aria-expanded')).toBe('true')
   } finally {
@@ -484,4 +514,61 @@ it('日志暂时失败后离开并重新进入，再读实际日志；成功后�
   await ready()
   expect(wrapper!.text()).toContain('已保存日志 101:0')
   expect(requests.filter(url => url === logsA)).toHaveLength(4)
+})
+
+
+it.each([503, 422])('归档返回 %s 时，空窗口表示未能读取而不是真空；显式重试后才显示真实空态', async (status) => {
+  terminalA = true
+  archiveErrorStatus = status
+  historyFrames = 0
+  emptyEventsA = true
+  unavailable.add(logsA)
+  const { router, store } = await open()
+  await ready()
+  const attempts = status === 503 ? 3 : 1
+  expect(requests.filter(url => url === logsA)).toHaveLength(attempts)
+  expect(store.currentRun?.id).toBe('run-101')
+  expect(store.logs).toEqual([])
+  expect(logPanel().text()).toContain(notice('unavailable'))
+  expect(logPanel().text()).not.toContain(i18n.global.t('runs.noLogs'))
+  expect(store.logHistoryRetryByRunId['run-101']).toBe(status === 503 ? true : undefined)
+
+  await router.push('/runs/run-102')
+  await ready()
+  expect(logPanel().text()).not.toContain(notice('unavailable'))
+  await router.push('/runs/run-101')
+  await ready()
+  const repeatAttempts = status === 503 ? attempts : 1
+  expect(requests.filter(url => url === logsA)).toHaveLength(attempts + repeatAttempts)
+
+  unavailable.delete(logsA)
+  await command('runs.retryLoad')!.trigger('click')
+  await ready()
+  expect(store.error).toBeNull()
+  expect(logPanel().text()).toContain(i18n.global.t('runs.noLogs'))
+  expect(logPanel().text()).not.toContain(notice('unavailable'))
+  expect(requests.filter(url => url === logsA)).toHaveLength(attempts + repeatAttempts + 1)
+})
+
+it('归档先读到空但恢复事件仍在途时不提前宣告空；都读完后恢复真实空态', async () => {
+  historyFrames = 0
+  emptyEventsA = true
+  const events = hold()
+  heldEventsA = events.pending
+  try {
+    const { store } = await open()
+    expect(store.logsByRunId['run-101']).toEqual([])
+    expect(requests).toContain(eventsA)
+    expect(logPanel().text()).toContain(notice('loading'))
+    expect(logPanel().text()).not.toContain(notice('unavailable'))
+    expect(logPanel().text()).not.toContain(i18n.global.t('runs.noLogs'))
+
+    events.release()
+    await ready()
+    expect(logPanel().text()).toContain(i18n.global.t('runs.noLogs'))
+    expect(logPanel().text()).not.toContain(notice('loading'))
+  } finally {
+    events.release()
+    await ready()
+  }
 })
