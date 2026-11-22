@@ -14,6 +14,12 @@ const { t } = useI18n({ useScope: 'local', messages: {
 const audio = computed(() => props.nodes.some((node) => node.data.kind === 'whisper') && props.nodes.some((node) => node.data.kind === 'summary'))
 const inputNode = computed(() => audio.value ? props.nodes.find((node) => node.data.kind === 'start') ?? props.nodes.find((node) => node.data.kind === 'whisper') : props.nodes.find((node) => node.data.kind === 'prompt') ?? props.nodes.find((node) => node.data.kind === 'image-generation'))
 const configNodes = computed(() => props.nodes.filter((node) => audio.value ? ['whisper', 'summary', 'export'].includes(node.data.kind) : ['image-generation', 'upscale'].includes(node.data.kind)))
+const { t: tGlobal } = useI18n({ useScope: 'global' })
+const configHint = computed(() => {
+  if (!audio.value) return t('imageConfig')
+  return configNodes.value.some(node => node.data.kind === 'export')
+    ? t('audioConfig') : tGlobal('workflow.starterGuideAudioConfigWithoutExport')
+})
 function fieldFor(node: WorkflowGraphNode) { return node.data.kind === 'whisper' ? 'whisperEnvironment' : node.data.kind === 'summary' ? 'model' : node.data.kind === 'export' ? 'format' : 'connectionId' }
 </script>
 <template>
@@ -22,7 +28,7 @@ function fieldFor(node: WorkflowGraphNode) { return node.data.kind === 'whisper'
     <p class="mt-1 text-xs text-text-muted">{{ t('example') }}</p>
     <ol class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <li class="rounded-lg border border-app-border bg-white p-3"><h3 class="text-sm font-semibold">{{ t('input') }}</h3><p class="my-2 text-xs">{{ t(audio ? 'audioInput' : 'imageInput') }}</p><button v-if="inputNode" type="button" class="text-xs text-primary underline" @click="emit('locate', inputNode.id, audio ? 'fileId' : 'prompt')">{{ t('open') }}: {{ inputNode.data.label }}</button></li>
-      <li class="rounded-lg border border-app-border bg-white p-3"><h3 class="text-sm font-semibold">{{ t('configure') }}</h3><p class="my-2 text-xs">{{ t(audio ? 'audioConfig' : 'imageConfig') }}</p><button v-for="node in configNodes" :key="node.id" type="button" class="mr-2 text-xs text-primary underline" @click="emit('locate', node.id, fieldFor(node))">{{ node.data.label }}</button><p class="mt-2 text-xs text-text-muted">{{ t('configureState') }}</p></li>
+      <li class="rounded-lg border border-app-border bg-white p-3"><h3 class="text-sm font-semibold">{{ t('configure') }}</h3><p class="my-2 text-xs">{{ configHint }}</p><button v-for="node in configNodes" :key="node.id" type="button" class="mr-2 text-xs text-primary underline" @click="emit('locate', node.id, fieldFor(node))">{{ node.data.label }}</button><p class="mt-2 text-xs text-text-muted">{{ t('configureState') }}</p></li>
       <li class="rounded-lg border border-app-border bg-white p-3"><h3 class="text-sm font-semibold">{{ t('run') }}</h3><p class="my-2 text-xs">{{ t('runHint') }}</p><button type="button" :disabled="busy" class="rounded border border-primary px-2 py-1 text-xs text-primary disabled:opacity-50" @click="emit('run', $event)">{{ t('start') }}</button></li>
       <li class="rounded-lg border border-app-border bg-white p-3"><h3 class="text-sm font-semibold">{{ t('results') }}</h3><p class="my-2 text-xs">{{ t('resultsHint') }}</p><p class="mb-2 text-xs" role="status">{{ t(!run ? 'pending' : run.backendStatus === 'SUCCESS' ? 'succeeded' : 'unconfirmed') }}</p><button v-if="run" type="button" class="mr-2 text-xs text-primary underline" @click="emit('results')">{{ t('view') }}</button><RouterLink to="/files" class="text-xs text-primary underline">{{ t('files') }}</RouterLink></li>
     </ol>

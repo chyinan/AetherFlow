@@ -241,3 +241,32 @@ describe('运行前检查的键盘修复流程', () => {
     expect(api.startRun).not.toHaveBeenCalled()
   })
 })
+
+it('内置 Media digest 不引导设置不存在的导出格式，仍可定位总结模型', async () => {
+  // 受控模板 API 返回 WorkflowServiceImpl.mediaDigestTemplate 的同一节点与配置。
+  const mediaDigest: WorkflowDefinition = {
+    id: 'media-digest', name: 'Media digest',
+    ...mapBackendDefinitionGraph([
+      { nodeId: 'start', nodeType: 'START', displayName: 'Start', config: { nextNodes: ['upload'] } },
+      { nodeId: 'upload', nodeType: 'UPLOAD', displayName: 'Input media', config: { nextNodes: ['whisper'], fileIdVariable: 'fileId' } },
+      { nodeId: 'whisper', nodeType: 'WHISPER', displayName: 'Transcribe media', config: { nextNodes: ['summary'], fileUrlVariable: 'fileUrl', language: 'auto' } },
+      { nodeId: 'summary', nodeType: 'SUMMARY', displayName: 'Summarize transcript', config: { nextNodes: ['end'], textVariable: 'text' } },
+      { nodeId: 'end', nodeType: 'END', displayName: 'Complete', config: {} },
+    ]),
+  }
+  api.listWorkflowTemplates.mockResolvedValue([mediaDigest])
+  await setup()
+  await wrapper!.get('[data-action="workflow-templates"]').trigger('click')
+  await flushPromises()
+  await wrapper!.findAll('[role="dialog"] button').find(button => button.text().includes('Media digest'))!.trigger('click')
+  await flushPromises()
+  const guide = wrapper!.get('[data-testid="workflow-starter-guide"]')
+  expect(guide.text()).toContain('Whisper 环境助手')
+  expect(guide.text()).toContain('总结模型')
+  expect(guide.text()).not.toContain('输出格式')
+  await guide.findAll('button').find(button => button.text() === 'Summarize transcript')!.trigger('click')
+  await flushPromises()
+  expect(useUiStore().selectedNodeId).toBe('summary')
+  expect(document.activeElement?.getAttribute('data-config-field')).toBe('model')
+  expect(api.startRun).not.toHaveBeenCalled()
+})

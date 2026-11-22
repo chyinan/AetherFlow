@@ -16,6 +16,32 @@ describe('首跑引导', () => {
     expect(wrapper.emitted('locate')).toEqual([['input', 'fileId'], ['asr', 'whisperEnvironment']])
     expect(wrapper.emitted('run')).toBeUndefined(); wrapper.unmount()
   })
+  it.each([
+    ['zh-CN', '再选择总结模型。', '输出格式'],
+    ['en-US', 'choose a summary model.', 'export format'],
+    ['ja-JP', 'Whisper 環境と要約モデルを確認してください。', '出力形式'],
+  ] as const)('%s 仅当音频画布含导出节点时显示格式和定位', async (locale, noExportHint, outputFormat) => {
+    const previousLocale = i18n.global.locale.value
+    i18n.global.locale.value = locale
+    const media = [node('input', 'start'), node('asr', 'whisper'), node('summary', 'summary')]
+    const wrapper = render(media)
+    const exportButton = () => wrapper.findAll('button').find(button => button.text() === 'export')
+    try {
+      expect(wrapper.text()).toContain(noExportHint)
+      expect(wrapper.text()).not.toContain(outputFormat)
+      expect(exportButton()).toBeUndefined()
+      await wrapper.setProps({ nodes: [...media, node('export', 'export')] })
+      expect(wrapper.text()).toContain(outputFormat)
+      await exportButton()!.trigger('click')
+      expect(wrapper.emitted('locate')).toEqual([['export', 'format']])
+      await wrapper.setProps({ nodes: media })
+      expect(wrapper.text()).not.toContain(outputFormat)
+      expect(exportButton()).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      i18n.global.locale.value = previousLocale
+    }
+  })
   it('图像引导使用现有连接配置且运行按钮遵守busy', async () => {
     const wrapper = render([node('prompt', 'prompt'), node('image', 'image-generation')]); expect(wrapper.text()).toContain('图像连接助手')
     await wrapper.findAll('button').find((button) => button.text() === 'image')!.trigger('click')
