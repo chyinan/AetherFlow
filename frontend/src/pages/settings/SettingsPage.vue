@@ -155,6 +155,24 @@ const vectorStoreForm = ref({
   apiKey: '',
 })
 
+function vectorStoreFormFromConfig(config: VectorStoreConfig) {
+  return {
+    enabled: Boolean(config.enabled),
+    provider: config.provider || 'qdrant',
+    baseUrl: config.baseUrl || 'https://qdrant.example.com',
+    collection: config.collection || 'workflow-embeddings',
+    apiKey: '',
+  }
+}
+
+const vectorStoreDraftChanged = computed(() => {
+  if (!vectorStoreConfig.value) return false
+  const saved = vectorStoreFormFromConfig(vectorStoreConfig.value)
+  const draft = vectorStoreForm.value
+  return draft.enabled !== saved.enabled || draft.provider !== saved.provider
+    || draft.baseUrl !== saved.baseUrl || draft.collection !== saved.collection || Boolean(draft.apiKey)
+})
+
 const workspaceNav = [
   { id: 'provider', labelKey: 'settings.provider', icon: Bot },
   { id: 'members', labelKey: 'settings.members', icon: UsersRound },
@@ -823,13 +841,7 @@ async function loadVectorStoreConfig() {
     const config = await settingsApi.getVectorStoreConfig()
     if (session !== sessionGeneration) return
     vectorStoreConfig.value = config
-    vectorStoreForm.value = {
-      enabled: Boolean(config.enabled),
-      provider: config.provider || 'qdrant',
-      baseUrl: config.baseUrl || 'https://qdrant.example.com',
-      collection: config.collection || 'workflow-embeddings',
-      apiKey: '',
-    }
+    vectorStoreForm.value = vectorStoreFormFromConfig(config)
   } catch (error) {
     if (session !== sessionGeneration) return
     vectorStoreLoadFailed.value = true
@@ -907,7 +919,7 @@ async function saveVectorStore() {
     const config = await settingsApi.saveVectorStoreConfig(vectorStorePayload())
     if (session !== sessionGeneration) return
     vectorStoreConfig.value = config
-    vectorStoreForm.value.apiKey = ''
+    vectorStoreForm.value = vectorStoreFormFromConfig(config)
     vectorStoreMessage.value = { kind: 'config', text: t('settings.vectorStoreSaved') }
     markSaved()
   } catch (error) {
@@ -993,7 +1005,8 @@ async function loadTabResources() {
       ? modelStore.refreshStatus({ management: true })
       : modelStore.loadModels({ management: true }))
   }
-  if (canManageAdminSettings.value && activeTab.value === 'data-source') {
+  // 返回同一设置页的标签时，不用已保存配置覆盖尚未提交的草稿及其反馈。
+  if (canManageAdminSettings.value && activeTab.value === 'data-source' && !vectorStoreDraftChanged.value) {
     requests.push(loadVectorStoreConfig())
   }
   resourcesLoading.value = requests.length > 0
