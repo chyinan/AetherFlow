@@ -193,6 +193,53 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     expect(modal()?.querySelector('[data-testid="whisper-status"]')?.textContent).toBe('可用')
     expectBlocked(wrapper, store, reason)
     expect(modal()?.querySelector('[data-testid="whisper-capability-error"]')).toBeNull()
+    const blocker = modal()?.querySelector('[data-testid="whisper-capability-blocker"]')
+    expect(blocker?.getAttribute('role')).toBe('alert')
+    expect(blocker?.textContent).toContain(reason)
+    expect(blocker?.textContent).toContain('重新验证')
+  })
+
+  it('确认能力阻断后不会误提示完成，保留建议、关闭和原地重新验证的入口', async () => {
+    const { store } = await render()
+    await click('open')
+    await reachVerification()
+    await click('verify')
+
+    expect(verificationResult()).toBe('passed')
+    expect(button('finish').disabled).toBe(true)
+    button('finish').dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+    expect(modal()).not.toBeNull()
+    expect(button('close').disabled).toBe(false)
+    expect(button('back').disabled).toBe(false)
+    expect(button('verify').disabled).toBe(false)
+    expect(modal()?.querySelector('[data-testid="whisper-verification-target"]')?.textContent).toContain('small')
+
+    api.getWorkflowCapabilities.mockResolvedValueOnce(capabilities(true))
+    await click('verify')
+    expect(modal()?.querySelector('[data-testid="whisper-capability-blocker"]')).toBeNull()
+    expect(button('finish').disabled).toBe(false)
+    await click('finish')
+    expect(modal()).toBeNull()
+    expect(document.activeElement).toBe(button('open'))
+    expect(store.templates.find((item) => item.kind === 'whisper')?.availability?.available).toBe(true)
+    expect(api.getWhisperEnvironment).toHaveBeenCalledTimes(3)
+  })
+
+  it('共享能力状态变为未知时，不把之前的环境通过当作节点可执行', async () => {
+    const { store } = await render()
+    await click('open')
+    await reachVerification()
+    await click('verify')
+    expect(verificationResult()).toBe('passed')
+
+    api.getWorkflowCapabilities.mockRejectedValueOnce(new Error('共享能力读取失败'))
+    expect(await store.loadNodeTemplates()).toBe(false)
+    await flushPromises()
+    expect(modal()?.querySelector('[data-testid="whisper-capability-blocker"]')).toBeNull()
+    expect(modal()?.querySelector('[data-testid="whisper-capability-error"]')?.getAttribute('role')).toBe('alert')
+    expect(button('finish').disabled).toBe(true)
+    expect(button('verify').disabled).toBe(false)
   })
 
   it.each(['open', 'refresh', 'verify'] as const)('%s 读取能力失败立即 fail-closed，提示错误且可重试恢复', async (action) => {
@@ -204,6 +251,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
 
     expectBlocked(wrapper, store, 'AI capability service unavailable')
     expect(modal()?.querySelector('[data-testid="whisper-capability-error"]')?.getAttribute('role')).toBe('alert')
+    expect(modal()?.querySelector('[data-testid="whisper-capability-blocker"]')).toBeNull()
     expect(modal()?.querySelector('[data-testid="whisper-status"]')?.textContent).toBe('可用')
     if (action === 'verify') {
       expect(verificationResult()).toBe('passed')
