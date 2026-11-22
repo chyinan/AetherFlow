@@ -1370,6 +1370,36 @@ onBeforeUnmount(() => {
   chatController.value?.abort()
 })
 
+const historyNoticeRegion = ref<HTMLDivElement | null>(null)
+const historyRetrySelector = '[data-testid="copilot-history-retry"]'
+let historyRetryFocusSequence: number | undefined
+
+watch(conversationSelectionPending, (pending) => {
+  const region = historyNoticeRegion.value
+  if (pending) {
+    // 已选会话重试会暂时移除按钮；仅接管由该按钮持有的焦点。
+    const retry = region?.querySelector(historyRetrySelector)
+    if (historyNotice.value && region && retry && retry === document.activeElement) {
+      historyRetryFocusSequence = conversationLoadSequence
+      region.focus({ preventScroll: true })
+    }
+    return
+  }
+  const sequence = historyRetryFocusSequence
+  historyRetryFocusSequence = undefined
+  if (!region || sequence !== conversationLoadSequence || document.activeElement !== region) return
+  if (!historyRetryAvailable.value) {
+    // 提示可能随成功回执消失；输入草稿与焦点一起留在当前会话。
+    promptInput.value?.focus({ preventScroll: true })
+    return
+  }
+  void nextTick(() => {
+    if (!panelDisposed && sequence === conversationLoadSequence && document.activeElement === region) {
+      region.querySelector<HTMLButtonElement>(historyRetrySelector)?.focus({ preventScroll: true })
+    }
+  })
+}, { flush: 'sync' })
+
 onMounted(() => {
   void loadModels()
   void loadConversationHistory()
@@ -1424,7 +1454,7 @@ onMounted(() => {
       </div>
 
       <div ref="chatViewport" class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
-        <div v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
+        <div v-if="historyNotice" ref="historyNoticeRegion" tabindex="-1" :aria-busy="conversationSelectionPending || undefined" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ai" role="status">
           {{ historyNotice }}
           <button
             v-if="historyRetryAvailable"
