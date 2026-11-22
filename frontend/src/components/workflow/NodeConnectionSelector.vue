@@ -72,6 +72,9 @@ const connectionId = computed(() => String(props.config.connectionId ?? '').trim
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
 const selectedConnection = computed(() => connections.value.find((connection) => connection.id === effectiveId.value))
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
+const confirmedConnectionProvider = computed(() => ready.value && connectionId.value ? selectedConnection.value?.provider : undefined)
+const providerMismatch = computed(() => Boolean(confirmedConnectionProvider.value && confirmedConnectionProvider.value !== provider.value))
+const modelCatalogProbe = computed(() => providerMismatch.value ? null : selectedProbe.value)
 const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode, workflowNodeTypes.value]))
 const modelFields = computed<Array<{ key: string; catalog: ImageCatalog }>>(() => props.nodeType === 'UPSCALE'
   ? (importedApi.value ? [] : [{ key: 'upscaler', catalog: 'upscalers' }])
@@ -82,7 +85,7 @@ const loras = computed(() => Array.isArray(props.config.lora) ? props.config.lor
 const invalidLora = computed(() => props.config.lora != null && !Array.isArray(props.config.lora))
 const externalChecklistFields = new Set(['mode', 'workflow', 'workflowJson'])
 const probeCatalogs: ImageCatalog[] = ['checkpoints', 'vaes', 'loras', 'samplers', 'schedulers', 'upscalers']
-const checklist = computed(() => buildNodeConnectionChecklist({ provider: provider.value, nodeType: props.nodeType, config: props.config, probe: selectedProbe.value, connectionProvider: selectedConnection.value?.provider }))
+const checklist = computed(() => buildNodeConnectionChecklist({ provider: provider.value, nodeType: props.nodeType, config: props.config, probe: selectedProbe.value, connectionProvider: confirmedConnectionProvider.value }))
 const formChecklist = computed(() => buildNodeConnectionChecklist({
   provider: form.provider, nodeType: props.nodeType, config: { ...props.config, connectionId: editingId.value || 'new-connection' }, probe: formProbe.value,
 }))
@@ -98,10 +101,10 @@ const saveFeedback = computed(() => {
   if (outcome.applied) return ''
   return t(outcome.edited ? 'updatedWithoutApply' : 'savedWithoutApply', { name: outcome.connection.name })
 })
-function knownCatalog(catalog: ImageCatalog, result = selectedProbe.value) {
+function knownCatalog(catalog: ImageCatalog, result = modelCatalogProbe.value) {
   return isKnownConnectionCatalog(result, catalog)
 }
-function options(catalog: ImageCatalog, result = selectedProbe.value) {
+function options(catalog: ImageCatalog, result = modelCatalogProbe.value) {
   return connectionCatalogOptions(result, catalog)
 }
 function fieldId(field: string, index?: number) { return `node-connection-${props.nodeId}-${field}${index === undefined ? '' : `-${index}`}` }
@@ -280,8 +283,10 @@ async function refreshSelected() {
   if (!ready.value || missingConnection.value) return
   probing.value = true
   try {
-    const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value ? String(props.config.checkpoint ?? '').trim() : ''
-    const result = workflowNodeTypes.value.length
+    // 节点可能仍保留共享连接更新前的 Provider；不要用旧配置探测另一种服务的图或模型。
+    const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value && !providerMismatch.value
+      ? String(props.config.checkpoint ?? '').trim() : ''
+    const result = workflowNodeTypes.value.length && !providerMismatch.value
       ? await probeSavedNodeConnection(effectiveId.value, undefined, undefined, workflowNodeTypes.value)
       : await probeSavedNodeConnection(effectiveId.value, props.nodeType, checkpoint || undefined)
     if (alive && sequence === selectedSequence && key === selectedKey.value) selectedProbe.value = result
@@ -377,7 +382,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
       <p class="text-text-muted">{{ t('backend') }}</p>
       <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
     </div>
-    <section v-if="selectedProbe" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
+    <section v-if="selectedProbe || providerMismatch" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
       <h3 :id="fieldId('checklist-title')" class="text-sm font-semibold text-text-primary">{{ t('checklistTitle') }}</h3>
       <p class="text-xs leading-5 text-text-muted">{{ t('checklistScope') }}</p>
       <p v-if="!checklist.length" data-testid="checklist-clear" role="status" class="text-xs text-status-success">{{ t('checklistClear') }}</p>
@@ -392,9 +397,10 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
         </li>
       </ul>
     </section>
-    <p v-if="checkpointRequired" data-testid="checkpoint-required" role="alert" class="text-xs text-status-warning">{{ t('checkpointRequired') }}</p>
-    <div class="space-y-3 border-t border-app-border pt-3">
-      <p class="text-sm font-semibold text-text-primary">{{ t('choices') }}</p>
+    <p v-if="checkpointRequired && !providerMismatch" data-testid="checkpoint-required" role="alert" class="text-xs text-status-warning">{{ t('checkpointRequired') }}</p>
+    <fieldset :disabled="providerMismatch" class="min-w-0 space-y-3 border-t border-app-border pt-3">
+      <legend class="sr-only">{{ t('choices') }}</legend>
+      <p class="text-sm font-semibold text-text-primary" aria-hidden="true">{{ t('choices') }}</p>
       <p v-if="!connectionId" data-testid="legacy-model-hint" class="text-xs leading-5 text-text-muted">{{ t('selectConnectionForModels') }}</p>
       <label v-for="field in modelFields" :key="field.key" class="block text-xs font-medium text-text-primary">
         {{ t(field.key) }}
@@ -403,9 +409,11 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <option v-if="unsupported(field.key, field.catalog)" :value="currentValue(field.key)">{{ currentValue(field.key) }} (?)</option>
           <option v-for="option in options(field.catalog)" :key="option" :value="option">{{ option }}</option>
         </select>
-        <span v-if="unsupported(field.key, field.catalog)" class="mt-1 block font-normal leading-5 text-status-warning" :data-testid="`unsupported-${field.key}`">{{ t('retained', { value: currentValue(field.key) }) }}</span>
-        <span v-if="!knownCatalog(field.catalog)" class="mt-1 block font-normal text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</span>
-        <span v-else-if="!options(field.catalog).length" class="mt-1 block font-normal text-text-muted">{{ t('emptyCatalog') }}</span>
+        <span v-if="!providerMismatch && unsupported(field.key, field.catalog)" class="mt-1 block font-normal leading-5 text-status-warning" :data-testid="`unsupported-${field.key}`">{{ t('retained', { value: currentValue(field.key) }) }}</span>
+        <template v-if="!providerMismatch">
+          <span v-if="!knownCatalog(field.catalog)" class="mt-1 block font-normal text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</span>
+          <span v-else-if="!options(field.catalog).length" class="mt-1 block font-normal text-text-muted">{{ t('emptyCatalog') }}</span>
+        </template>
       </label>
       <div v-if="nodeType === 'IMAGE_GENERATION'" :id="fieldId('lora')" data-config-field="lora" tabindex="-1" class="space-y-2 text-xs">
         <p class="font-medium text-text-primary">{{ t('lora') }}</p>
@@ -420,13 +428,15 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
             <label class="flex min-w-0 items-center gap-2">{{ t('weight') }}<input :data-config-field="`lora.${index}.weight`" type="number" step="0.05" class="w-20 rounded border border-app-border p-1" :disabled="!connectionId" :value="String(loraWeight(item))" @input="updateLora(index, 'weight', ($event.target as HTMLInputElement).value)" /></label>
             <button type="button" class="ml-auto text-status-error disabled:opacity-50" :disabled="!connectionId" @click="emit('updateConfig', 'lora', loras.filter((_, itemIndex) => itemIndex !== index))">{{ t('remove') }}</button>
           </div>
-          <p v-if="loraName(item) && !options('loras').includes(loraName(item))" class="text-status-warning">{{ t('retained', { value: loraName(item) }) }}</p>
+          <p v-if="!providerMismatch && loraName(item) && !options('loras').includes(loraName(item))" class="text-status-warning">{{ t('retained', { value: loraName(item) }) }}</p>
         </div>
-        <p v-if="!knownCatalog('loras')" class="text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</p>
-        <p v-else-if="!options('loras').length" class="text-text-muted">{{ t('emptyCatalog') }}</p>
+        <template v-if="!providerMismatch">
+          <p v-if="!knownCatalog('loras')" class="text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</p>
+          <p v-else-if="!options('loras').length" class="text-text-muted">{{ t('emptyCatalog') }}</p>
+        </template>
         <button type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 disabled:opacity-50" :disabled="invalidLora || !connectionId" @click="addLora">{{ t('addLora') }}</button>
       </div>
-    </div>
+    </fieldset>
     <Teleport to="body">
       <div v-if="open" class="fixed inset-0 z-[150] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" @click.self="close()">
         <section role="dialog" aria-modal="true" :aria-labelledby="`connection-title-${nodeId}`" class="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl border border-app-border bg-white p-5 shadow-panel" data-testid="connection-dialog" @keydown="handleDialogKeydown">
