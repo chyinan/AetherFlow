@@ -8,6 +8,7 @@ import {
   type WorkflowRunViewDTO,
 } from '@/api/modules/workflow'
 import {
+  isWorkflowWaitingMarkerOnly,
   mergeHumanApprovalState,
   mapObservationToRunPatch,
   mapRuntimeEventToLogEntry,
@@ -158,7 +159,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
     retryCount: runtimeRetryCount(node.latestEventType, node.attributes),
     ...(approval !== undefined ? { approval } : {}),
     ...(node.attributes?.reused === true ? { reused: true } : {}),
-    output: Object.keys(node.attributes ?? {}).length > 0
+    output: Object.keys(node.attributes ?? {}).length > 0 && !isWorkflowWaitingMarkerOnly(node.latestEventType, node.attributes)
       ? JSON.stringify(node.attributes)
       : node.latestEventType || node.status || status,
   }
