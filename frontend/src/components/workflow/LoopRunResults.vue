@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getBatchResults, type BatchRunResult } from '@/api/modules/runtime'
 const props = defineProps<{ instanceId?: string | number; nodeId: string; runStatus?: string }>()
+const { t } = useI18n({ useScope: 'local', messages: {
+  'zh-CN': { inputItem: '输入项', outputVariables: '输出变量' },
+  'en-US': { inputItem: 'Input item', outputVariables: 'Output variables' },
+  'ja-JP': { inputItem: '入力項目', outputVariables: '出力変数' },
+} })
 const PAGE_SIZE = 50
 const rows = ref<BatchRunResult[]>([])
 const total = ref<number | null>(null)
@@ -50,7 +56,14 @@ watch(() => [props.instanceId, props.nodeId, props.runStatus] as const, ([instan
     <details v-for="(row, index) in rows" :key="row.index ?? offset + index" class="rounded border border-app-border p-2 text-xs">
       <summary>第 {{ (row.index ?? offset + index) + 1 }} 项 · {{ row.status }}</summary>
       <p v-if="row.error" class="mt-2 text-status-error">{{ row.error }}</p>
-      <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ JSON.stringify(row.variables ?? row.item ?? {}, null, 2) }}</pre>
+      <div v-if="row.item !== undefined" class="mt-2 min-w-0">
+        <p class="font-medium">{{ t('inputItem') }}</p>
+        <pre :aria-label="t('inputItem')" tabindex="0" class="max-h-48 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{{ JSON.stringify(row.item, null, 2) }}</pre>
+      </div>
+      <div v-if="row.variables != null || row.item === undefined" class="mt-2 min-w-0">
+        <p class="font-medium">{{ t('outputVariables') }}</p>
+        <pre :aria-label="t('outputVariables')" tabindex="0" class="max-h-48 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{{ JSON.stringify(row.variables ?? {}, null, 2) }}</pre>
+      </div>
     </details>
     <div v-if="total !== null && total > PAGE_SIZE" class="flex justify-between text-xs"><button type="button" :disabled="loading || offset === 0" @click="load(Math.max(0, offset - PAGE_SIZE), 'page')">上一页</button><button type="button" :disabled="loading || offset + PAGE_SIZE >= total" @click="load(offset + PAGE_SIZE, 'page')">下一页</button></div>
   </section>
