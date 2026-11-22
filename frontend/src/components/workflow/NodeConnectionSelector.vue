@@ -372,10 +372,21 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
     <p v-if="listError" role="alert" class="text-xs text-status-error">{{ listError }}</p>
     <p v-if="missingConnection" data-testid="missing-connection" role="alert" class="text-xs leading-5 text-status-error">{{ t('missingConnection') }}</p>
     <p v-if="selectedError" role="alert" class="text-xs text-status-error">{{ t('requestFailed') }}: {{ selectedError }}</p>
-    <div v-if="selectedProbe" data-testid="selected-status" class="space-y-1 text-xs leading-5" :class="selectedProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'">
-      <p class="font-semibold">{{ t(`status.${selectedProbe.status}`) }}</p><p>{{ selectedProbe.message }}</p>
-      <p class="text-text-muted">{{ t('backend') }}</p>
-      <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
+    <!-- 与新增／编辑向导一致：先挂载状态区，只播报结果标题和说明。 -->
+    <div
+      :data-testid="selectedProbe ? 'selected-status' : undefined"
+      :class="selectedProbe ? ['space-y-1 text-xs leading-5', selectedProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'] : 'sr-only'"
+    >
+      <div role="status" aria-atomic="true" class="space-y-1" data-testid="selected-probe-announcement">
+        <template v-if="selectedProbe">
+          <p class="font-semibold">{{ t(`status.${selectedProbe.status}`) }}</p>
+          <p>{{ selectedProbe.message }}</p>
+        </template>
+      </div>
+      <template v-if="selectedProbe">
+        <p class="text-text-muted">{{ t('backend') }}</p>
+        <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
+      </template>
     </div>
     <section v-if="selectedProbe" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
       <h3 :id="fieldId('checklist-title')" class="text-sm font-semibold text-text-primary">{{ t('checklistTitle') }}</h3>
