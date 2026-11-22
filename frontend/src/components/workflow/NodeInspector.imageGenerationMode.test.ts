@@ -2,6 +2,7 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TextDecoder, TextEncoder } from 'node:util'
 import type { NodeConnection } from '@/api/modules/nodeConnections'
 import type { WorkflowNodeCatalogItem } from '@/api/modules/node'
 import { i18n } from '@/i18n'
@@ -10,6 +11,7 @@ import { useDifyStore } from '@/stores/difyStore'
 import { useModelStore } from '@/stores/modelStore'
 import { useUiStore } from '@/stores/uiStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
+import { buildWorkflowPreflight } from '@/utils/workflowPreflight'
 import NodeInspector from './NodeInspector.vue'
 
 const api = vi.hoisted(() => ({
@@ -30,9 +32,26 @@ const comfy: NodeConnection = { id: 'comfy', name: '模拟 ComfyUI', provider: '
 const modes = ['txt2img', 'img2img', 'workflow']
 const catalog: WorkflowNodeCatalogItem[] = [{
   type: 'IMAGE_GENERATION',
-  configSchema: [{ name: 'mode', type: 'STRING', example: 'txt2img', options: modes, ui: { mode: 'basic', control: 'segmented' } }],
+  configSchema: [
+    { name: 'mode', type: 'STRING', example: 'txt2img', options: modes, ui: { mode: 'basic', control: 'segmented' } },
+    { name: 'workflow', type: 'OBJECT', ui: { mode: 'advanced', control: 'json' } },
+    { name: 'workflowJson', type: 'STRING', ui: { mode: 'advanced', control: 'textarea' } },
+  ],
 }]
 const wrappers: VueWrapper[] = []
+const picker = '[data-testid="comfy-api-file"]'
+const source = '[data-testid="comfy-source"]'
+const rawApi = '\uFEFF{ "a": { "class_type": "KSampler", "inputs": { "seed": 9007199254740993 } } }'
+
+async function selectApiFile(wrapper: VueWrapper, json: string) {
+  const input = wrapper.get<HTMLInputElement>(picker)
+  Object.defineProperty(input.element, 'files', {
+    configurable: true,
+    value: [{ arrayBuffer: async () => new TextEncoder().encode(json).buffer as ArrayBuffer }],
+  })
+  await input.trigger('change')
+  await flushPromises()
+}
 
 async function render(config: Record<string, unknown>) {
   const pinia = createPinia()
@@ -58,6 +77,7 @@ async function render(config: Record<string, unknown>) {
 describe('检查器按图像 Provider 提供生成模式', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.stubGlobal('TextDecoder', TextDecoder)
     i18n.global.locale.value = 'zh-CN'
     api.getNodeCatalog.mockResolvedValue(catalog)
     api.getNodeConnections.mockResolvedValue({ connections: [sd, comfy] })
@@ -67,6 +87,7 @@ describe('检查器按图像 Provider 提供生成模式', () => {
   afterEach(() => {
     wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it.each([undefined, 'SD_WEBUI', 'STABLE_DIFFUSION_WEBUI', 'STABLE_DIFFUSION'])(
@@ -126,6 +147,73 @@ describe('检查器按图像 Provider 提供生成模式', () => {
     expect(wrapper.find('[data-testid="image-mode-retained"]').exists()).toBe(false)
     expect(selectedConfig()).toMatchObject({ provider: comfy.provider, connectionId: comfy.id, mode: 'workflow', prompt: '原提示词' })
     expect(catalog[0]?.configSchema?.[0]?.options).toEqual(['txt2img', 'img2img', 'workflow'])
+  })
+
+  it('新建 ComfyUI 生图节点选 workflow 后可直接载入文件，不必在高级设置粘贴', async () => {
+    const { wrapper, button, selectedConfig, store } = await render({ provider: comfy.provider, mode: 'txt2img' })
+    expect(wrapper.find(picker).exists()).toBe(false)
+    await button('workflow').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="comfy-workflow-panel"] [role="alert"]').text()).toContain('尚未载入 API 执行图')
+    expect(wrapper.find(source).exists()).toBe(false)
+    const previous = { ...selectedConfig() }
+    const history = store.historyPast.length
+
+    await selectApiFile(wrapper, '{"nodes":[{"id":1,"type":"KSampler"}],"links":[]}')
+    expect(wrapper.get('[data-testid="comfy-workflow-panel"]').text()).toContain('执行图格式无效')
+    expect(selectedConfig()).toEqual(previous)
+    expect(store.historyPast).toHaveLength(history)
+
+    await selectApiFile(wrapper, rawApi)
+    expect(selectedConfig()).toEqual({ ...previous, workflow: rawApi, workflowJson: rawApi, workflowBindings: [] })
+    expect(wrapper.get(source).element.textContent).toBe(rawApi)
+    expect(wrapper.get('[data-testid="comfy-workflow-panel"]').text()).not.toContain('4 个 AF 外层节点')
+    const imageTemplate = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: catalog[0]!.configSchema }
+    const issues = buildWorkflowPreflight({ id: 'draft', name: 'draft', nodes: store.nodes, edges: store.edges },
+      [imageTemplate], { catalogLoaded: true, capabilitiesLoaded: false })
+    expect(issues.filter((issue) => issue.level === 'blocking')).toEqual([])
+    expect(store.historyPast).toHaveLength(history + 1)
+    expect(store.undo()).toBe(true)
+    await flushPromises()
+    expect(selectedConfig()).toEqual(previous)
+    expect(wrapper.find(picker).exists()).toBe(true)
+    expect(store.redo()).toBe(true)
+    await flushPromises()
+    expect(selectedConfig()?.workflowJson).toBe(rawApi)
+  })
+
+  it.each(['', '  ', '{}', {}])('清空执行图 %j 时仍可从同一入口恢复', async (workflowJson) => {
+    const { wrapper, selectedConfig } = await render({ provider: comfy.provider, mode: 'workflow', workflowJson })
+    const panel = wrapper.get('[data-testid="comfy-workflow-panel"]')
+    expect(panel.get('[role="alert"]').text()).toContain('尚未载入 API 执行图')
+    expect(panel.find(source).exists()).toBe(false)
+    await selectApiFile(wrapper, rawApi)
+    expect(selectedConfig()).toMatchObject({ workflow: rawApi, workflowJson: rawApi, workflowBindings: [] })
+  })
+
+  it('不把被有效文件替换的非法执行文本提升为原图而继续阻止运行', async () => {
+    const malformed = '{"partial":'
+    const { wrapper, store, selectedConfig } = await render({ provider: comfy.provider, mode: 'workflow', workflowJson: malformed })
+    const previous = { ...selectedConfig() }
+    expect(wrapper.get('[data-testid="comfy-workflow-panel"] [role="alert"]').text()).toContain('执行图格式无效')
+    await selectApiFile(wrapper, rawApi)
+    expect(selectedConfig()).toMatchObject({ workflow: rawApi, workflowJson: rawApi, workflowBindings: [] })
+    const imageTemplate = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: catalog[0]!.configSchema }
+    const issues = buildWorkflowPreflight({ id: 'draft', name: 'draft', nodes: store.nodes, edges: store.edges },
+      [imageTemplate], { catalogLoaded: true, capabilitiesLoaded: false })
+    expect(issues.filter((issue) => issue.level === 'blocking')).toEqual([])
+    expect(store.undo()).toBe(true)
+    expect(selectedConfig()).toEqual(previous)
+  })
+
+  it('已清空执行图但保留原图时，载入后保留原图并只替换执行图', async () => {
+    const rawSource = '{"nodes":[{"id":1,"type":"CustomText","widgets_values":["原文"]}],"links":[]}'
+    const { wrapper, selectedConfig } = await render({ provider: comfy.provider, mode: 'workflow', workflow: rawSource, workflowJson: '' })
+    const panel = wrapper.get('[data-testid="comfy-workflow-panel"]')
+    expect(panel.get('[role="alert"]').text()).toContain('尚未载入 API 执行图')
+    expect(panel.get(source).element.textContent).toBe(rawSource)
+    await selectApiFile(wrapper, rawApi)
+    expect(selectedConfig()).toMatchObject({ workflow: rawSource, workflowJson: rawApi, workflowBindings: [] })
   })
 
   it('ComfyUI 仍可从文本生成显式选择 workflow', async () => {
