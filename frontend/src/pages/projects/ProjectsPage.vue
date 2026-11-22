@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Activity, Bot, Boxes, Edit3, FolderKanban, MessagesSquare, Plus, Trash2, Workflow } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, type RouteLocationNormalizedLoaded } from 'vue-router'
 
@@ -70,6 +70,12 @@ const workflowEditorOpening = shallowRef<{
 const workflowDraftBusy = computed(() => renamingWorkflow.value || workflowEditorOpening.value !== null)
 let workflowPanelGeneration = 0
 const projectsLoaded = ref(false)
+const projectsHeading = ref<HTMLElement | null>(null)
+const projectRetryButton = ref<HTMLButtonElement | null>(null)
+// store 开始回读就会清除错误；保留旧提示和同一按钮，直到当前列表回读结束。
+const projectLoadNotice = computed<string | null>((previous) => (
+  projectStore.loadError ?? (projectStore.loading ? previous ?? null : null)
+))
 const createProjectDialog = ref<HTMLElement | null>(null)
 const workflowDialog = ref<HTMLElement | null>(null)
 const projectDialogOpen = computed(() => showCreatePanel.value || showWorkflowPanel.value)
@@ -80,6 +86,14 @@ onBeforeUnmount(() => deleteFocus.forEach(focus => focus.release()))
 
 useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject)
 useModalFocus(showWorkflowPanel, workflowDialog, dismissWorkflowPanel)
+
+watch(projectLoadNotice, (notice) => {
+  const button = projectRetryButton.value
+  // 只在成功移除重试条前接回它仍持有的焦点，不干扰其他控件或弹框。
+  if (!notice && button && document.activeElement === button && document.hasFocus() && !projectDialogOpen.value) {
+    projectsHeading.value?.focus()
+  }
+})
 
 const firstProject = computed(() => projectStore.projects[0])
 const workflowCount = computed(() => {
@@ -344,9 +358,14 @@ onMounted(() => {
 })
 
 async function retryLoadProjects() {
-  projectsLoaded.value = false
-  await projectStore.loadProjects()
-  projectsLoaded.value = true
+  if (!projectLoadNotice.value || projectStore.loading) return
+  try {
+    await projectStore.loadProjects()
+  } catch {
+    // store 保留失败提示；不要让用户主动重试的错误冒到 Vue 事件边界。
+  } finally {
+    projectsLoaded.value = true
+  }
 }
 </script>
 
@@ -356,7 +375,7 @@ async function retryLoadProjects() {
       <div class="flex items-center gap-2">
         <FolderKanban class="h-4 w-4 text-primary" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">{{ t('projects.title') }}</p>
+          <h1 ref="projectsHeading" tabindex="-1" class="rounded-sm text-sm font-semibold text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">{{ t('projects.title') }}</h1>
           <p class="text-xs text-text-muted">{{ t('projects.subtitle') }}</p>
         </div>
       </div>
@@ -368,9 +387,9 @@ async function retryLoadProjects() {
 
     <main :inert="projectDialogOpen ? true : undefined" class="min-h-0 overflow-y-auto bg-app-bg px-4 py-5 sm:px-5 lg:px-6">
       <div class="w-full space-y-5">
-        <div v-if="projectStore.loadError" role="status" class="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
-          <span>{{ projectStore.loadError }}</span>
-          <button type="button" class="shrink-0 rounded border border-status-warning/40 bg-white px-2 py-1 text-xs font-medium hover:bg-amber-100 disabled:opacity-60" :disabled="projectStore.loading" @click="retryLoadProjects">
+        <div v-if="projectLoadNotice" role="status" class="flex items-center justify-between gap-3 rounded-md border border-status-warning/30 bg-amber-50 px-3 py-2 text-sm text-status-warning">
+          <span>{{ projectLoadNotice }}</span>
+          <button ref="projectRetryButton" type="button" class="shrink-0 rounded border border-status-warning/40 bg-white px-2 py-1 text-xs font-medium hover:bg-amber-100 aria-disabled:cursor-wait aria-disabled:opacity-60" :aria-disabled="projectStore.loading" @click="retryLoadProjects">
             {{ projectStore.loading ? t('common.loading') : t('common.retry') }}
           </button>
         </div>
