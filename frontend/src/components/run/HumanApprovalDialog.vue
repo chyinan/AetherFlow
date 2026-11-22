@@ -41,12 +41,12 @@ const isSubmitting = computed(() => pendingHumanApprovalTargets.has(
   humanApprovalTargetKey(props.request.instanceId, props.request.nodeId),
 ))
 
-// 决策按钮禁用前，把仍停在该按钮上的焦点交给可用的关闭按钮。
+// 决策按钮禁用前，把焦点交给仍可用的关闭按钮，并允许滚动使它可见。
 watch(isSubmitting, (submitting) => {
   if (!submitting || !panel.value) return
   const focused = document.activeElement
   if (panel.value.contains(focused) && focused?.matches('[data-action="approve"], [data-action="reject"]')) {
-    closeButton.value?.focus({ preventScroll: true })
+    closeButton.value?.focus()
   }
 }, { flush: 'sync' })
 
@@ -117,7 +117,7 @@ async function submit(approved: boolean) {
     >
       <section
         ref="panel"
-        class="w-full max-w-lg overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel"
+        class="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto overscroll-contain rounded-2xl border border-app-border bg-white shadow-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="human-approval-title"

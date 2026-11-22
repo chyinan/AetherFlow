@@ -119,6 +119,29 @@ describe('人工审批弹窗键盘焦点', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it('内容超高时同一个有界滚动区包含意见、失败反馈和两种决策', async () => {
+    const longError = '需要重新检查工作流状态。'.repeat(40)
+    approveHumanNode.mockRejectedValueOnce(new Error(longError))
+    open(true)
+    await flushPromises()
+    const panel = dialog()
+    const comment = panel.querySelector<HTMLTextAreaElement>('textarea')!
+    const approve = panel.querySelector<HTMLButtonElement>('[data-action="approve"]')!
+    const reject = panel.querySelector<HTMLButtonElement>('[data-action="reject"]')!
+    comment.value = '窗口缩小时仍能恢复的意见'
+    comment.dispatchEvent(new Event('input', { bubbles: true }))
+    approve.click()
+    await flushPromises()
+
+    expect(panel.querySelector('[role="alert"]')?.textContent).toContain(longError)
+    expect(comment.value).toBe('窗口缩小时仍能恢复的意见')
+    expect(approve.disabled || reject.disabled).toBe(false)
+    // jsdom 验证实际渲染的滚动容器与内容同属一处，不测量像素。
+    expect(panel.classList.contains('max-h-[calc(100dvh-2rem)]')).toBe(true)
+    expect(panel.classList.contains('overflow-y-auto')).toBe(true)
+    expect(panel.classList.contains('overscroll-contain')).toBe(true)
+  })
+
   it('重开时捕获新的打开前焦点，卸载后恢复焦点并释放键盘事件', async () => {
     const mounted = open(false)
     await flushPromises()
@@ -154,6 +177,7 @@ describe('人工审批弹窗键盘焦点', () => {
     comment.value = '保留意见'
     comment.dispatchEvent(new Event('input', { bubbles: true }))
     const focused = decision === 'approve' ? approve : reject
+    const focusClose = vi.spyOn(closeButton(), 'focus')
     focused.focus()
     focused.click()
     await flushPromises()
@@ -167,6 +191,8 @@ describe('人工审批弹窗键盘焦点', () => {
       expect(approve.disabled).toBe(true)
       expect(reject.disabled).toBe(true)
       expect(document.activeElement).toBe(closeButton())
+      // 从已滚动到底部的决策按钮交接焦点时，允许浏览器把关闭按钮滚入可视区。
+      expect(focusClose).toHaveBeenCalledWith()
       expect(press('Tab', true).defaultPrevented).toBe(true)
       expect(document.activeElement).toBe(comment)
       expect(press('Tab').defaultPrevented).toBe(true)
