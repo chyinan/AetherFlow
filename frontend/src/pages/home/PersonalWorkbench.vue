@@ -3,15 +3,18 @@
 import { ArrowUpRight, FolderKanban, Plus, RefreshCw } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink } from 'vue-router'
+import { isNavigationFailure, NavigationFailureType, RouterLink, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/authStore'
+import type { WorkflowRun } from '@/types/run'
+import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
 import HomeRunSection from './HomeRunSection.vue'
 import { homeMessages } from './homeMessages'
 import { useHomeStore, type HomeRunGroup } from './homeStore'
 
 const auth = useAuthStore()
 const home = useHomeStore()
+const router = useRouter()
 const workflowHeading = ref<HTMLElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
 const groups: HomeRunGroup[] = ['active', 'failed', 'completed']
@@ -43,6 +46,49 @@ const activeRunSnapshot = computed(() => {
   return { ...source, items: source.items.filter(run => !confirmedTerminalIds.value.has(run.id)) }
 })
 
+type RunOpenTarget = { group: HomeRunGroup; id: string; name: string }
+type RunOpening = RunOpenTarget & { path: string; phase: 'opening' | 'failed'; showRetry: boolean }
+const runOpening = shallowRef<RunOpening | null>(null)
+const navigation = observeWorkflowNavigation(router)
+watch(() => navigation.pending, to => {
+  if (to && runOpening.value && to.fullPath !== runOpening.value.path) runOpening.value = null
+}, { flush: 'sync' })
+// 重复选择当前地址也会取消尚未完成的详情打开，但不会经过普通导航守卫。
+const stopRunOpenAfterEach = router.afterEach((to, _from, failure) => {
+  if (runOpening.value && to.fullPath !== runOpening.value.path
+    && isNavigationFailure(failure, NavigationFailureType.duplicated)) runOpening.value = null
+})
+
+async function openRun(target: RunOpenTarget, showRetry = false) {
+  const path = `/runs/${encodeURIComponent(target.id)}`
+  if (runOpening.value?.phase === 'opening' && runOpening.value.path === path) return
+  const from = router.currentRoute.value
+  const opening: RunOpening = { ...target, path, phase: 'opening', showRetry }
+  runOpening.value = opening
+
+  function finish(failed: boolean) {
+    if (runOpening.value !== opening) return
+    runOpening.value = failed && router.currentRoute.value === from
+      ? { ...opening, phase: 'failed', showRetry: true } : null
+  }
+
+  try {
+    const failure = await router.push(path)
+    finish(isNavigationFailure(failure, NavigationFailureType.aborted))
+  } catch {
+    // 只让当前入口处理属于自己的打开失败，不复活较早的目标。
+    finish(true)
+  }
+}
+
+function openRunFromGroup(group: HomeRunGroup, run: Pick<WorkflowRun, 'id' | 'workflowName'>) {
+  void openRun({ group, id: run.id, name: run.workflowName })
+}
+
+function retryOpenRun() {
+  if (runOpening.value?.phase === 'failed') void openRun(runOpening.value, true)
+}
+
 function refresh() {
   if (!auth.isAuthenticated) return
   void home.loadWorkflows()
@@ -54,10 +100,15 @@ function retryWorkflows() {
   void home.loadWorkflows()
 }
 watch(() => JSON.stringify([auth.isAuthenticated, auth.user?.userId ?? auth.user?.id, auth.isAdmin]), () => {
+  runOpening.value = null
   home.clearPersonal()
   refresh()
 }, { immediate: true, flush: 'sync' })
-onBeforeUnmount(() => home.clearPersonal())
+onBeforeUnmount(() => {
+  runOpening.value = null
+  stopRunOpenAfterEach()
+  home.clearPersonal()
+})
 </script>
 
 <template>
@@ -112,7 +163,13 @@ onBeforeUnmount(() => home.clearPersonal())
         <p class="mt-4 text-xs leading-5 text-text-muted">{{ t('savedOnly') }}</p>
       </section>
       <div class="grid items-stretch gap-5 xl:grid-cols-3">
-        <HomeRunSection v-for="group in groups" :key="group" :group="group" :loading="home[group].loading" :error="home[group].error" :loaded="home[group].loaded" :snapshot="group === 'active' ? activeRunSnapshot : home[group].data" @retry="home.loadRuns(group)" />
+        <HomeRunSection
+          v-for="group in groups" :key="group" :group="group"
+          :loading="home[group].loading" :error="home[group].error" :loaded="home[group].loaded"
+          :snapshot="group === 'active' ? activeRunSnapshot : home[group].data"
+          :opening="runOpening?.group === group ? runOpening : undefined"
+          @retry="home.loadRuns(group)" @open-run="openRunFromGroup(group, $event)" @retry-open-run="retryOpenRun"
+        />
       </div>
     </main>
   </div>
