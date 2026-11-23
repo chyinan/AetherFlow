@@ -7,6 +7,8 @@ import { TextDecoder, TextEncoder } from 'node:util'
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import { apiClient } from '@/api/client/apiClient'
 import { i18n } from '@/i18n'
+import { useDifyStore } from '@/stores/difyStore'
+import { useModelStore } from '@/stores/modelStore'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import type { WorkflowDefinition } from '@/types/workflow'
 import WorkflowPage from './WorkflowPage.vue'
@@ -39,9 +41,18 @@ beforeEach(() => {
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; document.body.style.overflow = ''; vi.restoreAllMocks(); vi.unstubAllGlobals() })
-async function setup(path = '/workflows/101', stubTeleport = true) {
+async function setup(path = '/workflows/101', stubTeleport = true, realInspector = false) {
   const pinia = createPinia(); setActivePinia(pinia); const store = useWorkflowStore()
   vi.spyOn(store, 'loadNodeTemplates').mockResolvedValue(true)
+  if (realInspector) {
+    vi.spyOn(useModelStore(), 'loadModels').mockResolvedValue(undefined)
+    vi.spyOn(useDifyStore(), 'refreshDatasets').mockResolvedValue(undefined)
+    api.getWorkflow.mockImplementation(async (id: string): Promise<WorkflowDefinition> => {
+      const workflow = definition(id)
+      const original = workflow.nodes[0]!
+      return { ...workflow, nodes: [{ ...original, data: { ...original.data, kind: 'summary', label: '摘要' } }] }
+    })
+  }
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/workflows/:id', component: WorkflowPage },
     { path: '/elsewhere', component: { template: '<p>其他页面</p>' } },
@@ -49,7 +60,7 @@ async function setup(path = '/workflows/101', stubTeleport = true) {
   await router.push(path); await router.isReady()
   wrapper = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router, i18n],
     config: { errorHandler: error => errors.push(error) },
-    stubs: { WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true, teleport: stubTeleport },
+    stubs: { WorkflowCanvas: true, NodeInspector: !realInspector, RunConsole: true, AICopilotPanel: true, RunNodeRecoveryBanner: true, teleport: stubTeleport },
   } })
   await flushPromises()
   return { store, router }
@@ -65,6 +76,74 @@ async function selectTemplate() {
 }
 
 describe('模板加载与应用的当前页交互', () => {
+  it('同一画布的摘要输入接管迟到的模板打开，保留焦点和草稿且可以显式重开', async () => {
+    const { store } = await setup('/workflows/101', false, true)
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    templatesButton().element.focus()
+    await openTemplates()
+    const prompt = wrapper!.get<HTMLTextAreaElement>('textarea[data-config-field="prompt"]')
+    prompt.element.focus()
+    await prompt.setValue('用户正在编辑的摘要提示')
+    expect(store.nodes[0]!.data.config.prompt).toBe('用户正在编辑的摘要提示')
+    pending.resolve([definition('sample')]); await flushPromises()
+
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(prompt.element)
+    expect(prompt.element.value).toBe('用户正在编辑的摘要提示')
+    expect(wrapper!.get('[data-testid="workflow-editor"] header').attributes('inert')).toBeUndefined()
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(1)
+
+    templatesButton().element.focus()
+    await openTemplates()
+    expect(templateDialog().text()).toContain('工作流 sample')
+    expect(templateDialog().element.contains(document.activeElement)).toBe(true)
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(2)
+    expect(store.nodes[0]!.data.config.prompt).toBe('用户正在编辑的摘要提示')
+    expect(errors).toEqual([])
+  })
+
+  it('同页编辑期间模板读取失败仍非模态呈现，不抢焦点且允许原地重试', async () => {
+    const { store } = await setup('/workflows/101', false, true)
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    templatesButton().element.focus()
+    await openTemplates()
+    const prompt = wrapper!.get<HTMLTextAreaElement>('textarea[data-config-field="prompt"]')
+    prompt.element.focus()
+    await prompt.setValue('等待时继续输入')
+    pending.reject(new Error('暂时无法读取模板')); await flushPromises()
+
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(prompt.element)
+    expect(templateLoadError().text()).toContain('暂时无法读取模板')
+    expect(store.nodes[0]!.data.config.prompt).toBe('等待时继续输入')
+    expect(templatesButton().attributes('disabled')).toBeUndefined()
+    await openTemplates()
+    expect(templateDialog().exists()).toBe(true)
+    expect(api.listWorkflowTemplates).toHaveBeenCalledTimes(2)
+    expect(errors).toEqual([])
+  })
+
+  it('摘要输入法开始组合但尚未写入字段时，模板回执不打断操作', async () => {
+    const { store } = await setup('/workflows/101', false, true)
+    const pending = deferred<WorkflowDefinition[]>()
+    api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)
+    await openTemplates()
+    const prompt = wrapper!.get<HTMLTextAreaElement>('textarea[data-config-field="prompt"]')
+    prompt.element.focus()
+    await prompt.trigger('compositionstart')
+    expect(store.nodes[0]!.data.config.prompt).toBe('原始输入')
+    pending.resolve([definition('sample')]); await flushPromises()
+
+    expect(templateDialog().exists()).toBe(false)
+    expect(document.activeElement).toBe(prompt.element)
+    expect(errors).toEqual([])
+  })
+
   it('等待同一请求期间重复点击只发一次请求', async () => {
     await setup(); const pending = deferred<WorkflowDefinition[]>()
     api.listWorkflowTemplates.mockReturnValueOnce(pending.promise)

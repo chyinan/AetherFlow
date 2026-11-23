@@ -200,7 +200,14 @@ const workflowTemplateLoadError = computed(() => workflowTemplateLoadFeedback.va
 const workflowTemplateButtonLabel = computed(() => t(workflowTemplateLoadFeedback.value?.status === 'retrying'
   ? 'workflow.retryingTemplates' : workflowTemplateLoadError.value ? 'workflow.retryTemplates' : 'workflow.templates'))
 let workflowTemplatePickerRevision = 0
-let workflowTemplatePickerIntent: { opener: HTMLElement | null } | null = null
+let workflowTemplateInputRevision = 0
+let workflowTemplatePickerIntent: { opener: HTMLElement | null; inputRevision: number } | null = null
+function noteWorkflowTemplateInput(event: Event) {
+  // 只记录用户在画布编辑区继续填写配置，不把后台状态更新或导入选文件视为接管。
+  if (event.target instanceof HTMLElement && event.target.matches('textarea, select, input:not([type="file"])')) {
+    workflowTemplateInputRevision += 1
+  }
+}
 function closeWorkflowTemplatePicker() {
   workflowTemplatePickerIntent = null
   showingWorkflowTemplates.value = false
@@ -1070,6 +1077,10 @@ async function resumeWorkflowTemplatePicker() {
   // 留页后继续上一次选择；允许离开时须等导航提交或失败，不提前抢焦点。
   await nextTick()
   const intent = workflowTemplatePickerIntent
+  if (intent && intent.inputRevision !== workflowTemplateInputRevision) {
+    workflowTemplatePickerIntent = null
+    return
+  }
   if (!pageActive || !intent || showingWorkflowTemplates.value
     || pendingNavigation.value || approvedNavigation || workflowNavigation.pending) return
   const { opener } = intent
@@ -1087,6 +1098,7 @@ async function openWorkflowTemplates(event?: MouseEvent) {
     return
   }
   const pickerRevision = workflowTemplatePickerRevision
+  const inputRevision = workflowTemplateInputRevision
   const ownsRequest = () => pageActive && pickerRevision === workflowTemplatePickerRevision
   if (workflowTemplateLoadFeedback.value?.status === 'failed') {
     workflowTemplateLoadFeedback.value = { status: 'retrying' }
@@ -1095,7 +1107,8 @@ async function openWorkflowTemplates(event?: MouseEvent) {
     const templates = await workflowStore.loadWorkflowTemplates()
     if (!ownsRequest() || !templates) return
     workflowTemplateLoadFeedback.value = null
-    workflowTemplatePickerIntent = { opener }
+    if (inputRevision !== workflowTemplateInputRevision) return
+    workflowTemplatePickerIntent = { opener, inputRevision }
     await resumeWorkflowTemplatePicker()
   } catch (error) {
     if (ownsRequest()) {
@@ -1103,6 +1116,7 @@ async function openWorkflowTemplates(event?: MouseEvent) {
       workflowTemplateLoadFeedback.value = { status: 'failed', details: runErrorMessage(error) }
       await nextTick()
       if (ownsRequest() && !pendingNavigation.value && !approvedNavigation && !workflowNavigation.pending
+        && inputRevision === workflowTemplateInputRevision
         && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
         opener.focus({ preventScroll: true })
       }
@@ -1587,7 +1601,13 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 
     <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :id="starterGuideId" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="hideStarterGuide" /><WorkflowPreflight v-if="showPreflight" :id="preflightId" ref="preflightPanel" :issues="preflightIssues" @close="closePreflight" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
-      <div class="contents" :inert="showingWorkflowTemplates || undefined">
+      <div
+        class="contents"
+        :inert="showingWorkflowTemplates || undefined"
+        @input.capture="noteWorkflowTemplateInput"
+        @change.capture="noteWorkflowTemplateInput"
+        @compositionstart.capture="noteWorkflowTemplateInput"
+      >
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />
 
