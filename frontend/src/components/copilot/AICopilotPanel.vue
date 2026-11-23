@@ -148,6 +148,14 @@ const messages = ref<CopilotMessage[]>([
   },
 ])
 
+const historyRecoveryNoticeId = `copilot-history-recovery-${useId()}`
+const shortcutSendBlocked = computed(() => interactionPending.value || conversationHistoryModeUnknown.value)
+function sendDescription(includeCanvasLimit: boolean) {
+  const ids = []
+  if (conversationHistoryModeUnknown.value) ids.push(historyRecoveryNoticeId)
+  if (includeCanvasLimit && canvasEditSizeBlocked.value) ids.push(canvasEditSizeNoticeId)
+  return ids.join(' ') || undefined
+}
 const quickActions = computed<Array<{ intent: WorkflowCopilotIntent; label: string }>>(() => [
   { intent: 'suggest-next-node', label: t('copilot.quickSuggestNextNode') },
   { intent: 'explain-latest-error', label: t('copilot.quickExplainLatestError') },
@@ -746,7 +754,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
   // 回车直接进入发送逻辑，也要遵守与发送按钮相同的在途锁。
   if (interactionPending.value) return
   if (conversationHistoryModeUnknown.value) {
-    historyNotice.value = t('copilot.historyLoadFailed')
+    // 保留读取时给出的恢复指引；会话不存在时没有历史重试入口。
     return
   }
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
@@ -1232,7 +1240,7 @@ function leavePlannerMode() {
 }
 
 async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
-  if (interactionPending.value) return
+  if (shortcutSendBlocked.value) return
   if (directEditMode.value && intent === 'draft-media-summary-workflow' && props.applyCanvasEdit) {
     await sendCanvasEdit(t('copilot.editor.designRequest'), { preserveComposerDraft: true })
     return
@@ -1470,7 +1478,8 @@ onMounted(() => {
           type="button"
           class="rounded-md border border-app-border bg-app-muted px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai disabled:opacity-55"
           :class="interactionPending ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'"
-          :disabled="interactionPending || (canvasEditSizeBlocked && item.intent === 'draft-media-summary-workflow')"
+          :aria-describedby="sendDescription(item.intent === 'draft-media-summary-workflow')"
+          :disabled="shortcutSendBlocked || (canvasEditSizeBlocked && item.intent === 'draft-media-summary-workflow')"
           @click="runQuickAction(item.intent, item.label)"
         >
           {{ item.label }}
@@ -1657,6 +1666,7 @@ onMounted(() => {
       </div>
 
       <form class="border-t border-app-border bg-white p-3" @submit.prevent="sendPrompt()">
+        <p v-if="conversationHistoryModeUnknown" :id="historyRecoveryNoticeId" hidden>{{ historyNotice }}</p>
         <p v-if="canvasEditSizeBlocked" :id="canvasEditSizeNoticeId" class="mb-2 text-xs leading-5 text-text-secondary" role="status">
           {{ t('copilot.editor.canvasNodeLimit', { count: canvasNodeCount, limit: COPILOT_CANVAS_NODE_LIMIT }) }}
         </p>
@@ -1702,7 +1712,7 @@ onMounted(() => {
             class="min-h-8 max-h-32 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
             :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
-            :aria-describedby="canvasEditSizeBlocked ? canvasEditSizeNoticeId : undefined"
+            :aria-describedby="sendDescription(true)"
             @keydown="handlePromptKeydown"
           ></textarea>
           <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown || canvasEditSizeBlocked" :aria-label="presentationText('send')" :title="presentationText('send')">
