@@ -583,3 +583,116 @@ it('离开并重回暂缺清理状态的运行时，仍在途的清理重试让�
   expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupNotRequired'))
   expect(posts()).toHaveLength(1)
 })
+
+async function failExplicitCleanupRetry() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+  status = 'CANCELLED'
+  cleanupStatus = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, lastError: '任务服务未确认清理', retryable: true }
+  const context = await setup()
+  const retry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, retry)
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  await section.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(posts().map(request => request.url)).toEqual(['/workflow/runtime/instances/101/cancellation-cleanup/retry'])
+  retry.reject(failure(posts()[0]!, '重试接口暂时不可用'))
+  await flushPromises()
+  return { ...context, section }
+}
+
+it('外部任务清理的 POST 失败提示未确认重试，不冒充状态 GET 失败', async () => {
+  const { section, store } = await failExplicitCleanupRetry()
+  expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: { status: 'FAILED', attemptCount: 1 } })
+  expect(section.text()).toContain('任务服务未确认清理')
+  const alert = section.get('[role="alert"]').text()
+  expect(alert).toContain('未能确认任务清理重试请求。')
+  expect(alert).toContain('重试接口暂时不可用')
+  expect(alert).not.toContain(i18n.global.t('runs.cleanupLoadFailed'))
+  expect(section.get('[data-testid="retry-cancel-cleanup"]').attributes('disabled')).toBeUndefined()
+  expect(cleanupReads()).toHaveLength(1)
+})
+
+it('自动读取尚未完成时，保留手动重试未确认的反馈', async () => {
+  const { section } = await failExplicitCleanupRetry()
+  const read = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, read)
+  await vi.advanceTimersByTimeAsync(5_000)
+  expect(cleanupReads()).toHaveLength(2)
+  expect(section.text()).toContain('重试接口暂时不可用')
+  expect(posts()).toHaveLength(1)
+  read.resolve({ ...cleanupStatus })
+  await flushPromises()
+})
+
+it('自动读取仍是同一次清理失败时，不能视为已确认手动重试', async () => {
+  const { section, store } = await failExplicitCleanupRetry()
+  await vi.advanceTimersByTimeAsync(5_000)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(2)
+  expect(store.currentRun?.cancellationCleanup?.attemptCount).toBe(1)
+  expect(section.text()).toContain('重试接口暂时不可用')
+  expect(posts()).toHaveLength(1)
+})
+
+it('之后的自动读取也失败时，状态读取错误不覆盖手动重试的错误', async () => {
+  const { section } = await failExplicitCleanupRetry()
+  const read = deferred<unknown>()
+  cleanupReadPendingsByInstance.set(101, read)
+  await vi.advanceTimersByTimeAsync(5_000)
+  read.reject(failure(cleanupReads()[1]!, '状态读取接口暂时不可用'))
+  await flushPromises()
+  await vi.advanceTimersByTimeAsync(450)
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(4)
+  const alerts = section.findAll('[role="alert"]').map(alert => alert.text())
+  expect(alerts).toEqual(expect.arrayContaining([
+    expect.stringContaining(`${i18n.global.t('runs.cleanupLoadFailed')} 状态读取接口暂时不可用`),
+    expect.stringContaining('未能确认任务清理重试请求。 重试接口暂时不可用'),
+  ]))
+  expect(section.get('[data-testid="retry-cancel-cleanup"]').attributes('disabled')).toBeUndefined()
+  expect(posts()).toHaveLength(1)
+})
+
+it.each([
+  { status: 'FAILED', attemptCount: 2, lastError: '有更新的清理尝试，但尚未成功', retryable: true },
+  { status: 'PROCESSING', attemptCount: 2, retryable: false },
+  { status: 'COMPLETE', attemptCount: 2, retryable: false },
+  { status: 'NOT_REQUIRED', attemptCount: 1, retryable: false },
+])('新读取确认 $status（第 $attemptCount 次）后，由权威状态接替', async receipt => {
+  const { section, store } = await failExplicitCleanupRetry()
+  cleanupStatus = { ...receipt, workflowInstanceId: 101 }
+  await vi.advanceTimersByTimeAsync(5_000)
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: receipt })
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+  expect(section.find('[data-testid="retry-cancel-cleanup"]').exists()).toBe(receipt.retryable)
+  expect(posts()).toHaveLength(1)
+})
+
+it('可以明确发起下一次重试，进入新回执后不复用旧提示', async () => {
+  const { section, store } = await failExplicitCleanupRetry()
+  const nextRetry = deferred<unknown>()
+  cleanupRetryPendingsByInstance.set(101, nextRetry)
+  await section.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(posts()).toHaveLength(2)
+  expect(section.text()).not.toContain('重试接口暂时不可用')
+  expect(section.get('[data-testid="retry-cancel-cleanup"]').attributes('disabled')).toBeDefined()
+  nextRetry.resolve(cleanupRetryStatus)
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: { status: 'COMPLETE' } })
+  expect(section.find('[role="alert"]').exists()).toBe(false)
+})
+
+it('已显示的重试错误不跟随选择到另一条运行或重开的同一条运行', async () => {
+  const { router, store } = await failExplicitCleanupRetry()
+  await router.push('/runs/run-102')
+  await flushPromises()
+  expect(store.currentRun?.id).toBe('run-102')
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').find('[role="alert"]').exists()).toBe(false)
+  await router.push('/runs/run-101')
+  await flushPromises()
+  expect(store.currentRun?.id).toBe('run-101')
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').find('[role="alert"]').exists()).toBe(false)
+  expect(posts()).toHaveLength(1)
+})

@@ -903,6 +903,7 @@ export const jaJP = {
     cleanupNotRequired: 'クリーンアップが必要な外部タスクはありません。',
     cleanupRetry: 'タスクのクリーンアップを再試行',
     cleanupRetrying: 'クリーンアップを再試行中…',
+    cleanupRetryUnconfirmed: 'タスクのクリーンアップ再試行リクエストを確認できませんでした。',
     cleanupLoadFailed: 'タスクのクリーンアップ状態を取得できませんでした。',
     cleanupRefresh: 'クリーンアップ状態を更新',
     rerunReused: '再利用済み・再呼び出しなし',

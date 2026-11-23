@@ -901,6 +901,7 @@ export const enUS = {
     cleanupNotRequired: 'No external task cleanup is required.',
     cleanupRetry: 'Retry task cleanup',
     cleanupRetrying: 'Retrying cleanup…',
+    cleanupRetryUnconfirmed: 'Could not confirm the task cleanup retry request.',
     cleanupLoadFailed: 'Could not read task cleanup status.',
     cleanupRefresh: 'Refresh cleanup status',
     rerunReused: 'Reused, no repeated call',
