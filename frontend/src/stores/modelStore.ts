@@ -55,6 +55,9 @@ export const useModelStore = defineStore('model', {
     selectedProviderModels: (state) =>
       state.models.filter((model) => model.providerId === state.selectedProviderId),
     activePolicy: (state) => state.policies[0],
+    configuredPrimaryProvider: (state) => state.snapshotSource === 'real'
+      ? state.providers.find((provider) => providerTypeOf(provider) === state.policies[0]?.configuredPrimaryProviderType)
+      : undefined,
     readyModelCount: (state) => state.models.filter((model) => model.status === 'ready').length,
     onlineProviderCount: (state) => state.providers.filter((provider) => provider.status === 'online').length,
   },
@@ -144,7 +147,7 @@ export const useModelStore = defineStore('model', {
         return
       }
 
-      if (provider.active) return
+      if (this.configuredPrimaryProvider?.id === provider.id) return
       const identity = currentIdentity()
       const requestId = ++this.operationRequestId
       const isCurrent = () => this.operationRequestId === requestId && currentIdentity() === identity && useAuthStore().isAdmin

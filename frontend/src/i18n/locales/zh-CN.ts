@@ -1301,7 +1301,7 @@ export const zhCN = {
     recoverProvider: '恢复熔断',
     switching: '切换中',
     recovering: '恢复中',
-    activeRoute: '当前主路由',
+    activeRoute: '当前活动路由',
     catalogAndCapabilities: '目录与能力',
     defaultLabel: '默认模型',
     latencyLabel: '延迟',

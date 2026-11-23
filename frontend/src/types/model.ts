@@ -41,6 +41,7 @@ export interface ModelRoutingPolicy {
   timeoutMs: number
   retryCount: number
   providerOrder?: string[]
+  configuredPrimaryProviderType?: string
   failoverEnabled?: boolean
   autoRecoverPrimary?: boolean
 }

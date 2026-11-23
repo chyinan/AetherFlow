@@ -1,6 +1,7 @@
 // pattern: Functional Core
 export const modelRoleMessages = {
   'zh-CN': {
+    configuredPrimaryRoute: '已配置主路由',
     overallSummary: '整体服务概况', overallLoading: '整体数据正在加载…', overallUnconfirmed: '整体数据尚未确认，请重试。',
     selectedProviderDetails: '所选服务详情：{provider}', selectedProviderSnapshot: '{provider} · 运行快照',
     confirmedRefreshTitle: '管理操作已确认，状态刷新失败',
@@ -24,6 +25,7 @@ export const modelRoleMessages = {
     genericDescription: '后端已注册的工作流服务能力。',
   },
   'en-US': {
+    configuredPrimaryRoute: 'Configured primary',
     overallSummary: 'Overall service summary', overallLoading: 'Loading overall service data…', overallUnconfirmed: 'Overall service data is not confirmed. Retry to check.',
     selectedProviderDetails: 'Selected service details: {provider}', selectedProviderSnapshot: '{provider} · Runtime snapshot',
     confirmedRefreshTitle: 'Management action confirmed; status refresh failed',
@@ -47,6 +49,7 @@ export const modelRoleMessages = {
     genericDescription: 'A workflow service capability registered by the backend.',
   },
   'ja-JP': {
+    configuredPrimaryRoute: '設定済みのプライマリ',
     overallSummary: 'サービス全体の概要', overallLoading: '全体のサービス情報を取得中…', overallUnconfirmed: '全体のサービス情報は未確認です。再試行してください。',
     selectedProviderDetails: '選択中のサービス詳細：{provider}', selectedProviderSnapshot: '{provider} · ランタイム情報',
     confirmedRefreshTitle: '管理操作は確認済みですが、状態の更新に失敗しました',
