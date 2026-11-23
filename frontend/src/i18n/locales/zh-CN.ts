@@ -397,6 +397,7 @@ export const zhCN = {
     unsavedChangesConfirm: '当前工作流还有未保存的改动，确定要离开吗？',
     resetConfirm: '重置会清空当前工作流中尚未保存的节点和连线，确定继续吗？',
     templates: '工作流模板',
+    starterGuideAudioConfigWithoutExport: '打开 Whisper 环境助手核实模型和运行环境，再选择总结模型。',
     templatesHint: '选择由服务端校验过的模板开始编辑。',
     noTemplates: '暂无可用模板。',
     templatesLoadFailed: '模板加载失败',

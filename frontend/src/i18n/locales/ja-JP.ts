@@ -393,6 +393,7 @@ export const jaJP = {
     unsavedChangesConfirm: 'このワークフローには未保存の変更があります。保存せずに移動しますか？',
     resetConfirm: 'リセットすると未保存のノードと接続が消去されます。続行しますか？',
     templates: 'ワークフローテンプレート',
+    starterGuideAudioConfigWithoutExport: 'Whisper 環境と要約モデルを確認してください。',
     templatesHint: 'サーバーで検証済みのテンプレートから編集を開始します。',
     noTemplates: '利用できるテンプレートはありません。',
     templatesLoadFailed: 'テンプレートの読み込みに失敗しました',
