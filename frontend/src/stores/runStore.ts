@@ -266,7 +266,7 @@ export const useRunStore = defineStore('run', {
     currentRun: null as WorkflowRun | null,
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
-    logHistoryRetryByRunId: {} as Record<string, true>,
+    logHistoryFailuresByRunId: {} as Partial<Record<string, 'retry-on-reopen' | 'unavailable'>>,
     loading: false,
     logsLoading: false,
     historyLoading: false,
@@ -286,6 +286,10 @@ export const useRunStore = defineStore('run', {
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
   getters: {
+    currentLogHistoryUnavailable: (state) => Boolean(state.currentRun && state.logHistoryFailuresByRunId[state.currentRun.id]),
+    // 编辑器只提示既有的可重试故障；历史详情也提示其他已确认的归档读取失败。
+    logHistoryRetryByRunId: (state) => Object.fromEntries(Object.entries(state.logHistoryFailuresByRunId)
+      .filter(([, failure]) => failure === 'retry-on-reopen').map(([runId]) => [runId, true as const])),
     statusCounts: (state) =>
       state.runs.reduce(
         (acc, run) => {
@@ -550,7 +554,7 @@ export const useRunStore = defineStore('run', {
         const cachedLogs = this.logsByRunId[runId]
         this.logs = cachedLogs ?? []
         // 缓存可能仅含恢复或实时事件；一次历史读取失败后，下次打开仍要读日志。
-        const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryRetryByRunId[runId] === true
+        const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryFailuresByRunId[runId] === 'retry-on-reopen'
         const isCurrentRun = () => isCurrentSelection() && this.currentRun?.id === runId
         const readSavedLogs = async () => {
           let selectedLogs = cachedLogs ?? []
@@ -560,16 +564,19 @@ export const useRunStore = defineStore('run', {
               selectedLogs = await runApi.getLogs(runId)
             } catch (error) {
               if (!isCurrentRun()) return
-              if (!toApiError(error, 'runtime').retryable) throw error
+              if (!toApiError(error, 'runtime').retryable) {
+                this.logHistoryFailuresByRunId[runId] ??= 'unavailable'
+                throw error
+              }
+              this.logHistoryFailuresByRunId[runId] = 'retry-on-reopen'
               logReadError = errorMessage(error)
             }
           }
           if (!isCurrentRun()) return
           if (logReadError) {
-            this.logHistoryRetryByRunId[runId] = true
             this.error = logReadError
           } else if (needsLogRead) {
-            delete this.logHistoryRetryByRunId[runId]
+            delete this.logHistoryFailuresByRunId[runId]
           }
           this.logs = mergeLogs(selectedLogs, this.logs)
           this.logsByRunId[runId] = this.logs

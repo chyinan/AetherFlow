@@ -129,3 +129,35 @@ describe('runtime log filter recovery', () => {
     expect(page.find('button').exists()).toBe(false)
   })
 })
+
+
+it.each([
+  ['zh-CN', '暂无运行日志', '正在读取运行日志…', '未能读取已保存日志', '没有符合当前筛选条件的日志。'],
+  ['en-US', 'No runtime logs yet', 'Loading runtime logs…', 'Saved logs could not be read', 'No logs match these filters.'],
+  ['ja-JP', 'ランタイムログはありません', 'ランタイムログを読み込み中…', '保存済みログを読み込めなかった', '現在の絞り込み条件に一致するログはありません。'],
+] as const)('告知正在读取、归档不完整和筛选结果，保留已读日志及筛选操作（%s）', async (language, empty, waiting, unavailable, noMatch) => {
+  const page = render([], language)
+  const status = page.get('[role="status"]').element
+  await page.setProps({ loading: true })
+  expect(page.get('[role="status"]').element).toBe(status)
+  expect(status.textContent).toBe(waiting)
+  expect(page.text()).not.toContain(empty)
+
+  await page.setProps({ logs: [log('row', 'info', 'Summary ready')] })
+  expect(page.text()).toContain('Summary ready')
+  expect(status.textContent).toBe(waiting)
+  await page.get('input').setValue('absent')
+
+  await page.setProps({ loading: false, archiveUnavailable: true })
+  expect(status.textContent).toContain(unavailable)
+  expect(status.textContent).toContain(noMatch)
+  expect(page.text()).not.toContain('Summary ready')
+  await page.get('button').trigger('click')
+  expect(page.text()).toContain('Summary ready')
+  expect(status.textContent).toContain(unavailable)
+  expect(status.textContent).not.toContain(noMatch)
+
+  await page.setProps({ logs: [], archiveUnavailable: false })
+  expect(status.textContent).toBe('')
+  expect(page.text()).toContain(empty)
+})
