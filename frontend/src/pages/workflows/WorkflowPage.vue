@@ -552,6 +552,7 @@ async function loadRouteWorkflow(workflowId: string) {
   const projectId = routeQueryString(route.query.projectId)
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
+    isCurrent: () => ownsWorkflowLoad(loadSequence, workflowId),
   })
   const loaded = await workflowLoad
   if (!ownsWorkflowLoad(loadSequence, workflowId)) {
@@ -607,6 +608,39 @@ async function retryLoadWorkflow() {
   if (loaded) {
     runStore.subscribeCurrentRun()
   }
+}
+
+async function finishWorkflowInitialization(workflowId: string, loadSequence: number) {
+  await initialWorkflowResources
+  // 初次初始化属于当前定义。离开 A 后，不让 A 未完成的请求继续挡住 B。
+  if (ownsWorkflowLoad(loadSequence, workflowId)) initializingWorkflow.value = false
+}
+
+async function finishRouteWorkflowOpen(workflowId: string, load: Promise<boolean>, subscribeWhenLoaded = false) {
+  const loadSequence = workflowLoadSequence
+  const ownsLoad = () => ownsWorkflowLoad(loadSequence, workflowId)
+  let loaded = false
+  try {
+    loaded = await load
+  } finally {
+    if (initializingWorkflow.value && ownsLoad()) {
+      const initialization = finishWorkflowInitialization(workflowId, loadSequence)
+      if (loaded) await initialization
+    }
+  }
+  if (loaded && ownsLoad() && subscribeWhenLoaded) runStore.subscribeCurrentRun()
+}
+
+async function retryCurrentDefinition(event: MouseEvent) {
+  if (workflowLoadRetry.value || !workflowStore.loadingError) return
+  const workflowId = String(route.params.id || 'new')
+  const opener = event.currentTarget
+  const recovery = retryLoadWorkflow()
+  const loadSequence = workflowLoadSequence
+  workflowLoadRetry.value = { workflowId, loadSequence, opener }
+  // 已经展示过定义失败；重试成功时保留原有画布就绪时机，不额外等待运行恢复。
+  if (initializingWorkflow.value) void finishWorkflowInitialization(workflowId, loadSequence)
+  await recovery
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -791,6 +825,21 @@ const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
   return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
+let initialWorkflowResources: Promise<void> | undefined
+const workflowLoadRetry = shallowRef<{ workflowId: string; loadSequence: number; opener: EventTarget | null } | null>(null)
+watch([() => workflowStore.loading, () => workflowStore.loadingError, initializingWorkflow], async ([loading, error, initializing]) => {
+  const attempt = workflowLoadRetry.value
+  if (!attempt || loading || (initializing && !error) || !ownsWorkflowLoad(attempt.loadSequence, attempt.workflowId)) return
+  const transferFocus = !error && attempt.opener instanceof HTMLButtonElement && document.activeElement === attempt.opener
+  workflowLoadRetry.value = null
+  if (transferFocus) {
+    await nextTick()
+    if (ownsWorkflowLoad(attempt.loadSequence, attempt.workflowId) && !pendingNavigation.value
+      && !workflowNavigation.pending && document.activeElement === document.body) {
+      workflowHeading.value?.focus()
+    }
+  }
+})
 let pendingStart: { intent: string; idempotencyKey: string } | null = null
 let startNavigationGeneration = 0
 let activeRunStart: {
@@ -860,32 +909,25 @@ onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleEditorKeydown)
   void loadProjectList()
-  const auxiliaryLoads = Promise.allSettled([
+  initialWorkflowResources = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
     runStore.loadRuns({ selectDefault: false }),
     fileStore.loadFiles(),
-  ])
+  ]).then(() => undefined)
   if (!hasWorkflowContext.value) {
     // 空白入口只在进入时清理；辅助读取返回时用户可能已经打开或编辑了新画布。
     workflowStore.resetToEmptyWorkflow()
     runStore.clearCurrentRun()
     initializingWorkflow.value = false
-    await auxiliaryLoads
     return
   }
-  try {
-    const routeWorkflowLoad = loadRouteWorkflow(String(route.params.id || 'new'))
-    const [loaded] = await Promise.all([routeWorkflowLoad, auxiliaryLoads])
-    if (loaded) {
-      runStore.subscribeCurrentRun()
-    }
-  } finally {
-    initializingWorkflow.value = false
-  }
+  const workflowId = String(route.params.id || 'new')
+  await finishRouteWorkflowOpen(workflowId, loadRouteWorkflow(workflowId), true)
 })
 
 onBeforeUnmount(() => {
   pageActive = false
+  workflowLoadRetry.value = null
   projectListLoadSequence += 1
   pendingWorkflowProjectSelection = null
   settleNavigation(false)
@@ -903,7 +945,9 @@ watch(
   async ([workflowId]) => {
     // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
     if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
+    workflowLoadRetry.value = null
     if (!hasWorkflowContext.value) {
+      initializingWorkflow.value = false
       // 清空画布同样代表旧加载失去归属，待完成的旧请求不能再写入项目或错误信息。
       workflowLoadSequence += 1
       pendingWorkflowProjectSelection = null
@@ -914,7 +958,8 @@ watch(
     }
     showStarterGuide.value = false
     showPreflight.value = false
-    await loadRouteWorkflow(String(workflowId || 'new'))
+    const id = String(workflowId || 'new')
+    await finishRouteWorkflowOpen(id, loadRouteWorkflow(id))
   },
 )
 
@@ -1298,22 +1343,22 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
   />
   <p class="sr-only" role="status" data-testid="comfyui-import-draft-status">{{ comfyUiDraftMessage }}</p>
 
-  <!-- 当前定义已明确读取失败时，不等辅助读取才提供重试和返回入口。 -->
-  <section v-if="workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError)" class="grid h-full place-items-center bg-app-bg px-6">
+  <!-- 失败后原地重试，保持退出入口和正在使用的键盘焦点。 -->
+  <section v-if="!workflowLoadRetry && (workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError))" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
       <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
       {{ t('workflow.loading') }}
     </div>
   </section>
 
-  <section v-else-if="workflowStore.loadingError" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-else-if="workflowStore.loadingError || workflowLoadRetry" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="w-full max-w-xl rounded-2xl border border-status-error/25 bg-white p-7 shadow-panel">
       <p class="text-lg font-semibold text-text-primary">{{ t('workflow.loadFailedTitle') }}</p>
-      <p class="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm leading-6 text-status-error">
-        {{ workflowStore.loadingError }}
+      <p aria-live="polite" aria-atomic="true" class="mt-3 rounded-lg px-4 py-3 text-sm leading-6" :class="workflowLoadRetry ? 'bg-app-bg2 text-text-secondary' : 'bg-red-50 text-status-error'">
+        {{ workflowLoadRetry ? t('workflow.loading') : workflowStore.loadingError }}
       </p>
       <div class="mt-5 flex flex-wrap gap-3">
-        <button type="button" data-testid="retry-workflow-load" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark" @click="retryLoadWorkflow">
+        <button type="button" data-testid="retry-workflow-load" :aria-disabled="Boolean(workflowLoadRetry)" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark aria-disabled:cursor-wait aria-disabled:opacity-70" @click="retryCurrentDefinition">
           <RotateCcw class="h-4 w-4" />
           {{ t('workflow.retryLoad') }}
         </button>
