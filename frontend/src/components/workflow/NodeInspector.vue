@@ -1065,7 +1065,7 @@ onMounted(() => {
             @apply="applyImageInput"
           />
           <ComfyWorkflowPanel
-            v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
+            v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (textConfig('mode') === 'workflow' || selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
             :key="`comfy-${selectedNode.id}`" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" @replace-workflow="replaceComfyWorkflow"
           />
         </div>
