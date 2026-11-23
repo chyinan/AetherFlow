@@ -51,6 +51,28 @@ function isCurrentCancellationCleanupRequest(store: object, instanceId: number, 
   return cancellationCleanupRequestVersions.get(store)?.get(instanceId) === requestVersion
 }
 
+function cancellationCleanupStage(cleanup: WorkflowCancellationCleanupStatus) {
+  if (cleanup.status === 'NOT_REQUIRED') return cleanup.attemptCount === 0 ? -1 : 3
+  if (cleanup.status === 'COMPLETE') return 3
+  if (cleanup.status === 'FAILED') return 2
+  if (cleanup.status === 'PROCESSING') return 1
+  return 0
+}
+
+function hasLaterCancellationCleanupProgress(
+  current: WorkflowCancellationCleanupStatus,
+  incoming: WorkflowCancellationCleanupStatus,
+) {
+  const currentStage = cancellationCleanupStage(current)
+  const incomingStage = cancellationCleanupStage(incoming)
+  // 未取消的实例没有清理记录时会返回 NOT_REQUIRED(0)，它不确认取消后的清理进度。
+  if (currentStage < 0 || incomingStage < 0) return currentStage > incomingStage
+  // 清理记录过期后，服务端也会返回 attemptCount=0 的已完成状态。
+  if (currentStage !== incomingStage && (currentStage === 3 || incomingStage === 3)) return currentStage === 3
+  return current.attemptCount > incoming.attemptCount
+    || (current.attemptCount === incoming.attemptCount && currentStage > incomingStage)
+}
+
 const MAX_VISIBLE_LOGS = 100
 
 function logOccurredAtMs(log: RunLogEntry) {
@@ -887,12 +909,18 @@ export const useRunStore = defineStore('run', {
       return true
     },
     applyCancellationCleanup(instanceId: number, status: WorkflowCancellationCleanupStatus) {
-      const apply = (run: WorkflowRun) => {
+      const runs = [...this.runs, ...this.historyRuns, ...this.workflowRuns]
+      if (this.currentRun) runs.push(this.currentRun)
+      const targets = runs.filter(run => {
         const runInstanceId = run.backendInstanceId ?? backendInstanceIdFromRunId(run.id)
-        if (runInstanceId === instanceId) run.cancellationCleanup = status
-      }
-      ;[...this.runs, ...this.historyRuns, ...this.workflowRuns].forEach(apply)
-      if (this.currentRun) apply(this.currentRun)
+        return runInstanceId === instanceId
+      })
+      // 即时清理、状态读取与手动重试的执行重叠，HTTP 发出或到达顺序都不代表服务端进度。
+      const latest = targets.reduce((candidate, run) => {
+        const current = run.cancellationCleanup
+        return current && hasLaterCancellationCleanupProgress(current, candidate) ? current : candidate
+      }, status)
+      targets.forEach(run => { run.cancellationCleanup = latest })
     },
     async loadCancellationCleanup(instanceId: number, isStillCurrent: () => boolean = () => true) {
       const requestVersion = nextCancellationCleanupRequestVersion(this, instanceId)

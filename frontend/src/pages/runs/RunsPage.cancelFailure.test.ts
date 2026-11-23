@@ -4,8 +4,11 @@ import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { WorkflowRun } from '@/types/run'
 
-const mocks = vi.hoisted(() => ({ subscribe: vi.fn(() => vi.fn()) }))
+const mocks = vi.hoisted(() => ({
+  subscribe: vi.fn((_request: unknown, _handlers: { onRunPatch: (patch: Partial<WorkflowRun>) => void }) => vi.fn()),
+}))
 vi.mock('@/services/realtime/realtimeClient', () => ({ realtimeClient: { subscribeRun: mocks.subscribe } }))
 vi.mock('@/stores/fileStore', () => ({ useFileStore: () => ({ markRunArtifactsReady: vi.fn(), refreshArtifactsFromBackend: vi.fn() }) }))
 vi.mock('@/stores/uiStore', () => ({ useUiStore: () => ({ startNotificationStream: vi.fn(), stopNotificationStream: vi.fn() }) }))
@@ -97,6 +100,72 @@ async function setup(attach = false) {
 function button(key: string) { return wrapper!.findAll('button').find(b => b.text() === i18n.global.t(key))! }
 function posts() { return requests.filter(request => request.method === 'post') }
 function cleanupReads() { return requests.filter(request => request.url === '/workflow/runtime/instances/101/cancellation-cleanup') }
+function reportRealtimeCancellation() {
+  status = 'CANCELLED'
+  mocks.subscribe.mock.calls.at(-1)![1].onRunPatch({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
+}
+
+it('取消回执晚于清理重试成功时，不重新显示旧错误或重试入口', async () => {
+  const pending = deferred<unknown>()
+  cancellation = config => pending.promise.then(receipt => response(config, receipt))
+  cleanupStatus = {
+    workflowInstanceId: 101, status: 'FAILED', attemptCount: 1,
+    lastError: '首次清理失败', retryable: true,
+  }
+  const { store } = await setup()
+  await button('runs.cancel').trigger('click')
+  reportRealtimeCancellation()
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(1)
+  const section = wrapper!.get('[data-testid="cancel-cleanup-status"]')
+  expect(section.text()).toContain('首次清理失败')
+  await section.get('[data-testid="retry-cancel-cleanup"]').trigger('click')
+  await flushPromises()
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupComplete'))
+
+  pending.resolve(cleanupStatus)
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: cleanupRetryStatus })
+  expect(store.historyRuns.find(run => run.id === 'run-101')?.cancellationCleanup).toEqual(cleanupRetryStatus)
+  expect(section.text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(section.text()).not.toContain('首次清理失败')
+  expect(section.find('[data-testid="retry-cancel-cleanup"]').exists()).toBe(false)
+  expect(posts().map(request => request.url)).toEqual([
+    '/workflow/runtime/instances/101/cancel', '/workflow/runtime/instances/101/cancellation-cleanup/retry',
+  ])
+  expect(vueErrors).toEqual([])
+})
+
+it.each(['read-first', 'cancel-first'] as const)('同一次清理的处理中读取与完成取消回执（%s），最终保留完成', async order => {
+  const pending = deferred<unknown>()
+  const read = deferred<unknown>()
+  cancellation = config => pending.promise.then(receipt => response(config, receipt))
+  cleanupReadPendingsByInstance.set(101, read)
+  const processing = { workflowInstanceId: 101, status: 'PROCESSING', attemptCount: 1, retryable: false }
+  const complete = { ...cleanupRetryStatus, attemptCount: 1 }
+  const { store } = await setup()
+  await button('runs.cancel').trigger('click')
+  reportRealtimeCancellation()
+  await flushPromises()
+  expect(cleanupReads()).toHaveLength(1)
+
+  if (order === 'read-first') {
+    read.resolve(processing)
+    await flushPromises()
+    expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupProcessing'))
+    pending.resolve(complete)
+  } else {
+    pending.resolve(complete)
+    await flushPromises()
+    expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupComplete'))
+    read.resolve(processing)
+  }
+  await flushPromises()
+  expect(store.currentRun).toMatchObject({ backendStatus: 'CANCELLED', cancellationCleanup: complete })
+  expect(wrapper!.get('[data-testid="cancel-cleanup-status"]').text()).toContain(i18n.global.t('runs.cleanupComplete'))
+  expect(posts()).toHaveLength(1)
+  expect(vueErrors).toEqual([])
+})
 it.each(['RUNNING', 'WAITING'])('%s 取消 HTTP 失败显示结果未确认，保留状态、刷新和手动再次取消', async state => {
   status = state
   const { store } = await setup()
