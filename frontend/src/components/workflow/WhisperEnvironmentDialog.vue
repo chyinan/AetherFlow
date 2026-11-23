@@ -29,6 +29,9 @@ const snapshot = ref<Awaited<ReturnType<typeof getWhisperEnvironment>> | null>(n
 const copyState = ref<'idle' | 'copied' | 'error'>('idle')
 const suggestionCopyState = ref<'idle' | 'copied' | 'error'>('idle')
 const opener = ref<HTMLButtonElement | null>(null)
+const verifyButton = ref<HTMLButtonElement | null>(null)
+const refreshButton = ref<HTMLButtonElement | null>(null)
+const finishButton = ref<HTMLButtonElement | null>(null)
 const dialog = ref<HTMLElement | null>(null)
 const stepHeading = ref<HTMLElement | null>(null)
 const steps = ['deployment', 'prerequisites', 'suggestion', 'apply', 'verify'] as const
@@ -78,6 +81,9 @@ async function refresh(verify = false) {
   const sequence = ++requestSequence
   const nodeId = props.nodeId
   const revision = proposalRevision
+  const previousFinish = finishButton.value
+  const focusFromFinish = previousFinish && document.activeElement === previousFinish
+  const target = verify ? verifyButton.value : refreshButton.value
   loading.value = true
   error.value = ''
   capabilityError.value = false
@@ -85,6 +91,15 @@ async function refresh(verify = false) {
   verifyRequested.value = verify
   verification.value = null
   resetCopy()
+  // 重新读取会移除旧完成按钮；只接回这次操作确实移除的焦点，不抢更新的焦点或步骤。
+  if (focusFromFinish) {
+    void nextTick(() => {
+      if (isCurrent(sequence, nodeId) && revision === proposalRevision && !previousFinish.isConnected
+        && document.activeElement === document.body && target?.isConnected && !target.disabled) {
+        target.focus({ preventScroll: true })
+      }
+    })
+  }
   try {
     // 环境快照不能替代工作流能力；即使环境读取失败，也独立刷新权威能力门禁。
     const [environmentResult, capabilityResult] = await Promise.allSettled([
@@ -348,7 +363,7 @@ onBeforeUnmount(() => {
                 </template>
               </div>
               <p v-if="capabilityCompletionBlocker" data-testid="whisper-capability-blocker" role="alert" class="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{{ t('capabilityBlocked', { reason: capabilityCompletionBlocker }) }}</p>
-              <button type="button" data-action="verify-whisper-environment" :disabled="loading || !applied || !validDraft" class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="refresh(true)"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('verify') }}</button>
+              <button ref="verifyButton" type="button" data-action="verify-whisper-environment" :disabled="!applied || !validDraft" :aria-disabled="loading || undefined" class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-60" @click="refresh(true)"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('verify') }}</button>
               <p class="text-xs leading-5 text-text-muted">{{ t('verifyScope') }}</p>
             </template>
           </section>
@@ -357,8 +372,8 @@ onBeforeUnmount(() => {
           <button type="button" data-action="cancel-whisper-environment" class="mr-auto rounded-lg px-3 py-2 text-xs text-text-secondary hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="close()">{{ t('cancel') }}</button>
           <button v-if="step > 0" type="button" data-action="back-whisper-environment" class="rounded-lg border border-app-border px-3 py-2 text-xs text-text-secondary hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="moveStep(-1)">{{ t('back') }}</button>
           <button v-if="step < steps.length - 1" type="button" data-action="next-whisper-environment" :disabled="!canContinue" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="moveStep(1)">{{ t('next') }}</button>
-          <button type="button" data-action="refresh-whisper-environment" :disabled="loading" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="refresh()"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('refresh') }}</button>
-          <button v-if="step === steps.length - 1 && verification?.success" type="button" data-action="finish-whisper-environment" :disabled="!canFinish" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="finish">{{ t('finish') }}</button>
+          <button ref="refreshButton" type="button" data-action="refresh-whisper-environment" :aria-disabled="loading || undefined" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 aria-disabled:cursor-wait aria-disabled:opacity-60" @click="refresh()"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('refresh') }}</button>
+          <button v-if="step === steps.length - 1 && verification?.success" ref="finishButton" type="button" data-action="finish-whisper-environment" :disabled="!canFinish" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="finish">{{ t('finish') }}</button>
         </footer>
       </section>
     </div>

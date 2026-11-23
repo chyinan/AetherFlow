@@ -212,7 +212,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     expect(modal()).not.toBeNull()
     expect(button('close').disabled).toBe(false)
     expect(button('back').disabled).toBe(false)
-    expect(button('verify').disabled).toBe(false)
+    expect(button('verify').getAttribute('aria-disabled')).toBeNull()
     expect(modal()?.querySelector('[data-testid="whisper-verification-target"]')?.textContent).toContain('small')
 
     api.getWorkflowCapabilities.mockResolvedValueOnce(capabilities(true))
@@ -239,7 +239,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     expect(modal()?.querySelector('[data-testid="whisper-capability-blocker"]')).toBeNull()
     expect(modal()?.querySelector('[data-testid="whisper-capability-error"]')?.getAttribute('role')).toBe('alert')
     expect(button('finish').disabled).toBe(true)
-    expect(button('verify').disabled).toBe(false)
+    expect(button('verify').getAttribute('aria-disabled')).toBeNull()
   })
 
   it.each(['open', 'refresh', 'verify'] as const)('%s 读取能力失败立即 fail-closed，提示错误且可重试恢复', async (action) => {
@@ -259,7 +259,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
       await click('finish')
       expect(modal()).not.toBeNull()
     }
-    expect(button('refresh').disabled).toBe(false)
+    expect(button('refresh').getAttribute('aria-disabled')).toBeNull()
     await click('refresh')
     expectAvailable(wrapper, store)
     expect(modal()?.querySelector('[data-testid="whisper-capability-error"]')).toBeNull()
@@ -323,7 +323,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     }
     await flushPromises()
     expectBlocked(wrapper, store, disabledReason)
-    expect(button('refresh').disabled).toBe(true)
+    expect(button('refresh').getAttribute('aria-disabled')).toBe('true')
     expect(modal()?.getAttribute('aria-busy')).toBe('true')
     expect(modal()?.textContent).not.toMatch(/旧环境|旧能力/)
     expect(modal()?.querySelector('[role="alert"]')).toBeNull()
@@ -332,7 +332,7 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     currentCapabilities.resolve(capabilities(true))
     await flushPromises()
     expectAvailable(wrapper, store)
-    expect(button('refresh').disabled).toBe(false)
+    expect(button('refresh').getAttribute('aria-disabled')).toBeNull()
     expect(modal()?.textContent).toContain('当前环境结果')
   })
 
@@ -378,15 +378,15 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     button('verify').click()
     pendingEnvironment.resolve(environment)
     await flushPromises()
-    expect(button('refresh').disabled).toBe(true)
-    expect(button('verify').disabled).toBe(true)
+    expect(button('refresh').getAttribute('aria-disabled')).toBe('true')
+    expect(button('verify').getAttribute('aria-disabled')).toBe('true')
     expect(verificationResult()).toBe('pending')
     expect(api.getWhisperEnvironment).toHaveBeenCalledTimes(1)
     expect(api.getWorkflowCapabilities).toHaveBeenCalledTimes(2)
     pendingCapabilities.resolve(capabilities(true))
     await flushPromises()
     expectAvailable(wrapper, store)
-    expect(button('verify').disabled).toBe(false)
+    expect(button('verify').getAttribute('aria-disabled')).toBeNull()
 
     const verification = deferred<WhisperEnvironment>()
     api.getWhisperEnvironment.mockReturnValueOnce(verification.promise)
@@ -423,6 +423,6 @@ describe('Whisper 检查器与权威能力刷新集成', () => {
     if (latest === 'available') expectAvailable(wrapper, store)
     else expectBlocked(wrapper, store, latest === 'failed' ? 'AI capability service unavailable' : reason)
     expect(wrapper.text()).not.toContain('过期能力结果')
-    expect(button('refresh').disabled).toBe(false)
+    expect(button('refresh').getAttribute('aria-disabled')).toBeNull()
   })
 })
