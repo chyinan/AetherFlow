@@ -53,6 +53,7 @@ const pageError = computed(() => (selectedRouteId.value ? runStore.error : null)
 const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore.currentRun && !runStore.historyLoading && !runStore.historyError
   && !visibleRuns.value.some(run => run.id === runStore.currentRun?.id))
 let historyRequest: Promise<void> | undefined
+let confirmedHistoryKey: string | undefined
 let routeGeneration = 0
 let detailNavigationGeneration = 0
 const defaultSelectionReady = ref(false)
@@ -60,14 +61,19 @@ const detailFocusCleanups = new Set<() => void>()
 let active = true
 
 function requestHistoryPage() {
+  const requestKey = historyKey.value
   const workflowFilter = filters.value.workflowId || undefined
   // 数字工作流 ID 是定义 ID，精确匹配；其他取值沿用旧参数保持兼容。
   const definitionId = workflowFilter && /^\d+$/.test(workflowFilter) ? Number(workflowFilter) : undefined
-  historyRequest = runStore.loadHistoryPage({
+  const request = runStore.loadHistoryPage({
     ...(definitionId !== undefined ? { definitionId } : workflowFilter ? { workflowId: workflowFilter } : {}),
     status: filters.value.status || undefined,
     page: filters.value.page,
     pageSize: filters.value.pageSize,
+  })
+  const requestId = runStore.historyRequestId
+  historyRequest = request.then(() => {
+    if (active && runStore.historyRequestId === requestId && !runStore.historyError) confirmedHistoryKey = requestKey
   })
   return historyRequest
 }
@@ -347,12 +353,13 @@ async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>
   dismissedApprovalKey.value = null
   rerunNode.value = null
   if (runId) {
-    // 普通列表行、已知摘要和整页刷新保持原路径；只让在途列表中未确认的明确目标独立读取。
-    const cold = intent === 'retry-detail' || (intent === 'select' && Boolean(ready)
-      && runStore.currentRun?.id !== runId && !runStore.historyRuns.some(run => run.id === runId))
+    // 旧查询仍保留在 store 中，但不能为新查询确认精确 ID，也不能阻塞独立详情。
+    const sameConfirmedPage = confirmedHistoryKey === historyKey.value
+    const cold = intent === 'retry-detail' || (intent === 'select' && runStore.currentRun?.id !== runId
+      && (!sameConfirmedPage || (Boolean(ready) && !runStore.historyRuns.some(run => run.id === runId))))
     coldDetailTarget.value = cold ? runId : undefined
     await runStore.selectRun(runId, {
-      skipList: true, historyReady: ready, refreshLogs: intent !== 'select',
+      skipList: true, historyReady: cold ? historyRequest : ready, refreshLogs: intent !== 'select',
       ...(cold ? { isColdHistoryTargetCurrent: () => active && generation === routeGeneration && selectedRouteId.value === runId } : {}),
     })
     return
