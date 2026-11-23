@@ -1636,6 +1636,7 @@ export const enUS = {
     historyUnavailable: 'The selected conversation no longer exists. Choose chat or edit mode explicitly before sending to avoid using the wrong mode.',
     historyIdentityUnconfirmed: 'The connection ended before the conversation ID was confirmed. This chat cannot be safely resumed. Sending is paused to avoid using another conversation; choose New chat and provide your full question again.',
     historyLoadFailed: 'Conversation history or planning mode could not be loaded. Your conversation and input are kept; retry or choose chat/edit mode explicitly before sending.',
+    historyDiscoveryFailed: 'Could not look up conversations here. You can retry the lookup; sending now may start a new chat.',
     newConversationHint: 'Start a fresh conversation while keeping the canvas and previous history',
     editor: {
       modeLabel: 'Copilot mode', chatMode: 'Chat', editMode: 'Edit canvas',

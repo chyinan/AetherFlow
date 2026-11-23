@@ -340,7 +340,8 @@ describe('AICopilotPanel 历史恢复竞态（A12）', () => {
     const wrapper = mount(AICopilotPanel, { props: { context, applyCanvasEdit: vi.fn().mockReturnValue(true) }, global: { plugins: [i18n] } })
     await flushPromises()
     expect(listMessages).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    // 可以重试读取，但不阻止原有的新会话入口。
+    expect(wrapper.find('[data-testid="copilot-history-retry"]').exists()).toBe(true)
     expect(wrapper.find('form button[type="submit"]').attributes('disabled')).toBeUndefined()
     await wrapper.find('form textarea').setValue('创建开始节点')
     await wrapper.find('form').trigger('submit')

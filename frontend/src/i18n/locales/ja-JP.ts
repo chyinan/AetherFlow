@@ -1638,6 +1638,7 @@ export const jaJP = {
     historyUnavailable: '選択した会話は存在しません。誤ったモードで送信しないよう、チャットまたは編集モードを明示的に選択してください。',
     historyIdentityUnconfirmed: '会話 ID の確認前に接続が途切れたため、安全に再開できません。別の会話への誤接続を防ぐため送信を停止しました。「新しいチャット」を選び、質問全体を再入力してください。',
     historyLoadFailed: '会話履歴または計画モードを読み込めませんでした。会話と入力は保持されています。再試行するか、送信前にチャット/編集モードを明示的に選択してください。',
+    historyDiscoveryFailed: 'この画面の会話履歴を検索できませんでした。再試行できます。今送信すると、新しいチャットが始まる場合があります。',
     newConversationHint: 'キャンバスと履歴を保持して、新しい会話を開始します',
     editor: {
       modeLabel: 'Copilot モード', chatMode: 'チャット', editMode: 'キャンバスを編集',
