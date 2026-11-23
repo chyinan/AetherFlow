@@ -431,7 +431,7 @@ onBeforeUnmount(() => { requestEpoch += 1 })
                 <p class="text-sm font-semibold text-text-primary">{{ t('monitor.logsTitle') }}</p>
                 <p class="text-xs text-text-muted">{{ t('monitor.logsHint') }}</p>
               </div>
-              <div class="flex flex-wrap justify-end gap-2">
+              <div v-if="difyStore.conversationsAvailable && !telemetryLoading" class="flex flex-wrap justify-end gap-2">
                 <span class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
                   {{ difyStore.successfulConversationCount }} {{ t('monitor.successful') }}
                 </span>
@@ -442,16 +442,20 @@ onBeforeUnmount(() => { requestEpoch += 1 })
             </div>
 
             <div class="monitor-event-stream min-h-0 flex-1 overflow-y-auto overscroll-contain bg-app-bg p-3">
-              <div class="mb-3 flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-bg2 px-3 py-2">
+              <div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-bg2 px-3 py-2">
                 <div class="flex items-center gap-2">
-                  <span class="h-1.5 w-1.5 rounded-full bg-status-success shadow-[0_0_0_4px_rgba(34,197,94,0.12)]" />
+                  <span aria-hidden="true" class="h-1.5 w-1.5 shrink-0 rounded-full bg-text-muted" />
                   <span class="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">{{ t('monitor.eventStream') }}</span>
                 </div>
-                <span class="text-xs text-text-muted">{{ t('monitor.eventCount', { count: monitorEventRows.length }) }}</span>
+                <span class="text-xs text-text-muted">
+                  {{ difyStore.conversationsAvailable ? t('monitor.eventCount', { count: monitorEventRows.length }) : copy.reviewCountUnknown }}
+                  <template v-if="difyStore.conversationsAvailable && telemetryLoading"> · {{ copy.previousEvents }}</template>
+                </span>
               </div>
 
               <p v-if="telemetryLoading" role="status" class="p-3 text-sm text-text-muted">{{ copy.loading }}</p>
-              <p v-else-if="difyStore.conversationsAvailable && monitorEventRows.length === 0" role="status" class="p-3 text-sm text-text-muted">{{ copy.noEvents }}</p>
+              <p v-else-if="!difyStore.conversationsAvailable" role="status" class="p-3 text-sm text-status-warning">{{ copy.eventsUnavailable }}</p>
+              <p v-else-if="monitorEventRows.length === 0" role="status" class="p-3 text-sm text-text-muted">{{ copy.noEvents }}</p>
               <div class="space-y-3">
               <button
                 v-for="log in monitorEventRows"
