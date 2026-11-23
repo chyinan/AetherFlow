@@ -250,6 +250,14 @@ export function mergeHumanApprovalState(
   return currentApproval ? null : undefined
 }
 
+// 恢复器在工作流等待事件中附加的单一标记不属于具体节点的输出。
+export function isWorkflowWaitingMarkerOnly(eventType?: string, attributes?: Record<string, unknown>) {
+  if (eventType !== 'WORKFLOW_WAITING') return false
+  const keys = Object.keys(attributes ?? {})
+  const key = keys[0]
+  return keys.length === 1 && (key === 'resumed' || key === 'recovered') && attributes?.[key] === true
+}
+
 export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | null {
   if (!event.nodeId) {
     return null
@@ -261,7 +269,9 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     label: event.nodeId,
     status: event.attributes?.nested === true && event.attributes?.itemStatus === 'FAILED' ? 'failed' : mapRuntimeEventToNodeStatus(event),
     // 与 HTTP 节点摘要一致，优先展示实际事件属性（包括具体失败原因）。
-    output: Object.keys(event.attributes ?? {}).length > 0 ? JSON.stringify(event.attributes) : event.eventType,
+    output: Object.keys(event.attributes ?? {}).length > 0 && !isWorkflowWaitingMarkerOnly(event.eventType, event.attributes)
+      ? JSON.stringify(event.attributes)
+      : event.eventType,
     retryCount: runtimeRetryCount(event.eventType, event.attributes),
     ...(approval ? { approval } : {}),
     ...(event.eventType === 'NODE_WAITING' && !approval ? { approval: null } : {}),
@@ -288,7 +298,7 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       if (previous) {
         if (terminalNodeStatus(previous.status) && previous.status !== patch.status) return
         const merged = { ...previous, ...patch }
-        // 空的工作流等待摘要只确认现有等待状态，不应抹掉该节点真正的等待结果。
+        // 没有节点数据的工作流等待摘要只确认等待状态，不应抹掉该节点真正的等待结果。
         if (event.eventType === 'WORKFLOW_WAITING' && patch.output === event.eventType
           && previous.status === 'paused' && patch.status === 'paused' && previous.output?.startsWith('{')) {
           merged.output = previous.output
