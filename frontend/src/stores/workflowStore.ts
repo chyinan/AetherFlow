@@ -650,6 +650,14 @@ export const useWorkflowStore = defineStore('workflow', {
       // 复制请求只创建副本；由页面确认请求仍有效后导航，不能提前覆盖当前编辑。
       return workflowApi.copyWorkflow(String(this.backendDefinitionId), name)
     },
+    setGraph({ nodes, edges }: Pick<WorkflowDefinition, 'nodes' | 'edges'>) {
+      const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
+        || serializeEdgesWithoutSelection(edges) !== serializeEdgesWithoutSelection(this.edges)
+      if (changed) this.recordHistory()
+      this.nodes = nodes
+      this.edges = edges
+      if (changed) this.markDirty()
+    },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
       if (changed) {

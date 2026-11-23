@@ -456,8 +456,8 @@ async function handleComfyUiFileChange(event: Event) {
     runPromptInputError.value = ''
     workflowStore.workflowName = imported.name
     workflowStore.projectId = imported.projectId ?? projectId ?? null
-    workflowStore.setNodes(graph.nodes)
-    workflowStore.setEdges(graph.edges)
+    // 节点和连线属于同一次导入，不能在撤销历史中产生断开的中间画布。
+    workflowStore.setGraph(graph)
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
     // 导入成功即换成新画布，即使地址未变，也不再接收旧画布的模板回执。
     invalidateWorkflowTemplatePicker()
