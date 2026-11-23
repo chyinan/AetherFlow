@@ -67,7 +67,7 @@ beforeEach(() => {
     validateCanvasEdit.mockReset();
 });
 afterEach(() => wrapper?.unmount());
-function deferred<T>() { let resolve!: (x: T) => void; let reject!: (e: Error) => void; const promise = new Promise<T>((r, e) => { resolve = r; reject = e }); return { promise, resolve, reject }; }
+function deferred<T>() { let resolve!: (x: T) => void; let reject!: (e: unknown) => void; const promise = new Promise<T>((r, e) => { resolve = r; reject = e }); return { promise, resolve, reject }; }
 async function setup(withCanvasEditing = false, attachTo?: HTMLElement) {
     const pinia = createPinia();
     setActivePinia(pinia);
@@ -131,7 +131,7 @@ it('中文媒体需求澄清后，最终校验返回 503 可以重试同一预�
     validateCopilotDraft.mockReturnValueOnce(retry.promise);
     const retryButton = button('copilot.planner.retryApply');
     await retryButton.trigger('click');
-    expect(retryButton.attributes('disabled')).toBeDefined();
+    expect(retryButton.attributes('aria-disabled')).toBe('true');
     await retryButton.trigger('click');
     expect(validateCopilotDraft).toHaveBeenCalledTimes(3);
     expect(validateCopilotDraft.mock.calls[2]).toEqual(validateCopilotDraft.mock.calls[1]);
@@ -225,7 +225,7 @@ it.each([
     if (outcome === 'success') oldApply.resolve(ready);
     else oldApply.reject(new Error('旧会话校验失败'));
     await flushPromises();
-    expect.soft(button('copilot.planner.apply').attributes('disabled')).toBeDefined();
+    expect.soft(button('copilot.planner.apply').attributes('aria-disabled')).toBe('true');
     await button('copilot.planner.apply').trigger('click');
     expect.soft(validateCopilotDraft).toHaveBeenCalledTimes(4);
     expect.soft(apply).not.toHaveBeenCalled();
@@ -277,7 +277,7 @@ it.each([
     const oldButton = button('copilot.planner.apply').element as HTMLButtonElement;
     oldButton.click();
     await flushPromises();
-    expect(oldButton.disabled).toBe(true);
+    expect(oldButton.getAttribute('aria-disabled')).toBe('true');
     expect(validateCopilotDraft).toHaveBeenCalledTimes(2);
 
     const refinedPlan = readyMediaPlan();
@@ -297,7 +297,7 @@ it.each([
     expect(store.nodes).toHaveLength(0);
 
     const newButton = button('copilot.planner.apply').element as HTMLButtonElement;
-    const wasBlocked = newButton.disabled;
+    const wasBlocked = newButton.getAttribute('aria-disabled') === 'true';
     const newApply = deferred<typeof ready>();
     validateCopilotDraft.mockReturnValueOnce(newApply.promise);
     newButton.click();
@@ -311,14 +311,14 @@ it.each([
     }
     expect(wasBlocked).toBe(false);
     expect(beforeOldSettled).toBe(4);
-    expect(newButton.disabled).toBe(true);
+    expect(newButton.getAttribute('aria-disabled')).toBe('true');
     expect(apply).not.toHaveBeenCalled();
 
     if (timing !== '旧请求后失败') {
         if (timing === '旧请求先成功') oldApply.resolve(ready);
         else oldApply.reject(new Error('旧方案校验失败，不应出现'));
         await flushPromises();
-        expect(newButton.disabled).toBe(true);
+        expect(newButton.getAttribute('aria-disabled')).toBe('true');
         newButton.click();
         expect(validateCopilotDraft).toHaveBeenCalledTimes(4);
         expect(apply).not.toHaveBeenCalled();
@@ -537,4 +537,87 @@ it('预览校验重试成功后不会抢走用户已切到的输入框焦点', a
     await flushPromises();
     expect(document.activeElement).toBe(composer);
     expect(button('copilot.planner.apply').exists()).toBe(true);
+});
+
+it.each(['成功应用', '正式校验失败', '应用时画布改变'] as const)('最终应用（%s）后原按钮移除，焦点保留在同一预览', async (outcome) => {
+    const { store, apply } = await setup(false, document.body);
+    await preview();
+    const pending = deferred<{ structurallyValid: boolean; runtimeReady: boolean; issues: string[] }>();
+    validateCopilotDraft.mockReturnValueOnce(pending.promise);
+    const trigger = button('copilot.planner.apply').element as HTMLButtonElement;
+    const results = trigger.parentElement;
+    trigger.focus();
+    trigger.click();
+    await flushPromises();
+    expect(document.activeElement).toBe(trigger);
+
+    if (outcome === '应用时画布改变') {
+        store.addNodeFromTemplate(store.templates.find(template => template.kind === 'start')!, { x: 1, y: 2 });
+        await flushPromises();
+    }
+    pending.resolve(outcome === '正式校验失败' ? {
+        structurallyValid: true, runtimeReady: false, issues: ['Whisper 仍未就绪'],
+    } : ready);
+    await flushPromises();
+
+    expect(trigger.isConnected).toBe(false);
+    expect(document.activeElement).toBe(results);
+    expect(apply).toHaveBeenCalledTimes(outcome === '成功应用' ? 1 : 0);
+    expect(results?.textContent).toContain(outcome === '成功应用' ? i18n.global.t('copilot.planner.applied')
+        : outcome === '正式校验失败' ? 'Whisper 仍未就绪' : i18n.global.t('copilot.planner.stale'));
+});
+
+it('最终应用暂时失败后原按钮继续拥有焦点，可原位重试且不抢走后来移出的焦点', async () => {
+    const { store, apply } = await setup(false, document.body);
+    await preview();
+    const pending = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(pending.promise);
+    const trigger = button('copilot.planner.apply').element as HTMLButtonElement;
+    trigger.focus();
+    trigger.click();
+    await flushPromises();
+    expect(trigger.getAttribute('aria-disabled')).toBe('true');
+    expect(trigger.disabled).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+    trigger.click();
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(2);
+    pending.reject({ status: 503, message: '临时不可用' });
+    await flushPromises();
+    expect(button('copilot.planner.retryApply').element).toBe(trigger);
+    expect(document.activeElement).toBe(trigger);
+
+    const retry = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(retry.promise);
+    trigger.click();
+    const composer = wrapper!.get('form textarea').element as HTMLTextAreaElement;
+    composer.focus();
+    retry.resolve(ready);
+    await flushPromises();
+
+    expect(document.activeElement).toBe(composer);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(store.historyPast).toHaveLength(1);
+    expect(planWorkflow).toHaveBeenCalledTimes(1);
+});
+
+it('等待重试时画布已改变，原位重试按钮移除也不丢焦点', async () => {
+    const { store, apply } = await setup(false, document.body);
+    await preview();
+    const pending = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(pending.promise);
+    const trigger = button('copilot.planner.apply').element as HTMLButtonElement;
+    const results = trigger.parentElement;
+    trigger.focus();
+    trigger.click();
+    pending.reject({ status: 503, message: '临时不可用' });
+    await flushPromises();
+    expect(button('copilot.planner.retryApply').element).toBe(trigger);
+    expect(document.activeElement).toBe(trigger);
+
+    store.addNodeFromTemplate(store.templates.find(template => template.kind === 'start')!, { x: 1, y: 2 });
+    await flushPromises();
+    expect(trigger.isConnected).toBe(false);
+    expect(document.activeElement).toBe(results);
+    expect(results?.textContent).toContain(i18n.global.t('copilot.planner.stale'));
+    expect(apply).not.toHaveBeenCalled();
 });

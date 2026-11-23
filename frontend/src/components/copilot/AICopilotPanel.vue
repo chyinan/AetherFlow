@@ -688,9 +688,8 @@ async function validatePlanPreview(message: CopilotMessage, signal?: AbortSignal
     const pending = planPreview.value
     if (sequence !== planValidationSequence || !pending || pending.messageId !== message.id || pending.stale) return
     const stale = !previewBaseMatches(pending, currentPlannerBase())
-    if (retryButton && document.activeElement === retryButton && (stale || result.previewRetry === 'none')) {
-      // 重试按钮将消失，焦点留在结果区，不跳到能改变画布的操作上。
-      retryButton.parentElement?.focus({ preventScroll: true })
+    if (stale || result.previewRetry === 'none') {
+      focusPlanResultBeforeRemoving(retryButton)
     }
     planPreview.value = {
       ...pending,
@@ -715,6 +714,13 @@ async function validatePlanPreview(message: CopilotMessage, signal?: AbortSignal
       previewRetry: apiError.retryable ? 'available' : 'none',
       issues: [apiError.message],
     })
+  }
+}
+
+function focusPlanResultBeforeRemoving(trigger?: HTMLButtonElement) {
+  // 仅在按钮仍持有焦点时将焦点留在同一结果区，不抢走用户已移走的焦点。
+  if (trigger && document.activeElement === trigger) {
+    trigger.parentElement?.focus({ preventScroll: true })
   }
 }
 
@@ -1271,7 +1277,7 @@ function applyCanvasAction(message: CopilotMessage) {
   canvasActionResults.value.set(message.id, props.applyCanvasAction(message.action.payload))
 }
 
-async function applyWorkflowPlan(message: CopilotMessage) {
+async function applyWorkflowPlan(message: CopilotMessage, event: MouseEvent) {
   const preview = planPreview.value
   const current = currentPlannerBase()
   if (!message.plan || message.plan.status !== 'READY' || !message.plan.recipe
@@ -1279,7 +1285,9 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       || !preview.structurallyValid || !preview.runtimeReady) {
     return
   }
+  const trigger = event.currentTarget as HTMLButtonElement
   const markStale = () => {
+    focusPlanResultBeforeRemoving(trigger)
     planPreview.value = { ...preview, stale: true, retryApply: false, previewRetry: 'none', issues: [t('copilot.planner.stale')] }
   }
   if (!current || preview.stale || !planBaseIsCurrent(message)) {
@@ -1302,6 +1310,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       return
     }
     if (!validation.structurallyValid || !validation.runtimeReady) {
+      focusPlanResultBeforeRemoving(trigger)
       planPreview.value = {
         ...preview,
         structurallyValid: validation.structurallyValid,
@@ -1323,6 +1332,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
       markStale()
       return
     }
+    focusPlanResultBeforeRemoving(trigger)
     planPreview.value = {
       ...preview,
       applied: true,
@@ -1347,6 +1357,7 @@ async function applyWorkflowPlan(message: CopilotMessage) {
     const apiError = toApiError(error, 'workflow')
     // 网络失败不是结构无效；仅保留原预览供再校验，不把它当作最终校验通过。
     const retryApply = awaitingValidation && apiError.retryable
+    if (!retryApply) focusPlanResultBeforeRemoving(trigger)
     planPreview.value = {
       ...preview,
       ...(retryApply ? {} : { structurallyValid: false, runtimeReady: false }),
@@ -1388,6 +1399,9 @@ watch(() => [
   const preview = planPreview.value
   const base = currentPlannerBase()
   if (preview && !preview.applied && base && !previewBaseMatches(preview, base)) {
+    const active = document.activeElement
+    if (active instanceof HTMLButtonElement && active.dataset.planApplyMessage === preview.messageId
+      && chatViewport.value?.contains(active)) focusPlanResultBeforeRemoving(active)
     planPreview.value = { ...preview, stale: true, retryApply: false, previewRetry: 'none', issues: [t('copilot.planner.stale')] }
   }
 })
@@ -1605,7 +1619,7 @@ onMounted(() => {
               </ol>
             </div>
 
-            <div v-if="isLatestPlan(message) && planPreview?.messageId === message.id" class="space-y-2 border-t border-app-border pt-2" tabindex="-1">
+            <div v-if="isLatestPlan(message) && planPreview?.messageId === message.id" class="space-y-2 border-t border-app-border pt-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ai" tabindex="-1">
               <p v-if="planPreview.stale" class="text-status-warning">{{ t('copilot.planner.stale') }}</p>
               <p v-else-if="planPreview.structurallyValid === null && planPreview.previewRetry !== 'available'" class="flex items-center gap-1.5 text-text-muted" role="status">
                 <LoaderCircle class="h-3.5 w-3.5 animate-spin" />
@@ -1641,9 +1655,10 @@ onMounted(() => {
               <button
                 v-else-if="planPreview.structurallyValid && planPreview.runtimeReady && !planPreview.stale"
                 type="button"
-                class="inline-flex items-center rounded-md border border-ai/25 bg-ai-soft px-2.5 py-1.5 text-xs font-medium text-ai transition hover:border-ai/40 hover:bg-ai/10 disabled:cursor-wait disabled:opacity-55"
-                :disabled="applyingPlan"
-                @click="applyWorkflowPlan(message)"
+                :data-plan-apply-message="message.id"
+                class="inline-flex items-center rounded-md border border-ai/25 bg-ai-soft px-2.5 py-1.5 text-xs font-medium text-ai transition hover:border-ai/40 hover:bg-ai/10 aria-disabled:cursor-wait aria-disabled:opacity-55"
+                :aria-disabled="applyingPlan || undefined"
+                @click="applyWorkflowPlan(message, $event)"
               >
                 <LoaderCircle v-if="applyingPlan" class="mr-1.5 h-3.5 w-3.5 animate-spin" />
                 {{ t(planPreview.retryApply ? 'copilot.planner.retryApply' : 'copilot.planner.apply') }}
