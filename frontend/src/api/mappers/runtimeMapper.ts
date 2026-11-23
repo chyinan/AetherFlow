@@ -250,12 +250,20 @@ export function mergeHumanApprovalState(
   return currentApproval ? null : undefined
 }
 
-// 恢复器在工作流等待事件中附加的单一标记不属于具体节点的输出。
-export function isWorkflowWaitingMarkerOnly(eventType?: string, attributes?: Record<string, unknown>) {
-  if (eventType !== 'WORKFLOW_WAITING') return false
+function isResumeMarkerOnly(attributes?: Record<string, unknown>) {
   const keys = Object.keys(attributes ?? {})
   const key = keys[0]
   return keys.length === 1 && (key === 'resumed' || key === 'recovered') && attributes?.[key] === true
+}
+
+// 恢复器在工作流等待事件中附加的单一标记不属于具体节点的输出。
+export function isWorkflowWaitingMarkerOnly(eventType?: string, attributes?: Record<string, unknown>) {
+  return eventType === 'WORKFLOW_WAITING' && isResumeMarkerOnly(attributes)
+}
+
+export function isWorkflowCompletionSummary(event: RuntimeEvent) {
+  return event.eventType === 'WORKFLOW_COMPLETED'
+    && (Object.keys(event.attributes ?? {}).length === 0 || isResumeMarkerOnly(event.attributes))
 }
 
 export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | null {
@@ -269,7 +277,9 @@ export function mapRuntimeEventToNodePatch(event: RuntimeEvent): RunNodeState | 
     label: event.nodeId,
     status: event.attributes?.nested === true && event.attributes?.itemStatus === 'FAILED' ? 'failed' : mapRuntimeEventToNodeStatus(event),
     // 与 HTTP 节点摘要一致，优先展示实际事件属性（包括具体失败原因）。
-    output: Object.keys(event.attributes ?? {}).length > 0 && !isWorkflowWaitingMarkerOnly(event.eventType, event.attributes)
+    output: Object.keys(event.attributes ?? {}).length > 0
+      && !isWorkflowWaitingMarkerOnly(event.eventType, event.attributes)
+      && !isWorkflowCompletionSummary(event)
       ? JSON.stringify(event.attributes)
       : event.eventType,
     retryCount: runtimeRetryCount(event.eventType, event.attributes),
@@ -290,11 +300,14 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
 
     const patch = mapRuntimeEventToNodePatch(event)
     if (patch) {
-      const durationMs = durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
+      const previous = patches.get(patch.nodeId)
+      const completionSummary = isWorkflowCompletionSummary(event)
+      // 工作流完成的节点 ID 仅是上下文，不能覆盖已有节点结论或作为节点完成时间。
+      if (completionSummary && terminalNodeStatus(previous?.status)) return
+      const durationMs = completionSummary ? undefined : durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
       if (durationMs !== undefined && ['success', 'failed', 'paused'].includes(patch.status)) {
         patch.durationMs = durationMs
       }
-      const previous = patches.get(patch.nodeId)
       if (previous) {
         if (terminalNodeStatus(previous.status) && previous.status !== patch.status) return
         const merged = { ...previous, ...patch }

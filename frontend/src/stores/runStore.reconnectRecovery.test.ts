@@ -112,3 +112,43 @@ it('同状态仅携带节点类型的回放保留已恢复的错误属性', asyn
   store.patchNodeState(patch); store.patchNodeState(patch)
   expect(JSON.parse(store.currentRun!.nodeStates[0]!.output!)).toEqual({ ...failure, nodeType: 'WHISPER' })
 })
+
+it.each([undefined, {}, { resumed: true }, { recovered: true }])(
+  '实时工作流完成摘要不能挡住先结束节点的历史耗时：%j',
+  async attributes => {
+    const store = await setup()
+    await send('fast-done', 'NODE_COMPLETED', 'transcribe')
+    const fast = () => store.currentRun!.nodeStates.find(node => node.nodeId === 'transcribe')!
+    expect(fast()).toMatchObject({ status: 'success', output: JSON.stringify(output) })
+    expect(fast().durationMs).toBeUndefined()
+
+    const original = mock.get.getMockImplementation()!
+    let finishEvents!: (events: RuntimeEvent[]) => void
+    mock.get.mockImplementation((url: string) => url.includes('/events/')
+      ? new Promise<RuntimeEvent[]>(resolve => { finishEvents = resolve }) : original(url))
+    const recovering = store.recoverCurrentRunRuntime()
+    await flushPromises()
+    expect(finishEvents).toBeTypeOf('function')
+
+    const terminal = {
+      ...event('workflow-done', 'WORKFLOW_COMPLETED', 'transcribe', 'SUCCESS'),
+      occurredAt: '2026-10-13T01:00:12Z',
+      attributes,
+    }
+    stream.enqueue(new TextEncoder().encode(`id: workflow-done\nevent: runtime-event\ndata: ${JSON.stringify(terminal)}\n\n`))
+    await flushPromises()
+    expect(store.currentRun).toMatchObject({ status: 'success', backendStatus: 'SUCCESS', progress: 100 })
+    expect(store.logs.filter(log => log.id === terminal.eventId)).toHaveLength(1)
+    expect(store.runRealtimeState).toBe('offline')
+
+    finishEvents([
+      event('event-1', 'NODE_STARTED', 'transcribe'),
+      { ...event('fast-done', 'NODE_COMPLETED', 'transcribe'), occurredAt: '2026-10-13T01:00:01Z' },
+      terminal,
+    ])
+    await recovering
+    expect(fast()).toMatchObject({ status: 'success', durationMs: 1_000, output: JSON.stringify(output) })
+    expect(store.currentRun).toMatchObject({ status: 'success', backendStatus: 'SUCCESS', progress: 100 })
+    expect(store.logs.filter(log => log.id === terminal.eventId)).toHaveLength(1)
+  },
+)

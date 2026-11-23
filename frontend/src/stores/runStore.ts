@@ -1028,8 +1028,12 @@ export const useRunStore = defineStore('run', {
         onLog: (entry) => {
           if (isCurrentSubscription()) this.appendLog(entry)
         },
-        onNodePatch: (patch) => {
-          if (isCurrentSubscription()) this.patchNodeState(patch)
+        onNodePatch: (patch, completionSummary) => {
+          if (!isCurrentSubscription()) return
+          const node = completionSummary ? this.currentRun?.nodeStates.find(item => item.nodeId === patch.nodeId) : undefined
+          // 已知终态的工作流摘要没有新节点信息，不能阻止在途历史给节点补齐耗时。
+          if (node && node.status === patch.status && isTerminalNodeStatus(node.status)) return
+          this.patchNodeState(patch)
         },
         onRunPatch: (patch) => {
           if (isCurrentSubscription()) this.patchCurrentRun(patch)
