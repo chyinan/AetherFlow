@@ -162,6 +162,116 @@ describe('复制工作流的请求归属与编辑恢复', () => {
     expect(store.workflowId).toBe('201'); expect(router.currentRoute.value.path).toBe('/workflows/201'); expect(store.dirty).toBe(false)
     expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
   })
+  it.each(['守卫拒绝', '守卫异常', '点击当前导航'] as const)('副本已创建但%s未打开时，重试只打开同一副本', async failure => {
+    const { store, router } = await setup()
+    const initial = graphState(store)
+    const waiting = deferred<boolean>()
+    let first = true
+    const observed = vi.fn()
+    router.onError(observed)
+    router.beforeEach(to => {
+      if (to.params.id !== '201' || !first) return
+      first = false
+      if (failure === '守卫拒绝') return false
+      if (failure === '守卫异常') throw new Error('受控的副本导航异常')
+      return waiting.promise
+    })
+    http.post.mockResolvedValueOnce(entity(201, '已创建的副本'))
+    await copy()
+    if (failure === '点击当前导航') {
+      // 侧栏的工作流入口在编辑器内指向当前完整地址。
+      expect(await router.push(router.currentRoute.value.fullPath)).toBeTruthy()
+      waiting.resolve(true)
+      await flushPromises()
+    }
+    expect(observed).toHaveBeenCalledTimes(failure === '守卫异常' ? 1 : 0)
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    expect(graphState(store)).toBe(initial)
+    expect(http.get.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/101'])
+    expect.soft(store.runError).toBeNull()
+    expect.soft(wrapper!.find('[data-testid="copy-open-recovery"]').exists()).toBe(true)
+    expect(wrapper!.get('[data-action="copy-workflow"]').text()).toBe('重试打开副本')
+
+    await copy()
+    expect(http.post).toHaveBeenCalledExactlyOnceWith('/workflows/definitions/101/copy', {}, { source: 'workflow' })
+    expect(http.get.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/101', '/workflows/definitions/201'])
+    expect(router.currentRoute.value.path).toBe('/workflows/201')
+    expect(store.workflowId).toBe('201')
+    expect(wrapper!.find('[data-testid="copy-open-recovery"]').exists()).toBe(false)
+  })
+
+  it.each(['stay', 'save', 'discard'] as const)('打开副本前发现原图当下未保存时，沿用离开确认 %s', async choice => {
+    const { store, router } = await setup()
+    let first = true
+    router.beforeEach(to => {
+      if (first && to.params.id === '201') { first = false; return false }
+    })
+    http.post.mockResolvedValueOnce(entity(201))
+    await copy()
+    expect(wrapper!.find('[data-testid="copy-open-recovery"]').exists()).toBe(true)
+
+    store.updateNodeConfig('start', 'label', '副本创建后仍编辑原图')
+    const edited = graphState(store)
+    await copy()
+    const dialog = wrapper!.get('[data-testid="unsaved-navigation-dialog"]')
+    await dialog.get(`[data-action="leave-${choice}"]`).trigger('click')
+    await flushPromises()
+
+    expect(http.post).toHaveBeenCalledTimes(1)
+    if (choice === 'stay') {
+      expect(router.currentRoute.value.path).toBe('/workflows/101')
+      expect(graphState(store)).toBe(edited)
+      expect(wrapper!.get('[data-action="copy-workflow"]').text()).toBe('重试打开副本')
+      expect(http.get.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/101'])
+    } else {
+      expect(router.currentRoute.value.path).toBe('/workflows/201')
+      expect(store.workflowId).toBe('201')
+      expect(http.get.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/101', '/workflows/definitions/201'])
+      expect(wrapper!.find('[data-testid="copy-open-recovery"]').exists()).toBe(false)
+    }
+    expect(http.put).toHaveBeenCalledTimes(choice === 'save' ? 1 : 0)
+    if (choice === 'save') expect(http.put.mock.calls[0]![0]).toBe('/workflows/definitions/101')
+  })
+
+  it('等待打开副本时又编辑原图，暂停跳转并保留可重试的副本回执', async () => {
+    const { store, router } = await setup()
+    const delayed = deferred<boolean>()
+    let visits = 0
+    router.beforeEach(to => {
+      if (to.params.id !== '201') return
+      visits += 1
+      if (visits === 1) return false
+      return delayed.promise
+    })
+    http.post.mockResolvedValueOnce(entity(201))
+    await copy(); await copy(); await copy()
+    expect(visits).toBe(2)
+    expect(wrapper!.get('[data-action="copy-workflow"]').attributes('aria-disabled')).toBe('true')
+
+    store.updateNodeConfig('start', 'label', '路由等待中追加的编辑')
+    const edited = graphState(store)
+    delayed.resolve(true); await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/workflows/101')
+    expect(graphState(store)).toBe(edited)
+    expect(wrapper!.get('[data-action="copy-workflow"]').text()).toBe('重试打开副本')
+    expect(http.post).toHaveBeenCalledTimes(1)
+    expect(http.get.mock.calls.map(([url]) => url)).toEqual(['/workflows/definitions/101'])
+  })
+
+  it('关闭确认过的副本回执后，才可通过原入口主动新建另一份', async () => {
+    const { router } = await setup()
+    router.beforeEach(to => to.params.id === '201' ? false : undefined)
+    http.post.mockResolvedValueOnce(entity(201)).mockResolvedValueOnce(entity(202))
+    await copy()
+    await wrapper!.get('[data-action="dismiss-copy-open-recovery"]').trigger('click')
+    expect(wrapper!.find('[data-testid="copy-open-recovery"]').exists()).toBe(false)
+    expect(wrapper!.get('[data-action="copy-workflow"]').text()).toBe('复制工作流')
+    await copy()
+    expect(http.post).toHaveBeenCalledTimes(2)
+    expect(router.currentRoute.value.path).toBe('/workflows/202')
+  })
+
   it('复制等待中导航并编辑另一工作流，旧成功不能替换画布或路由', async () => {
     const { store, router } = await setup()
     const pending = deferred<ReturnType<typeof entity>>(); http.post.mockReturnValueOnce(pending.promise)
