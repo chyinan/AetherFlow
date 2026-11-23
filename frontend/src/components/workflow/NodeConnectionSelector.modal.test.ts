@@ -36,8 +36,8 @@ async function openForm(nodeType: 'IMAGE_GENERATION' | 'UPSCALE' = 'IMAGE_GENERA
   return { opener, dialog, name: dialog.querySelector<HTMLInputElement>('[data-testid="connection-name"]')! }
 }
 
-function key(target: HTMLElement, value: string, shiftKey = false) {
-  const event = new KeyboardEvent('keydown', { key: value, shiftKey, bubbles: true, cancelable: true })
+function key(target: HTMLElement, value: string, shiftKey = false, repeat = false) {
+  const event = new KeyboardEvent('keydown', { key: value, shiftKey, repeat, bubbles: true, cancelable: true })
   target.dispatchEvent(event)
   return event
 }
@@ -293,6 +293,29 @@ describe('节点连接弹窗模态交互', () => {
     expect(wrapper!.emitted('apply')).toEqual([[{ connectionId: savedConnection.id, provider: 'COMFYUI' }, 'modal-node']])
     expect(dialog.isConnected).toBe(false)
     expect(document.activeElement).toBe(opener)
+  })
+
+  it('保存失败后长按 Enter 不会自动重试，重新按键仍可完成保存', async () => {
+    const { dialog, name } = await openForm()
+    const { save, reject } = await startPendingSave(dialog, name)
+    expect.soft(key(save, 'Enter').defaultPrevented).toBe(true)
+    expect.soft(key(save, ' ').defaultPrevented).toBe(true)
+
+    reject(new Error('模拟保存失败'))
+    await flushPromises()
+    expect(document.activeElement).toBe(save)
+    expect.soft(key(save, 'Enter', false, true).defaultPrevented).toBe(true)
+    expect.soft(key(save, ' ', false, true).defaultPrevented).toBe(true)
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(1)
+
+    expect(key(save, 'Enter').defaultPrevented).toBe(false)
+    expect(key(save, ' ').defaultPrevented).toBe(false)
+    // jsdom 不合成键盘默认点击，单独派发正常的按钮点击。
+    mocks.createNodeConnection.mockResolvedValueOnce(savedConnection)
+    save.click()
+    await flushPromises()
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(2)
+    expect(dialog.isConnected).toBe(false)
   })
 
   it('保存失败不把焦点从用户后来选择的关闭控件移回保存', async () => {

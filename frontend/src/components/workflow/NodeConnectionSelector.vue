@@ -258,6 +258,10 @@ async function testForm() {
     if (alive && sequence === formSequence) testing.value = false
   }
 }
+function guardSaveActivation(event: KeyboardEvent) {
+  // 等待中的按键以及长按后的重复事件不能在失败后触发隐式重试。
+  if (saving.value || event.repeat) event.preventDefault()
+}
 async function save() {
   if (!alive || !open.value || saving.value || testing.value || formProbe.value?.status !== 'usable') return
   formError.value = ''
@@ -500,7 +504,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
             <button data-testid="cancel-connection" type="button" class="rounded-lg border border-app-border px-3 py-2 text-sm" @click="close()">{{ saving ? t('closeWhileSaving') : t('cancel') }}</button>
             <button data-testid="test-connection" type="button" class="rounded-lg border border-primary px-3 py-2 text-sm text-primary disabled:opacity-50 aria-disabled:opacity-50" :disabled="saving" :aria-disabled="testing ? 'true' : undefined" @click="testForm">{{ testing ? t('testing') : t('test') }}</button>
             <!-- 保存过程中保留可聚焦的控件，save 自身拦截重复提交；测试未通过时仍原生禁用。 -->
-            <button data-testid="save-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 aria-disabled:opacity-50" :disabled="testing || formProbe?.status !== 'usable'" :aria-disabled="saving ? 'true' : undefined" @click="save">{{ saving ? t('saving') : t('save') }}</button>
+            <button data-testid="save-connection" type="button" class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 aria-disabled:opacity-50" :disabled="testing || formProbe?.status !== 'usable'" :aria-disabled="saving ? 'true' : undefined" @keydown.enter.space="guardSaveActivation" @click="save">{{ saving ? t('saving') : t('save') }}</button>
           </div>
         </section>
       </div>
