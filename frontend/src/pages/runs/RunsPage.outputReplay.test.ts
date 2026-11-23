@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { flushPromises, mount } from '@vue/test-utils'
+import { AxiosError } from 'axios'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -20,6 +21,7 @@ const originalAdapter = axiosInstance.defaults.adapter
 const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 const clipboard = vi.fn<(text: string) => Promise<void>>()
 const histories = new Map<number, RuntimeEvent[]>()
+const unavailableHistories = new Set<number>()
 const stream = new Map<number, ReadableStreamDefaultController<Uint8Array>>()
 const get = vi.fn()
 const startedAt = '2026-11-21T09:00:00Z'
@@ -31,6 +33,17 @@ function result(text: string) {
     items: ['样本'],
     results: [{ index: 0, item: '样本', variables: { transcript: text }, status: 'WAITING' }],
     count: 0, total: 1, truncated: false, nestedWaiting: ['batch/iteration-0/summarize'],
+  }
+}
+
+function partialBatch(completeTranscript: string) {
+  return {
+    items: ['前半段', '后半段'],
+    results: [
+      { index: 0, item: '前半段', variables: { transcript: completeTranscript }, status: 'SUCCESS' },
+      { index: 1, item: '后半段', variables: {}, status: 'WAITING' },
+    ],
+    count: 1, total: 2, truncated: false, nestedWaiting: ['batch/iteration-1/summarize'],
   }
 }
 
@@ -48,20 +61,23 @@ const workflowWaiting = (id: number, seq = 3) => event(id, seq, 'WORKFLOW_WAITIN
 
 function record(id: number) {
   // 运行摘要仅返回同节点的最后事件；运行恢复另有完整的有序持久事件。
-  const last = histories.get(id)?.at(-1)
+  const events = histories.get(id) ?? []
+  const last = events.at(-1)
   const status = last?.runtimeState ?? 'RUNNING'
+  const latestByNode = new Map(events.filter(entry => entry.nodeId).map(entry => [entry.nodeId, entry]))
   return {
     id, definitionId: 7, workflowName: `批处理 ${id}`, runtimeWorkflowId: String(id), status, startedAt,
-    nodes: last ? [{
-      nodeId: last.nodeId, status: last.eventType === 'NODE_WAITING' ? 'WAITING'
-        : last.eventType === 'NODE_COMPLETED' ? 'SUCCESS' : status,
-      latestEventType: last.eventType, attributes: last.attributes, startedAt,
-    }] : [],
+    nodes: [...latestByNode.values()].map(entry => ({
+      nodeId: entry.nodeId, status: entry.eventType === 'NODE_WAITING' ? 'WAITING'
+        : entry.eventType === 'NODE_COMPLETED' ? 'SUCCESS' : entry.runtimeState,
+      latestEventType: entry.eventType, attributes: entry.attributes, startedAt,
+    })),
   }
 }
 
 beforeEach(() => {
   histories.clear()
+  unavailableHistories.clear()
   stream.clear()
   get.mockClear()
   clipboard.mockReset().mockResolvedValue(undefined)
@@ -77,8 +93,14 @@ beforeEach(() => {
     else if (url === `/workflow-instances/${id}/logs`) data = []
     else if (url === `/workflow/runtime/observability/${id}`) {
       data = { workflowId: String(id), currentNodeId: 'batch', runtimeState: record(id).status, progress: 0.25 }
-    } else if (url === `/workflow/runtime/events/${id}`) data = histories.get(id) ?? []
-    else throw new Error(`非预期读取：${url}`)
+    } else if (url === `/workflow/runtime/events/${id}`) {
+      if (unavailableHistories.has(id)) {
+        throw new AxiosError('事件历史暂不可用', 'ERR_BAD_RESPONSE', config, undefined, {
+          config, status: 503, statusText: 'Service Unavailable', headers: {}, data: { code: 503, message: '事件历史暂不可用' },
+        })
+      }
+      data = histories.get(id) ?? []
+    } else throw new Error(`非预期读取：${url}`)
     return { config, data: JSON.stringify({ code: 0, success: true, data }), status: 200, statusText: 'OK', headers: {} }
   }
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -192,4 +214,87 @@ it('对照：本次没有详细事件时仍可查看和复制普通等待摘要'
   await panel().get('[data-testid="copy-output"]').trigger('click')
   await flushPromises()
   expect(clipboard).toHaveBeenCalledExactlyOnceWith('WORKFLOW_WAITING')
+})
+
+it.each(['resumed', 'recovered'] as const)('冷打开持久化历史时，流程 %s 标记不覆盖本次批处理的最新逐项结果', async flag => {
+  const attributes = partialBatch('本次恢复后已完成的长转录\n'.repeat(80) + '不能漏掉终行')
+  const resumedPrefix = [
+    started(101), waiting(101, {
+      ...attributes,
+      results: [{ index: 0, item: '前半段', variables: { transcript: '前一版等待结果' }, status: 'WAITING' }],
+      count: 0, nestedWaiting: ['batch/iteration-0/summarize'],
+    }), workflowWaiting(101),
+    {
+      ...event(101, 4, 'NODE_COMPLETED', 'RUNNING', { nested: true, external: true, itemStatus: 'SUCCESS' }),
+      nodeId: 'batch/iteration-0/summarize',
+    },
+  ]
+  const recoveredPrefix = [
+    started(101),
+    event(101, 3, 'WORKFLOW_STARTED', 'RUNNING', { totalNodes: 1, recovered: true }),
+    event(101, 4, 'NODE_STARTED', 'RUNNING', { nodeType: 'ITERATION' }),
+  ]
+  histories.set(101, [
+    ...(flag === 'resumed' ? resumedPrefix : recoveredPrefix),
+    waiting(101, attributes, 5),
+    event(101, 6, 'WORKFLOW_WAITING', 'WAITING', { [flag]: true }),
+  ])
+
+  await open('/runs/run-101')
+
+  expect(get).toHaveBeenCalledWith('/workflow-instances/101')
+  expect(get).toHaveBeenCalledWith('/workflow/runtime/events/101')
+  expect(store?.currentRun?.nodeStates.find(node => node.nodeId === 'batch')).toMatchObject({ status: 'paused' })
+  await checkReadableAndCopyable(attributes)
+  expect(panel().text()).not.toContain('前一版等待结果')
+})
+
+it.each(['resumed', 'recovered'] as const)('实时收到流程 %s 标记后，复制原文不混入工作流内部标记', async flag => {
+  const attributes = partialBatch('本次批处理的原文\n'.repeat(60) + '末行')
+  histories.set(101, [started(101)])
+  await open('/runs/run-101')
+  expect(store?.realtimeRunId).toBe('run-101')
+  await emit(waiting(101, attributes))
+  await emit(event(101, 3, 'WORKFLOW_WAITING', 'WAITING', { [flag]: true }))
+
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  await checkReadableAndCopyable(attributes)
+})
+
+it.each([
+  { resumed: true, statusText: '等待下一批输入' },
+  { recovered: false },
+])('对照：工作流等待属性不是单一布尔真标记时，冷打开历史仍展示其属性：%o', async workflowResult => {
+  histories.set(101, [
+    started(101), waiting(101, result('先前结果')),
+    event(101, 3, 'WORKFLOW_WAITING', 'WAITING', workflowResult),
+  ])
+  await open('/runs/run-101')
+
+  await checkReadableAndCopyable(workflowResult)
+})
+
+it.each(['resumed', 'recovered'] as const)('只有流程 %s 标记没有可还原节点结果时，显示普通等待摘要', async flag => {
+  histories.set(101, [event(101, 1, 'WORKFLOW_WAITING', 'WAITING', { [flag]: true })])
+  await open('/runs/run-101')
+  expect(content()).toBe('WORKFLOW_WAITING')
+  expect(panel().find('[data-testid="output-raw"]').exists()).toBe(false)
+  await panel().get('[data-testid="copy-output"]').trigger('click')
+  await flushPromises()
+  expect(clipboard).toHaveBeenCalledExactlyOnceWith('WORKFLOW_WAITING')
+})
+
+it('事件读取失败时保留 HTTP 等待摘要，不冒充恢复了逐项结果', async () => {
+  histories.set(101, [
+    started(101), waiting(101, partialBatch('没有收到的逐项结果')),
+    event(101, 3, 'WORKFLOW_WAITING', 'WAITING', { resumed: true }),
+  ])
+  unavailableHistories.add(101)
+  await open('/runs/run-101')
+  await vi.waitFor(() => expect(store?.logs.some(log => log.message.includes('Runtime recovery incomplete'))).toBe(true), { timeout: 2000 })
+
+  expect(get.mock.calls.filter(([url]) => url === '/workflow/runtime/events/101')).toHaveLength(3)
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  expect(content()).toBe('WORKFLOW_WAITING')
+  expect(panel().find('[data-testid="output-raw"]').exists()).toBe(false)
 })

@@ -1065,7 +1065,7 @@ onMounted(() => {
             @apply="applyImageInput"
           />
           <ComfyWorkflowPanel
-            v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
+            v-if="selectedKind === 'image-generation' && textConfig('provider', '') === 'COMFYUI' && (textConfig('mode') === 'workflow' || selectedNode.data.config.workflow || selectedNode.data.config.workflowJson)"
             :key="`comfy-${selectedNode.id}`" :node-id="selectedNode.id" :config="selectedNode.data.config" @update="updateConfig" @replace-workflow="replaceComfyWorkflow"
           />
         </div>
@@ -1168,7 +1168,7 @@ onMounted(() => {
         </section>
 
         <section v-else-if="selectedKind === 'whisper'" class="space-y-5 p-5">
-          <div data-config-field="whisperEnvironment" tabindex="-1"><WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" :refresh-capabilities="workflowStore.loadNodeTemplates" /></div>
+          <div data-config-field="whisperEnvironment" tabindex="-1"><WhisperEnvironmentDialog :key="selectedNode.id" :node-id="selectedNode.id" :refresh-capabilities="workflowStore.loadNodeTemplates" :node-availability="{ loaded: workflowStore.capabilitiesLoaded, unavailableReason: selectedUnavailableReason }" /></div>
           <UpstreamVariableSelector :key="`${selectedNode.id}-fileUrlVariable`" :node-id="selectedNode.id" field="fileUrlVariable" :label="t('workflow.inspector.fileUrlVariable')" :model-value="textConfig('fileUrlVariable', 'fileUrl')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="STRING" :fixed-value-active="Boolean(textConfig('fileUrl', ''))" @update:model-value="updateConfig('fileUrlVariable', $event)" />
           <UpstreamVariableSelector :key="`${selectedNode.id}-fileIdVariable`" :node-id="selectedNode.id" field="fileIdVariable" :label="t('workflow.inspector.fileIdVariable')" :model-value="textConfig('fileIdVariable', 'fileId')" :nodes="workflowStore.nodes" :edges="workflowStore.edges" :templates="workflowStore.templates" expected-type="NUMBER" :fixed-value-active="Boolean(textConfig('fileId', ''))" @update:model-value="updateConfig('fileIdVariable', $event)" />
           <label class="block">

@@ -99,7 +99,7 @@ beforeEach(() => {
 })
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
 
-async function setup(path = '/workflows/101?projectId=11', withRealCopilot = false) {
+async function setup(path = '/workflows/101?projectId=11', withRealCopilot = false, attachTo?: HTMLElement) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useWorkflowStore()
@@ -126,7 +126,7 @@ async function setup(path = '/workflows/101?projectId=11', withRealCopilot = fal
     RunNodeRecoveryBanner: true,
   }
   if (!withRealCopilot) stubs.AICopilotPanel = true
-  wrapper = mount(RouterView, { global: {
+  wrapper = mount(RouterView, { attachTo, global: {
     plugins: [pinia, router, i18n],
     stubs,
   } })
@@ -750,6 +750,155 @@ describe('Run 启动操作的工作流与导航所有权', () => {
       expect(copilotApi.stream).not.toHaveBeenCalled()
     },
   )
+
+  it('未记住会话且首次列表读取失败时原地重试，并按恢复的规划继续发送', async () => {
+    await setup('/workflows/101?projectId=11', true, document.body)
+    const key = conversationSessionKey({ workflowId: '101', projectId: null })
+    expect(readConversationSelection(key)).toBeNull()
+    const retry = deferred<Array<{ id: string; workflowId: string }>>()
+    copilotApi.listConversations.mockRejectedValueOnce({ status: 503 }).mockReturnValueOnce(retry.promise)
+    copilotApi.listMessages.mockResolvedValue([plannerHistoryMessage()])
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    expect(panel.props('applyCanvasEdit')).toBeTypeOf('function')
+    const input = panel.get<HTMLTextAreaElement>('form textarea')
+    await input.setValue('继续修订原规划')
+    const button = panel.get<HTMLButtonElement>('[data-testid="copilot-history-retry"]')
+    expect(panel.text()).toContain(i18n.global.t('copilot.historyDiscoveryFailed'))
+    button.element.focus()
+    expect(document.activeElement).toBe(button.element)
+    await button.trigger('click')
+    expect(button.attributes('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(button.element)
+    await button.trigger('click')
+    expect(copilotApi.listConversations).toHaveBeenCalledTimes(2)
+    expect(copilotApi.listMessages).not.toHaveBeenCalled()
+    expect(copilotApi.planWorkflow).not.toHaveBeenCalled()
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+
+    retry.resolve([{ id: 'conv-1', workflowId: '101' }])
+    await flushPromises()
+    expect(copilotApi.listMessages).toHaveBeenCalledExactlyOnceWith('conv-1')
+    expect(readConversationSelection(key)).toBe('conv-1')
+    expect(panel.text()).toContain('Existing structured plan')
+    expect(panel.text()).toContain(i18n.global.t('copilot.planner.mode'))
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    expect(input.element.value).toBe('继续修订原规划')
+    expect(document.activeElement).toBe(input.element)
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.planWorkflow).toHaveBeenCalledExactlyOnceWith(
+      '继续修订原规划', expect.objectContaining({ conversationId: 'conv-1' }),
+    )
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+    expect(copilotApi.stream).not.toHaveBeenCalled()
+  })
+
+  it('列表重试再失败仍可重试，明确查无会话才消除警告并保留输入', async () => {
+    await setup('/workflows/101?projectId=11', true, document.body)
+    copilotApi.listConversations
+      .mockRejectedValueOnce({ status: 503 }).mockRejectedValueOnce({ status: 503 })
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    const input = panel.get<HTMLTextAreaElement>('form textarea')
+    await input.setValue('未发送的文本')
+    const retryButton = () => panel.get<HTMLButtonElement>('[data-testid="copilot-history-retry"]')
+    retryButton().element.focus()
+    await retryButton().trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(retryButton().element)
+    expect(retryButton().attributes('aria-disabled')).toBeUndefined()
+    expect(panel.text()).toContain(i18n.global.t('copilot.historyDiscoveryFailed'))
+    // 在读取完成前明确转走焦点，不应被移回输入框。
+    const secondRetry = deferred<Array<{ id: string; workflowId: string }>>()
+    copilotApi.listConversations.mockReturnValueOnce(secondRetry.promise)
+    await retryButton().trigger('click')
+    const newChat = panel.findAll('button').find((button) => button.text() === i18n.global.t('copilot.newConversation'))!
+    newChat.element.focus()
+    secondRetry.resolve([])
+    await flushPromises()
+    expect(document.activeElement).toBe(newChat.element)
+    expect(panel.text()).not.toContain(i18n.global.t('copilot.historyDiscoveryFailed'))
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(input.element.value).toBe('未发送的文本')
+    expect(copilotApi.listConversations).toHaveBeenCalledTimes(3)
+    expect(copilotApi.listMessages).not.toHaveBeenCalled()
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+  })
+
+  it.each(['success', 'failure'] as const)('新对话选择不会被无会话编号的旧重试%s覆盖', async (outcome) => {
+    await setup('/workflows/101?projectId=11', true)
+    const key = conversationSessionKey({ workflowId: '101', projectId: null })
+    const retry = deferred<Array<{ id: string; workflowId: string }>>()
+    copilotApi.listConversations.mockRejectedValueOnce({ status: 503 }).mockReturnValueOnce(retry.promise)
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    await panel.get('[data-testid="copilot-history-retry"]').trigger('click')
+    await panel.findAll('button')
+      .find((button) => button.text() === i18n.global.t('copilot.newConversation'))!.trigger('click')
+    const input = panel.get<HTMLTextAreaElement>('form textarea')
+    await input.setValue('新对话未发送的文本')
+    if (outcome === 'success') retry.resolve([{ id: 'conv-1', workflowId: '101' }])
+    else retry.reject({ status: 503 })
+    await flushPromises()
+    expect(readConversationSelection(key)).toBe('new')
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    expect(panel.text()).not.toContain(i18n.global.t('copilot.historyDiscoveryFailed'))
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(input.element.value).toBe('新对话未发送的文本')
+    expect(copilotApi.listMessages).not.toHaveBeenCalled()
+  })
+
+  it('未预存会话时仍可在列表重试期间发起新请求，迟到列表不会覆盖新会话', async () => {
+    await setup('/workflows/101?projectId=11', true)
+    const retry = deferred<Array<{ id: string; workflowId: string }>>()
+    copilotApi.listConversations.mockRejectedValueOnce({ status: 503 }).mockReturnValueOnce(retry.promise)
+    copilotApi.listMessages.mockResolvedValue([plannerHistoryMessage()])
+    copilotApi.editCanvas.mockResolvedValue({
+      message: { id: 'new-reply', conversationId: 'conv-2', role: 'assistant', content: '新编辑的回复', createdAt: '' },
+      edit: { status: 'NEEDS_CLARIFICATION' },
+    })
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    await panel.get('[data-testid="copilot-history-retry"]').trigger('click')
+    await panel.get('form textarea').setValue('在新对话编辑画布')
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.editCanvas).toHaveBeenCalledExactlyOnceWith(
+      '在新对话编辑画布', expect.objectContaining({ conversationId: undefined }),
+    )
+    retry.resolve([{ id: 'conv-1', workflowId: '101' }])
+    await flushPromises()
+    expect(readConversationSelection(conversationSessionKey({ workflowId: '101', projectId: null }))).toBe('conv-2')
+    expect(copilotApi.listMessages).not.toHaveBeenCalled()
+    expect(panel.text()).toContain('新编辑的回复')
+    expect(panel.text()).not.toContain('Existing structured plan')
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+  })
+
+  it('另起快捷对话后首轮传输未确认，不恢复之前的列表重试按钮', async () => {
+    await setup('/workflows/101?projectId=11', true)
+    copilotApi.listConversations.mockRejectedValueOnce({ status: 503 })
+    copilotApi.stream.mockRejectedValueOnce({ status: 503 })
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper!.findComponent(AICopilotPanel)
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(true)
+    const explain = panel.findAll('button').find((button) => button.text() === i18n.global.t('copilot.quickExplainLatestError'))!
+    await explain.trigger('click')
+    await flushPromises()
+    expect(copilotApi.stream).toHaveBeenCalledOnce()
+    expect(panel.text()).toContain(i18n.global.t('copilot.historyIdentityUnconfirmed'))
+    expect(panel.find('[data-testid="copilot-history-retry"]').exists()).toBe(false)
+    expect(panel.get('form button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(copilotApi.listConversations).toHaveBeenCalledOnce()
+  })
 
   it('已删除的规划会话不按默认 canvas-edit 发送，只有明确改模式后才继续', async () => {
     await setup('/workflows/101?projectId=11', true)

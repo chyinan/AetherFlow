@@ -34,7 +34,8 @@ public final class AiWorkflowCapabilityEvaluator {
         boolean ffmpegExecutable = safeRuntime.runtimeReachable() && safeRuntime.ffmpegAvailable();
 
         List<String> executableNodeTypes = supportedNodeTypes.stream()
-                .filter(type -> executable(type, llmExecutable, whisperExecutable, ffmpegExecutable, normalizedImageProviders))
+                .filter(type -> executable(type, safeRuntime.runtimeReachable(), llmExecutable, whisperExecutable,
+                        ffmpegExecutable, normalizedImageProviders))
                 .toList();
         Map<String, String> unavailableReasons = unavailableReasons(
                 supportedNodeTypes,
@@ -57,6 +58,7 @@ public final class AiWorkflowCapabilityEvaluator {
     }
 
     private static boolean executable(String nodeType,
+                                       boolean runtimeReachable,
                                        boolean llmExecutable,
                                        boolean whisperExecutable,
                                        boolean ffmpegExecutable,
@@ -69,6 +71,9 @@ public final class AiWorkflowCapabilityEvaluator {
         }
         if ("FFMPEG".equals(nodeType)) {
             return ffmpegExecutable;
+        }
+        if ("SUBTITLE".equals(nodeType)) {
+            return runtimeReachable;
         }
         if (IMAGE_NODE_TYPES.contains(nodeType)) {
             return !imageProviders.isEmpty();
@@ -104,6 +109,9 @@ public final class AiWorkflowCapabilityEvaluator {
         if (supportedNodeTypes.contains("FFMPEG") && !ffmpegExecutable) {
             reasons.put("FFMPEG", !runtime.runtimeReachable()
                     ? "python ai runtime is unavailable" : "ffmpeg is unavailable");
+        }
+        if (supportedNodeTypes.contains("SUBTITLE") && !runtime.runtimeReachable()) {
+            reasons.put("SUBTITLE", "python ai runtime is unavailable");
         }
         if (imageProviders.isEmpty()) {
             IMAGE_NODE_TYPES.stream()

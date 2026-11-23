@@ -68,6 +68,8 @@ const conversationIdentityUnconfirmed = ref(false)
 // 编辑页不能在已选会话历史失败后，把澄清输入按默认 canvas-edit 模式发出。
 const conversationHistoryModeUnknown = ref(false)
 const historyRetryAvailable = ref(false)
+const historyRetryPending = ref(false)
+const historyRetryButton = ref<HTMLButtonElement | null>(null)
 const interactionPending = computed(() => loading.value || savingCustomNodeDraft.value || conversationSelectionPending.value || conversationIdentityUnconfirmed.value)
 const modelsLoading = ref(false)
 const modelsLoadFailed = ref(false)
@@ -146,6 +148,14 @@ const messages = ref<CopilotMessage[]>([
   },
 ])
 
+const historyRecoveryNoticeId = `copilot-history-recovery-${useId()}`
+const shortcutSendBlocked = computed(() => interactionPending.value || conversationHistoryModeUnknown.value)
+function sendDescription(includeCanvasLimit: boolean) {
+  const ids = []
+  if (conversationHistoryModeUnknown.value) ids.push(historyRecoveryNoticeId)
+  if (includeCanvasLimit && canvasEditSizeBlocked.value) ids.push(canvasEditSizeNoticeId)
+  return ids.join(' ') || undefined
+}
 const quickActions = computed<Array<{ intent: WorkflowCopilotIntent; label: string }>>(() => [
   { intent: 'suggest-next-node', label: t('copilot.quickSuggestNextNode') },
   { intent: 'explain-latest-error', label: t('copilot.quickExplainLatestError') },
@@ -221,7 +231,7 @@ async function loadModels() {
   }
 }
 
-async function loadConversationHistory() {
+async function loadConversationHistory(retrying = false) {
   const loadSequence = ++conversationLoadSequence
   const workflowIdAtStart = props.context?.workflowId
   const projectIdAtStart = props.context?.projectId
@@ -255,18 +265,24 @@ async function loadConversationHistory() {
   const matchesScope = (item: { projectId?: string; workflowId?: string }) =>
     String(item.projectId ?? '') === String(projectIdAtStart ?? '')
       && (workflowIdAtStart ? item.workflowId === workflowIdAtStart : !item.workflowId)
+  let restoreRetryFocus = false
+  const clearRetry = () => {
+    restoreRetryFocus = Boolean(retrying && !selection && historyRetryButton.value === document.activeElement)
+    historyRetryAvailable.value = false
+  }
   const unavailable = () => {
     conversationId.value = undefined
     writeConversationSelection(scopeKeyAtStart, 'new')
     historyNotice.value = t('copilot.historyUnavailable')
     conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && selection)
-    historyRetryAvailable.value = false
+    clearRetry()
   }
   let historyConversationId = selection ?? undefined
   let historyRequested = false
   try {
     // 未保存草稿只能恢复该草稿明确记住的会话，不能复用其他名称的 new 工作流。
     if (!selection && workflowIdAtStart === 'new') return
+    if (retrying) historyRetryPending.value = true
     const conversations = await copilotApi.listConversations()
     if (!stillCurrent()) return
     const selectedSummary = selection ? conversations.find((item) => item.id === selection) : undefined
@@ -275,7 +291,11 @@ async function loadConversationHistory() {
       return
     }
     historyConversationId = selection ?? conversations.find(matchesScope)?.id
-    if (!historyConversationId) return
+    if (!historyConversationId) {
+      historyNotice.value = ''
+      clearRetry()
+      return
+    }
     // 列表只有全局最近若干条；缺席不代表已删除，按当前作用域的已选 ID 读取历史。
     historyRequested = true
     const history = await copilotApi.listMessages(historyConversationId)
@@ -288,7 +308,7 @@ async function loadConversationHistory() {
     }
     rememberConversation(historyConversationId)
     conversationHistoryModeUnknown.value = false
-    historyRetryAvailable.value = false
+    clearRetry()
     historyNotice.value = ''
     applyConversationHistory(history)
   } catch (error) {
@@ -299,19 +319,27 @@ async function loadConversationHistory() {
     } else {
       // 自动发现的会话也已确定为续聊目标；历史失败后保留选择并等待重试或显式选模式。
       if (historyConversationId) rememberConversation(historyConversationId)
-      historyNotice.value = t('copilot.historyLoadFailed')
+      historyNotice.value = t(historyConversationId ? 'copilot.historyLoadFailed' : 'copilot.historyDiscoveryFailed')
       conversationHistoryModeUnknown.value = Boolean(props.applyCanvasEdit && historyConversationId)
-      historyRetryAvailable.value = Boolean(historyConversationId)
+      historyRetryAvailable.value = true
     }
   } finally {
     // 成功、失败和作用域失效都统一在这里解锁，避免恢复异常时发送被永久锁死。
-    if (stillCurrent()) conversationSelectionPending.value = false
+    if (stillCurrent()) {
+      conversationSelectionPending.value = false
+      historyRetryPending.value = false
+      if (restoreRetryFocus) {
+        await nextTick()
+        // 仅在旧重试按钮消失并且用户尚未移焦时返回输入框。
+        if (stillCurrent() && document.activeElement === document.body) promptInput.value?.focus({ preventScroll: true })
+      }
+    }
   }
 }
 
 function retryConversationHistory() {
-  if (!historyRetryAvailable.value || interactionPending.value) return
-  void loadConversationHistory()
+  if (!historyRetryAvailable.value || historyRetryPending.value || interactionPending.value) return
+  void loadConversationHistory(true)
 }
 
 function handlePromptKeydown(event: KeyboardEvent) {
@@ -384,6 +412,8 @@ function adoptLateConversationHistory(
 
 function beginConversationInteraction() {
   conversationLoadSequence += 1
+  historyRetryAvailable.value = false
+  historyRetryPending.value = false
   historyNotice.value = ''
 }
 
@@ -424,6 +454,7 @@ function resetConversationState() {
   conversationIdentityUnconfirmed.value = false
   conversationHistoryModeUnknown.value = false
   historyRetryAvailable.value = false
+  historyRetryPending.value = false
   applyingPlanPreview.value = null
   conversationId.value = undefined
   historyNotice.value = ''
@@ -720,9 +751,10 @@ interface SendPromptOptions {
 }
 
 async function sendPrompt(value = prompt.value, options: SendPromptOptions = {}) {
-  if (conversationSelectionPending.value || conversationIdentityUnconfirmed.value) return
+  // 回车直接进入发送逻辑，也要遵守与发送按钮相同的在途锁。
+  if (interactionPending.value) return
   if (conversationHistoryModeUnknown.value) {
-    historyNotice.value = t('copilot.historyLoadFailed')
+    // 保留读取时给出的恢复指引；会话不存在时没有历史重试入口。
     return
   }
   if (directEditMode.value && !options.intent && props.applyCanvasEdit) {
@@ -734,7 +766,7 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     return
   }
   const text = value.trim()
-  if (!text || loading.value) {
+  if (!text) {
     return
   }
   beginConversationInteraction()
@@ -1208,7 +1240,7 @@ function leavePlannerMode() {
 }
 
 async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
-  if (interactionPending.value) return
+  if (shortcutSendBlocked.value) return
   if (directEditMode.value && intent === 'draft-media-summary-workflow' && props.applyCanvasEdit) {
     await sendCanvasEdit(t('copilot.editor.designRequest'), { preserveComposerDraft: true })
     return
@@ -1370,6 +1402,36 @@ onBeforeUnmount(() => {
   chatController.value?.abort()
 })
 
+const historyNoticeRegion = ref<HTMLDivElement | null>(null)
+const historyRetrySelector = '[data-testid="copilot-history-retry"]'
+let historyRetryFocusSequence: number | undefined
+
+watch(conversationSelectionPending, (pending) => {
+  const region = historyNoticeRegion.value
+  if (pending) {
+    // 已选会话重试会暂时移除按钮；仅接管由该按钮持有的焦点。
+    const retry = region?.querySelector(historyRetrySelector)
+    if (historyNotice.value && region && retry && retry === document.activeElement) {
+      historyRetryFocusSequence = conversationLoadSequence
+      region.focus({ preventScroll: true })
+    }
+    return
+  }
+  const sequence = historyRetryFocusSequence
+  historyRetryFocusSequence = undefined
+  if (!region || sequence !== conversationLoadSequence || document.activeElement !== region) return
+  if (!historyRetryAvailable.value) {
+    // 提示可能随成功回执消失；输入草稿与焦点一起留在当前会话。
+    promptInput.value?.focus({ preventScroll: true })
+    return
+  }
+  void nextTick(() => {
+    if (!panelDisposed && sequence === conversationLoadSequence && document.activeElement === region) {
+      region.querySelector<HTMLButtonElement>(historyRetrySelector)?.focus({ preventScroll: true })
+    }
+  })
+}, { flush: 'sync' })
+
 onMounted(() => {
   void loadModels()
   void loadConversationHistory()
@@ -1416,7 +1478,8 @@ onMounted(() => {
           type="button"
           class="rounded-md border border-app-border bg-app-muted px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:bg-ai-soft hover:text-ai disabled:opacity-55"
           :class="interactionPending ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'"
-          :disabled="interactionPending || (canvasEditSizeBlocked && item.intent === 'draft-media-summary-workflow')"
+          :aria-describedby="sendDescription(item.intent === 'draft-media-summary-workflow')"
+          :disabled="shortcutSendBlocked || (canvasEditSizeBlocked && item.intent === 'draft-media-summary-workflow')"
           @click="runQuickAction(item.intent, item.label)"
         >
           {{ item.label }}
@@ -1424,14 +1487,16 @@ onMounted(() => {
       </div>
 
       <div ref="chatViewport" class="min-h-0 flex-1 space-y-3 overflow-y-auto bg-app-bg2 p-4">
-        <div v-if="historyNotice" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary" role="status">
+        <div v-if="historyNotice" ref="historyNoticeRegion" tabindex="-1" :aria-busy="conversationSelectionPending || undefined" class="rounded-md border border-status-warning/30 bg-amber-50 p-3 text-xs text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-ai" role="status">
           {{ historyNotice }}
           <button
             v-if="historyRetryAvailable"
             type="button"
+            ref="historyRetryButton"
             data-testid="copilot-history-retry"
-            class="ml-2 font-semibold underline"
+            class="ml-2 font-semibold underline aria-disabled:cursor-wait aria-disabled:opacity-55"
             :disabled="interactionPending"
+            :aria-disabled="historyRetryPending || undefined"
             @click="retryConversationHistory"
           >{{ t('common.retry') }}</button>
         </div>
@@ -1601,6 +1666,7 @@ onMounted(() => {
       </div>
 
       <form class="border-t border-app-border bg-white p-3" @submit.prevent="sendPrompt()">
+        <p v-if="conversationHistoryModeUnknown" :id="historyRecoveryNoticeId" hidden>{{ historyNotice }}</p>
         <p v-if="canvasEditSizeBlocked" :id="canvasEditSizeNoticeId" class="mb-2 text-xs leading-5 text-text-secondary" role="status">
           {{ t('copilot.editor.canvasNodeLimit', { count: canvasNodeCount, limit: COPILOT_CANVAS_NODE_LIMIT }) }}
         </p>
@@ -1646,7 +1712,7 @@ onMounted(() => {
             class="min-h-8 max-h-32 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-sm outline-none placeholder:text-text-muted"
             :placeholder="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
             :aria-label="directEditMode ? t('copilot.editor.placeholder') : t('copilot.askPlaceholder')"
-            :aria-describedby="canvasEditSizeBlocked ? canvasEditSizeNoticeId : undefined"
+            :aria-describedby="sendDescription(true)"
             @keydown="handlePromptKeydown"
           ></textarea>
           <button class="grid h-8 w-8 place-items-center rounded-md bg-ai text-white disabled:opacity-50" type="submit" :disabled="interactionPending || conversationHistoryModeUnknown || canvasEditSizeBlocked" :aria-label="presentationText('send')" :title="presentationText('send')">

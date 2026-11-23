@@ -231,7 +231,9 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
     progress: currentTerminal ? Math.max(current.progress, incoming.progress) : incoming.progress,
     durationMs: Math.max(current.durationMs, incoming.durationMs),
     nodeStates: [...nodes.values()],
-    artifactCount: Math.max(current.artifactCount, incoming.artifactCount),
+    artifactCount: current.artifactCount === undefined || incoming.artifactCount === undefined
+      ? current.artifactCount ?? incoming.artifactCount
+      : Math.max(current.artifactCount, incoming.artifactCount),
     artifactNames: [...new Set([...current.artifactNames, ...incoming.artifactNames])],
   }
 }
@@ -260,10 +262,11 @@ export const useRunStore = defineStore('run', {
     workflowRuns: [] as WorkflowRun[],
     workflowRunsId: null as string | null,
     workflowRequestId: 0,
+    workflowRunLookup: null as { selectionRequestId: number; workflowId: string; definitionId?: number | null; loading: boolean } | null,
     currentRun: null as WorkflowRun | null,
     logs: [] as RunLogEntry[],
     logsByRunId: {} as Record<string, RunLogEntry[]>,
-    logHistoryRetryByRunId: {} as Record<string, true>,
+    logHistoryFailuresByRunId: {} as Partial<Record<string, 'retry-on-reopen' | 'unavailable'>>,
     loading: false,
     logsLoading: false,
     historyLoading: false,
@@ -283,6 +286,10 @@ export const useRunStore = defineStore('run', {
     runRealtimeState: 'offline' as 'online' | 'reconnecting' | 'offline',
   }),
   getters: {
+    currentLogHistoryUnavailable: (state) => Boolean(state.currentRun && state.logHistoryFailuresByRunId[state.currentRun.id]),
+    // 编辑器只提示既有的可重试故障；历史详情也提示其他已确认的归档读取失败。
+    logHistoryRetryByRunId: (state) => Object.fromEntries(Object.entries(state.logHistoryFailuresByRunId)
+      .filter(([, failure]) => failure === 'retry-on-reopen').map(([runId]) => [runId, true as const])),
     statusCounts: (state) =>
       state.runs.reduce(
         (acc, run) => {
@@ -373,14 +380,14 @@ export const useRunStore = defineStore('run', {
         if (!isCurrentLoad()) return
         this.mergeLoadedRuns(result.items, updateVersions, 'workflow')
         this.workflowRunsId = workflowId
+        return this.workflowRuns
       } catch (error) {
         if (isCurrentLoad()) this.error = errorMessage(error)
       }
     },
-    async loadRuns(options: { selectDefault?: boolean; workflowId?: string; definitionId?: number | null } = {}) {
+    async loadRuns(options: { selectDefault?: boolean; workflowId?: string; definitionId?: number | null } = {}): Promise<WorkflowRun[] | void> {
       if (options.workflowId) {
-        await this.loadWorkflowRuns(options.workflowId, options.definitionId)
-        return
+        return this.loadWorkflowRuns(options.workflowId, options.definitionId)
       }
       const selectDefault = options.selectDefault ?? true
       const runsLoadRequestId = ++this.runsLoadRequestId
@@ -547,7 +554,7 @@ export const useRunStore = defineStore('run', {
         const cachedLogs = this.logsByRunId[runId]
         this.logs = cachedLogs ?? []
         // 缓存可能仅含恢复或实时事件；一次历史读取失败后，下次打开仍要读日志。
-        const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryRetryByRunId[runId] === true
+        const needsLogRead = options.refreshLogs || !cachedLogs || this.logHistoryFailuresByRunId[runId] === 'retry-on-reopen'
         const isCurrentRun = () => isCurrentSelection() && this.currentRun?.id === runId
         const readSavedLogs = async () => {
           let selectedLogs = cachedLogs ?? []
@@ -557,16 +564,19 @@ export const useRunStore = defineStore('run', {
               selectedLogs = await runApi.getLogs(runId)
             } catch (error) {
               if (!isCurrentRun()) return
-              if (!toApiError(error, 'runtime').retryable) throw error
+              if (!toApiError(error, 'runtime').retryable) {
+                this.logHistoryFailuresByRunId[runId] ??= 'unavailable'
+                throw error
+              }
+              this.logHistoryFailuresByRunId[runId] = 'retry-on-reopen'
               logReadError = errorMessage(error)
             }
           }
           if (!isCurrentRun()) return
           if (logReadError) {
-            this.logHistoryRetryByRunId[runId] = true
             this.error = logReadError
           } else if (needsLogRead) {
-            delete this.logHistoryRetryByRunId[runId]
+            delete this.logHistoryFailuresByRunId[runId]
           }
           this.logs = mergeLogs(selectedLogs, this.logs)
           this.logsByRunId[runId] = this.logs
@@ -597,9 +607,21 @@ export const useRunStore = defineStore('run', {
     async selectRunForWorkflow(workflowId: string, definitionId?: number | null) {
       // 工作流最近运行可能不在全局第一页，必须按工作流定向读取。
       const selectionRequestId = ++this.selectionRequestId
-      await this.loadRuns({ selectDefault: false, workflowId, definitionId })
-      if (selectionRequestId !== this.selectionRequestId || this.workflowRunsId !== workflowId) return null
-      const run = this.workflowRuns.find((item) =>
+      const lookup = { selectionRequestId, workflowId, definitionId, loading: true }
+      this.workflowRunLookup = lookup
+      // 启动前还会用兼容 workflowId 参数读取列表，不能用它确认本次定向查找。
+      const loaded = await this.loadRuns({ selectDefault: false, workflowId, definitionId })
+      if (selectionRequestId !== this.selectionRequestId || !loaded) {
+        // 自身读取失败或被替代，且仍是同一选择时，应继续提供原地重试。
+        if (this.workflowRunLookup?.selectionRequestId === selectionRequestId) {
+          this.workflowRunLookup = selectionRequestId === this.selectionRequestId
+            ? { ...lookup, loading: false }
+            : null
+        }
+        return null
+      }
+      this.workflowRunLookup = null
+      const run = loaded.find((item) =>
         item.workflowId === workflowId
         || (typeof definitionId === 'number' && item.definitionId === definitionId),
       )
@@ -808,7 +830,6 @@ export const useRunStore = defineStore('run', {
         traceId: `trace-${payload.runId}`,
         queueName: 'workflow-runtime',
         progress: 0,
-        artifactCount: 0,
         artifactNames: [],
         nodeStates,
       }

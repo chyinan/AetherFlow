@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({ getNodeConnections: vi.fn(), createNodeConnect
 vi.mock('@/api/modules/nodeConnections', () => mocks)
 import { i18n } from '@/i18n'
 import type { NodeConnection, NodeConnectionProbe } from '@/api/modules/nodeConnections'
+import { focusNodeConfigField } from '@/utils/focusNodeConfig'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -91,6 +92,35 @@ describe('节点连接向导', () => {
     expect(checkpoint.text()).toContain('model-b.safetensors')
     await checkpoint.setValue('model-b.safetensors')
     expect(wrapper.emitted('updateConfig')).toEqual([['checkpoint', 'model-b.safetensors']])
+  })
+  it('导入 ComfyUI API 图不提供无法应用的外层 LoRA 编辑，返回普通生图仍保留原配置', async () => {
+    const workflowJson = JSON.stringify({ lora: { class_type: 'LoraLoader', inputs: { lora_name: 'graph.safetensors' } } })
+    const lora = [{ name: 'real-lora', weight: 0.75 }]
+    const config = { provider: 'COMFYUI', connectionId: saved.id, checkpoint: 'real.safetensors', lora }
+    const wrapper = render({ ...config, mode: 'workflow', workflowJson })
+    await flushPromises()
+
+    expect(wrapper.find('[data-config-field="lora.0.name"]').exists()).toBe(false)
+    expect(wrapper.find('[data-config-field="lora.0.weight"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="imported-api-model-hint"]').text()).toContain('LoRA')
+    expect(wrapper.get('[data-testid="model-checkpoint"]').text()).toContain('real.safetensors')
+
+    await wrapper.setProps({ config: { ...config, mode: 'txt2img' } })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="imported-api-model-hint"]').exists()).toBe(false)
+    expect((wrapper.get('[data-config-field="lora.0.name"]').element as HTMLSelectElement).value).toBe('real-lora')
+    expect((wrapper.get('[data-config-field="lora.0.weight"]').element as HTMLInputElement).value).toBe('0.75')
+    expect(wrapper.emitted('updateConfig')).toBeUndefined()
+  })
+  it('定位导入 API 图的 LoRA 错误时聚焦执行图修改说明', async () => {
+    const workflowJson = { lora: { class_type: 'LoraLoader', inputs: { lora_name: 'graph.safetensors' } } }
+    const wrapper = render({ provider: 'COMFYUI', connectionId: saved.id, mode: 'workflow', workflowJson })
+    wrapper.element.setAttribute('data-node-inspector', 'node-a')
+    await flushPromises()
+
+    expect(focusNodeConfigField('node-a', 'lora')).toBe(true)
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="imported-api-model-hint"]').element)
   })
   it('打开、测试、取消不保存或修改节点；重开清空状态', async () => {
     const wrapper = render({}); await flushPromises()

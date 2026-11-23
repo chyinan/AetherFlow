@@ -133,6 +133,17 @@ let pageActive = true
 let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
 let pageSaveSequence = 0
+type ToolbarSaveReceipt = {
+  workflowId: string
+  projectId?: number
+  navigationRevision: number
+  saveSequence: number
+}
+const toolbarSaveDuringLeave = shallowRef<ToolbarSaveReceipt | null>(null)
+function ownsToolbarSave(receipt: ToolbarSaveReceipt) {
+  return pageActive && receipt.saveSequence === pageSaveSequence
+    && receipt.navigationRevision === pageNavigationRevision && receipt.workflowId === workflowStore.workflowId
+}
 let pageCopySequence = 0
 let workflowLoadSequence = 0
 let projectListLoadSequence = 0
@@ -160,6 +171,7 @@ function ownsSaveNavigation(fullPath: string, fromPath?: string) {
 watch(() => route.fullPath, (to, from) => {
   const preservesSavedCanvas = ownsSaveNavigation(to, from)
   pageNavigationRevision += 1
+  toolbarSaveDuringLeave.value = null
   if (preservesSavedCanvas && saveNavigation) {
     saveNavigation.navigationRevision = pageNavigationRevision
   } else {
@@ -188,7 +200,14 @@ const workflowTemplateLoadError = computed(() => workflowTemplateLoadFeedback.va
 const workflowTemplateButtonLabel = computed(() => t(workflowTemplateLoadFeedback.value?.status === 'retrying'
   ? 'workflow.retryingTemplates' : workflowTemplateLoadError.value ? 'workflow.retryTemplates' : 'workflow.templates'))
 let workflowTemplatePickerRevision = 0
-let workflowTemplatePickerIntent: { opener: HTMLElement | null } | null = null
+let workflowTemplateInputRevision = 0
+let workflowTemplatePickerIntent: { opener: HTMLElement | null; inputRevision: number } | null = null
+function noteWorkflowTemplateInput(event: Event) {
+  // 只记录用户在画布编辑区继续填写配置，不把后台状态更新或导入选文件视为接管。
+  if (event.target instanceof HTMLElement && event.target.matches('textarea, select, input:not([type="file"])')) {
+    workflowTemplateInputRevision += 1
+  }
+}
 function closeWorkflowTemplatePicker() {
   workflowTemplatePickerIntent = null
   showingWorkflowTemplates.value = false
@@ -437,8 +456,8 @@ async function handleComfyUiFileChange(event: Event) {
     runPromptInputError.value = ''
     workflowStore.workflowName = imported.name
     workflowStore.projectId = imported.projectId ?? projectId ?? null
-    workflowStore.setNodes(graph.nodes)
-    workflowStore.setEdges(graph.edges)
+    // 节点和连线属于同一次导入，不能在撤销历史中产生断开的中间画布。
+    workflowStore.setGraph(graph)
     uiStore.setSelectedNode(graph.nodes[0]?.id ?? null)
     // 导入成功即换成新画布，即使地址未变，也不再接收旧画布的模板回执。
     invalidateWorkflowTemplatePicker()
@@ -540,6 +559,7 @@ async function loadRouteWorkflow(workflowId: string) {
   const projectId = routeQueryString(route.query.projectId)
   const workflowLoad = workflowStore.loadWorkflow(workflowId, {
     initialName: routeQueryString(route.query.name),
+    isCurrent: () => ownsWorkflowLoad(loadSequence, workflowId),
   })
   const loaded = await workflowLoad
   if (!ownsWorkflowLoad(loadSequence, workflowId)) {
@@ -563,19 +583,7 @@ async function loadRouteWorkflow(workflowId: string) {
       }
     }
   }
-  await runStore.selectRunForWorkflow(workflowStore.workflowId, workflowStore.backendDefinitionId)
-  if (!ownsWorkflowLoad(loadSequence, workflowId)) {
-    return false
-  }
-  if (runStore.currentRun && workflowRunBelongsToWorkflow(
-    runStore.currentRun,
-    workflowStore.workflowId,
-    workflowStore.backendDefinitionId,
-  )) {
-    runStore.currentRun.nodeStates.forEach((node) => {
-      workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs)
-    })
-  }
+  if (!await restoreWorkflowRun(loadSequence, workflowId)) return false
   const selectedNodeStillExists = workflowStore.nodes.some((node) => node.id === uiStore.selectedNodeId)
   if (!selectedNodeStillExists) {
     uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
@@ -583,11 +591,63 @@ async function loadRouteWorkflow(workflowId: string) {
   return true
 }
 
+async function restoreWorkflowRun(loadSequence: number, routeId: string) {
+  const { workflowId, backendDefinitionId } = workflowStore
+  await runStore.selectRunForWorkflow(workflowId, backendDefinitionId)
+  if (!ownsWorkflowLoad(loadSequence, routeId) || workflowStore.workflowId !== workflowId
+    || workflowStore.backendDefinitionId !== backendDefinitionId) return false
+
+  currentWorkflowRun.value?.nodeStates.forEach((node) => {
+    workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs)
+  })
+  return true
+}
+
+function retryWorkflowRunLookup() {
+  const lookup = runStore.workflowRunLookup
+  if (startingRun.value || !lookup || lookup.loading || lookup.workflowId !== workflowStore.workflowId
+    || lookup.definitionId !== workflowStore.backendDefinitionId) return
+  void restoreWorkflowRun(workflowLoadSequence, String(route.params.id || 'new'))
+}
+
 async function retryLoadWorkflow() {
   const loaded = await loadRouteWorkflow(String(route.params.id || 'new'))
   if (loaded) {
     runStore.subscribeCurrentRun()
   }
+}
+
+async function finishWorkflowInitialization(workflowId: string, loadSequence: number) {
+  await initialWorkflowResources
+  // 初次初始化属于当前定义。离开 A 后，不让 A 未完成的请求继续挡住 B。
+  if (ownsWorkflowLoad(loadSequence, workflowId)) initializingWorkflow.value = false
+}
+
+async function finishRouteWorkflowOpen(workflowId: string, load: Promise<boolean>, subscribeWhenLoaded = false) {
+  const loadSequence = workflowLoadSequence
+  const ownsLoad = () => ownsWorkflowLoad(loadSequence, workflowId)
+  let loaded = false
+  try {
+    loaded = await load
+  } finally {
+    if (initializingWorkflow.value && ownsLoad()) {
+      const initialization = finishWorkflowInitialization(workflowId, loadSequence)
+      if (loaded) await initialization
+    }
+  }
+  if (loaded && ownsLoad() && subscribeWhenLoaded) runStore.subscribeCurrentRun()
+}
+
+async function retryCurrentDefinition(event: MouseEvent) {
+  if (workflowLoadRetry.value || !workflowStore.loadingError) return
+  const workflowId = String(route.params.id || 'new')
+  const opener = event.currentTarget
+  const recovery = retryLoadWorkflow()
+  const loadSequence = workflowLoadSequence
+  workflowLoadRetry.value = { workflowId, loadSequence, opener }
+  // 已经展示过定义失败；重试成功时保留原有画布就绪时机，不额外等待运行恢复。
+  if (initializingWorkflow.value) void finishWorkflowInitialization(workflowId, loadSequence)
+  await recovery
 }
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -647,7 +707,13 @@ const leaveDialogReady = ref(false)
 const leaveSaveBusy = ref(false)
 let leaveSaveSequence = 0
 const leaveSaveError = ref('')
+const leaveAlreadySaved = computed(() => {
+  const receipt = toolbarSaveDuringLeave.value
+  return receipt !== null && ownsToolbarSave(receipt) && !workflowStore.dirty
+})
 let approvedNavigation: { fromPath: string; target: RouteLocationNormalized; editRevision: number } | null = null
+let toolbarLeaveChoice: { pending: PendingNavigation; receipt: ToolbarSaveReceipt } | null = null
+let stopWaitingForRestoredHistory: (() => void) | undefined
 
 function settleNavigation(allowed: boolean) {
   const pending = pendingNavigation.value
@@ -666,8 +732,20 @@ function settleNavigation(allowed: boolean) {
 }
 
 function discardNavigation() {
+  toolbarSaveDuringLeave.value = null
   workflowStore.discardCurrentWorkflowSave()
   settleNavigation(true)
+}
+
+function rememberToolbarLeaveChoice() {
+  const pending = pendingNavigation.value
+  const receipt = toolbarSaveDuringLeave.value
+  toolbarLeaveChoice = pending && receipt ? { pending, receipt } : null
+}
+
+function stayOnWorkflowPage() {
+  rememberToolbarLeaveChoice()
+  settleNavigation(false)
 }
 
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
@@ -679,6 +757,8 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
   // 新目标取代旧目标；旧保存只能结束请求，不能替用户决定新的导航。
+  toolbarLeaveChoice = null
+  stopWaitingForRestoredHistory?.()
   const handingOffTemplateModal = showingWorkflowTemplates.value || (pendingNavigation.value !== null && !leaveDialogReady.value)
   settleNavigation(false)
   approvedNavigation = null
@@ -705,6 +785,11 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
 async function saveBeforeLeaving() {
   const pending = pendingNavigation.value
   if (!pending || leaveSaveBusy.value || workflowStore.saving) return
+  if (leaveAlreadySaved.value) {
+    rememberToolbarLeaveChoice()
+    settleNavigation(true)
+    return
+  }
   const saveSequence = ++leaveSaveSequence
   leaveSaveBusy.value = true
   leaveSaveError.value = ''
@@ -719,6 +804,7 @@ async function saveBeforeLeaving() {
     }
     if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
     projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
+    rememberToolbarLeaveChoice()
     // 继续原来的 push/back/replace，保留历史语义，不额外跳转规范化地址。
     settleNavigation(true)
   } catch {
@@ -746,6 +832,21 @@ const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
   return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
+let initialWorkflowResources: Promise<void> | undefined
+const workflowLoadRetry = shallowRef<{ workflowId: string; loadSequence: number; opener: EventTarget | null } | null>(null)
+watch([() => workflowStore.loading, () => workflowStore.loadingError, initializingWorkflow], async ([loading, error, initializing]) => {
+  const attempt = workflowLoadRetry.value
+  if (!attempt || loading || (initializing && !error) || !ownsWorkflowLoad(attempt.loadSequence, attempt.workflowId)) return
+  const transferFocus = !error && attempt.opener instanceof HTMLButtonElement && document.activeElement === attempt.opener
+  workflowLoadRetry.value = null
+  if (transferFocus) {
+    await nextTick()
+    if (ownsWorkflowLoad(attempt.loadSequence, attempt.workflowId) && !pendingNavigation.value
+      && !workflowNavigation.pending && document.activeElement === document.body) {
+      workflowHeading.value?.focus()
+    }
+  }
+})
 let pendingStart: { intent: string; idempotencyKey: string } | null = null
 let startNavigationGeneration = 0
 let activeRunStart: {
@@ -763,6 +864,34 @@ function invalidateRunStart() {
 
 function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (approvedNavigation?.target === to) approvedNavigation = null
+  const choice = toolbarLeaveChoice
+  if (choice?.pending.target === to) {
+    toolbarLeaveChoice = null
+    toolbarSaveDuringLeave.value = null
+    const fromPath = choice.pending.fromPath
+    const restore = () => {
+      if (route.fullPath === fromPath && router.options.history.location === fromPath
+        && !workflowNavigation.pending && !pendingNavigation.value) {
+        void canonicalizeToolbarSave(choice.receipt).catch(() => {})
+      }
+    }
+    if (route.fullPath === fromPath && !workflowNavigation.pending) {
+      if (router.options.history.location === fromPath) {
+        restore()
+      } else {
+        // 浏览器 Back 取消时，原历史项须等 Vue Router 的 popstate 回到后才可替换。
+        const onPopState = () => {
+          stopWaitingForRestoredHistory?.()
+          restore()
+        }
+        stopWaitingForRestoredHistory = () => {
+          window.removeEventListener('popstate', onPopState)
+          stopWaitingForRestoredHistory = undefined
+        }
+        window.addEventListener('popstate', onPopState)
+      }
+    }
+  }
   // 较新的、未弹确认的导航也可能失败；只在实际仍留在原地址时恢复。
   if (route.fullPath === from.fullPath) void resumeWorkflowTemplatePicker()
 }
@@ -780,38 +909,32 @@ onBeforeUnmount(() => {
   invalidateRunStart()
   stopWatchingStartNavigation()
   stopWatchingNavigationError()
+  stopWaitingForRestoredHistory?.()
 })
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('keydown', handleEditorKeydown)
   void loadProjectList()
-  const auxiliaryLoads = Promise.allSettled([
+  initialWorkflowResources = Promise.allSettled([
     workflowStore.loadNodeTemplates(),
     runStore.loadRuns({ selectDefault: false }),
     fileStore.loadFiles(),
-  ])
+  ]).then(() => undefined)
   if (!hasWorkflowContext.value) {
     // 空白入口只在进入时清理；辅助读取返回时用户可能已经打开或编辑了新画布。
     workflowStore.resetToEmptyWorkflow()
     runStore.clearCurrentRun()
     initializingWorkflow.value = false
-    await auxiliaryLoads
     return
   }
-  try {
-    const routeWorkflowLoad = loadRouteWorkflow(String(route.params.id || 'new'))
-    const [loaded] = await Promise.all([routeWorkflowLoad, auxiliaryLoads])
-    if (loaded) {
-      runStore.subscribeCurrentRun()
-    }
-  } finally {
-    initializingWorkflow.value = false
-  }
+  const workflowId = String(route.params.id || 'new')
+  await finishRouteWorkflowOpen(workflowId, loadRouteWorkflow(workflowId), true)
 })
 
 onBeforeUnmount(() => {
   pageActive = false
+  workflowLoadRetry.value = null
   projectListLoadSequence += 1
   pendingWorkflowProjectSelection = null
   settleNavigation(false)
@@ -829,7 +952,9 @@ watch(
   async ([workflowId]) => {
     // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
     if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
+    workflowLoadRetry.value = null
     if (!hasWorkflowContext.value) {
+      initializingWorkflow.value = false
       // 清空画布同样代表旧加载失去归属，待完成的旧请求不能再写入项目或错误信息。
       workflowLoadSequence += 1
       pendingWorkflowProjectSelection = null
@@ -840,51 +965,65 @@ watch(
     }
     showStarterGuide.value = false
     showPreflight.value = false
-    await loadRouteWorkflow(String(workflowId || 'new'))
+    const id = String(workflowId || 'new')
+    await finishRouteWorkflowOpen(id, loadRouteWorkflow(id))
   },
 )
 
+async function canonicalizeToolbarSave(receipt: ToolbarSaveReceipt, markReady?: () => void) {
+  if (!ownsToolbarSave(receipt) || pendingNavigation.value) return
+  const { workflowId, projectId, navigationRevision, saveSequence } = receipt
+  if (String(route.params.id || 'new') === workflowId) {
+    markReady?.()
+    return
+  }
+  const canonicalRoute = {
+    path: `/workflows/${workflowId}`,
+    query: {
+      ...(projectId ? { projectId } : {}),
+      ...(route.query.sourceRunId ? {
+        sourceRunId: route.query.sourceRunId,
+        nodeId: route.query.nodeId,
+        runReturnLocation: route.query.runReturnLocation,
+      } : {}),
+    },
+  }
+  // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
+  const navigation = {
+    fromPath: route.fullPath,
+    fullPath: router.resolve(canonicalRoute).fullPath,
+    workflowId,
+    navigationRevision,
+    saveSequence,
+  }
+  saveNavigation = navigation
+  try {
+    const failure = await router.replace(canonicalRoute)
+    if (!failure && saveNavigation === navigation && ownsSaveNavigation(route.fullPath)) markReady?.()
+  } finally {
+    if (saveNavigation === navigation) saveNavigation = null
+  }
+}
+
 async function saveWorkflow() {
   const saveSequence = ++pageSaveSequence
+  toolbarSaveDuringLeave.value = null
   try {
     const projectId = resolveWorkflowProjectId()
     const navigationRevision = pageNavigationRevision
     const saved = await workflowStore.saveCurrentWorkflow({ projectId })
-    if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision || pendingNavigation.value) return
-    const savedWorkflowId = saved.workflowId
-    if (projectId) {
-      projectStore.linkWorkflowToProject(String(projectId), savedWorkflowId)
+    if (!saved) return
+    const receipt = { workflowId: saved.workflowId, projectId, navigationRevision, saveSequence }
+    if (!ownsToolbarSave(receipt)) return
+    if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
+    const markReady = () => projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
+    if (pendingNavigation.value) {
+      // 记录仍属于当前画布的回执，但不抢占用户正在选择的目的地。
+      toolbarSaveDuringLeave.value = receipt
+      markReady()
+    } else {
+      await canonicalizeToolbarSave(receipt, markReady)
     }
-    if (String(route.params.id || 'new') !== savedWorkflowId) {
-      const canonicalRoute = {
-        path: `/workflows/${savedWorkflowId}`,
-        query: {
-          ...(projectId ? { projectId } : {}),
-          ...(route.query.sourceRunId ? {
-            sourceRunId: route.query.sourceRunId,
-            nodeId: route.query.nodeId,
-            runReturnLocation: route.query.runReturnLocation,
-          } : {}),
-        },
-      }
-      // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
-      const navigation = {
-        fromPath: route.fullPath,
-        fullPath: router.resolve(canonicalRoute).fullPath,
-        workflowId: savedWorkflowId,
-        navigationRevision: pageNavigationRevision,
-        saveSequence,
-      }
-      saveNavigation = navigation
-      try {
-        const failure = await router.replace(canonicalRoute)
-        if (failure || saveNavigation !== navigation || saveSequence !== pageSaveSequence
-          || !ownsSaveNavigation(route.fullPath)) return
-      } finally {
-        if (saveNavigation === navigation) saveNavigation = null
-      }
-    }
-    projectStore.updateWorkflowStatus(savedWorkflowId, 'ready')
   } catch {
     // The store exposes the localized save error for the page banner.
   }
@@ -938,6 +1077,10 @@ async function resumeWorkflowTemplatePicker() {
   // 留页后继续上一次选择；允许离开时须等导航提交或失败，不提前抢焦点。
   await nextTick()
   const intent = workflowTemplatePickerIntent
+  if (intent && intent.inputRevision !== workflowTemplateInputRevision) {
+    workflowTemplatePickerIntent = null
+    return
+  }
   if (!pageActive || !intent || showingWorkflowTemplates.value
     || pendingNavigation.value || approvedNavigation || workflowNavigation.pending) return
   const { opener } = intent
@@ -955,6 +1098,7 @@ async function openWorkflowTemplates(event?: MouseEvent) {
     return
   }
   const pickerRevision = workflowTemplatePickerRevision
+  const inputRevision = workflowTemplateInputRevision
   const ownsRequest = () => pageActive && pickerRevision === workflowTemplatePickerRevision
   if (workflowTemplateLoadFeedback.value?.status === 'failed') {
     workflowTemplateLoadFeedback.value = { status: 'retrying' }
@@ -963,7 +1107,8 @@ async function openWorkflowTemplates(event?: MouseEvent) {
     const templates = await workflowStore.loadWorkflowTemplates()
     if (!ownsRequest() || !templates) return
     workflowTemplateLoadFeedback.value = null
-    workflowTemplatePickerIntent = { opener }
+    if (inputRevision !== workflowTemplateInputRevision) return
+    workflowTemplatePickerIntent = { opener, inputRevision }
     await resumeWorkflowTemplatePicker()
   } catch (error) {
     if (ownsRequest()) {
@@ -971,6 +1116,7 @@ async function openWorkflowTemplates(event?: MouseEvent) {
       workflowTemplateLoadFeedback.value = { status: 'failed', details: runErrorMessage(error) }
       await nextTick()
       if (ownsRequest() && !pendingNavigation.value && !approvedNavigation && !workflowNavigation.pending
+        && inputRevision === workflowTemplateInputRevision
         && opener?.isConnected && !opener.matches(':disabled') && document.activeElement === document.body) {
         opener.focus({ preventScroll: true })
       }
@@ -1199,7 +1345,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
-  <UnsavedNavigationDialog :open="leaveDialogReady" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
+  <UnsavedNavigationDialog :open="leaveDialogReady" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" :saved="leaveAlreadySaved" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="stayOnWorkflowPage" />
   <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"
@@ -1211,22 +1357,22 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
   />
   <p class="sr-only" role="status" data-testid="comfyui-import-draft-status">{{ comfyUiDraftMessage }}</p>
 
-  <!-- 当前定义已明确读取失败时，不等辅助读取才提供重试和返回入口。 -->
-  <section v-if="workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError)" class="grid h-full place-items-center bg-app-bg px-6">
+  <!-- 失败后原地重试，保持退出入口和正在使用的键盘焦点。 -->
+  <section v-if="!workflowLoadRetry && (workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError))" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
       <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
       {{ t('workflow.loading') }}
     </div>
   </section>
 
-  <section v-else-if="workflowStore.loadingError" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-else-if="workflowStore.loadingError || workflowLoadRetry" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="w-full max-w-xl rounded-2xl border border-status-error/25 bg-white p-7 shadow-panel">
       <p class="text-lg font-semibold text-text-primary">{{ t('workflow.loadFailedTitle') }}</p>
-      <p class="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm leading-6 text-status-error">
-        {{ workflowStore.loadingError }}
+      <p aria-live="polite" aria-atomic="true" class="mt-3 rounded-lg px-4 py-3 text-sm leading-6" :class="workflowLoadRetry ? 'bg-app-bg2 text-text-secondary' : 'bg-red-50 text-status-error'">
+        {{ workflowLoadRetry ? t('workflow.loading') : workflowStore.loadingError }}
       </p>
       <div class="mt-5 flex flex-wrap gap-3">
-        <button type="button" data-testid="retry-workflow-load" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark" @click="retryLoadWorkflow">
+        <button type="button" data-testid="retry-workflow-load" :aria-disabled="Boolean(workflowLoadRetry)" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-node hover:bg-primary-dark aria-disabled:cursor-wait aria-disabled:opacity-70" @click="retryCurrentDefinition">
           <RotateCcw class="h-4 w-4" />
           {{ t('workflow.retryLoad') }}
         </button>
@@ -1309,7 +1455,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     </div>
   </section>
 
-  <section v-else data-testid="workflow-editor" class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
+  <section v-else data-testid="workflow-editor" class="relative grid h-full grid-rows-[auto_auto_minmax(0,1fr)]">
     <header :inert="showingWorkflowTemplates || undefined" class="flex flex-col gap-3 border-b border-app-border bg-white px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <h1 ref="workflowHeading" tabindex="-1" class="rounded-sm text-sm font-semibold text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ workflowStore.workflowName }}</h1>
@@ -1455,7 +1601,13 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 
     <div :inert="showingWorkflowTemplates || undefined" class="max-h-[45vh] overflow-y-auto"><RunNodeRecoveryBanner v-if="route.query.sourceRunId || route.query.nodeId" :workflow-id="workflowStore.workflowId" :definition-id="workflowStore.backendDefinitionId" :version="workflowStore.backendVersion" :nodes="workflowStore.nodes" :node-id="routeQueryString(route.query.nodeId)" :source-run-id="routeQueryString(route.query.sourceRunId)" :return-location="routeQueryString(route.query.runReturnLocation)" :interaction-revision="editorInteractionRevision" @auto-locate="locateSourceRunNode" @locate="locateSourceRunNode" /><WorkflowStarterGuide v-if="showStarterGuide && supportsStarterGuide" :id="starterGuideId" :nodes="workflowStore.nodes" :run="currentWorkflowRun" :busy="runButtonBusy || workflowStore.saving" @locate="locateStarterNode" @run="startGuidedRun" @results="openGuidedResults" @close="hideStarterGuide" /><WorkflowPreflight v-if="showPreflight" :id="preflightId" ref="preflightPanel" :issues="preflightIssues" @close="closePreflight" @locate="locatePreflightIssue" /></div>
     <div class="relative grid min-h-0 min-w-0 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
-      <div class="contents" :inert="showingWorkflowTemplates || undefined">
+      <div
+        class="contents"
+        :inert="showingWorkflowTemplates || undefined"
+        @input.capture="noteWorkflowTemplateInput"
+        @change.capture="noteWorkflowTemplateInput"
+        @compositionstart.capture="noteWorkflowTemplateInput"
+      >
       <WorkflowCanvas ref="canvasRef" />
       <NodeInspector @open-copilot="openCopilot" @open-logs="openRunConsole" />
 
@@ -1488,40 +1640,41 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         leave-to-class="translate-x-6 opacity-0"
       >
         <div v-if="showRunConsole" class="absolute bottom-4 right-4 top-4 z-20 w-[min(520px,calc(100%-2rem))] overflow-hidden rounded-xl shadow-panel">
-          <RunConsole @close="showRunConsole = false" />
+          <RunConsole :lookup-retry-blocked="startingRun" @retry-lookup="retryWorkflowRunLookup" @close="showRunConsole = false" />
         </div>
       </Transition>
 
       </div>
-      <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid place-items-center bg-slate-950/25 p-4">
-        <section ref="workflowTemplateDialog" tabindex="-1" class="w-full max-w-xl rounded-xl border border-app-border bg-white p-5 shadow-panel" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
-              <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
-            </div>
-            <button type="button" class="rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="closeWorkflowTemplatePicker">
-              <X class="h-5 w-5" />
-            </button>
+    </div>
+    <!-- 可用空间按整个编辑器计算，避免向导或预检面板压缩画布时截断弹框。 -->
+    <div v-if="showingWorkflowTemplates" class="absolute inset-0 z-40 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] place-items-center overflow-hidden bg-slate-950/25 p-4">
+      <section ref="workflowTemplateDialog" tabindex="-1" class="min-h-0 w-full min-w-0 max-h-full max-w-xl overflow-y-auto overscroll-contain rounded-xl border border-app-border bg-white p-5 shadow-panel [overflow-wrap:anywhere]" role="dialog" aria-modal="true" aria-labelledby="workflow-template-title">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 id="workflow-template-title" class="text-base font-semibold text-text-primary">{{ t('workflow.templates') }}</h2>
+            <p class="mt-1 text-xs text-text-muted">{{ t('workflow.templatesHint') }}</p>
           </div>
-          <div class="mt-4 grid gap-2">
-            <button
-              v-for="template in workflowStore.workflowTemplates"
-              :key="template.id"
-              type="button"
-              class="rounded-lg border border-app-border px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/20"
-              @click="applyWorkflowTemplate(template)"
-            >
-              <p class="text-sm font-semibold text-text-primary">{{ template.name }}</p>
-              <p class="mt-1 text-xs text-text-muted">{{ template.description || t('workflow.templatesHint') }}</p>
-              <p class="mt-2 text-[11px] text-text-muted">{{ template.nodes.length }} {{ t('common.nodes') }} · {{ template.edges.length }} {{ t('common.edges') }}</p>
-            </button>
-            <p v-if="workflowStore.workflowTemplates.length === 0" class="rounded-lg border border-dashed border-app-border px-4 py-6 text-center text-sm text-text-muted">
-              {{ t('workflow.noTemplates') }}
-            </p>
-          </div>
-        </section>
-      </div>
+          <button type="button" class="shrink-0 rounded-md p-1 text-text-muted hover:bg-slate-100 hover:text-text-primary" :aria-label="t('common.close')" @click="closeWorkflowTemplatePicker">
+            <X class="h-5 w-5" />
+          </button>
+        </div>
+        <div class="mt-4 grid gap-2">
+          <button
+            v-for="template in workflowStore.workflowTemplates"
+            :key="template.id"
+            type="button"
+            class="rounded-lg border border-app-border px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary-soft/20"
+            @click="applyWorkflowTemplate(template)"
+          >
+            <p class="text-sm font-semibold text-text-primary">{{ template.name }}</p>
+            <p class="mt-1 text-xs text-text-muted">{{ template.description || t('workflow.templatesHint') }}</p>
+            <p class="mt-2 text-[11px] text-text-muted">{{ template.nodes.length }} {{ t('common.nodes') }} · {{ template.edges.length }} {{ t('common.edges') }}</p>
+          </button>
+          <p v-if="workflowStore.workflowTemplates.length === 0" class="rounded-lg border border-dashed border-app-border px-4 py-6 text-center text-sm text-text-muted">
+            {{ t('workflow.noTemplates') }}
+          </p>
+        </div>
+      </section>
     </div>
   </section>
   </div>

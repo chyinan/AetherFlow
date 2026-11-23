@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { listDefinitions, listDefinitionVersions, type WorkflowDefinitionEntity, type WorkflowVersionSummary } from '@/api/modules/workflow'
 
 const props = defineProps<{ config: Record<string, unknown> }>()
 const emit = defineEmits<{ update: [name: string, value: unknown]; patch: [values: Record<string, unknown>] }>()
-const definitions = ref<WorkflowDefinitionEntity[]>([])
+const definitions = ref<WorkflowDefinitionEntity[] | null>(null)
 const versions = ref<WorkflowVersionSummary[] | null>(null)
 const definitionsError = ref('')
 const versionsError = ref('')
 const loadingDefinitions = ref(false)
 const loadingVersions = ref(false)
+const retryingDefinitions = ref(false)
+const retryingVersions = ref(false)
+const definitionsRetry = ref<HTMLButtonElement | null>(null)
+const versionsRetry = ref<HTMLButtonElement | null>(null)
+const definitionSelect = ref<HTMLSelectElement | null>(null)
+const versionSelect = ref<HTMLSelectElement | null>(null)
 const mappingErrors = ref<Record<string, string>>({})
 const drafts = ref<Record<string, string>>({})
 const pendingMappings = new Map<string, string>()
@@ -18,6 +24,8 @@ let generation = 0
 let request: AbortController | null = null
 const definitionId = computed(() => Number(props.config.definitionId) || 0)
 const selectedVersion = computed(() => Number(props.config.definitionVersion) || 0)
+const definitionFeedback = computed(() => definitionsError.value
+  || (definitions.value?.length === 0 ? '尚未读取到工作流。先保存要调用的工作流，再重试列表' : ''))
 const versionListed = computed(() => versions.value?.some(item => item.version === selectedVersion.value))
 const pinnedVersionMissing = computed(() => Boolean(selectedVersion.value) && versionListed.value === false)
 const versionFeedback = computed(() => {
@@ -46,8 +54,17 @@ for (const { name } of fields) {
   })
 }
 
-async function loadDefinitions() {
+async function restoreRetryFocus(button: HTMLButtonElement | null, select: HTMLSelectElement | null, isCurrent: () => boolean) {
+  // 只有本次重试移除了仍持有焦点的按钮，才把焦点交还给对应的选择框。
+  if (!button || document.activeElement !== button) return
+  await nextTick()
+  if (active && isCurrent() && !button.isConnected && document.activeElement === document.body
+    && select?.isConnected && !select.disabled && !select.closest('[inert]')) select.focus({ preventScroll: true })
+}
+
+async function loadDefinitions(retry = false) {
   if (loadingDefinitions.value) return
+  retryingDefinitions.value = retry
   loadingDefinitions.value = true
   definitionsError.value = ''
   try {
@@ -56,18 +73,26 @@ async function loadDefinitions() {
   } catch {
     if (active) definitionsError.value = '无法读取工作流列表，请重试或稍后重新打开节点'
   } finally {
-    if (active) loadingDefinitions.value = false
+    if (active) {
+      loadingDefinitions.value = false
+      retryingDefinitions.value = false
+      if (retry && !definitionFeedback.value) {
+        void restoreRetryFocus(definitionsRetry.value, definitionSelect.value, () => !loadingDefinitions.value)
+      }
+    }
   }
 }
-onMounted(loadDefinitions)
+onMounted(() => { void loadDefinitions() })
 onBeforeUnmount(() => { active = false; generation++; request?.abort() })
-async function loadVersions(id: number) {
+async function loadVersions(id: number, retry = false) {
+  if (retry && (!id || loadingVersions.value)) return
   const token = ++generation
   request?.abort()
   request = new AbortController()
   versions.value = null
   versionsError.value = ''
   loadingVersions.value = false
+  retryingVersions.value = retry
   if (!id) return
   loadingVersions.value = true
   try {
@@ -77,10 +102,16 @@ async function loadVersions(id: number) {
   } catch {
     if (token === generation && active) versionsError.value = '无法读取版本；已选择的版本号保持不变'
   } finally {
-    if (token === generation && active) loadingVersions.value = false
+    if (token === generation && active) {
+      loadingVersions.value = false
+      retryingVersions.value = false
+      if (retry && !versionFeedback.value) {
+        void restoreRetryFocus(versionsRetry.value, versionSelect.value, () => token === generation)
+      }
+    }
   }
 }
-watch(definitionId, loadVersions, { immediate: true })
+watch(definitionId, (id) => { void loadVersions(id) }, { immediate: true })
 
 function selectDefinition(event: Event) {
   const id = Number((event.target as HTMLSelectElement).value)
@@ -116,28 +147,28 @@ function updateMapping(name: string, event: Event) {
   <section class="space-y-5 p-5" aria-label="子工作流配置">
     <p class="rounded-lg border border-app-border p-3 text-sm text-text-secondary">运行时使用所选版本的不可变快照。后续编辑子工作流不会改变此调用；只传递下方显式映射的变量。</p>
     <label class="block text-sm font-semibold">工作流
-      <select data-config-field="definitionId" class="mt-2 w-full rounded-lg border border-app-border p-2" :disabled="loadingDefinitions" :value="definitionId" @change="selectDefinition">
+      <select ref="definitionSelect" data-config-field="definitionId" class="mt-2 w-full rounded-lg border border-app-border p-2" :disabled="loadingDefinitions" :value="definitionId" @change="selectDefinition">
         <option :value="0">请选择工作流</option>
-        <option v-if="definitionId && !definitions.some(item => item.id === definitionId)" :value="definitionId">已固定的定义 #{{ definitionId }}</option>
+        <option v-if="definitionId && !definitions?.some(item => item.id === definitionId)" :value="definitionId">已固定的定义 #{{ definitionId }}</option>
         <option v-for="item in definitions" :key="item.id" :value="item.id">{{ item.name }} (#{{ item.id }})</option>
       </select>
     </label>
     <p v-if="loadingDefinitions" role="status" class="text-sm text-text-secondary">正在读取工作流列表…</p>
-    <div v-if="definitionsError" class="text-sm text-status-error">
-      <p role="alert">{{ definitionsError }}</p>
-      <button type="button" data-action="retry-definitions" :disabled="loadingDefinitions" @click="loadDefinitions">重试工作流列表</button>
+    <div v-if="definitionFeedback || retryingDefinitions" class="text-sm" :class="definitionsError ? 'text-status-error' : 'text-text-secondary'">
+      <p v-if="!loadingDefinitions && definitionFeedback" :role="definitionsError ? 'alert' : 'status'">{{ definitionFeedback }}</p>
+      <button ref="definitionsRetry" type="button" data-action="retry-definitions" class="underline underline-offset-2 aria-disabled:opacity-60" :aria-disabled="loadingDefinitions || undefined" @click="loadDefinitions(true)">重试工作流列表</button>
     </div>
     <label class="block text-sm font-semibold">固定版本
-      <select data-config-field="definitionVersion" class="mt-2 w-full rounded-lg border border-app-border p-2" :disabled="!definitionId || loadingVersions" :value="selectedVersion" @change="selectVersion">
+      <select ref="versionSelect" data-config-field="definitionVersion" class="mt-2 w-full rounded-lg border border-app-border p-2" :disabled="!definitionId || loadingVersions" :value="selectedVersion" @change="selectVersion">
         <option :value="0">请选择固定版本</option>
         <option v-if="selectedVersion && !versionListed" :value="selectedVersion">v{{ selectedVersion }}（{{ pinnedVersionMissing ? '列表中未找到' : '待验证' }}）</option>
         <option v-for="item in versions" :key="item.version" :value="item.version">v{{ item.version }} · {{ item.createdAt ?? '' }}</option>
       </select>
     </label>
     <p v-if="loadingVersions" role="status" class="text-sm text-text-secondary">正在读取版本…</p>
-    <div v-if="versionFeedback" class="text-sm text-status-error">
-      <p role="alert">{{ versionFeedback }}</p>
-      <button type="button" data-action="retry-versions" :disabled="!definitionId || loadingVersions" @click="loadVersions(definitionId)">重试版本列表</button>
+    <div v-if="versionFeedback || retryingVersions" class="text-sm" :class="versionFeedback ? 'text-status-error' : 'text-text-secondary'">
+      <p v-if="versionFeedback" role="alert">{{ versionFeedback }}</p>
+      <button ref="versionsRetry" type="button" data-action="retry-versions" class="underline underline-offset-2 aria-disabled:opacity-60" :aria-disabled="!definitionId || loadingVersions || undefined" @click="loadVersions(definitionId, true)">重试版本列表</button>
     </div>
     <label v-for="field in fields" :key="field.name" class="block text-sm font-semibold">{{ field.label }}
       <textarea :data-config-field="field.name" class="mt-2 min-h-28 w-full rounded-lg border border-app-border p-2 font-mono text-xs" :value="mappingText(field.name)" @input="updateMapping(field.name, $event)" />

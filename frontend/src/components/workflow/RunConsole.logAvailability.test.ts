@@ -13,6 +13,7 @@ vi.mock('@/services/realtime/realtimeClient', () => ({ realtimeClient: transport
 import { axiosInstance } from '@/api/client/apiClient'
 import { i18n } from '@/i18n'
 import { useRunStore } from '@/stores/runStore'
+import { useWorkflowStore } from '@/stores/workflowStore'
 import RunConsole from './RunConsole.vue'
 
 const oldAdapter = axiosInstance.defaults.adapter
@@ -73,6 +74,7 @@ afterEach(() => {
 async function render() {
   const pinia = createPinia()
   setActivePinia(pinia)
+  useWorkflowStore().workflowId = 'workflow-7'
   const blank = { template: '<div />' }
   const router = createRouter({
     history: createMemoryHistory(),

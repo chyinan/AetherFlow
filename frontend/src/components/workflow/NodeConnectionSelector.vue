@@ -50,6 +50,7 @@ const refreshButton = ref<HTMLButtonElement | null>(null)
 const cancelProbeButton = ref<HTMLButtonElement | null>(null)
 const selectedCancelled = ref(false)
 let selectedSequence = 0
+let waitingForCatalog = false
 let formSequence = 0
 let alive = true
 let opener: HTMLElement | null = null
@@ -67,11 +68,15 @@ const importedComfyApiNodeTypes = computed(() => {
   return [...new Set(graph.nodes.map(node => node.type))].sort()
 })
 const importedApi = computed(() => provider.value === 'COMFYUI' && importedComfyApi.value)
+const importedGenerationApi = computed(() => props.nodeType === 'IMAGE_GENERATION' && importedApi.value)
 const workflowNodeTypes = computed(() => importedApi.value ? [...new Set(describeComfyGraph(props.config.workflowJson ?? props.config.workflow).nodes.map(node => node.type))].sort() : [])
 const connectionId = computed(() => String(props.config.connectionId ?? '').trim())
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
 const selectedConnection = computed(() => connections.value.find((connection) => connection.id === effectiveId.value))
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
+const confirmedConnectionProvider = computed(() => ready.value && connectionId.value ? selectedConnection.value?.provider : undefined)
+const providerMismatch = computed(() => Boolean(confirmedConnectionProvider.value && confirmedConnectionProvider.value !== provider.value))
+const modelCatalogProbe = computed(() => providerMismatch.value ? null : selectedProbe.value)
 const selectedKey = computed(() => JSON.stringify([props.nodeId, props.nodeType, effectiveId.value, provider.value, props.config.checkpoint, props.config.mode, workflowNodeTypes.value]))
 const modelFields = computed<Array<{ key: string; catalog: ImageCatalog }>>(() => props.nodeType === 'UPSCALE'
   ? (importedApi.value ? [] : [{ key: 'upscaler', catalog: 'upscalers' }])
@@ -82,7 +87,7 @@ const loras = computed(() => Array.isArray(props.config.lora) ? props.config.lor
 const invalidLora = computed(() => props.config.lora != null && !Array.isArray(props.config.lora))
 const externalChecklistFields = new Set(['mode', 'workflow', 'workflowJson'])
 const probeCatalogs: ImageCatalog[] = ['checkpoints', 'vaes', 'loras', 'samplers', 'schedulers', 'upscalers']
-const checklist = computed(() => buildNodeConnectionChecklist({ provider: provider.value, nodeType: props.nodeType, config: props.config, probe: selectedProbe.value, connectionProvider: selectedConnection.value?.provider }))
+const checklist = computed(() => buildNodeConnectionChecklist({ provider: provider.value, nodeType: props.nodeType, config: props.config, probe: selectedProbe.value, connectionProvider: confirmedConnectionProvider.value }))
 const formChecklist = computed(() => buildNodeConnectionChecklist({
   provider: form.provider, nodeType: props.nodeType, config: { ...props.config, connectionId: editingId.value || 'new-connection' }, probe: formProbe.value,
 }))
@@ -98,10 +103,10 @@ const saveFeedback = computed(() => {
   if (outcome.applied) return ''
   return t(outcome.edited ? 'updatedWithoutApply' : 'savedWithoutApply', { name: outcome.connection.name })
 })
-function knownCatalog(catalog: ImageCatalog, result = selectedProbe.value) {
+function knownCatalog(catalog: ImageCatalog, result = modelCatalogProbe.value) {
   return isKnownConnectionCatalog(result, catalog)
 }
-function options(catalog: ImageCatalog, result = selectedProbe.value) {
+function options(catalog: ImageCatalog, result = modelCatalogProbe.value) {
   return connectionCatalogOptions(result, catalog)
 }
 function fieldId(field: string, index?: number) { return `node-connection-${props.nodeId}-${field}${index === undefined ? '' : `-${index}`}` }
@@ -152,6 +157,7 @@ function finishSelectedProbe() {
   })
 }
 function cancelSelectedProbe() {
+  waitingForCatalog = false
   selectedSequence += 1
   selectedProbe.value = null
   selectedError.value = ''
@@ -184,8 +190,9 @@ function invalidateForm() {
   testing.value = false
 }
 function close(restoreFocus = true) {
-  // 关闭不取消保存；打开按钮仍禁用时，让焦点回到连接面板。
-  const returnTo = open.value && saving.value ? selectorRoot.value : opener
+  // 只在关闭当前弹窗时归还焦点；保存中打开按钮禁用时回到连接面板。
+  const returnTo = restoreFocus && open.value ? (saving.value ? selectorRoot.value : opener) : null
+  opener = null
   open.value = false
   invalidateForm()
   validationTarget.value = null
@@ -193,7 +200,7 @@ function close(restoreFocus = true) {
   form.name = ''
   form.baseUrl = ''
   form.provider = provider.value
-  if (restoreFocus) returnTo?.focus()
+  returnTo?.focus()
 }
 async function showWizard(connection?: NodeConnection) {
   if (!alive || saving.value) return
@@ -277,11 +284,14 @@ async function refreshSelected() {
   selectedError.value = ''
   selectedCancelled.value = false
   probing.value = false
-  if (!ready.value || missingConnection.value) return
+  waitingForCatalog = !ready.value || missingConnection.value
+  if (waitingForCatalog) return
   probing.value = true
   try {
-    const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value ? String(props.config.checkpoint ?? '').trim() : ''
-    const result = workflowNodeTypes.value.length
+    // 节点可能仍保留共享连接更新前的 Provider；不要用旧配置探测另一种服务的图或模型。
+    const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value && !providerMismatch.value
+      ? String(props.config.checkpoint ?? '').trim() : ''
+    const result = workflowNodeTypes.value.length && !providerMismatch.value
       ? await probeSavedNodeConnection(effectiveId.value, undefined, undefined, workflowNodeTypes.value)
       : await probeSavedNodeConnection(effectiveId.value, props.nodeType, checkpoint || undefined)
     if (alive && sequence === selectedSequence && key === selectedKey.value) selectedProbe.value = result
@@ -291,13 +301,17 @@ async function refreshSelected() {
     if (alive && sequence === selectedSequence) finishSelectedProbe()
   }
 }
-async function loadConnections() {
+function loadConnections(shared = false) {
+  waitingForCatalog = true
   selectedSequence += 1
   selectedProbe.value = null
   selectedError.value = ''
   selectedCancelled.value = false
   probing.value = false
-  if (await connectionStore.loadConnections() && alive) void refreshSelected()
+  if (shared) void connectionStore.loadSharedConnections()
+  else void connectionStore.loadConnections()
+  // 挂载恰好赶上共享读取发布时，已有目录可直接用，不必等待下一次就绪变化。
+  if (ready.value) void refreshSelected()
 }
 function chooseConnection(event: Event) {
   const id = (event.target as HTMLSelectElement).value
@@ -331,7 +345,9 @@ function handleDialogKeydown(event: KeyboardEvent) {
 // 字段改正后不在后续输入中重新弹出，除非用户再次触发本地校验。
 watch(validationKey, (key) => { if (!key) validationTarget.value = null }, { flush: 'sync' })
 watch(() => [form.provider, form.baseUrl], () => { if (open.value) invalidateForm() }, { flush: 'sync' })
-watch(() => [props.nodeId, props.nodeType], () => { close(false); void loadConnections() }, { immediate: true, flush: 'sync' })
+// 目录就绪属于共享读取，不属于最后发起读取的面板；仅补齐仍在等待的诊断。
+watch(ready, (loaded) => { if (loaded && waitingForCatalog) void refreshSelected() })
+watch(() => [props.nodeId, props.nodeType], () => { close(false); loadConnections(true) }, { immediate: true, flush: 'sync' })
 watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'sync' })
 watch(saveOutcome, (outcome) => {
   if (outcome?.status !== 'saved') return
@@ -372,12 +388,23 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
     <p v-if="listError" role="alert" class="text-xs text-status-error">{{ listError }}</p>
     <p v-if="missingConnection" data-testid="missing-connection" role="alert" class="text-xs leading-5 text-status-error">{{ t('missingConnection') }}</p>
     <p v-if="selectedError" role="alert" class="text-xs text-status-error">{{ t('requestFailed') }}: {{ selectedError }}</p>
-    <div v-if="selectedProbe" data-testid="selected-status" class="space-y-1 text-xs leading-5" :class="selectedProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'">
-      <p class="font-semibold">{{ t(`status.${selectedProbe.status}`) }}</p><p>{{ selectedProbe.message }}</p>
-      <p class="text-text-muted">{{ t('backend') }}</p>
-      <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
+    <!-- 与新增／编辑向导一致：先挂载状态区，只播报结果标题和说明。 -->
+    <div
+      :data-testid="selectedProbe ? 'selected-status' : undefined"
+      :class="selectedProbe ? ['space-y-1 text-xs leading-5', selectedProbe.status === 'usable' ? 'text-status-success' : 'text-status-warning'] : 'sr-only'"
+    >
+      <div role="status" aria-atomic="true" class="space-y-1" data-testid="selected-probe-announcement">
+        <template v-if="selectedProbe">
+          <p class="font-semibold">{{ t(`status.${selectedProbe.status}`) }}</p>
+          <p>{{ selectedProbe.message }}</p>
+        </template>
+      </div>
+      <template v-if="selectedProbe">
+        <p class="text-text-muted">{{ t('backend') }}</p>
+        <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
+      </template>
     </div>
-    <section v-if="selectedProbe" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
+    <section v-if="selectedProbe || providerMismatch" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
       <h3 :id="fieldId('checklist-title')" class="text-sm font-semibold text-text-primary">{{ t('checklistTitle') }}</h3>
       <p class="text-xs leading-5 text-text-muted">{{ t('checklistScope') }}</p>
       <p v-if="!checklist.length" data-testid="checklist-clear" role="status" class="text-xs text-status-success">{{ t('checklistClear') }}</p>
@@ -392,10 +419,12 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
         </li>
       </ul>
     </section>
-    <p v-if="checkpointRequired" data-testid="checkpoint-required" role="alert" class="text-xs text-status-warning">{{ t('checkpointRequired') }}</p>
-    <div class="space-y-3 border-t border-app-border pt-3">
-      <p class="text-sm font-semibold text-text-primary">{{ t('choices') }}</p>
+    <p v-if="checkpointRequired && !providerMismatch" data-testid="checkpoint-required" role="alert" class="text-xs text-status-warning">{{ t('checkpointRequired') }}</p>
+    <fieldset :disabled="providerMismatch" class="min-w-0 space-y-3 border-t border-app-border pt-3">
+      <legend class="sr-only">{{ t('choices') }}</legend>
+      <p class="text-sm font-semibold text-text-primary" aria-hidden="true">{{ t('choices') }}</p>
       <p v-if="!connectionId" data-testid="legacy-model-hint" class="text-xs leading-5 text-text-muted">{{ t('selectConnectionForModels') }}</p>
+      <p v-if="importedGenerationApi" data-testid="imported-api-model-hint" data-config-field="lora" tabindex="-1" class="text-xs leading-5 text-text-muted">{{ t('importedApiModelHint') }}</p>
       <label v-for="field in modelFields" :key="field.key" class="block text-xs font-medium text-text-primary">
         {{ t(field.key) }}
         <select :id="fieldId(field.key)" :data-config-field="field.key" :data-testid="`model-${field.key}`" class="mt-1 w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm" :disabled="!connectionId" :value="currentValue(field.key)" @change="emit('updateConfig', field.key, ($event.target as HTMLSelectElement).value)">
@@ -403,11 +432,13 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <option v-if="unsupported(field.key, field.catalog)" :value="currentValue(field.key)">{{ currentValue(field.key) }} (?)</option>
           <option v-for="option in options(field.catalog)" :key="option" :value="option">{{ option }}</option>
         </select>
-        <span v-if="unsupported(field.key, field.catalog)" class="mt-1 block font-normal leading-5 text-status-warning" :data-testid="`unsupported-${field.key}`">{{ t('retained', { value: currentValue(field.key) }) }}</span>
-        <span v-if="!knownCatalog(field.catalog)" class="mt-1 block font-normal text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</span>
-        <span v-else-if="!options(field.catalog).length" class="mt-1 block font-normal text-text-muted">{{ t('emptyCatalog') }}</span>
+        <span v-if="!providerMismatch && unsupported(field.key, field.catalog)" class="mt-1 block font-normal leading-5 text-status-warning" :data-testid="`unsupported-${field.key}`">{{ t('retained', { value: currentValue(field.key) }) }}</span>
+        <template v-if="!providerMismatch">
+          <span v-if="!knownCatalog(field.catalog)" class="mt-1 block font-normal text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</span>
+          <span v-else-if="!options(field.catalog).length" class="mt-1 block font-normal text-text-muted">{{ t('emptyCatalog') }}</span>
+        </template>
       </label>
-      <div v-if="nodeType === 'IMAGE_GENERATION'" :id="fieldId('lora')" data-config-field="lora" tabindex="-1" class="space-y-2 text-xs">
+      <div v-if="nodeType === 'IMAGE_GENERATION' && !importedGenerationApi" :id="fieldId('lora')" data-config-field="lora" tabindex="-1" class="space-y-2 text-xs">
         <p class="font-medium text-text-primary">{{ t('lora') }}</p>
         <p v-if="invalidLora" role="alert" class="break-all text-status-warning">{{ t('retained', { value: JSON.stringify(config.lora) }) }}</p>
         <div v-for="(item, index) in loras" :key="index" class="space-y-2 rounded-lg border border-app-border bg-white p-2">
@@ -420,13 +451,15 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
             <label class="flex min-w-0 items-center gap-2">{{ t('weight') }}<input :data-config-field="`lora.${index}.weight`" type="number" step="0.05" class="w-20 rounded border border-app-border p-1" :disabled="!connectionId" :value="String(loraWeight(item))" @input="updateLora(index, 'weight', ($event.target as HTMLInputElement).value)" /></label>
             <button type="button" class="ml-auto text-status-error disabled:opacity-50" :disabled="!connectionId" @click="emit('updateConfig', 'lora', loras.filter((_, itemIndex) => itemIndex !== index))">{{ t('remove') }}</button>
           </div>
-          <p v-if="loraName(item) && !options('loras').includes(loraName(item))" class="text-status-warning">{{ t('retained', { value: loraName(item) }) }}</p>
+          <p v-if="!providerMismatch && loraName(item) && !options('loras').includes(loraName(item))" class="text-status-warning">{{ t('retained', { value: loraName(item) }) }}</p>
         </div>
-        <p v-if="!knownCatalog('loras')" class="text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</p>
-        <p v-else-if="!options('loras').length" class="text-text-muted">{{ t('emptyCatalog') }}</p>
+        <template v-if="!providerMismatch">
+          <p v-if="!knownCatalog('loras')" class="text-text-muted">{{ selectedProbe ? t('unknownCatalog') : t('notTested') }}</p>
+          <p v-else-if="!options('loras').length" class="text-text-muted">{{ t('emptyCatalog') }}</p>
+        </template>
         <button type="button" class="rounded-lg border border-app-border bg-white px-3 py-2 disabled:opacity-50" :disabled="invalidLora || !connectionId" @click="addLora">{{ t('addLora') }}</button>
       </div>
-    </div>
+    </fieldset>
     <Teleport to="body">
       <div v-if="open" class="fixed inset-0 z-[150] grid place-items-center overflow-y-auto bg-slate-950/55 p-4" @click.self="close()">
         <section role="dialog" aria-modal="true" :aria-labelledby="`connection-title-${nodeId}`" class="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl border border-app-border bg-white p-5 shadow-panel" data-testid="connection-dialog" @keydown="handleDialogKeydown">

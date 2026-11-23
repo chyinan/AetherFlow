@@ -8,6 +8,7 @@ import {
   type WorkflowRunViewDTO,
 } from '@/api/modules/workflow'
 import {
+  isWorkflowWaitingMarkerOnly,
   mergeHumanApprovalState,
   mapObservationToRunPatch,
   mapRuntimeEventToLogEntry,
@@ -158,7 +159,7 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
     retryCount: runtimeRetryCount(node.latestEventType, node.attributes),
     ...(approval !== undefined ? { approval } : {}),
     ...(node.attributes?.reused === true ? { reused: true } : {}),
-    output: Object.keys(node.attributes ?? {}).length > 0
+    output: Object.keys(node.attributes ?? {}).length > 0 && !isWorkflowWaitingMarkerOnly(node.latestEventType, node.attributes)
       ? JSON.stringify(node.attributes)
       : node.latestEventType || node.status || status,
   }
@@ -194,6 +195,7 @@ function mapBackendRun(view: WorkflowRunViewDTO): WorkflowRun {
     definitionId,
     currentNodeId: view.currentNodeId,
     backendStatus: view.status,
+    ...(typeof view.updatedAt === 'string' ? { snapshotUpdatedAt: view.updatedAt } : {}),
     status: mapRuntimeStateToRunStatus(toRuntimeState(view.status)),
     startedAt: formatDateTime(view.startedAt ?? view.updatedAt),
     durationMs: Math.max(0, Number(view.durationMs ?? 0)),
@@ -203,7 +205,6 @@ function mapBackendRun(view: WorkflowRunViewDTO): WorkflowRun {
     queueName: 'workflow-runtime',
     progress: progressFromRun(view, nodeStates),
     nodeStates,
-    artifactCount: 0,
     artifactNames: [],
   }
 }
@@ -230,7 +231,6 @@ function createBackendRunPlaceholder(runId: string): WorkflowRun {
     queueName: 'workflow-runtime',
     progress: 0,
     nodeStates: [],
-    artifactCount: 0,
     artifactNames: [],
   }
 }

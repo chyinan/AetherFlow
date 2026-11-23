@@ -231,7 +231,7 @@ describe('节点连接弹窗模态交互', () => {
     expect(document.activeElement).toBe(opener)
     opener.click()
     await flushPromises()
-    const reopened = document.querySelector('[role="status"]')
+    const reopened = document.querySelector('[data-testid="connection-dialog"] [role="status"]')
     expect(reopened).not.toBe(announcement)
     expect(reopened?.textContent?.trim()).toBe('')
   })

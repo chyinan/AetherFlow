@@ -111,6 +111,39 @@ describe('真实工作流页面体验集成', () => {
     expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(false)
     expect(document.activeElement).toBe(toolbar.element)
   })
+  it('首跑向导从当前运行直达该次成品，不经过全部成品列表', async () => {
+    const { router, runs } = await setup()
+    runs.currentRun = { id: 'run-42', workflowId: '101', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
+    await wrapper!.get('[data-action="workflow-guide"]').trigger('click')
+    await flushPromises()
+
+    const entry = wrapper!.get('[data-testid="workflow-starter-guide"] a')
+    expect(router.resolve(entry.attributes('href')!).query).toEqual({ runId: 'run-42' })
+    expect(entry.text()).toBe('查看本次成品')
+    await entry.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/files?runId=run-42')
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
+  it('没有本工作流运行时保留通用文件入口，运行变化不沿用旧筛选', async () => {
+    const { router, runs } = await setup()
+    await wrapper!.get('[data-action="workflow-guide"]').trigger('click')
+    await flushPromises()
+    const currentEntry = () => wrapper!.get('[data-testid="workflow-starter-guide"] a')
+    expect(currentEntry().attributes('href')).toBe('/files')
+    expect(currentEntry().text()).toBe('打开文件页')
+    runs.currentRun = { id: 'run-43', workflowId: '101', status: 'running', backendStatus: 'RUNNING', nodeStates: [] } as never
+    await flushPromises()
+    expect(router.resolve(currentEntry().attributes('href')!).query).toEqual({ runId: 'run-43' })
+    runs.currentRun = { id: 'run-44', workflowId: 'other', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
+    await flushPromises()
+    expect(currentEntry().attributes('href')).toBe('/files')
+    expect(currentEntry().text()).toBe('打开文件页')
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
   it('模板应用打开首跑向导，关闭可重新进入，不沿用旧运行的成功状态', async () => {
     const { store, runs } = await setup()
     runs.currentRun = { id: 'old', workflowId: 'other', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
@@ -240,4 +273,33 @@ describe('运行前检查的键盘修复流程', () => {
     expect(document.activeElement).toBe(toolbar.element)
     expect(api.startRun).not.toHaveBeenCalled()
   })
+})
+
+it('内置 Media digest 不引导设置不存在的导出格式，仍可定位总结模型', async () => {
+  // 受控模板 API 返回 WorkflowServiceImpl.mediaDigestTemplate 的同一节点与配置。
+  const mediaDigest: WorkflowDefinition = {
+    id: 'media-digest', name: 'Media digest',
+    ...mapBackendDefinitionGraph([
+      { nodeId: 'start', nodeType: 'START', displayName: 'Start', config: { nextNodes: ['upload'] } },
+      { nodeId: 'upload', nodeType: 'UPLOAD', displayName: 'Input media', config: { nextNodes: ['whisper'], fileIdVariable: 'fileId' } },
+      { nodeId: 'whisper', nodeType: 'WHISPER', displayName: 'Transcribe media', config: { nextNodes: ['summary'], fileUrlVariable: 'fileUrl', language: 'auto' } },
+      { nodeId: 'summary', nodeType: 'SUMMARY', displayName: 'Summarize transcript', config: { nextNodes: ['end'], textVariable: 'text' } },
+      { nodeId: 'end', nodeType: 'END', displayName: 'Complete', config: {} },
+    ]),
+  }
+  api.listWorkflowTemplates.mockResolvedValue([mediaDigest])
+  await setup()
+  await wrapper!.get('[data-action="workflow-templates"]').trigger('click')
+  await flushPromises()
+  await wrapper!.findAll('[role="dialog"] button').find(button => button.text().includes('Media digest'))!.trigger('click')
+  await flushPromises()
+  const guide = wrapper!.get('[data-testid="workflow-starter-guide"]')
+  expect(guide.text()).toContain('Whisper 环境助手')
+  expect(guide.text()).toContain('总结模型')
+  expect(guide.text()).not.toContain('输出格式')
+  await guide.findAll('button').find(button => button.text() === 'Summarize transcript')!.trigger('click')
+  await flushPromises()
+  expect(useUiStore().selectedNodeId).toBe('summary')
+  expect(document.activeElement?.getAttribute('data-config-field')).toBe('model')
+  expect(api.startRun).not.toHaveBeenCalled()
 })

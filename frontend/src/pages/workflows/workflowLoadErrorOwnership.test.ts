@@ -80,7 +80,7 @@ afterEach(() => {
 async function setup(
   initialPath = '/workflows/101?projectId=11',
   initialProjects = [project('11', ['101']), project('22', ['202'])],
-  pendingResources: { catalog?: Promise<boolean>; history?: Promise<void> } = {},
+  pendingResources: { catalog?: Promise<boolean>; history?: Promise<void>; runSelection?: Promise<null> } = {},
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -91,7 +91,7 @@ async function setup(
   projectStore.currentProjectId = initialPath.includes('projectId=22') ? '22' : initialPath.includes('projectId=11') ? '11' : ''
   const runStore = useRunStore()
   vi.spyOn(runStore, 'loadRuns').mockImplementation(() => pendingResources.history ?? Promise.resolve())
-  vi.spyOn(runStore, 'selectRunForWorkflow').mockResolvedValue(null)
+  vi.spyOn(runStore, 'selectRunForWorkflow').mockImplementation(() => pendingResources.runSelection ?? Promise.resolve(null))
   vi.spyOn(runStore, 'subscribeCurrentRun').mockImplementation(() => undefined)
   vi.spyOn(runStore, 'clearCurrentRun').mockImplementation(() => undefined)
   vi.spyOn(useFileStore(), 'loadFiles').mockResolvedValue(undefined)
@@ -107,6 +107,7 @@ async function setup(
   await router.push(initialPath)
   await router.isReady()
   wrapper = mount(RouterView, {
+    attachTo: document.body,
     global: {
       plugins: [pinia, router, i18n],
       stubs: { teleport: true, WorkflowCanvas: true, NodeInspector: true, RunConsole: true, AICopilotPanel: true },
@@ -119,6 +120,193 @@ async function setup(
 function workflowGetCount() {
   return http.get.mock.calls.filter(([url]) => /^\/workflows\/definitions\/\d+$/.test(url)).length
 }
+
+function failFirstDefinitionThen(retryRequest: ReturnType<typeof deferred<unknown>>) {
+  let attempts = 0
+  http.get.mockImplementation((url: string) => {
+    if (url !== '/workflows/definitions/101') return defaultResponse(url)
+    attempts += 1
+    return attempts === 1 ? Promise.reject(new Error('首次定义读取失败')) : retryRequest.promise
+  })
+}
+
+describe('定义读取失败后，在重试过程中保留退出入口和键盘焦点', () => {
+  it('连续激活仅重读一次，等待和再次失败都保留同一按钮及焦点', async () => {
+    const retryRequest = deferred<unknown>()
+    failFirstDefinitionThen(retryRequest)
+    const { workflowStore } = await setup()
+    const button = wrapper!.get<HTMLButtonElement>('[data-testid="retry-workflow-load"]').element
+    button.focus()
+    button.click()
+    button.click()
+    await flushPromises()
+
+    expect(workflowGetCount()).toBe(2)
+    expect(wrapper!.get('[data-testid="retry-workflow-load"]').element).toBe(button)
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(button)
+    expect(wrapper!.find('a[href="/projects"]').exists()).toBe(true)
+    expect(wrapper!.text()).not.toContain('首次定义读取失败')
+    expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+
+    retryRequest.reject(new Error('第二次定义读取失败'))
+    await flushPromises()
+    expect(workflowStore.loadingError).toContain('第二次定义读取失败')
+    expect(wrapper!.get('[data-testid="retry-workflow-load"]').element).toBe(button)
+    expect(button.getAttribute('aria-disabled')).not.toBe('true')
+    expect(document.activeElement).toBe(button)
+    expect(http.post).not.toHaveBeenCalled()
+    expect(http.put).not.toHaveBeenCalled()
+  })
+
+  it.each(['success', 'failure'] as const)('用户可在等待时返回项目，迟到 %s 回执不带回工作流页', async (result) => {
+    const retryRequest = deferred<unknown>()
+    failFirstDefinitionThen(retryRequest)
+    const { router: testRouter, runStore } = await setup()
+    await wrapper!.get('[data-testid="retry-workflow-load"]').trigger('click')
+    const link = wrapper!.get<HTMLAnchorElement>('a[href="/projects"]')
+    link.element.focus()
+    await link.trigger('click')
+    await flushPromises()
+
+    expect(testRouter.currentRoute.value.path).toBe('/projects')
+    if (result === 'success') retryRequest.resolve(definition('101', 11))
+    else retryRequest.reject(new Error('已离开后收到失败'))
+    await flushPromises()
+    expect(wrapper!.find('[data-testid="projects-route"]').exists()).toBe(true)
+    expect(wrapper!.text()).not.toContain('已离开后收到失败')
+    expect(runStore.subscribeCurrentRun).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('成功后只在原按钮仍持有焦点时交给标题（等待辅助资源：%s）', async (withAuxiliary) => {
+    const retryRequest = deferred<unknown>()
+    const catalog = deferred<boolean>()
+    failFirstDefinitionThen(retryRequest)
+    const { runStore } = await setup(undefined, undefined, withAuxiliary ? { catalog: catalog.promise } : {})
+    const button = wrapper!.get<HTMLButtonElement>('[data-testid="retry-workflow-load"]').element
+    button.focus()
+    button.click()
+    retryRequest.resolve(definition('101', 11))
+    await flushPromises()
+    if (withAuxiliary) {
+      expect(wrapper!.get('[data-testid="retry-workflow-load"]').element).toBe(button)
+      expect(document.activeElement).toBe(button)
+      expect(wrapper!.find('a[href="/projects"]').exists()).toBe(true)
+      expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+      catalog.resolve(true)
+      await flushPromises()
+    }
+    const heading = wrapper!.get('h1').element
+    expect(heading.textContent).toBe('工作流101')
+    expect(document.activeElement).toBe(heading)
+    expect(runStore.subscribeCurrentRun).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('重试读到定义后，不额外等待定向运行读取才显示编辑器（等待辅助资源：%s）', async (withAuxiliary) => {
+    const retryRequest = deferred<unknown>()
+    const catalog = deferred<boolean>()
+    const runSelection = deferred<null>()
+    failFirstDefinitionThen(retryRequest)
+    const { runStore } = await setup(undefined, undefined, {
+      ...(withAuxiliary ? { catalog: catalog.promise } : {}),
+      runSelection: runSelection.promise,
+    })
+    const button = wrapper!.get<HTMLButtonElement>('[data-testid="retry-workflow-load"]').element
+    button.focus()
+    button.click()
+    retryRequest.resolve(definition('101', 11))
+    await flushPromises()
+    expect(runStore.selectRunForWorkflow).toHaveBeenCalledExactlyOnceWith('101', 101)
+    expect(runStore.subscribeCurrentRun).not.toHaveBeenCalled()
+    if (withAuxiliary) {
+      expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+      catalog.resolve(true)
+      await flushPromises()
+    }
+    const heading = wrapper!.get('h1').element
+    expect(heading.textContent).toBe('工作流101')
+    runSelection.resolve(null)
+    await flushPromises()
+    expect(wrapper!.get('h1').element).toBe(heading)
+    expect(runStore.subscribeCurrentRun).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('B 已读后不等 A 的定义回执（辅助资源还在等待：%s）', async (withAuxiliary) => {
+    const openingA = deferred<unknown>()
+    const openingB = deferred<unknown>()
+    const catalog = deferred<boolean>()
+    http.get.mockImplementation((url: string) => {
+      if (url === '/workflows/definitions/101') return openingA.promise
+      if (url === '/workflows/definitions/202') return openingB.promise
+      return defaultResponse(url)
+    })
+    const { router: testRouter, runStore, workflowStore } = await setup(undefined, undefined,
+      withAuxiliary ? { catalog: catalog.promise } : {})
+    await testRouter.push('/workflows/202?projectId=22')
+    await flushPromises()
+    openingB.resolve(definition('202', 22))
+    await flushPromises()
+    if (withAuxiliary) {
+      expect(wrapper!.find('[data-testid="workflow-editor"]').exists()).toBe(false)
+      catalog.resolve(true)
+      await flushPromises()
+    }
+    expect(workflowStore.workflowId).toBe('202')
+    expect(wrapper!.get('h1').text()).toBe('工作流202')
+    openingA.reject(new Error('已离开的 A 读取失败'))
+    await flushPromises()
+    expect(wrapper!.get('h1').text()).toBe('工作流202')
+    expect(wrapper!.text()).not.toContain('已离开的 A 读取失败')
+    expect(runStore.selectRunForWorkflow).toHaveBeenCalledExactlyOnceWith('202', 202)
+    expect(runStore.subscribeCurrentRun).not.toHaveBeenCalled()
+  })
+
+  it.each(['success', 'failure'] as const)('离开编辑器后迟到的 %s 定义不能替换最后成功打开的工作流', async (result) => {
+    const openingA = deferred<unknown>()
+    http.get.mockImplementation((url: string) => url === '/workflows/definitions/101'
+      ? openingA.promise
+      : defaultResponse(url))
+    const { router: testRouter, workflowStore } = await setup('/workflows/202?projectId=22')
+    expect(workflowStore.workflowId).toBe('202')
+
+    await testRouter.push('/workflows/101?projectId=11')
+    await flushPromises()
+    expect(workflowStore.loading).toBe(true)
+    await testRouter.push('/projects')
+    await flushPromises()
+    if (result === 'success') openingA.resolve(definition('101', 11))
+    else openingA.reject(new Error('已关闭编辑器后的读取失败'))
+    await flushPromises()
+    expect(workflowStore.workflowId).toBe('202')
+    expect(workflowStore.workflowName).toBe('工作流202')
+    expect(workflowStore.loadingError).toBeNull()
+    expect(workflowStore.loading).toBe(false)
+    expect(wrapper!.find('[data-testid="projects-route"]').exists()).toBe(true)
+  })
+
+  it('用户移到外部或已经切换工作流后不抢回焦点', async () => {
+    const retryRequest = deferred<unknown>()
+    failFirstDefinitionThen(retryRequest)
+    const { router: testRouter, runStore } = await setup()
+    const external = document.createElement('button')
+    document.body.append(external)
+    try {
+      const retry = wrapper!.get<HTMLButtonElement>('[data-testid="retry-workflow-load"]').element
+      retry.focus()
+      retry.click()
+      external.focus()
+      await testRouter.push('/workflows/202?projectId=22')
+      await flushPromises()
+      retryRequest.resolve(definition('101', 11))
+      await flushPromises()
+      expect(wrapper!.get('h1').text()).toBe('工作流202')
+      expect(document.activeElement).toBe(external)
+      expect(runStore.subscribeCurrentRun).not.toHaveBeenCalled()
+    } finally {
+      external.remove()
+    }
+  })
+})
 
 describe('工作流打开错误与项目目录错误分别归属', () => {
   it('项目目录失败时保留成功加载的画布，并显示独立项目重试', async () => {
@@ -300,7 +488,8 @@ describe('工作流打开错误与项目目录错误分别归属', () => {
     expect(runStore.loadRuns).toHaveBeenCalledTimes(1)
     expect(workflowStore.loading).toBe(true)
     expect(wrapper!.text()).not.toContain('当前定义读取失败')
-    expect(wrapper!.find('[data-testid="retry-workflow-load"]').exists()).toBe(false)
+    expect(wrapper!.get('[data-testid="retry-workflow-load"]').attributes('aria-disabled')).toBe('true')
+    expect(wrapper!.find('a[href="/projects"]').exists()).toBe(true)
 
     retryRequest.resolve(definition('101', 11))
     await flushPromises()

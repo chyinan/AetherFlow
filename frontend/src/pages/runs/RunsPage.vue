@@ -11,7 +11,7 @@ import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
 import SubworkflowChildRuns from '@/components/run/SubworkflowChildRuns.vue'
 import FailedNodeRerunDialog from '@/components/run/FailedNodeRerunDialog.vue'
-import type { RunNodeState } from '@/types/run'
+import type { RunNodeState, WorkflowCancellationCleanupStatus } from '@/types/run'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 import { runArtifactsLocation } from '@/utils/runNavigation'
@@ -53,6 +53,7 @@ const pageError = computed(() => (selectedRouteId.value ? runStore.error : null)
 const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore.currentRun && !runStore.historyLoading && !runStore.historyError
   && !visibleRuns.value.some(run => run.id === runStore.currentRun?.id))
 let historyRequest: Promise<void> | undefined
+let confirmedHistoryKey: string | undefined
 let routeGeneration = 0
 let detailNavigationGeneration = 0
 const defaultSelectionReady = ref(false)
@@ -60,14 +61,19 @@ const detailFocusCleanups = new Set<() => void>()
 let active = true
 
 function requestHistoryPage() {
+  const requestKey = historyKey.value
   const workflowFilter = filters.value.workflowId || undefined
   // 数字工作流 ID 是定义 ID，精确匹配；其他取值沿用旧参数保持兼容。
   const definitionId = workflowFilter && /^\d+$/.test(workflowFilter) ? Number(workflowFilter) : undefined
-  historyRequest = runStore.loadHistoryPage({
+  const request = runStore.loadHistoryPage({
     ...(definitionId !== undefined ? { definitionId } : workflowFilter ? { workflowId: workflowFilter } : {}),
     status: filters.value.status || undefined,
     page: filters.value.page,
     pageSize: filters.value.pageSize,
+  })
+  const requestId = runStore.historyRequestId
+  historyRequest = request.then(() => {
+    if (active && runStore.historyRequestId === requestId && !runStore.historyError) confirmedHistoryKey = requestKey
   })
   return historyRequest
 }
@@ -117,6 +123,8 @@ const dismissedApprovalKey = ref<string | null>(null)
 const cancellingRunIds = ref(new Set<string>())
 const cancellationErrors = ref<Record<string, string>>({})
 const cancellationCleanupErrorState = ref<{ runId: string; selectionGeneration: number; message: string } | null>(null)
+type CleanupAttempt = Pick<WorkflowCancellationCleanupStatus, 'status' | 'attemptCount'>
+const cancellationCleanupRetryError = ref<(CleanupAttempt & { message: string }) | null>(null)
 const retryingCancellationCleanupRunIds = ref(new Set<string>())
 const cancellationCleanupRegion = ref<HTMLElement | null>(null)
 const cancellationCleanupManualRefresh = ref<symbol | null>(null)
@@ -215,15 +223,20 @@ async function cancelCurrentRun() {
 }
 
 async function retryCancellationCleanup() {
-  const run = runStore.currentRun
+  const run = selectedRun.value
+  const cleanup = run?.cancellationCleanup
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
-  if (!run || !instanceId || retryingCancellationCleanupRunIds.value.has(run.id)) return
+  if (!run || !instanceId || !cleanup?.retryable || retryingCancellationCleanupRunIds.value.has(run.id)) return
+  const attempt = { status: cleanup.status, attemptCount: cleanup.attemptCount }
   retryingCancellationCleanupRunIds.value.add(run.id)
-  const { reportError } = beginCancellationCleanupFeedback(run.id)
+  cancellationCleanupRetryError.value = null
+  const isCurrent = beginCancellationCleanupFeedback(run.id)
   try {
     await runStore.retryCancellationCleanup(instanceId)
   } catch (error) {
-    reportError(error)
+    if (isCurrent() && !hasNewCleanupAttempt(selectedRun.value?.cancellationCleanup, attempt)) {
+      cancellationCleanupRetryError.value = { ...attempt, message: toApiError(error, 'workflow').message }
+    }
   } finally {
     retryingCancellationCleanupRunIds.value.delete(run.id)
   }
@@ -233,11 +246,17 @@ async function refreshCancellationCleanup() {
   const run = selectedRun.value
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || run.backendStatus !== 'CANCELLED' || !instanceId) return
-  const { isCurrent, reportError } = beginCancellationCleanupFeedback(run.id)
+  const isCurrent = beginCancellationCleanupFeedback(run.id)
   try {
     await runStore.loadCancellationCleanup(instanceId, isCurrent)
   } catch (error) {
-    reportError(error)
+    if (isCurrent()) {
+      cancellationCleanupErrorState.value = {
+        runId: run.id,
+        selectionGeneration: cancellationCleanupSelectionGeneration,
+        message: toApiError(error, 'workflow').message,
+      }
+    }
   }
 }
 
@@ -266,20 +285,18 @@ function beginCancellationCleanupFeedback(runId: string) {
   const requestId = ++cancellationCleanupFeedbackRequestId
   cancellationCleanupErrorState.value = null
   // 同一选择内，较早的轮询失败也不能覆盖较新的读取或重试结果。
-  const isCurrent = () => active && selectedRun.value?.id === runId
+  return () => active && selectedRun.value?.id === runId
     && selectionGeneration === cancellationCleanupSelectionGeneration
     && requestId === cancellationCleanupFeedbackRequestId
-  return {
-    isCurrent,
-    reportError(error: unknown) {
-      if (!isCurrent()) return
-      cancellationCleanupErrorState.value = {
-        runId,
-        selectionGeneration,
-        message: toApiError(error, 'workflow').message,
-      }
-    },
-  }
+}
+
+function hasNewCleanupAttempt(cleanup: CleanupAttempt | undefined, previous: CleanupAttempt) {
+  // 相同的失败快照不能确认这次重试；若已有更新进展，以当前服务端状态为准。
+  return cleanup && (
+    cleanup.status === 'COMPLETE' || cleanup.status === 'NOT_REQUIRED'
+    || cleanup.attemptCount > previous.attemptCount
+    || (cleanup.attemptCount === previous.attemptCount && cleanup.status !== previous.status)
+  )
 }
 
 watch([
@@ -291,14 +308,19 @@ watch([
     if (!previous || previous[0] !== runId) {
       cancellationCleanupSelectionGeneration += 1
       cancellationCleanupErrorState.value = null
+      cancellationCleanupRetryError.value = null
       cancellationCleanupManualRefresh.value = null
     }
     if (!runId || backendStatus !== 'CANCELLED') {
       cancellationCleanupErrorState.value = null
+      cancellationCleanupRetryError.value = null
       cancellationCleanupManualRefresh.value = null
       if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
       cancellationCleanupPoll = undefined
       return
+    }
+    if (cancellationCleanupRetryError.value && hasNewCleanupAttempt(cleanup, cancellationCleanupRetryError.value)) {
+      cancellationCleanupRetryError.value = null
     }
     if (!cleanup && !refreshingCancellationCleanup.value) void refreshCancellationCleanup()
     if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
@@ -354,12 +376,13 @@ async function syncRunFromRoute(runId: string | undefined, ready?: Promise<void>
   dismissedApprovalKey.value = null
   rerunTarget.value = null
   if (runId) {
-    // 普通列表行、已知摘要和整页刷新保持原路径；只让在途列表中未确认的明确目标独立读取。
-    const cold = intent === 'retry-detail' || (intent === 'select' && Boolean(ready)
-      && runStore.currentRun?.id !== runId && !runStore.historyRuns.some(run => run.id === runId))
+    // 旧查询仍保留在 store 中，但不能为新查询确认精确 ID，也不能阻塞独立详情。
+    const sameConfirmedPage = confirmedHistoryKey === historyKey.value
+    const cold = intent === 'retry-detail' || (intent === 'select' && runStore.currentRun?.id !== runId
+      && (!sameConfirmedPage || (Boolean(ready) && !runStore.historyRuns.some(run => run.id === runId))))
     coldDetailTarget.value = cold ? runId : undefined
     await runStore.selectRun(runId, {
-      skipList: true, historyReady: ready, refreshLogs: intent !== 'select',
+      skipList: true, historyReady: cold ? historyRequest : ready, refreshLogs: intent !== 'select',
       ...(cold ? { isColdHistoryTargetCurrent: () => active && generation === routeGeneration && selectedRouteId.value === runId } : {}),
     })
     return
@@ -649,7 +672,9 @@ watch(
               <div class="mt-2 h-1.5 rounded-full bg-app-muted">
                 <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${run.progress}%` }" />
               </div>
-              <p class="mt-2 text-xs text-text-muted">{{ run.startedAt }} · {{ run.artifactCount }} {{ t('runs.artifacts') }}</p>
+              <p class="mt-2 text-xs text-text-muted">
+                {{ run.startedAt }}<span v-if="run.artifactCount !== undefined"> · {{ run.artifactCount }} {{ t('runs.artifacts') }}</span>
+              </p>
             </button>
             <p v-if="runStore.historyLoading" role="status" data-testid="history-loading" class="py-4 text-sm text-text-muted">{{ historyText('loading') }}</p>
             <div v-else-if="runStore.historyError" role="alert" data-testid="history-error" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -714,7 +739,7 @@ watch(
               </div>
 
               <section
-                v-if="runStore.currentRun.backendStatus === 'CANCELLED' && (runStore.currentRun.cancellationCleanup || cancellationCleanupError || refreshingCancellationCleanup)"
+                v-if="runStore.currentRun.backendStatus === 'CANCELLED' && (runStore.currentRun.cancellationCleanup || cancellationCleanupError || cancellationCleanupRetryError || refreshingCancellationCleanup)"
                 ref="cancellationCleanupRegion"
                 data-testid="cancel-cleanup-status"
                 tabindex="-1"
@@ -726,6 +751,9 @@ watch(
                 <p v-if="cancellationCleanupMessage" class="mt-1">{{ cancellationCleanupMessage }}</p>
                 <p v-if="runStore.currentRun.cancellationCleanup?.lastError" class="mt-1 break-words text-xs text-status-error">
                   {{ runStore.currentRun.cancellationCleanup.lastError }}
+                </p>
+                <p v-if="cancellationCleanupRetryError" role="alert" class="mt-1 break-words text-xs text-status-error">
+                  {{ t('runs.cleanupRetryUnconfirmed') }} {{ cancellationCleanupRetryError.message }}
                 </p>
                 <p v-if="cancellationCleanupError" role="alert" class="mt-1 break-words text-xs text-status-error">
                   {{ t('runs.cleanupLoadFailed') }} {{ cancellationCleanupError }}
@@ -791,7 +819,14 @@ watch(
             </div>
             <div v-show="selectedDetailReady" class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
               <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="openRerun" />
-              <LogStream class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :logs="selectedDetailReady ? runStore.logs : []" />
+              <LogStream
+                class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full"
+                :run-id="selectedRun?.id"
+                :workflow-id="selectedRun?.workflowId"
+                :logs="selectedDetailReady ? runStore.logs : []"
+                :loading="selectedDetailReady && runStore.logsLoading"
+                :archive-unavailable="selectedDetailReady && runStore.currentLogHistoryUnavailable"
+              />
             </div>
           </section>
         </section>

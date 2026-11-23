@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { CUSTOM_NODE_STORAGE_KEY, customDefinitionKey, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, parseCustomDefinition, type CustomDefinition } from '@/utils/customNodes'
 import { readCustomNodeLibrary, withCustomNodeWriteLock } from '@/utils/customNodeStorage'
-import type { Connection } from '@vue-flow/core'
+import type { Connection, NodeChange } from '@vue-flow/core'
 import { toRaw } from 'vue'
 
 import { getWorkflowCapabilities } from '@/api/modules/ai'
@@ -482,6 +482,28 @@ export const useWorkflowStore = defineStore('workflow', {
       this.markDirty()
       return true
     },
+    recordKeyboardNodeMove(changes: readonly NodeChange[]) {
+      if (this.nodeDragSnapshot) return
+      // Vue Flow 已原地更新坐标；用同批事件的旧坐标重建移动前的历史快照。
+      // 指针拖动期间带 dragging=true，结束时不传新坐标，仍由拖动事务记录。
+      const before = new Map<string, CanvasPosition>()
+      for (const change of changes) {
+        if (change.type !== 'position' || change.dragging !== false || !change.from || !change.position) continue
+        const { from, position } = change
+        if (from.x !== position.x || from.y !== position.y) before.set(change.id, from)
+      }
+      if (before.size === 0 || !this.nodes.some((node) => before.has(node.id))) return
+
+      this.finishHttpRequestConfigEdit()
+      const snapshot = cloneGraph(this.nodes, this.edges)
+      for (const node of snapshot.nodes) {
+        const position = before.get(node.id)
+        if (position) node.position = { ...position }
+      }
+      this.historyPast = [...this.historyPast, snapshot].slice(-this.historyLimit)
+      this.historyFuture = []
+      this.markDirty()
+    },
     markDirty() {
       this.editRevision += 1
       this.dirty = true
@@ -649,6 +671,14 @@ export const useWorkflowStore = defineStore('workflow', {
       }
       // 复制请求只创建副本；由页面确认请求仍有效后导航，不能提前覆盖当前编辑。
       return workflowApi.copyWorkflow(String(this.backendDefinitionId), name)
+    },
+    setGraph({ nodes, edges }: Pick<WorkflowDefinition, 'nodes' | 'edges'>) {
+      const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
+        || serializeEdgesWithoutSelection(edges) !== serializeEdgesWithoutSelection(this.edges)
+      if (changed) this.recordHistory()
+      this.nodes = nodes
+      this.edges = edges
+      if (changed) this.markDirty()
     },
     setNodes(nodes: WorkflowGraphNode[]) {
       const changed = serializeNodesWithoutSelection(nodes) !== serializeNodesWithoutSelection(this.nodes)
@@ -872,8 +902,10 @@ export const useWorkflowStore = defineStore('workflow', {
       this.markDirty()
       return true
     },
-    async loadWorkflow(workflowId: string, options: { initialName?: string } = {}): Promise<boolean> {
+    async loadWorkflow(workflowId: string, options: { initialName?: string; isCurrent?: () => boolean } = {}): Promise<boolean> {
       const requestId = ++workflowLoadRequestCounter
+      // 页面离开后不提交迟到的定义或错误；同一读取负责清理自己的忙碌标记。
+      const isCurrentLoad = () => requestId === workflowLoadRequestCounter && (options.isCurrent?.() ?? true)
       saveQueues.delete(this)
       this.nodeDragSnapshot = null
       this.loading = true
@@ -886,7 +918,7 @@ export const useWorkflowStore = defineStore('workflow', {
       this.pendingSaveSubmission = null
       try {
         const workflow = await workflowApi.getWorkflow(workflowId)
-        if (requestId !== workflowLoadRequestCounter) {
+        if (!isCurrentLoad()) {
           return false
         }
 
@@ -920,7 +952,7 @@ export const useWorkflowStore = defineStore('workflow', {
         this.runError = null
         return true
       } catch (error) {
-        if (requestId !== workflowLoadRequestCounter) {
+        if (!isCurrentLoad()) {
           return false
         }
         const details = error instanceof Error && error.message

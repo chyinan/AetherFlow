@@ -77,6 +77,7 @@ const lastRetry = ref<(() => Promise<void>) | null>(null)
 const retrievalLoading = ref(false)
 const retrievalError = ref('')
 let retrievalRequestId = 0
+let datasetOpenRequestId = 0
 const importing = ref(false)
 const saving = ref(false)
 const createdDatasetId = ref('')
@@ -220,6 +221,7 @@ function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
 }
 
 function openCreateFlow(preferredSource: SourceType = 'file', targetDatasetId = '') {
+  datasetOpenRequestId += 1
   difyStore.pendingWizardDatasetId = targetDatasetId
   difyStore.pendingWizardPersistenceComplete = false
   difyStore.pendingWizardDataset = targetDatasetId ? selectedDataset.value ?? null : null
@@ -246,20 +248,23 @@ function resetRetrievalState() {
 }
 
 function backToList() {
+  datasetOpenRequestId += 1
   resetRetrievalState()
   viewMode.value = 'datasets'
   createStep.value = 1
 }
 
 async function openDataset(datasetId: string) {
+  const requestId = ++datasetOpenRequestId
   resetRetrievalState()
   pageError.value = ''
   lastRetry.value = null
   try {
     await difyStore.selectDataset(datasetId)
-    viewMode.value = 'documents'
+    // Store 可以正常结束已被替代的读取，不代表这次打开仍属于当前页面意图。
+    if (requestId === datasetOpenRequestId) viewMode.value = 'documents'
   } catch (error) {
-    setPageError(error, () => openDataset(datasetId))
+    if (requestId === datasetOpenRequestId) setPageError(error, () => openDataset(datasetId))
   }
 }
 
@@ -509,6 +514,7 @@ async function loadPage() {
 
 onMounted(loadPage)
 onBeforeUnmount(() => {
+  datasetOpenRequestId += 1
   difyStore.cancelIngestionRequests?.()
 })
 

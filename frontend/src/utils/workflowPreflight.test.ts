@@ -53,6 +53,28 @@ describe('静态预检分类与保存契约', () => {
     expect(issues.filter((item) => item.level === 'blocking')).toEqual([])
     expect(issues).toContainEqual(expect.objectContaining({ level: 'unknown', field: 'connectionId' }))
   })
+  it('真实图像节点目录的 OBJECT 原图字段接受对象 JSON 原文，双图均不被写回', () => {
+    const template = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: [
+      { name: 'workflowJson', type: 'STRING' }, { name: 'workflow', type: 'OBJECT' },
+    ] }
+    const raw = '\uFEFF{ "1": { "class_type": "KSampler", "inputs": { "seed": 9007199254740993 } } }'
+    const original = '{"nodes":[{"id":1,"type":"CustomPrompt"}],"links":[]}'
+    for (const fields of [{ workflow: raw, workflowJson: raw }, { workflow: original, workflowJson: raw }, { workflow: raw }]) {
+      const graph = node('image', 'image-generation', { provider: 'COMFYUI', mode: 'workflow', ...fields })
+      const before = structuredClone(graph)
+      expect(check([graph], [template]).filter((item) => item.level === 'blocking')).toEqual([])
+      expect(graph).toEqual(before)
+    }
+  })
+  it.each(['{', '[]', 'null', '{} {}'])('非对象或非法原图文本 %s 不通过类型预检', (workflowText) => {
+    const template = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: [
+      { name: 'workflowJson', type: 'STRING' }, { name: 'workflow', type: 'OBJECT' },
+    ] }
+    const issues = check([node('image', 'image-generation', {
+      provider: 'COMFYUI', mode: 'workflow', workflow: workflowText, workflowJson: '{"1":{"class_type":"KSampler"}}',
+    })], [template])
+    expect(issues).toContainEqual(expect.objectContaining({ level: 'blocking', nodeId: 'image', field: 'workflow', code: 'type' }))
+  })
   it('明确清空的执行图必须阻塞，不能悄悄回退原图', () => {
     const template = { ...nodeTemplates.find((item) => item.kind === 'image-generation')!, configSchema: [{ name: 'workflowJson', type: 'STRING' }, { name: 'workflow', type: 'OBJECT' }] }
     const issues = check([node('image', 'image-generation', { provider: 'COMFYUI', mode: 'workflow', workflow: { '1': { class_type: 'KSampler' } }, workflowJson: '' })], [template])

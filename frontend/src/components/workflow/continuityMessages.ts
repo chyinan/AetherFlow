@@ -2,6 +2,7 @@ export const continuityMessages = {
   'zh-CN': {
     leaveTitle: '离开前保存工作流？', leaveHint: '当前画布有未保存的修改。保存成功后将继续前往刚才选择的页面。',
     leaveSave: '保存并继续', leaveDiscard: '放弃修改并离开', leaveStay: '留在此页', saving: '正在保存…',
+    leaveSavedTitle: '工作流已保存', leaveSavedHint: '当前画布已保存。可以继续前往刚才选择的页面，或留在此页。', leaveContinue: '继续离开',
     leaveFailed: '保存未完成，画布和目标页面已保留，请重试或留在此页。',
     leaveChanged: '保存期间画布又有修改，请再次保存后继续。',
     sourceTitle: '来自失败运行的节点', sourceLoading: '正在确认来源运行…', sourceRetry: '重新读取来源运行',
@@ -16,6 +17,7 @@ export const continuityMessages = {
   'en-US': {
     leaveTitle: 'Save your workflow before leaving?', leaveHint: 'This canvas has unsaved changes. After saving, continue to the page you selected.',
     leaveSave: 'Save and continue', leaveDiscard: 'Discard and leave', leaveStay: 'Stay here', saving: 'Saving…',
+    leaveSavedTitle: 'Workflow saved', leaveSavedHint: 'This canvas is saved. Continue to the page you selected or stay here.', leaveContinue: 'Continue',
     leaveFailed: 'The save did not complete. Your canvas and destination are kept. Retry or stay here.',
     leaveChanged: 'The canvas changed during saving. Save again to continue.',
     sourceTitle: 'Node from a failed run', sourceLoading: 'Checking the source run…', sourceRetry: 'Reload source run',
@@ -30,6 +32,7 @@ export const continuityMessages = {
   'ja-JP': {
     leaveTitle: '離れる前にワークフローを保存しますか？', leaveHint: '未保存の変更があります。保存後に選択したページへ進みます。',
     leaveSave: '保存して続行', leaveDiscard: '変更を破棄して移動', leaveStay: 'このページに留まる', saving: '保存中…',
+    leaveSavedTitle: 'ワークフローを保存しました', leaveSavedHint: 'キャンバスは保存済みです。選択したページに移動するか、このページに留まれます。', leaveContinue: '移動する',
     leaveFailed: '保存できませんでした。キャンバスと移動先は保持されています。再試行するか、このページに留まってください。',
     leaveChanged: '保存中に変更がありました。もう一度保存してください。',
     sourceTitle: '失敗した実行のノード', sourceLoading: '元の実行を確認中…', sourceRetry: '元の実行を再取得',

@@ -353,6 +353,55 @@ describe('Copilot 自定义节点草稿确认闭环', () => {
     expect(library().libraryRevision).toBe(1)
   })
 
+  it.each(['validation', 'save'] as const)('%s 等待期间聊天回车遵守发送锁，结束后可发送保留的草稿', async waiting => {
+    const { save, apply } = await setup()
+    const validation = deferred<typeof ready>()
+    const held = deferred<void>()
+    if (waiting === 'validation') validateCanvasEdit.mockReturnValueOnce(validation.promise)
+    else lockHarness.hold(held.promise)
+    stream.mockResolvedValue({ id: 'chat-after-confirmation', conversationId: 'custom-conversation',
+      role: 'assistant', content: '收到后续问题。', createdAt: '12:01' })
+
+    await requestDraft()
+    const chatMode = wrapper!.findAll('[role="group"] button').find(button => button.text() === i18n.global.t('copilot.editor.chatMode'))!
+    await chatMode.trigger('click')
+    expect(chatMode.attributes('aria-pressed')).toBe('true')
+    const composer = wrapper!.get<HTMLTextAreaElement>('form textarea')
+    const send = wrapper!.get('form button[type="submit"]')
+    const explain = wrapper!.findAll('button').find(button => button.text() === i18n.global.t('copilot.quickExplainLatestError'))!
+    const text = '保留到确认完成后再发的聊天问题'
+    try {
+      await confirm().trigger('click')
+      await flushPromises()
+      expect(validateCanvasEdit).toHaveBeenCalledTimes(1)
+      expect(save).toHaveBeenCalledTimes(waiting === 'save' ? 1 : 0)
+      expect(apply).not.toHaveBeenCalled()
+      expect(send.attributes('disabled')).toBeDefined()
+      expect(explain.attributes('disabled')).toBeDefined()
+      await composer.setValue(text)
+      await composer.trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(stream).not.toHaveBeenCalled()
+      expect(composer.element.value).toBe(text)
+      expect(wrapper!.findAll('article').some(item => item.text().includes(text))).toBe(false)
+      expect(editCanvas).toHaveBeenCalledTimes(1)
+      expect(planWorkflow).not.toHaveBeenCalled()
+    } finally {
+      if (waiting === 'validation') validation.resolve(ready)
+      else held.resolve()
+      await flushPromises()
+    }
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(send.attributes('disabled')).toBeUndefined()
+    await composer.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(stream).toHaveBeenCalledTimes(1)
+    expect(stream.mock.calls[0]?.[1]).toMatchObject({ displayPrompt: text, conversationId: 'custom-conversation' })
+    expect(composer.element.value).toBe('')
+    expect(wrapper!.text()).toContain('收到后续问题。')
+  })
+
   it.each(['cancel', 'new-conversation', 'workflow-switch', 'unmount'] as const)('等待模板库写锁时 %s 中断保存，释放锁后不写库也不应用旧画布', async action => {
     const { store, save, apply } = await setup()
     const held = deferred<void>()

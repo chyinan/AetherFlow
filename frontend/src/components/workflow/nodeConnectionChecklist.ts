@@ -53,14 +53,15 @@ function suggestedOption(field: ConnectionChecklistField, provider: ImageConnect
 
 /** 仅生成建议，不改动 config；最终可执行性仍由服务端预检和运行时决定。 */
 export function buildNodeConnectionChecklist({ provider, nodeType, config, probe, connectionProvider }: ConnectionChecklistInput): ConnectionChecklistIssue[] {
-  if (!probe) return []
   const issues: ConnectionChecklistIssue[] = []
   const add = (field: ConnectionChecklistField, reason: ConnectionChecklistReason, extra: Partial<ConnectionChecklistIssue> = {}) => {
     issues.push({ id: `${field}-${extra.loraIndex ?? 'field'}-${reason}`, field, reason, ...extra })
   }
+  // 列表已确认的 Provider 差异不依赖探测结果，连接失败时仍能修正节点或另选连接。
+  if (connectionProvider && connectionProvider !== provider) { add('connectionId', 'providerMismatch'); return issues }
+  if (!probe) return issues
   if (probe.status === 'unreachable') { add('connectionId', 'unreachable'); return issues }
   if (probe.status === 'unconfigured') { add('connectionId', 'unconfigured'); return issues }
-  if (connectionProvider && connectionProvider !== provider) { add('connectionId', 'providerMismatch'); return issues }
   const comfy = provider === 'COMFYUI'
   const importedApiGraph = comfy && describeComfyGraph(config.workflowJson ?? config.workflow).format === 'API'
   // API 图能力由用户请求的节点用途与服务端对实际图类型的探测共同决定；

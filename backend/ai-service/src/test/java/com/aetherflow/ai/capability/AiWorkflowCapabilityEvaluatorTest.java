@@ -56,6 +56,28 @@ class AiWorkflowCapabilityEvaluatorTest {
     }
 
     @Test
+    void keepsSubtitleListedButUnavailableWhenPythonRuntimeCannotBeConfirmed() {
+        AiWorkflowCapabilitiesDTO capabilities = AiWorkflowCapabilityEvaluator.evaluate(
+                ProviderRuntimeCatalog.empty(),
+                List.of("ASR", "FFMPEG", "LLM", "PROMPT", "SUBTITLE", "IMAGE_GENERATION", "UPSCALE"),
+                List.of("COMFYUI"));
+
+        assertThat(capabilities.supportedNodeTypes()).contains("SUBTITLE");
+        assertThat(capabilities.executableNodeTypes()).containsExactly("IMAGE_GENERATION", "PROMPT", "UPSCALE");
+        assertThat(capabilities.unavailableReasons()).containsEntry("SUBTITLE", "python ai runtime is unavailable");
+    }
+
+    @Test
+    void restoresSubtitleWhenPythonIsReachableEvenWithoutChatWhisperOrFfmpeg() {
+        AiWorkflowCapabilitiesDTO capabilities = AiWorkflowCapabilityEvaluator.evaluate(
+                ProviderRuntimeCatalog.status(List.of(), List.of(), true, false, false, false, false),
+                List.of("ASR", "FFMPEG", "LLM", "PROMPT", "SUBTITLE"), List.of());
+
+        assertThat(capabilities.executableNodeTypes()).containsExactly("PROMPT", "SUBTITLE");
+        assertThat(capabilities.unavailableReasons()).doesNotContainKey("SUBTITLE");
+    }
+
+    @Test
     void exposesFfmpegWhenRuntimeHasFfmpegEvenIfWhisperIsDisabled() {
         AiWorkflowCapabilitiesDTO capabilities = AiWorkflowCapabilityEvaluator.evaluate(
                 ProviderRuntimeCatalog.status(List.of(), List.of(), true, false, false, false, true),

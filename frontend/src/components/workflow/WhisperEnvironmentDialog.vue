@@ -14,7 +14,11 @@ import {
   getWhisperSetupBlockers, isValidWhisperSetupDraft, verifyWhisperSetup, type WhisperDeployment,
 } from './whisperEnvironmentSetup'
 
-const props = defineProps<{ nodeId: string; refreshCapabilities?: (isCurrent: () => boolean) => Promise<boolean> }>()
+const props = defineProps<{
+  nodeId: string
+  refreshCapabilities?: (isCurrent: () => boolean) => Promise<boolean>
+  nodeAvailability?: { loaded: boolean; unavailableReason: string | null }
+}>()
 const { t } = useI18n({ useScope: 'local', messages: whisperEnvironmentMessages })
 const titleId = `whisper-environment-${useId()}`
 const opened = ref(false)
@@ -35,6 +39,12 @@ const applied = ref(false)
 const verification = ref<ReturnType<typeof verifyWhisperSetup> | null>(null)
 const verifyRequested = ref(false)
 const verifyReadError = computed(() => verifyRequested.value ? error.value : '')
+const capabilityReadError = computed(() => capabilityError.value || (!loading.value
+  && verification.value?.success === true && props.nodeAvailability?.loaded === false))
+const capabilityCompletionBlocker = computed(() => verification.value?.success && !loading.value && !capabilityReadError.value
+  ? props.nodeAvailability?.unavailableReason : null)
+const canFinish = computed(() => step.value === 4 && verification.value?.success
+  && !loading.value && !capabilityReadError.value && !capabilityCompletionBlocker.value)
 const snippet = computed(() => buildWhisperEnvironmentSnippet(snapshot.value))
 const suggestedSnippet = computed(() => buildWhisperSuggestedSnippet(draft.value, deployment.value))
 const blockers = computed(() => snapshot.value ? getWhisperSetupBlockers(snapshot.value) : [])
@@ -120,7 +130,7 @@ function close(restoreFocus = true) {
   if (restoreFocus) opener.value?.focus()
 }
 function finish() {
-  if (step.value !== 4 || !verification.value?.success || loading.value || capabilityError.value) return
+  if (!canFinish.value) return
   close()
 }
 function displayComparisonValue(value: string | null | undefined) {
@@ -159,8 +169,10 @@ async function copySnippet(suggestion = false) {
 }
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
-    event.preventDefault()
     event.stopPropagation()
+    // 输入法正在选词时交给系统取消组合文本，不关闭向导或丢弃建议。
+    if (event.isComposing || event.keyCode === 229) return
+    event.preventDefault()
     close()
     return
   }
@@ -223,7 +235,7 @@ onBeforeUnmount(() => {
             <h3 class="text-sm font-semibold text-text-primary">{{ t('detected') }}</h3>
             <p v-if="loading" :role="verifyRequested ? undefined : 'status'" class="flex items-center gap-2 text-text-secondary"><LoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true" />{{ t('loading') }}</p>
             <p v-else-if="error && !verifyReadError" role="alert" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('loadError') }}: {{ error }}</p>
-            <p v-if="capabilityError" role="alert" data-testid="whisper-capability-error" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('capabilityLoadError') }}</p>
+            <p v-if="capabilityReadError" role="alert" data-testid="whisper-capability-error" class="rounded-lg border border-status-error/30 bg-red-50 p-3 text-status-error">{{ t('capabilityLoadError') }}</p>
             <template v-if="snapshot">
               <div class="space-y-2" aria-live="polite">
                 <span data-testid="whisper-status" class="inline-flex rounded-md border px-2 py-1 text-xs font-medium" :class="snapshot.status === 'usable' ? 'border-status-success/25 bg-status-success/10 text-status-success' : 'border-status-warning/25 bg-status-warning/10 text-status-warning'">{{ t(`status.${snapshot.status}`) }}</span>
@@ -335,6 +347,7 @@ onBeforeUnmount(() => {
                   <ul v-if="verification.blockers.length" class="list-disc space-y-1 pl-4"><li v-for="blocker in verification.blockers" :key="blocker">{{ t(`blockers.${blocker}`) }}</li></ul>
                 </template>
               </div>
+              <p v-if="capabilityCompletionBlocker" data-testid="whisper-capability-blocker" role="alert" class="break-words rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{{ t('capabilityBlocked', { reason: capabilityCompletionBlocker }) }}</p>
               <button type="button" data-action="verify-whisper-environment" :disabled="loading || !applied || !validDraft" class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="refresh(true)"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('verify') }}</button>
               <p class="text-xs leading-5 text-text-muted">{{ t('verifyScope') }}</p>
             </template>
@@ -345,7 +358,7 @@ onBeforeUnmount(() => {
           <button v-if="step > 0" type="button" data-action="back-whisper-environment" class="rounded-lg border border-app-border px-3 py-2 text-xs text-text-secondary hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40" @click="moveStep(-1)">{{ t('back') }}</button>
           <button v-if="step < steps.length - 1" type="button" data-action="next-whisper-environment" :disabled="!canContinue" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="moveStep(1)">{{ t('next') }}</button>
           <button type="button" data-action="refresh-whisper-environment" :disabled="loading" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-xs font-medium text-text-secondary transition hover:bg-app-bg2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="refresh()"><RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" aria-hidden="true" />{{ t('refresh') }}</button>
-          <button v-if="step === steps.length - 1 && verification?.success" type="button" data-action="finish-whisper-environment" :disabled="loading || !!capabilityError" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="finish">{{ t('finish') }}</button>
+          <button v-if="step === steps.length - 1 && verification?.success" type="button" data-action="finish-whisper-environment" :disabled="!canFinish" class="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60" @click="finish">{{ t('finish') }}</button>
         </footer>
       </section>
     </div>

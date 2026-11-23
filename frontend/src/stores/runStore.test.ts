@@ -112,7 +112,7 @@ describe('真实运行初始化', () => {
       backendStatus: 'RUNNING',
     })
 
-    expect(run.artifactCount).toBe(0)
+    expect(run.artifactCount).toBeUndefined()
     expect(run.artifactNames).toEqual([])
     expect(run.nodeStates[0]?.output).toBeUndefined()
   })

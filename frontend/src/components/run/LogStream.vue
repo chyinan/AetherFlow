@@ -13,6 +13,8 @@ const props = defineProps<{
   logs: RunLogEntry[]
   runId?: string
   workflowId?: string
+  loading?: boolean
+  archiveUnavailable?: boolean
 }>()
 
 const query = ref('')
@@ -20,9 +22,24 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const level = ref<'all' | RunLogEntry['level']>('all')
 const { t, locale } = useI18n()
 const { t: logText } = useI18n({ useScope: 'local', messages: {
-  'zh-CN': { ...imageExecutionFailureMessages['zh-CN'], noMatch: '没有符合当前筛选条件的日志。', clearFilters: '清除日志筛选' },
-  'en-US': { ...imageExecutionFailureMessages['en-US'], noMatch: 'No logs match these filters.', clearFilters: 'Clear log filters' },
-  'ja-JP': { ...imageExecutionFailureMessages['ja-JP'], noMatch: '現在の絞り込み条件に一致するログはありません。', clearFilters: 'ログの絞り込みを解除' },
+  'zh-CN': {
+    ...imageExecutionFailureMessages['zh-CN'],
+    noMatch: '没有符合当前筛选条件的日志。', clearFilters: '清除日志筛选',
+    loadingLogs: '正在读取运行日志…',
+    archiveUnavailable: '未能读取已保存日志，当前内容可能不完整。可用顶部的刷新操作重试。',
+  },
+  'en-US': {
+    ...imageExecutionFailureMessages['en-US'],
+    noMatch: 'No logs match these filters.', clearFilters: 'Clear log filters',
+    loadingLogs: 'Loading runtime logs…',
+    archiveUnavailable: 'Saved logs could not be read and the displayed logs may be incomplete. Use Refresh at the top to try again.',
+  },
+  'ja-JP': {
+    ...imageExecutionFailureMessages['ja-JP'],
+    noMatch: '現在の絞り込み条件に一致するログはありません。', clearFilters: 'ログの絞り込みを解除',
+    loadingLogs: 'ランタイムログを読み込み中…',
+    archiveUnavailable: '保存済みログを読み込めなかったため、表示中のログは不完全な可能性があります。ページ上部の更新から再試行できます。',
+  },
 } })
 const workflowHref = computed(() => props.workflowId ? `/workflows/${encodeURIComponent(props.workflowId)}` : undefined)
 const diagnosedLogs = computed(() => props.logs.map((log) => ({ ...log, imageFailure: log.imageFailure ?? parseImageExecutionFailure(log.message) })))
@@ -48,6 +65,10 @@ const filteredLogs = computed(() => {
 })
 const filtersActive = computed(() => Boolean(query.value.trim()) || level.value !== 'all')
 const noMatch = computed(() => props.logs.length > 0 && filteredLogs.value.length === 0)
+const statusText = computed(() => [
+  props.loading ? logText('loadingLogs') : props.archiveUnavailable ? logText('archiveUnavailable') : '',
+  noMatch.value ? logText('noMatch') : '',
+].filter(Boolean).join(' '))
 
 function clearFilters() {
   query.value = ''
@@ -86,11 +107,11 @@ function clearFilters() {
     </button>
 
     <div class="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden overscroll-contain p-4 font-mono text-xs leading-6">
-      <p v-if="logs.length === 0" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
+      <p v-if="logs.length === 0 && !loading && !archiveUnavailable" class="rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted">
         {{ t('runs.noLogs') }}
       </p>
-      <p role="status" :class="noMatch ? 'rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted' : 'sr-only'">
-        {{ noMatch ? logText('noMatch') : '' }}
+      <p role="status" aria-atomic="true" :class="statusText ? 'rounded-md border border-dashed border-app-border bg-app-bg2 px-3 py-3 font-sans text-sm text-text-muted' : 'sr-only'">
+        {{ statusText }}
       </p>
       <div
         v-for="log in filteredLogs"
