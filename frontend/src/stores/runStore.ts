@@ -231,7 +231,9 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
     progress: currentTerminal ? Math.max(current.progress, incoming.progress) : incoming.progress,
     durationMs: Math.max(current.durationMs, incoming.durationMs),
     nodeStates: [...nodes.values()],
-    artifactCount: Math.max(current.artifactCount, incoming.artifactCount),
+    artifactCount: current.artifactCount === undefined || incoming.artifactCount === undefined
+      ? current.artifactCount ?? incoming.artifactCount
+      : Math.max(current.artifactCount, incoming.artifactCount),
     artifactNames: [...new Set([...current.artifactNames, ...incoming.artifactNames])],
   }
 }
@@ -821,7 +823,6 @@ export const useRunStore = defineStore('run', {
         traceId: `trace-${payload.runId}`,
         queueName: 'workflow-runtime',
         progress: 0,
-        artifactCount: 0,
         artifactNames: [],
         nodeStates,
       }

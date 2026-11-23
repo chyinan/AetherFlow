@@ -204,7 +204,6 @@ function mapBackendRun(view: WorkflowRunViewDTO): WorkflowRun {
     queueName: 'workflow-runtime',
     progress: progressFromRun(view, nodeStates),
     nodeStates,
-    artifactCount: 0,
     artifactNames: [],
   }
 }
@@ -231,7 +230,6 @@ function createBackendRunPlaceholder(runId: string): WorkflowRun {
     queueName: 'workflow-runtime',
     progress: 0,
     nodeStates: [],
-    artifactCount: 0,
     artifactNames: [],
   }
 }
