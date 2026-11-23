@@ -575,24 +575,31 @@ async function loadRouteWorkflow(workflowId: string) {
       }
     }
   }
-  await runStore.selectRunForWorkflow(workflowStore.workflowId, workflowStore.backendDefinitionId)
-  if (!ownsWorkflowLoad(loadSequence, workflowId)) {
-    return false
-  }
-  if (runStore.currentRun && workflowRunBelongsToWorkflow(
-    runStore.currentRun,
-    workflowStore.workflowId,
-    workflowStore.backendDefinitionId,
-  )) {
-    runStore.currentRun.nodeStates.forEach((node) => {
-      workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs)
-    })
-  }
+  if (!await restoreWorkflowRun(loadSequence, workflowId)) return false
   const selectedNodeStillExists = workflowStore.nodes.some((node) => node.id === uiStore.selectedNodeId)
   if (!selectedNodeStillExists) {
     uiStore.setSelectedNode(workflowStore.nodes[0]?.id ?? null)
   }
   return true
+}
+
+async function restoreWorkflowRun(loadSequence: number, routeId: string) {
+  const { workflowId, backendDefinitionId } = workflowStore
+  await runStore.selectRunForWorkflow(workflowId, backendDefinitionId)
+  if (!ownsWorkflowLoad(loadSequence, routeId) || workflowStore.workflowId !== workflowId
+    || workflowStore.backendDefinitionId !== backendDefinitionId) return false
+
+  currentWorkflowRun.value?.nodeStates.forEach((node) => {
+    workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs)
+  })
+  return true
+}
+
+function retryWorkflowRunLookup() {
+  const lookup = runStore.workflowRunLookup
+  if (startingRun.value || !lookup || lookup.loading || lookup.workflowId !== workflowStore.workflowId
+    || lookup.definitionId !== workflowStore.backendDefinitionId) return
+  void restoreWorkflowRun(workflowLoadSequence, String(route.params.id || 'new'))
 }
 
 async function retryLoadWorkflow() {
@@ -1568,7 +1575,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         leave-to-class="translate-x-6 opacity-0"
       >
         <div v-if="showRunConsole" class="absolute bottom-4 right-4 top-4 z-20 w-[min(520px,calc(100%-2rem))] overflow-hidden rounded-xl shadow-panel">
-          <RunConsole @close="showRunConsole = false" />
+          <RunConsole :lookup-retry-blocked="startingRun" @retry-lookup="retryWorkflowRunLookup" @close="showRunConsole = false" />
         </div>
       </Transition>
 
