@@ -45,6 +45,7 @@ import CustomNodeConfigPanel from './CustomNodeConfigPanel.vue'
 import ImageInputPicker from './ImageInputPicker.vue'
 import ComfyWorkflowPanel from './ComfyWorkflowPanel.vue'
 import { hasComfySourceBinding, isComfyPromptSummary } from '@/utils/comfyWorkflow'
+import { hasExplicitComfySeedBinding, parseExactImageSeed, usesExactComfySeed } from '@/utils/comfySeed'
 import StructuredMappingEditor from './StructuredMappingEditor.vue'
 import { defaultMapping } from '@/utils/structuredMapping'
 import SubworkflowConfigPanel from './SubworkflowConfigPanel.vue'
@@ -248,6 +249,13 @@ const retainedStableDiffusionWorkflowMode = computed(() => {
   const mode = textConfig('mode')
   return usesStableDiffusionGeneration.value && mode.trim().toLowerCase() === 'workflow' ? mode : ''
 })
+const exactImageSeed = computed(() => selectedKind.value === 'image-generation'
+  && Boolean(selectedNode.value && usesExactComfySeed(selectedNode.value.data.config)))
+const invalidExactImageSeed = computed(() => exactImageSeed.value
+  && parseExactImageSeed(selectedNode.value?.data.config.seed) === undefined)
+const exactImageSeedBlocks = computed(() => invalidExactImageSeed.value
+  && Boolean(selectedNode.value && hasExplicitComfySeedBinding(selectedNode.value.data.config)))
+const exactImageSeedHintId = computed(() => `comfy-seed-help-${encodeURIComponent(selectedNode.value?.id ?? '')}`)
 const imageInputFields = new Set(['sourceImage', 'sourceImageVariable'])
 const connectionFields = new Set(['connectionId', 'provider', 'checkpoint', 'vae', 'lora', 'sampler', 'scheduler', 'upscaler'])
 const dynamicConfigFields = computed(() => (selectedCatalogItem.value?.configSchema ?? [])
@@ -868,7 +876,7 @@ function parseDynamicFieldValue(field: WorkflowNodeConfigSchema, rawValue: strin
 
 function handleDynamicFieldInput(field: WorkflowNodeConfigSchema, event: Event) {
   const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-  updateConfig(field.name, parseDynamicFieldValue(field, target.value))
+  updateConfig(field.name, exactImageSeed.value && field.name === 'seed' ? target.value : parseDynamicFieldValue(field, target.value))
 }
 
 function handleDynamicFieldToggle(field: WorkflowNodeConfigSchema, event: Event) {
@@ -1853,11 +1861,13 @@ onMounted(() => {
             <input
               v-else-if="isNumberField(field)"
               :data-config-field="field.name"
-              type="number"
+              :type="exactImageSeed && field.name === 'seed' ? 'text' : 'number'"
               class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary"
-              :min="field.ui?.min"
-              :max="field.ui?.max"
-              :step="field.ui?.step ?? 'any'"
+              :min="exactImageSeed && field.name === 'seed' ? undefined : field.ui?.min"
+              :max="exactImageSeed && field.name === 'seed' ? undefined : field.ui?.max"
+              :step="exactImageSeed && field.name === 'seed' ? undefined : field.ui?.step ?? 'any'"
+              :aria-invalid="exactImageSeed && field.name === 'seed' && exactImageSeedBlocks ? true : undefined"
+              :aria-describedby="exactImageSeed && field.name === 'seed' ? exactImageSeedHintId : undefined"
               :value="String(fieldCurrentValue(field) ?? '')"
               @input="handleDynamicFieldInput(field, $event)"
             />
@@ -1884,6 +1894,7 @@ onMounted(() => {
             />
 
             <p v-if="field.name === 'mode' && retainedStableDiffusionWorkflowMode" role="status" data-testid="image-mode-retained" class="mt-2 text-xs leading-5 text-status-warning">{{ t('workflow.inspector.imageFields.mode.stableDiffusionRetained', { mode: retainedStableDiffusionWorkflowMode }) }}</p>
+            <p v-else-if="exactImageSeed && field.name === 'seed'" :id="exactImageSeedHintId" :role="exactImageSeedBlocks ? 'alert' : undefined" class="mt-2 text-xs leading-5" :class="exactImageSeedBlocks ? 'text-status-error' : 'text-text-muted'">{{ t(exactImageSeedBlocks ? 'workflow.inspector.imageFields.seed.exactInvalid' : invalidExactImageSeed ? 'workflow.inspector.imageFields.seed.exactInactive' : 'workflow.inspector.imageFields.seed.exactDescription') }}</p>
             <p v-else-if="dynamicFieldDescription(field)" class="mt-2 text-xs leading-5 text-text-muted">{{ dynamicFieldDescription(field) }}</p>
           </label>
         </section>

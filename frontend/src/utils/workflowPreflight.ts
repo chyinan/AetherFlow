@@ -5,6 +5,7 @@ import { validateMapping } from '@/utils/structuredMapping'
 import { workflowNeedsRuntimeFileInput } from '@/utils/workflowInputRequirements'
 import { upstreamVariables } from '@/utils/workflowVariables'
 import { bindCustomInputs, parseCustomDefinition } from '@/utils/customNodes'
+import { ComfySeedRangeError, isWideImageSeedText } from '@/utils/comfySeed'
 import { comfyBindingError, comfyUiGuidance, describeComfyGraph, decodeComfyGraph, comfyGraphValue, isComfyPromptSummary, isRecord } from '@/utils/comfyWorkflow'
 
 export interface PreflightIssue { id: string; level: 'blocking' | 'warning' | 'unknown'; code: string; nodeId?: string; nodeLabel?: string; field?: string; detail?: string }
@@ -46,7 +47,11 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
     const location = { nodeId: node.id, nodeLabel: node.data.label }
     let normalized
     try { normalized = mapWorkflowToDefinitionDTO({ ...workflow, nodes: [node] }).nodes?.[0] }
-    catch (error) { add('blocking', 'mapping', { ...location, detail: error instanceof Error ? error.message : String(error) }); continue }
+    catch (error) {
+      if (error instanceof ComfySeedRangeError) add('blocking', 'comfySeedRange', { ...location, field: 'seed' })
+      else add('blocking', 'mapping', { ...location, detail: error instanceof Error ? error.message : String(error) })
+      continue
+    }
     if (!normalized) continue
     const config = normalized.config ?? {}
     const importedGraph = comfyGraphValue(config)
@@ -85,7 +90,8 @@ export function buildWorkflowPreflight(workflow: WorkflowDefinition, templates: 
       // 与服务端图像节点校验一致：只读验证原图对象文本，不重写种子等数字词法。
       const imageSourceText = normalized.nodeType === 'IMAGE_GENERATION' && field.name === 'workflow'
         && field.type.toUpperCase() === 'OBJECT' && typeof value === 'string' && decodeComfyGraph(value) !== null
-      if (!imageWorkflowObject && !imageSourceText && !typeMatches(field.type, value)) add('blocking', 'type', { ...location, field: field.name, detail: field.type })
+      const imageSeedText = normalized.nodeType === 'IMAGE_GENERATION' && field.name === 'seed' && isWideImageSeedText(value)
+      if (!imageWorkflowObject && !imageSourceText && !imageSeedText && !typeMatches(field.type, value)) add('blocking', 'type', { ...location, field: field.name, detail: field.type })
       // ComfyUI 默认服务与显式连接均依赖运行时目录，不能套用 SD WebUI 的显示名称。
       // 本静态检查未持有有效连接的实时目录，保留 connectionUnknown 和服务端最终门禁。
       const dynamicImageConnection = !blank(config.connectionId) || String(config.provider).trim().toUpperCase() === 'COMFYUI'

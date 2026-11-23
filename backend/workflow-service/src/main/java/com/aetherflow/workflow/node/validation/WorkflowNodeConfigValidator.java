@@ -82,6 +82,17 @@ public final class WorkflowNodeConfigValidator {
             try { com.aetherflow.common.util.ComfyUiWorkflow.decodeGraph(value); return true; }
             catch (IllegalArgumentException exception) { return false; }
         }
+        // 仅图像节点的种子可用精确十进制文本保存超出浏览器安全整数但仍能由执行器解析的值。
+        // 取消覆盖、换图或切换 Provider 时可以保留旧配置；其余 NUMBER 字段仍只接受数字。
+        if ("IMAGE_GENERATION".equals(normalize(nodeType)) && "seed".equals(field.name())
+                && "NUMBER".equals(normalize(field.type())) && value instanceof String text) {
+            try {
+                long seed = Long.parseLong(text);
+                return seed > 9_007_199_254_740_991L && text.equals(Long.toString(seed));
+            } catch (NumberFormatException exception) {
+                return false;
+            }
+        }
         // 图像工作流导入与 AI 执行使用对象；保留旧目录文本编辑格式的兼容性。
         // 仅放行这两个节点的 workflowJson 对象，不改变其他 STRING 字段的校验。
         if (("IMAGE_GENERATION".equals(normalize(nodeType)) || "UPSCALE".equals(normalize(nodeType)))

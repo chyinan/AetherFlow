@@ -653,7 +653,7 @@ export const zhCN = {
         negativePromptVariable: { label: '反向提示词变量', description: '包含反向提示词的工作流变量。' },
         sourceImage: { label: '源图像', description: '用于 img2img 或图像放大的 Base64 源图像。' },
         sourceImageVariable: { label: '源图像变量', description: '包含源图像的工作流变量。' },
-        seed: { label: '随机种子', description: '生成随机种子。使用 -1 让供应商随机生成。' },
+        seed: { label: '随机种子', description: '生成随机种子。使用 -1 让供应商随机生成。', exactDescription: '输入 0～9223372036854775807 的十进制整数。留空或输入 -1 使用随机种子。', exactInvalid: '请输入 -1 或 0～9223372036854775807 的十进制整数。若重开时旧值已被舍入，请重新输入原始种子。', exactInactive: '当前未绑定种子，不会覆盖执行图。添加种子绑定前请填写有效的十进制整数。' },
         steps: { label: '采样步数', description: '图像采样步数。' },
         cfgScale: { label: 'CFG 引导强度', description: 'Classifier-free guidance 引导强度。' },
         sampler: { label: '采样器', description: '采样器名称。' },

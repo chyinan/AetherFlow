@@ -61,6 +61,26 @@ class WorkflowNodeConfigValidatorTest {
     }
 
     @Test
+    void acceptsPreciseImageSeedsWithoutRelaxingOtherNumericFields() {
+        for (Object seed : List.of(-1, 42, 9_007_199_254_740_991L, "9007199254740992",
+                "9007199254740993", "9223372036854775807")) {
+            assertThat(WorkflowNodeConfigValidator.validate(node("image", "IMAGE_GENERATION",
+                    Map.of("provider", "COMFYUI", "promptVariable", "prompt", "seed", seed)),
+                    catalogService.catalog())).as("种子 %s", seed).isEmpty();
+        }
+        for (String seed : List.of("", "-1", "42", "1.25", "+9223372036854775807",
+                "9223372036854775808", " 9007199254740993", "09007199254740993")) {
+            assertThat(WorkflowNodeConfigValidator.validate(node("image", "IMAGE_GENERATION",
+                    Map.of("provider", "COMFYUI", "promptVariable", "prompt", "seed", seed)),
+                    catalogService.catalog())).as("无效种子 %s", seed)
+                    .anyMatch(message -> message.contains("'seed' must be NUMBER"));
+        }
+        assertThat(WorkflowNodeConfigValidator.validate(node("image", "IMAGE_GENERATION",
+                Map.of("provider", "COMFYUI", "promptVariable", "prompt", "steps", "9007199254740993")),
+                catalogService.catalog())).anyMatch(message -> message.contains("'steps' must be NUMBER"));
+    }
+
+    @Test
     void stillRejectsNonBlankUnsupportedEnumValues() {
         WorkflowNodeDTO node = node("sd", "IMAGE_GENERATION", Map.of(
                 "provider", "SD_WEBUI", "mode", "txt2img", "prompt", "cat",

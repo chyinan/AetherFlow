@@ -4,6 +4,7 @@ import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
 import { classifierRoutes } from '../../utils/workflowNodeConfig.ts'
 import { assertLoopBindingNames } from '../../utils/loopBindingNames.ts'
+import { ComfySeedRangeError, hasExplicitComfySeedBinding, parseExactImageSeed, usesExactComfySeed } from '../../utils/comfySeed.ts'
 
 type BackendNodeType =
   | 'START'
@@ -397,6 +398,12 @@ function normalizePromptConfig(config: Record<string, unknown>, nextNodes: strin
 function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNodes: string[]) {
   const workflowJson = normalizeWorkflowJson(config.workflowJson)
   const sourceWorkflow = normalizeWorkflowJson(config.workflow)
+  let seed = usesExactComfySeed(config) ? parseExactImageSeed(config.seed) : numberValue(config.seed, -1)
+  if (seed === undefined) {
+    if (hasExplicitComfySeedBinding(config)) throw new ComfySeedRangeError()
+    // 没有绑定时旧数字不影响原图；无效的文本草稿也不得悄悄变成舍入过的固定种子。
+    if (typeof config.seed === 'number') seed = numberValue(config.seed, -1)
+  }
   return withNextNodes({
     ...(optionalString(config.connectionId) ? { connectionId: optionalString(config.connectionId) } : {}),
     provider: stringValue(config.provider, 'SD_WEBUI'),
@@ -407,7 +414,7 @@ function normalizeImageGenerationConfig(config: Record<string, unknown>, nextNod
     negativePromptVariable: stringValue(config.negativePromptVariable, 'negativePrompt'),
     ...(optionalString(config.sourceImage) ? { sourceImage: optionalString(config.sourceImage) } : {}),
     ...(optionalString(config.sourceImageVariable) ? { sourceImageVariable: optionalString(config.sourceImageVariable) } : {}),
-    seed: numberValue(config.seed, -1),
+    ...(seed === undefined ? {} : { seed }),
     steps: Math.max(1, Math.floor(numberValue(config.steps, 30))),
     cfgScale: numberValue(config.cfgScale, 7.5),
     // 可选枚举空白值统一为"未指定"：保留用户原值以保证保存往返无损，
