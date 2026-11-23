@@ -133,6 +133,17 @@ let pageActive = true
 let pageNavigationRevision = 0
 let comfyUiImportSequence = 0
 let pageSaveSequence = 0
+type ToolbarSaveReceipt = {
+  workflowId: string
+  projectId?: number
+  navigationRevision: number
+  saveSequence: number
+}
+const toolbarSaveDuringLeave = shallowRef<ToolbarSaveReceipt | null>(null)
+function ownsToolbarSave(receipt: ToolbarSaveReceipt) {
+  return pageActive && receipt.saveSequence === pageSaveSequence
+    && receipt.navigationRevision === pageNavigationRevision && receipt.workflowId === workflowStore.workflowId
+}
 let pageCopySequence = 0
 let workflowLoadSequence = 0
 let projectListLoadSequence = 0
@@ -160,6 +171,7 @@ function ownsSaveNavigation(fullPath: string, fromPath?: string) {
 watch(() => route.fullPath, (to, from) => {
   const preservesSavedCanvas = ownsSaveNavigation(to, from)
   pageNavigationRevision += 1
+  toolbarSaveDuringLeave.value = null
   if (preservesSavedCanvas && saveNavigation) {
     saveNavigation.navigationRevision = pageNavigationRevision
   } else {
@@ -647,7 +659,13 @@ const leaveDialogReady = ref(false)
 const leaveSaveBusy = ref(false)
 let leaveSaveSequence = 0
 const leaveSaveError = ref('')
+const leaveAlreadySaved = computed(() => {
+  const receipt = toolbarSaveDuringLeave.value
+  return receipt !== null && ownsToolbarSave(receipt) && !workflowStore.dirty
+})
 let approvedNavigation: { fromPath: string; target: RouteLocationNormalized; editRevision: number } | null = null
+let toolbarLeaveChoice: { pending: PendingNavigation; receipt: ToolbarSaveReceipt } | null = null
+let stopWaitingForRestoredHistory: (() => void) | undefined
 
 function settleNavigation(allowed: boolean) {
   const pending = pendingNavigation.value
@@ -666,8 +684,20 @@ function settleNavigation(allowed: boolean) {
 }
 
 function discardNavigation() {
+  toolbarSaveDuringLeave.value = null
   workflowStore.discardCurrentWorkflowSave()
   settleNavigation(true)
+}
+
+function rememberToolbarLeaveChoice() {
+  const pending = pendingNavigation.value
+  const receipt = toolbarSaveDuringLeave.value
+  toolbarLeaveChoice = pending && receipt ? { pending, receipt } : null
+}
+
+function stayOnWorkflowPage() {
+  rememberToolbarLeaveChoice()
+  settleNavigation(false)
 }
 
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
@@ -679,6 +709,8 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
   // 新目标取代旧目标；旧保存只能结束请求，不能替用户决定新的导航。
+  toolbarLeaveChoice = null
+  stopWaitingForRestoredHistory?.()
   const handingOffTemplateModal = showingWorkflowTemplates.value || (pendingNavigation.value !== null && !leaveDialogReady.value)
   settleNavigation(false)
   approvedNavigation = null
@@ -705,6 +737,11 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
 async function saveBeforeLeaving() {
   const pending = pendingNavigation.value
   if (!pending || leaveSaveBusy.value || workflowStore.saving) return
+  if (leaveAlreadySaved.value) {
+    rememberToolbarLeaveChoice()
+    settleNavigation(true)
+    return
+  }
   const saveSequence = ++leaveSaveSequence
   leaveSaveBusy.value = true
   leaveSaveError.value = ''
@@ -719,6 +756,7 @@ async function saveBeforeLeaving() {
     }
     if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
     projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
+    rememberToolbarLeaveChoice()
     // 继续原来的 push/back/replace，保留历史语义，不额外跳转规范化地址。
     settleNavigation(true)
   } catch {
@@ -763,6 +801,34 @@ function invalidateRunStart() {
 
 function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (approvedNavigation?.target === to) approvedNavigation = null
+  const choice = toolbarLeaveChoice
+  if (choice?.pending.target === to) {
+    toolbarLeaveChoice = null
+    toolbarSaveDuringLeave.value = null
+    const fromPath = choice.pending.fromPath
+    const restore = () => {
+      if (route.fullPath === fromPath && router.options.history.location === fromPath
+        && !workflowNavigation.pending && !pendingNavigation.value) {
+        void canonicalizeToolbarSave(choice.receipt).catch(() => {})
+      }
+    }
+    if (route.fullPath === fromPath && !workflowNavigation.pending) {
+      if (router.options.history.location === fromPath) {
+        restore()
+      } else {
+        // 浏览器 Back 取消时，原历史项须等 Vue Router 的 popstate 回到后才可替换。
+        const onPopState = () => {
+          stopWaitingForRestoredHistory?.()
+          restore()
+        }
+        stopWaitingForRestoredHistory = () => {
+          window.removeEventListener('popstate', onPopState)
+          stopWaitingForRestoredHistory = undefined
+        }
+        window.addEventListener('popstate', onPopState)
+      }
+    }
+  }
   // 较新的、未弹确认的导航也可能失败；只在实际仍留在原地址时恢复。
   if (route.fullPath === from.fullPath) void resumeWorkflowTemplatePicker()
 }
@@ -780,6 +846,7 @@ onBeforeUnmount(() => {
   invalidateRunStart()
   stopWatchingStartNavigation()
   stopWatchingNavigationError()
+  stopWaitingForRestoredHistory?.()
 })
 
 onMounted(async () => {
@@ -844,47 +911,60 @@ watch(
   },
 )
 
+async function canonicalizeToolbarSave(receipt: ToolbarSaveReceipt, markReady?: () => void) {
+  if (!ownsToolbarSave(receipt) || pendingNavigation.value) return
+  const { workflowId, projectId, navigationRevision, saveSequence } = receipt
+  if (String(route.params.id || 'new') === workflowId) {
+    markReady?.()
+    return
+  }
+  const canonicalRoute = {
+    path: `/workflows/${workflowId}`,
+    query: {
+      ...(projectId ? { projectId } : {}),
+      ...(route.query.sourceRunId ? {
+        sourceRunId: route.query.sourceRunId,
+        nodeId: route.query.nodeId,
+        runReturnLocation: route.query.runReturnLocation,
+      } : {}),
+    },
+  }
+  // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
+  const navigation = {
+    fromPath: route.fullPath,
+    fullPath: router.resolve(canonicalRoute).fullPath,
+    workflowId,
+    navigationRevision,
+    saveSequence,
+  }
+  saveNavigation = navigation
+  try {
+    const failure = await router.replace(canonicalRoute)
+    if (!failure && saveNavigation === navigation && ownsSaveNavigation(route.fullPath)) markReady?.()
+  } finally {
+    if (saveNavigation === navigation) saveNavigation = null
+  }
+}
+
 async function saveWorkflow() {
   const saveSequence = ++pageSaveSequence
+  toolbarSaveDuringLeave.value = null
   try {
     const projectId = resolveWorkflowProjectId()
     const navigationRevision = pageNavigationRevision
     const saved = await workflowStore.saveCurrentWorkflow({ projectId })
-    if (!saved || !pageActive || saveSequence !== pageSaveSequence || navigationRevision !== pageNavigationRevision || pendingNavigation.value) return
-    const savedWorkflowId = saved.workflowId
-    if (projectId) {
-      projectStore.linkWorkflowToProject(String(projectId), savedWorkflowId)
+    if (!saved) return
+    const receipt = { workflowId: saved.workflowId, projectId, navigationRevision, saveSequence }
+    if (!ownsToolbarSave(receipt)) return
+    if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
+    const markReady = () => projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
+    if (pendingNavigation.value) {
+      // 记录仍属于当前画布的回执，但不抢占用户正在选择的目的地。
+      toolbarSaveDuringLeave.value = receipt
+      markReady()
+    } else {
+      await canonicalizeToolbarSave(receipt, markReady)
     }
-    if (String(route.params.id || 'new') !== savedWorkflowId) {
-      const canonicalRoute = {
-        path: `/workflows/${savedWorkflowId}`,
-        query: {
-          ...(projectId ? { projectId } : {}),
-          ...(route.query.sourceRunId ? {
-            sourceRunId: route.query.sourceRunId,
-            nodeId: route.query.nodeId,
-            runReturnLocation: route.query.runReturnLocation,
-          } : {}),
-        },
-      }
-      // 保存只规范化当前画布的地址，不丢弃保存期间的新编辑或重载历史。
-      const navigation = {
-        fromPath: route.fullPath,
-        fullPath: router.resolve(canonicalRoute).fullPath,
-        workflowId: savedWorkflowId,
-        navigationRevision: pageNavigationRevision,
-        saveSequence,
-      }
-      saveNavigation = navigation
-      try {
-        const failure = await router.replace(canonicalRoute)
-        if (failure || saveNavigation !== navigation || saveSequence !== pageSaveSequence
-          || !ownsSaveNavigation(route.fullPath)) return
-      } finally {
-        if (saveNavigation === navigation) saveNavigation = null
-      }
-    }
-    projectStore.updateWorkflowStatus(savedWorkflowId, 'ready')
   } catch {
     // The store exposes the localized save error for the page banner.
   }
@@ -1199,7 +1279,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
 </script>
 
 <template>
-  <UnsavedNavigationDialog :open="leaveDialogReady" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="settleNavigation(false)" />
+  <UnsavedNavigationDialog :open="leaveDialogReady" :busy="leaveSaveBusy || workflowStore.saving" :error="leaveSaveError" :saved="leaveAlreadySaved" @save="saveBeforeLeaving" @discard="discardNavigation" @stay="stayOnWorkflowPage" />
   <div class="h-full min-h-0" :inert="Boolean(pendingNavigation) || undefined" @pointerdown.capture="noteEditorInteraction" @wheel.capture.passive="noteEditorInteraction" @keydown.capture="noteEditorInteraction" @input.capture="noteEditorInteraction">
   <input
     ref="comfyUiFileInput"
