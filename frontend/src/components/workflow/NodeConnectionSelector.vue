@@ -68,6 +68,7 @@ const importedComfyApiNodeTypes = computed(() => {
   return [...new Set(graph.nodes.map(node => node.type))].sort()
 })
 const importedApi = computed(() => provider.value === 'COMFYUI' && importedComfyApi.value)
+const importedGenerationApi = computed(() => props.nodeType === 'IMAGE_GENERATION' && importedApi.value)
 const workflowNodeTypes = computed(() => importedApi.value ? [...new Set(describeComfyGraph(props.config.workflowJson ?? props.config.workflow).nodes.map(node => node.type))].sort() : [])
 const connectionId = computed(() => String(props.config.connectionId ?? '').trim())
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
@@ -422,6 +423,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
       <legend class="sr-only">{{ t('choices') }}</legend>
       <p class="text-sm font-semibold text-text-primary" aria-hidden="true">{{ t('choices') }}</p>
       <p v-if="!connectionId" data-testid="legacy-model-hint" class="text-xs leading-5 text-text-muted">{{ t('selectConnectionForModels') }}</p>
+      <p v-if="importedGenerationApi" data-testid="imported-api-model-hint" data-config-field="lora" tabindex="-1" class="text-xs leading-5 text-text-muted">{{ t('importedApiModelHint') }}</p>
       <label v-for="field in modelFields" :key="field.key" class="block text-xs font-medium text-text-primary">
         {{ t(field.key) }}
         <select :id="fieldId(field.key)" :data-config-field="field.key" :data-testid="`model-${field.key}`" class="mt-1 w-full rounded-lg border border-app-border bg-white px-3 py-2 text-sm" :disabled="!connectionId" :value="currentValue(field.key)" @change="emit('updateConfig', field.key, ($event.target as HTMLSelectElement).value)">
@@ -435,7 +437,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
           <span v-else-if="!options(field.catalog).length" class="mt-1 block font-normal text-text-muted">{{ t('emptyCatalog') }}</span>
         </template>
       </label>
-      <div v-if="nodeType === 'IMAGE_GENERATION'" :id="fieldId('lora')" data-config-field="lora" tabindex="-1" class="space-y-2 text-xs">
+      <div v-if="nodeType === 'IMAGE_GENERATION' && !importedGenerationApi" :id="fieldId('lora')" data-config-field="lora" tabindex="-1" class="space-y-2 text-xs">
         <p class="font-medium text-text-primary">{{ t('lora') }}</p>
         <p v-if="invalidLora" role="alert" class="break-all text-status-warning">{{ t('retained', { value: JSON.stringify(config.lora) }) }}</p>
         <div v-for="(item, index) in loras" :key="index" class="space-y-2 rounded-lg border border-app-border bg-white p-2">
