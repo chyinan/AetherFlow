@@ -190,8 +190,9 @@ function invalidateForm() {
   testing.value = false
 }
 function close(restoreFocus = true) {
-  // 关闭不取消保存；打开按钮仍禁用时，让焦点回到连接面板。
-  const returnTo = open.value && saving.value ? selectorRoot.value : opener
+  // 只在关闭当前弹窗时归还焦点；保存中打开按钮禁用时回到连接面板。
+  const returnTo = restoreFocus && open.value ? (saving.value ? selectorRoot.value : opener) : null
+  opener = null
   open.value = false
   invalidateForm()
   validationTarget.value = null
@@ -199,7 +200,7 @@ function close(restoreFocus = true) {
   form.name = ''
   form.baseUrl = ''
   form.provider = provider.value
-  if (restoreFocus) returnTo?.focus()
+  returnTo?.focus()
 }
 async function showWizard(connection?: NodeConnection) {
   if (!alive || saving.value) return
