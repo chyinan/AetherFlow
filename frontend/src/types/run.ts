@@ -42,6 +42,8 @@ export interface WorkflowRun {
   definitionId?: number
   currentNodeId?: string
   backendStatus?: string
+  /** 仅比较同一运行的服务端快照，保留原始时间及精度。 */
+  snapshotUpdatedAt?: string
   cancellationCleanup?: WorkflowCancellationCleanupStatus
   status: RunStatus
   startedAt: string
