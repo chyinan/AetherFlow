@@ -35,12 +35,14 @@ const templates: WorkflowDefinitionDTO[] = [
 const originalAdapter = axiosInstance.defaults.adapter
 let wrapper: ReturnType<typeof mount> | undefined
 let requests: string[]
+let templateResponse: () => Promise<WorkflowDefinitionDTO[]>
 beforeEach(() => {
   requests = []
+  templateResponse = async () => templates
   const adapter: AxiosAdapter = async config => {
     requests.push(`${config.method} ${config.url}`)
     if (config.method !== 'get' || config.url !== '/workflows/templates') throw new Error('意外的请求')
-    return { data: templates, status: 200, statusText: 'OK', headers: {}, config }
+    return { data: await templateResponse(), status: 200, statusText: 'OK', headers: {}, config }
   }
   axiosInstance.defaults.adapter = adapter
   vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -82,6 +84,78 @@ async function apply(name: string) {
   await option(name).trigger('click')
   await flushPromises()
 }
+
+function deferTemplateResponse() {
+  let resolve!: (value: WorkflowDefinitionDTO[]) => void
+  let reject!: (error: Error) => void
+  const pending = new Promise<WorkflowDefinitionDTO[]>((yes, no) => { resolve = yes; reject = no })
+  templateResponse = () => pending
+  return { resolve: () => resolve(templates), reject }
+}
+
+const runPrompt = () => wrapper!.get<HTMLTextAreaElement>('[data-run-input="prompt"]')
+const hasDialog = () => wrapper!.find('[aria-labelledby="workflow-template-title"]').exists()
+
+it.each(['输入', '开始输入法组合'] as const)('文本摘要的临时运行提示词%s时，迟到的模板读取不打开弹框', async (interaction) => {
+  const store = await setup()
+  await open()
+  await apply('Text summary')
+  // 打开目录等候时，用户回到当前模板的临时运行提示词；这不是节点配置编辑。
+  const pending = deferTemplateResponse()
+  await open()
+  expect(store.workflowTemplatesLoading).toBe(true)
+  const prompt = runPrompt()
+  prompt.element.focus()
+  if (interaction === '输入') await prompt.setValue('只用于本次运行的文本')
+  else await prompt.trigger('compositionstart')
+  const currentInput = prompt.element.value
+  pending.resolve()
+  await flushPromises()
+
+  expect(hasDialog()).toBe(false)
+  expect(document.activeElement).toBe(prompt.element)
+  expect(prompt.element.closest('[inert]')).toBeNull()
+  expect(document.body.style.overflow).toBe('')
+  expect(store.workflowTemplatesLoading).toBe(false)
+  expect(store.workflowName).toBe('Text summary')
+  expect(runPrompt().element.value).toBe(currentInput)
+  expect(requests).toEqual(Array(2).fill('get /workflows/templates'))
+
+  await open()
+  expect(dialog().text()).toContain('Text summary')
+  expect(dialog().element.contains(document.activeElement)).toBe(true)
+  await dialog().get('button').trigger('click')
+  expect(runPrompt().element.value).toBe(currentInput)
+  expect(document.activeElement).toBe(opener().element)
+  expect(requests).toEqual(Array(3).fill('get /workflows/templates'))
+})
+
+it('编辑临时运行提示词期间目录失败，保留输入和焦点并仍可显式重试', async () => {
+  const store = await setup()
+  await open()
+  await apply('Text summary')
+  const pending = deferTemplateResponse()
+  await open()
+  const prompt = runPrompt()
+  prompt.element.focus()
+  await prompt.setValue('保留这次的文本')
+  pending.reject(new Error('暂时无法读取模板目录'))
+  await flushPromises()
+
+  expect(hasDialog()).toBe(false)
+  expect(document.activeElement).toBe(prompt.element)
+  expect(runPrompt().element.value).toBe('保留这次的文本')
+  expect(store.workflowName).toBe('Text summary')
+  expect(wrapper!.get('[data-testid="workflow-template-load-error"]').text()).toContain('暂时无法读取模板目录')
+  expect(requests).toEqual(Array(2).fill('get /workflows/templates'))
+
+  templateResponse = async () => templates
+  await open()
+  expect(dialog().text()).toContain('Text summary')
+  await dialog().get('button').trigger('click')
+  expect(runPrompt().element.value).toBe('保留这次的文本')
+  expect(requests).toEqual(Array(3).fill('get /workflows/templates'))
+})
 
 it('首跑向导仍打开时，模板层以编辑器而非裁剪画布为定位范围', async () => {
   await setup()

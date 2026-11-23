@@ -203,7 +203,7 @@ let workflowTemplatePickerRevision = 0
 let workflowTemplateInputRevision = 0
 let workflowTemplatePickerIntent: { opener: HTMLElement | null; inputRevision: number } | null = null
 function noteWorkflowTemplateInput(event: Event) {
-  // 只记录用户在画布编辑区继续填写配置，不把后台状态更新或导入选文件视为接管。
+  // 只记录用户继续填写节点配置或运行输入，不把后台状态更新或导入选文件视为接管。
   if (event.target instanceof HTMLElement && event.target.matches('textarea, select, input:not([type="file"])')) {
     workflowTemplateInputRevision += 1
   }
@@ -1582,7 +1582,14 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       </div>
     </header>
 
-    <section v-if="runPromptInputs.length" :inert="showingWorkflowTemplates || undefined" data-testid="workflow-run-inputs" class="mx-5 mt-4 space-y-3 rounded-xl border border-app-border bg-white p-4 shadow-sm">
+    <section
+      v-if="runPromptInputs.length"
+      :inert="showingWorkflowTemplates || undefined"
+      data-testid="workflow-run-inputs"
+      class="mx-5 mt-4 space-y-3 rounded-xl border border-app-border bg-white p-4 shadow-sm"
+      @input.capture="noteWorkflowTemplateInput"
+      @compositionstart.capture="noteWorkflowTemplateInput"
+    >
       <h2 class="text-sm font-semibold text-text-primary">{{ t('workflow.runPromptInputsTitle') }}</h2>
       <label v-for="input in runPromptInputs" :key="input.variable" class="block">
         <span class="mb-2 block text-sm font-medium text-text-primary">{{ t('workflow.runPromptInputLabel', { variable: input.variable }) }}</span>
