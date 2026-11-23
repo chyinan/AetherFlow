@@ -111,6 +111,39 @@ describe('真实工作流页面体验集成', () => {
     expect(wrapper!.find('[data-testid="workflow-starter-guide"]').exists()).toBe(false)
     expect(document.activeElement).toBe(toolbar.element)
   })
+  it('首跑向导从当前运行直达该次成品，不经过全部成品列表', async () => {
+    const { router, runs } = await setup()
+    runs.currentRun = { id: 'run-42', workflowId: '101', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
+    await wrapper!.get('[data-action="workflow-guide"]').trigger('click')
+    await flushPromises()
+
+    const entry = wrapper!.get('[data-testid="workflow-starter-guide"] a')
+    expect(router.resolve(entry.attributes('href')!).query).toEqual({ runId: 'run-42' })
+    expect(entry.text()).toBe('查看本次成品')
+    await entry.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/files?runId=run-42')
+    expect(api.saveWorkflow).not.toHaveBeenCalled()
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
+  it('没有本工作流运行时保留通用文件入口，运行变化不沿用旧筛选', async () => {
+    const { router, runs } = await setup()
+    await wrapper!.get('[data-action="workflow-guide"]').trigger('click')
+    await flushPromises()
+    const currentEntry = () => wrapper!.get('[data-testid="workflow-starter-guide"] a')
+    expect(currentEntry().attributes('href')).toBe('/files')
+    expect(currentEntry().text()).toBe('打开文件页')
+    runs.currentRun = { id: 'run-43', workflowId: '101', status: 'running', backendStatus: 'RUNNING', nodeStates: [] } as never
+    await flushPromises()
+    expect(router.resolve(currentEntry().attributes('href')!).query).toEqual({ runId: 'run-43' })
+    runs.currentRun = { id: 'run-44', workflowId: 'other', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
+    await flushPromises()
+    expect(currentEntry().attributes('href')).toBe('/files')
+    expect(currentEntry().text()).toBe('打开文件页')
+    expect(api.startRun).not.toHaveBeenCalled()
+  })
+
   it('模板应用打开首跑向导，关闭可重新进入，不沿用旧运行的成功状态', async () => {
     const { store, runs } = await setup()
     runs.currentRun = { id: 'old', workflowId: 'other', status: 'success', backendStatus: 'SUCCESS', nodeStates: [] } as never
