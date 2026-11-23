@@ -39,8 +39,8 @@ function probe(id: string): NodeConnectionProbe {
 }
 
 const wrappers: Array<{ unmount: () => void }> = []
-function render(modelValue = nodes) {
-  const wrapper = mount(LoopBodyEditor, { props: { modelValue, catalog: [] }, global: { plugins: [i18n, createPinia()] } })
+function render(modelValue = nodes, attachTo?: HTMLElement) {
+  const wrapper = mount(LoopBodyEditor, { attachTo, props: { modelValue, catalog: [] }, global: { plugins: [i18n, createPinia()] } })
   wrappers.push(wrapper)
   return wrapper
 }
@@ -137,6 +137,138 @@ describe('同一循环体的图像步骤共享连接目录，诊断各自独立'
     expect(wrapper.find(byStep('a')).find(selectedStatus).text()).toContain(a.id)
     expect(wrapper.find(byStep('b')).find(selectedStatus).text()).toContain(b.id)
     expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id])
+  })
+
+  it('另一面板读到同一连接的新地址时，立即收起旧模型并按新地址重新诊断', async () => {
+    const nextProbe = deferred<NodeConnectionProbe>()
+    const wrapper = render()
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    const stepB = wrapper.find(byStep('b'))
+    const newAddress = 'http://studio-a-migrated.test:8188'
+    mocks.getNodeConnections.mockResolvedValue({ connections: [{ ...a, baseUrl: newAddress }, b] })
+    mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? nextProbe.promise : Promise.resolve(probe(id)))
+
+    await stepB.get(refresh).trigger('click')
+    await flushPromises()
+
+    expect(stepA.text()).toContain(newAddress)
+    expect(stepA.find(selectedStatus).exists()).toBe(false)
+    expect(stepA.get('[data-testid="model-checkpoint"]').text()).toContain('portrait.safetensors (?)')
+    expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, a.id, b.id])
+
+    nextProbe.resolve({ ...probe(a.id), message: '新地址的诊断', models: { ...probe(a.id).models, checkpoints: ['new.safetensors'] } })
+    await flushPromises()
+    expect(stepA.get(selectedStatus).text()).toContain('新地址的诊断')
+    expect(stepA.get('[data-testid="model-checkpoint"]').text()).toContain('new.safetensors')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('失效地址在途的结果不能覆盖新地址的诊断', async () => {
+    const oldResponse = deferred<NodeConnectionProbe>()
+    const newResponse = deferred<NodeConnectionProbe>()
+    let currentEndpoint = oldResponse
+    mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? currentEndpoint.promise : Promise.resolve(probe(id)))
+    const wrapper = render()
+    await flushPromises()
+    currentEndpoint = newResponse
+    mocks.getNodeConnections.mockResolvedValue({ connections: [{ ...a, baseUrl: 'http://studio-a-backup.test:8188' }, b] })
+    await wrapper.find(byStep('b')).get(refresh).trigger('click')
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    newResponse.resolve({ ...probe(a.id), message: '备用地址可用' })
+    await flushPromises()
+
+    oldResponse.resolve({ ...probe(a.id), status: 'unreachable', message: '原地址不可达' })
+    await flushPromises()
+    expect(stepA.get(selectedStatus).text()).toContain('备用地址可用')
+    expect(stepA.text()).not.toContain('原地址不可达')
+  })
+
+  it('服务端只重命名同级连接时，保留诊断而不重新发送探测', async () => {
+    const wrapper = render()
+    await flushPromises()
+    mocks.getNodeConnections.mockResolvedValue({ connections: [{ ...a, name: 'Studio A (renamed)' }, b] })
+    await wrapper.find(byStep('b')).get(refresh).trigger('click')
+    await flushPromises()
+
+    const stepA = wrapper.find(byStep('a'))
+    expect(stepA.get('[data-testid="connection-select"]').text()).toContain('Studio A (renamed)')
+    expect(stepA.get(selectedStatus).text()).toContain(a.id)
+    expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id])
+  })
+
+  it('刷新发现同级连接不存在时丢弃旧请求，把焦点还给当前重测按钮', async () => {
+    const oldProbe = deferred<NodeConnectionProbe>()
+    mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? oldProbe.promise : Promise.resolve(probe(id)))
+    const wrapper = render(nodes, document.body)
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    ;(stepA.get(cancel).element as HTMLButtonElement).focus()
+    expect(document.activeElement).toBe(stepA.get(cancel).element)
+    mocks.getNodeConnections.mockResolvedValue({ connections: [b] })
+    await wrapper.find(byStep('b')).get(refresh).trigger('click')
+    await flushPromises()
+    oldProbe.resolve(probe(a.id))
+    await flushPromises()
+
+    expect(stepA.find('[data-testid="missing-connection"]').exists()).toBe(true)
+    expect(stepA.find(selectedStatus).exists()).toBe(false)
+    expect(stepA.find(cancel).exists()).toBe(false)
+    expect(document.activeElement).toBe(stepA.get(refresh).element)
+    expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id])
+  })
+
+  it('同级连接确认换了地址也不会重开已取消的诊断；用户仍可主动重测', async () => {
+    const oldProbe = deferred<NodeConnectionProbe>()
+    mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? oldProbe.promise : Promise.resolve(probe(id)))
+    const wrapper = render()
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    await stepA.get(cancel).trigger('click')
+    mocks.getNodeConnections.mockResolvedValue({ connections: [{ ...a, baseUrl: 'http://studio-a-migrated.test:8188' }, b] })
+    mocks.probeSavedNodeConnection.mockImplementation(async (id: string) => ({ ...probe(id), message: '新探测' }))
+    await wrapper.find(byStep('b')).get(refresh).trigger('click')
+    oldProbe.resolve(probe(a.id))
+    await flushPromises()
+
+    expect(stepA.text()).toContain('本次测试已取消')
+    expect(stepA.find(selectedStatus).exists()).toBe(false)
+    expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id])
+    await stepA.get(refresh).trigger('click')
+    await flushPromises()
+    expect(stepA.get(selectedStatus).text()).toContain('新探测')
+    expect(stepA.text()).not.toContain('本次测试已取消')
+    expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id, a.id])
+  })
+
+  it.each([
+    { focusTarget: '旧清单建议', selector: 'apply-checkpoint-field-unsupported', remains: false },
+    { focusTarget: '保留的模型字段', selector: 'model-checkpoint', remains: true },
+  ])('目录确认换址时保护当前焦点：$focusTarget', async ({ selector, remains }) => {
+    const prior = { ...probe(a.id), capabilities: ['IMAGE_GENERATION'], models: { ...probe(a.id).models, checkpoints: ['old.safetensors'] } }
+    mocks.probeSavedNodeConnection.mockImplementation(async (id: string) => id === a.id ? prior : probe(id))
+    const wrapper = render(nodes, document.body)
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    const nextCatalog = deferred<typeof response>()
+    mocks.getNodeConnections.mockReturnValueOnce(nextCatalog.promise)
+    await wrapper.find(byStep('b')).get(refresh).trigger('click')
+    const focused = stepA.get<HTMLElement>(`[data-testid="${selector}"]`).element
+    focused.focus()
+    expect(document.activeElement).toBe(focused)
+
+    const newProbe = deferred<NodeConnectionProbe>()
+    mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? newProbe.promise : Promise.resolve(probe(id)))
+    nextCatalog.resolve({ connections: [{ ...a, baseUrl: 'http://studio-a-migrated.test:8188' }, b] })
+    await flushPromises()
+    const actuallyRetained = focused.isConnected
+    const focusAfterRefresh = document.activeElement
+    newProbe.resolve(probe(a.id))
+    await flushPromises()
+
+    expect(actuallyRetained).toBe(remains)
+    expect(focusAfterRefresh).toBe(remains ? focused : stepA.get('[data-testid="node-connection"]').element)
   })
 
   it('与目录响应同一轮渲染加入的新步骤也得到自身诊断', async () => {

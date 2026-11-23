@@ -46,11 +46,13 @@ const saving = computed(() => Boolean(pendingSave.value))
 const nameInput = ref<HTMLInputElement | null>(null)
 const urlInput = ref<HTMLInputElement | null>(null)
 const selectorRoot = ref<HTMLElement | null>(null)
+const checklistRoot = ref<HTMLElement | null>(null)
 const refreshButton = ref<HTMLButtonElement | null>(null)
 const cancelProbeButton = ref<HTMLButtonElement | null>(null)
 const selectedCancelled = ref(false)
 let selectedSequence = 0
 let waitingForCatalog = false
+let diagnosedTarget: string | null = null
 let formSequence = 0
 let alive = true
 let opener: HTMLElement | null = null
@@ -73,6 +75,7 @@ const workflowNodeTypes = computed(() => importedApi.value ? [...new Set(describ
 const connectionId = computed(() => String(props.config.connectionId ?? '').trim())
 const effectiveId = computed(() => connectionId.value || (provider.value === 'COMFYUI' ? 'deployment-comfyui' : 'deployment-sd'))
 const selectedConnection = computed(() => connections.value.find((connection) => connection.id === effectiveId.value))
+const selectedTarget = computed(() => JSON.stringify([selectedConnection.value?.provider, selectedConnection.value?.baseUrl]))
 const missingConnection = computed(() => ready.value && Boolean(connectionId.value) && !selectedConnection.value)
 const confirmedConnectionProvider = computed(() => ready.value && connectionId.value ? selectedConnection.value?.provider : undefined)
 const providerMismatch = computed(() => Boolean(confirmedConnectionProvider.value && confirmedConnectionProvider.value !== provider.value))
@@ -280,13 +283,15 @@ async function save() {
 async function refreshSelected() {
   const sequence = ++selectedSequence
   const key = selectedKey.value
+  const target = selectedTarget.value
   selectedProbe.value = null
   selectedError.value = ''
   selectedCancelled.value = false
-  probing.value = false
   waitingForCatalog = !ready.value || missingConnection.value
-  if (waitingForCatalog) return
+  if (ready.value) diagnosedTarget = target
+  if (waitingForCatalog) { finishSelectedProbe(); return }
   probing.value = true
+  const isCurrent = () => alive && sequence === selectedSequence && key === selectedKey.value && target === selectedTarget.value
   try {
     // 节点可能仍保留共享连接更新前的 Provider；不要用旧配置探测另一种服务的图或模型。
     const checkpoint = props.nodeType === 'IMAGE_GENERATION' && !importedApi.value && !providerMismatch.value
@@ -294,12 +299,27 @@ async function refreshSelected() {
     const result = workflowNodeTypes.value.length && !providerMismatch.value
       ? await probeSavedNodeConnection(effectiveId.value, undefined, undefined, workflowNodeTypes.value)
       : await probeSavedNodeConnection(effectiveId.value, props.nodeType, checkpoint || undefined)
-    if (alive && sequence === selectedSequence && key === selectedKey.value) selectedProbe.value = result
+    if (isCurrent()) selectedProbe.value = result
   } catch (cause) {
-    if (alive && sequence === selectedSequence && key === selectedKey.value) selectedError.value = errorMessage(cause)
+    if (isCurrent()) selectedError.value = errorMessage(cause)
   } finally {
-    if (alive && sequence === selectedSequence) finishSelectedProbe()
+    if (isCurrent()) finishSelectedProbe()
   }
+}
+function refreshChangedTarget() {
+  const focused = document.activeElement
+  const ownedFocus = focused instanceof HTMLElement && checklistRoot.value?.contains(focused)
+  const nodeId = props.nodeId
+  void refreshSelected()
+  if (!ownedFocus) return
+  const sequence = selectedSequence
+  // 不保留旧建议；仅在这次更新确实卸载了原焦点时，回到当前连接面板。
+  void nextTick(() => {
+    if (alive && !open.value && nodeId === props.nodeId && sequence === selectedSequence
+      && !focused.isConnected && document.activeElement === document.body) {
+      selectorRoot.value?.focus({ preventScroll: true })
+    }
+  })
 }
 function loadConnections(shared = false) {
   waitingForCatalog = true
@@ -345,15 +365,21 @@ function handleDialogKeydown(event: KeyboardEvent) {
 // 字段改正后不在后续输入中重新弹出，除非用户再次触发本地校验。
 watch(validationKey, (key) => { if (!key) validationTarget.value = null }, { flush: 'sync' })
 watch(() => [form.provider, form.baseUrl], () => { if (open.value) invalidateForm() }, { flush: 'sync' })
-// 目录就绪属于共享读取，不属于最后发起读取的面板；仅补齐仍在等待的诊断。
-watch(ready, (loaded) => { if (loaded && waitingForCatalog) void refreshSelected() })
 watch(() => [props.nodeId, props.nodeType], () => { close(false); loadConnections(true) }, { immediate: true, flush: 'sync' })
 watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'sync' })
-watch(saveOutcome, (outcome) => {
-  if (outcome?.status !== 'saved') return
-  emit('saved')
-  // 同 ID 编辑也要刷新当前探测；保存期间换到该连接的节点同样需要新目录。
-  if (outcome.connection.id === effectiveId.value) void refreshSelected()
+watch([ready, selectedTarget, saveOutcome], ([loaded, target, outcome], [, , previousOutcome]) => {
+  const saved = outcome?.status === 'saved' && outcome !== previousOutcome
+  if (saved) emit('saved')
+  // 合并同一批目录发布和保存回执。地址或 Provider 变化时补测受影响的同级节点，
+  // 同地址重命名或别处刷新不重测，也不恢复用户已经取消的诊断。
+  const targetChanged = loaded && !selectedCancelled.value && diagnosedTarget !== null && diagnosedTarget !== target
+  if (saved && outcome.connection.id === effectiveId.value) {
+    void refreshSelected()
+  } else if (targetChanged) {
+    refreshChangedTarget()
+  } else if (loaded && waitingForCatalog) {
+    void refreshSelected()
+  }
 })
 onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
 </script>
@@ -404,7 +430,7 @@ onBeforeUnmount(() => { alive = false; selectedSequence += 1; close(false) })
         <p v-for="warning in selectedProbe.warnings" :key="warning" class="text-status-warning">{{ warning }}</p>
       </template>
     </div>
-    <section v-if="selectedProbe || providerMismatch" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
+    <section v-if="selectedProbe || providerMismatch" ref="checklistRoot" data-testid="connection-checklist" class="space-y-3 rounded-lg border border-app-border bg-white p-3" :aria-labelledby="fieldId('checklist-title')">
       <h3 :id="fieldId('checklist-title')" class="text-sm font-semibold text-text-primary">{{ t('checklistTitle') }}</h3>
       <p class="text-xs leading-5 text-text-muted">{{ t('checklistScope') }}</p>
       <p v-if="!checklist.length" data-testid="checklist-clear" role="status" class="text-xs text-status-success">{{ t('checklistClear') }}</p>
