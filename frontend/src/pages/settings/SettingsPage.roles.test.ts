@@ -368,6 +368,99 @@ describe('按实际账号权限设计设置体验', () => {
     expect(save).toHaveBeenCalledOnce()
   })
 
+  async function revisitDataSources() {
+    await wrapper!.get('[data-settings-tab="language"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.find('[data-action="save-vector-store"]').exists()).toBe(false)
+    await wrapper!.get('[data-settings-tab="data-source"]').trigger('click')
+    await flushPromises()
+  }
+
+  it('向量库未保存草稿与对应连接测试结果在同页往返后保留，保存使用草稿', async () => {
+    const draft = { ...vector, enabled: false, baseUrl: 'https://next-vector.example.test', collection: 'next-collection' }
+    const test = vi.spyOn(settingsApi, 'testVectorStoreConfig').mockResolvedValue({ success: true, message: '当前向量库草稿连接通过' })
+    const save = vi.spyOn(settingsApi, 'saveVectorStoreConfig').mockResolvedValue(draft)
+    await setup('/settings?tab=data-source', true)
+    await wrapper!.get('fieldset input[type="checkbox"]').setValue(draft.enabled)
+    await wrapper!.get('input[placeholder="https://qdrant.example.com"]').setValue(draft.baseUrl)
+    await wrapper!.get('input[placeholder="workflow-embeddings"]').setValue(draft.collection)
+    await wrapper!.get('[data-action="test-vector-store"]').trigger('click')
+    await flushPromises()
+
+    await revisitDataSources()
+    await revisitDataSources()
+    expect(wrapper!.get<HTMLInputElement>('fieldset input[type="checkbox"]').element.checked).toBe(false)
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="https://qdrant.example.com"]').element.value).toBe(draft.baseUrl)
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="workflow-embeddings"]').element.value).toBe(draft.collection)
+    expect(wrapper!.text()).toContain('当前向量库草稿连接通过')
+    expect(settingsApi.getVectorStoreConfig).toHaveBeenCalledOnce()
+    expect(test).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+
+    await wrapper!.get('[data-action="save-vector-store"]').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledExactlyOnceWith({ enabled: false, provider: 'qdrant', baseUrl: draft.baseUrl, collection: draft.collection, apiKey: null })
+    expect(wrapper!.text()).toContain(i18n.global.t('settings.vectorStoreSaved'))
+  })
+
+  it('保存失败的向量库草稿往返后仍可重试，成功后恢复干净表单的重新读取', async () => {
+    const draftUrl = 'https://next-vector.example.test/'
+    const normalizedUrl = 'https://next-vector.example.test'
+    const save = vi.spyOn(settingsApi, 'saveVectorStoreConfig')
+      .mockRejectedValueOnce(new Error('向量库暂时无法保存'))
+      .mockResolvedValueOnce({ ...vector, baseUrl: normalizedUrl })
+    await setup('/settings?tab=data-source', true)
+    await wrapper!.get('input[placeholder="https://qdrant.example.com"]').setValue(draftUrl)
+    await wrapper!.get('[data-action="save-vector-store"]').trigger('click')
+    await flushPromises()
+
+    await revisitDataSources()
+    expect(wrapper!.text()).toContain('向量库暂时无法保存')
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="https://qdrant.example.com"]').element.value).toBe(draftUrl)
+    expect(settingsApi.getVectorStoreConfig).toHaveBeenCalledOnce()
+    expect(save).toHaveBeenCalledOnce()
+    await wrapper!.get('[data-action="save-vector-store"]').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenNthCalledWith(2, { enabled: true, provider: 'qdrant', baseUrl: draftUrl, collection: vector.collection, apiKey: null })
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="https://qdrant.example.com"]').element.value).toBe(normalizedUrl)
+
+    vi.mocked(settingsApi.getVectorStoreConfig).mockResolvedValueOnce({ ...vector, baseUrl: normalizedUrl, collection: 'latest-saved-collection' })
+    await revisitDataSources()
+    expect(settingsApi.getVectorStoreConfig).toHaveBeenCalledTimes(2)
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="workflow-embeddings"]').element.value).toBe('latest-saved-collection')
+  })
+
+  it('向量库连接测试在切换标签期间完成，返回保留失败反馈直至继续修改草稿', async () => {
+    const pending = deferred<{ success: boolean; message: string }>()
+    const test = vi.spyOn(settingsApi, 'testVectorStoreConfig').mockReturnValue(pending.promise)
+    const save = vi.spyOn(settingsApi, 'saveVectorStoreConfig').mockResolvedValue(vector)
+    await setup('/settings?tab=data-source', true)
+    await wrapper!.get('input[placeholder="workflow-embeddings"]').setValue('draft-collection')
+    await wrapper!.get('[data-action="test-vector-store"]').trigger('click')
+    await wrapper!.get('[data-settings-tab="language"]').trigger('click')
+    await flushPromises()
+    pending.resolve({ success: false, message: '当前向量库草稿连接失败' })
+    await flushPromises()
+    await wrapper!.get('[data-settings-tab="data-source"]').trigger('click')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('当前向量库草稿连接失败')
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="workflow-embeddings"]').element.value).toBe('draft-collection')
+    await wrapper!.get('input[placeholder="workflow-embeddings"]').setValue('different-collection')
+    expect(wrapper!.text()).not.toContain('当前向量库草稿连接失败')
+    expect(settingsApi.getVectorStoreConfig).toHaveBeenCalledOnce()
+    expect(test).toHaveBeenCalledOnce()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('向量库干净表单重新进入时仍读取后台配置，不在没有修改时锁定快照', async () => {
+    await setup('/settings?tab=data-source', true)
+    vi.mocked(settingsApi.getVectorStoreConfig).mockResolvedValueOnce({ ...vector, collection: 'latest-saved-collection' })
+    await revisitDataSources()
+    expect(settingsApi.getVectorStoreConfig).toHaveBeenCalledTimes(2)
+    expect(wrapper!.get<HTMLInputElement>('input[placeholder="workflow-embeddings"]').element.value).toBe('latest-saved-collection')
+  })
+
   it('普通设置目录部分失败可重试，仍不请求任何管理员接口', async () => {
     vi.mocked(settingsApi.listDataSources).mockRejectedValueOnce(new Error('合成目录失败'))
     await setup()
