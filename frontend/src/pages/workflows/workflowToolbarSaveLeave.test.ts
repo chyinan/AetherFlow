@@ -207,10 +207,33 @@ it('工具栏保存明确失败后，弹窗仍可重试而不会直接授权离�
   expect(store.dirty).toBe(true)
   expect(store.savingError).toContain('保存被拒绝')
   expect(dialog().text()).toContain('离开前保存工作流？')
+  expect(dialog().get('[role="alert"]').text()).toContain('保存被拒绝')
+  expect([...document.querySelectorAll('[role="alert"]')].filter(alert => alert.textContent?.includes('保存被拒绝'))).toHaveLength(1)
+  expect(router.currentRoute.value.path).toBe('/workflows/201')
+  expect(writes).toHaveLength(1)
   await dialog().get('[data-action="leave-save"]').trigger('click')
   expect(await leaving).toBeUndefined()
   expect(writes.map(write => write.method)).toEqual(['put', 'put'])
   expect(persisted.version).toBe(2)
+})
+
+it('工具栏保存失败后主动留页，错误回到编辑器且不再次发请求', async () => {
+  rejectFirst = true
+  const { store, router } = await setup()
+  await saveFromToolbar()
+  const leaving = router.push('/elsewhere')
+  await flushPromises()
+  firstWrite.resolve()
+  await flushPromises()
+  expect(dialog().get('[role="alert"]').text()).toContain('保存被拒绝')
+
+  await dialog().get('[data-action="leave-stay"]').trigger('click')
+  expect(isNavigationFailure(await leaving)).toBe(true)
+  expect(router.currentRoute.value.fullPath).toBe('/workflows/201?projectId=11')
+  expect(wrapper!.find('[data-testid="unsaved-navigation-dialog"]').exists()).toBe(false)
+  expect(wrapper!.get('[data-testid="workflow-editor"] [role="alert"]').text()).toContain('保存被拒绝')
+  expect(store.dirty).toBe(true)
+  expect(writes).toHaveLength(1)
 })
 
 it('首次保存后选择继续，不以规范化跳转取代原目的地，也不重新保存', async () => {

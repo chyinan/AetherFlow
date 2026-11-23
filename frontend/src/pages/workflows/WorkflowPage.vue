@@ -707,6 +707,11 @@ const leaveDialogReady = ref(false)
 const leaveSaveBusy = ref(false)
 let leaveSaveSequence = 0
 const leaveSaveError = ref('')
+const workflowPageError = computed(() => {
+  const savingError = workflowStore.savingError
+  if (savingError && leaveDialogReady.value && leaveSaveError.value === savingError) return null
+  return savingError || workflowStore.runError
+})
 const leaveAlreadySaved = computed(() => {
   const receipt = toolbarSaveDuringLeave.value
   return receipt !== null && ownsToolbarSave(receipt) && !workflowStore.dirty
@@ -1011,7 +1016,18 @@ async function saveWorkflow() {
   try {
     const projectId = resolveWorkflowProjectId()
     const navigationRevision = pageNavigationRevision
-    const saved = await workflowStore.saveCurrentWorkflow({ projectId })
+    const operation = workflowStore.saveCurrentWorkflow({ projectId })
+    const storeSaveSequence = workflowStore.workflowSaveRequestSequence
+    const saved = await operation.catch(() => {
+      // Only this toolbar write can report its failure to the pending leave choice.
+      const message = workflowStore.savingError
+      if (message && pageActive && saveSequence === pageSaveSequence && navigationRevision === pageNavigationRevision
+        && storeSaveSequence === workflowStore.workflowSaveRequestSequence && pendingNavigation.value
+        && !leaveSaveBusy.value && !workflowStore.saving) {
+        leaveSaveError.value = message
+      }
+      return undefined
+    })
     if (!saved) return
     const receipt = { workflowId: saved.workflowId, projectId, navigationRevision, saveSequence }
     if (!ownsToolbarSave(receipt)) return
@@ -1463,8 +1479,8 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         <p v-if="comfyUiDraftMessage" class="mt-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary" data-testid="comfyui-import-draft-hint">
           {{ comfyUiDraftMessage }}
         </p>
-        <p v-if="workflowStore.savingError || workflowStore.runError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
-          {{ workflowStore.savingError || workflowStore.runError }}
+        <p v-if="workflowPageError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
+          {{ workflowPageError }}
         </p>
         <p
           v-if="workflowTemplateLoadError"
