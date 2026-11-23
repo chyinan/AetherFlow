@@ -42,7 +42,7 @@ afterEach(() => {
   axiosInstance.defaults.adapter = originalAdapter
 })
 
-async function openAndConfirm(loadFiles: () => Promise<typeof files> = async () => files) {
+async function openAndConfirm(loadFiles: () => Promise<typeof files> = async () => files, focusTrigger = true) {
   const post = deferred<typeof childRun>()
   const bodies: unknown[] = []
   axiosInstance.defaults.adapter = async (config: InternalAxiosRequestConfig) => {
@@ -87,14 +87,19 @@ async function openAndConfirm(loadFiles: () => Promise<typeof files> = async () 
   const open = view.get('[data-testid="run-detail-region"]').findAll('button')
     .find(button => button.text() === i18n.global.t('runs.rerunNode'))
   expect(open).toBeDefined()
+  const previousFocus = focusTrigger
+    ? open!.element
+    : view.get<HTMLInputElement>(`input[placeholder="${i18n.global.t('workflow.searchLogs')}"]`).element
+  previousFocus.focus()
   await open!.trigger('click')
   await flushPromises()
   const confirm = document.body.querySelector<HTMLButtonElement>('[data-action="rerun"]')!
   expect(confirm.disabled).toBe(false)
+  confirm.focus()
   confirm.click()
   await flushPromises()
   expect(bodies).toEqual([{ expectedRevision: 'revision-1' }])
-  return { post, bodies, router, view }
+  return { post, bodies, router, view, opener: open!.element, previousFocus }
 }
 
 it('新页面组件仍在加载时，成功回执不取消该次导航', async () => {
@@ -168,4 +173,73 @@ it.each([false, true])('无待决导航时保持成功或关闭后的原有行�
   expect(router.currentRoute.value.fullPath).toBe(close ? sourcePath : childPath)
   expect(document.body.querySelector('[data-action="rerun"]')).toBeNull()
   expect(bodies).toHaveLength(1)
+})
+
+it('键盘确认后将焦点交给派生运行详情，而不是已卸载的原重跑按钮', async () => {
+  const { post, bodies, router, view, opener } = await openAndConfirm()
+  expect(document.activeElement?.getAttribute('role')).toBe('dialog')
+  post.resolve(childRun)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(childPath)
+  const detail = view.get('[data-testid="run-detail-region"]')
+  expect(detail.get('h2').text()).toBe(childRun.workflowName)
+  expect(opener.isConnected).toBe(false)
+  expect(document.activeElement === detail.element).toBe(true)
+  expect(bodies).toHaveLength(1)
+})
+
+it('派生运行导航期间，焦点留在用户新选的列表筛选输入框', async () => {
+  const { post, router, view, opener } = await openAndConfirm()
+  const gate = deferred<boolean>()
+  router.beforeResolve(to => to.params.id === 'run-33' ? gate.promise : true)
+  post.resolve(childRun)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(sourcePath)
+  expect(document.activeElement === opener).toBe(true)
+  const search = view.get<HTMLInputElement>('[data-testid="history-search"]')
+  search.element.focus()
+  await search.setValue('继续筛选')
+  gate.resolve(true)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(childPath)
+  expect(document.activeElement === search.element).toBe(true)
+  expect(search.element.value).toBe('继续筛选')
+})
+
+it('等较新的导航被取消时已改用筛选框，回执仍打开派生运行但不抢焦点', async () => {
+  const { post, router, view, opener } = await openAndConfirm()
+  const gate = deferred<boolean>()
+  router.beforeResolve(to => to.path === '/files' ? gate.promise : true)
+  const attempt = router.push('/files')
+  await flushPromises()
+  post.resolve(childRun)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(sourcePath)
+  expect(document.activeElement === opener).toBe(true)
+  const search = view.get<HTMLInputElement>('[data-testid="history-search"]')
+  search.element.focus()
+  await search.setValue('继续筛选')
+  gate.resolve(false)
+  expect(isNavigationFailure(await attempt, NavigationFailureType.aborted)).toBe(true)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(childPath)
+  expect(document.activeElement === search.element).toBe(true)
+  expect(search.element.value).toBe('继续筛选')
+})
+
+it('触发按钮原先没有焦点时，不抢走同一详情内日志搜索的焦点', async () => {
+  const { post, router, opener, previousFocus } = await openAndConfirm(undefined, false)
+  expect(previousFocus).not.toBe(opener)
+  expect(document.activeElement?.getAttribute('role')).toBe('dialog')
+
+  post.resolve(childRun)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe(childPath)
+  expect(document.activeElement === previousFocus).toBe(true)
 })

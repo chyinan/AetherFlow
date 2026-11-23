@@ -18,7 +18,7 @@ const props = defineProps<{
   canRerun?: boolean
 }>()
 
-const emit = defineEmits<{ rerun: [node: RunNodeState] }>()
+const emit = defineEmits<{ rerun: [node: RunNodeState, trigger: HTMLButtonElement] }>()
 
 const { t } = useI18n()
 const { t: timelineText } = useI18n({ useScope: 'local', messages: {
@@ -65,7 +65,7 @@ function editLocation(node: RunNodeState) {
             <RouterLink v-if="editLocation(node)" :to="editLocation(node)!" data-testid="edit-failed-node" class="rounded border border-primary/30 px-2 py-1 text-xs text-primary">
               {{ timelineText('editNode') }}
             </RouterLink>
-            <button v-if="canRerun && !node.nodeId.includes('/')" type="button" class="rounded border border-primary/30 px-2 py-1 text-xs text-primary" @click="emit('rerun', node)">
+            <button v-if="canRerun && !node.nodeId.includes('/')" type="button" class="rounded border border-primary/30 px-2 py-1 text-xs text-primary" @click="emit('rerun', node, $event.currentTarget as HTMLButtonElement)">
               {{ t('runs.rerunNode') }}
             </button>
           </div>

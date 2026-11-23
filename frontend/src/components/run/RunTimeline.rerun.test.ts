@@ -14,7 +14,7 @@ describe('运行时间线局部重跑入口', () => {
     await wrapper.setProps({ canRerun: true })
     expect(wrapper.findAll('button')).toHaveLength(1)
     await wrapper.find('button').trigger('click')
-    expect(wrapper.emitted('rerun')).toEqual([[nodes[0]]])
+    expect(wrapper.emitted('rerun')).toEqual([[nodes[0], wrapper.find('button').element]])
     wrapper.unmount()
   })
   it('作用域失败项提示从循环根重跑，避免提交不支持的叶子重跑', () => {
