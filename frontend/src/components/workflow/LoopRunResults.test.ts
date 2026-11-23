@@ -2,9 +2,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { BatchRunResult } from '@/api/modules/runtime'
+import { i18n } from '@/i18n'
 const mocks = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('@/api/modules/runtime', () => ({ getBatchResults: mocks.get }))
 import LoopRunResults from './LoopRunResults.vue'
+
+function mountResults(props: InstanceType<typeof LoopRunResults>['$props']) {
+  return mount(LoopRunResults, { props, global: { plugins: [i18n] } })
+}
 
 function batchPage(
   requestedOffset: number,
@@ -34,7 +39,7 @@ describe('批次逐项结果', () => {
   beforeEach(() => { mocks.get.mockReset() })
   it('显示逐项状态、错误和输出，支持失败后刷新', async () => {
     mocks.get.mockRejectedValueOnce(new Error('offline'))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch' })
     await flushPromises(); expect(wrapper.get('[role="alert"]').text()).toContain('重试')
     mocks.get.mockResolvedValue({ total: 2, offset: 0, results: [{ index: 0, status: 'FAILED', error: '模型离线' }, { index: 1, status: 'SUCCESS', variables: { prompt: '分镜' } }] })
     await wrapper.get('button').trigger('click'); await flushPromises()
@@ -43,7 +48,7 @@ describe('批次逐项结果', () => {
   it('切换运行后忽略旧响应，无运行时取消加载状态', async () => {
     let resolve!: (value: unknown) => void
     mocks.get.mockImplementationOnce(() => new Promise(done => { resolve = done }))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'old' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'old' })
     mocks.get.mockResolvedValue({ total: 1, offset: 0, results: [{ index: 0, status: 'SUCCESS', variables: { title: 'new' } }] })
     await wrapper.setProps({ instanceId: 2, nodeId: 'new' }); await flushPromises()
     resolve({ total: 99, offset: 0, results: [{ status: 'FAILED', error: 'old' }] }); await flushPromises()
@@ -54,9 +59,7 @@ describe('批次逐项结果', () => {
 
   it('同一运行完成时，更新正在查看的后续页而不是跳回第一页', async () => {
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset)))
-    const wrapper = mount(LoopRunResults, {
-      props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' },
-    })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
     await flushPromises()
@@ -76,9 +79,7 @@ describe('批次逐项结果', () => {
     mocks.get.mockResolvedValueOnce(batchPage(0))
     mocks.get.mockImplementationOnce(() => new Promise(done => { resolvePage = done }))
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset, 52, () => 'SUCCESS')))
-    const wrapper = mount(LoopRunResults, {
-      props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' },
-    })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
     expect(mocks.get).toHaveBeenLastCalledWith(1, 'batch', 50)
@@ -95,9 +96,7 @@ describe('批次逐项结果', () => {
 
   it('恢复执行的快照暂时为空时，保留页码至逐项结果重新出现', async () => {
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset)))
-    const wrapper = mount(LoopRunResults, {
-      props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' },
-    })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
     await flushPromises()
@@ -122,9 +121,7 @@ describe('批次逐项结果', () => {
     ['节点', { instanceId: 1, nodeId: 'other', runStatus: 'WAITING' }],
   ] as const)('切换%s后从第一页开始', async (_label, props) => {
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset)))
-    const wrapper = mount(LoopRunResults, {
-      props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' },
-    })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
     await flushPromises()
@@ -143,9 +140,7 @@ describe('批次逐项结果', () => {
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) =>
       Promise.resolve(batchPage(offset, 102, index => index === 97 || index === 101 ? 'WAITING' : 'SUCCESS')),
     )
-    const wrapper = mount(LoopRunResults, {
-      props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' },
-    })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     for (let page = 0; page < 2; page++) {
       await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
@@ -174,7 +169,7 @@ describe('刷新当前批次页时继续查看已读结果', () => {
     const failure = deferred<ReturnType<typeof batchPage>>()
     const retry = deferred<ReturnType<typeof batchPage>>()
     mocks.get.mockResolvedValueOnce(batchPage(0, 1)).mockReturnValueOnce(failure.promise).mockReturnValueOnce(retry.promise)
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     const row = wrapper.get<HTMLDetailsElement>('details').element
     row.open = true
@@ -206,7 +201,7 @@ describe('刷新当前批次页时继续查看已读结果', () => {
     const replacement = deferred<ReturnType<typeof batchPage>>()
     mocks.get.mockResolvedValueOnce(batchPage(0)).mockResolvedValueOnce(batchPage(50))
       .mockReturnValueOnce(shrink.promise).mockReturnValueOnce(replacement.promise)
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === '下一页')!.trigger('click')
     await flushPromises()
@@ -235,7 +230,7 @@ describe('刷新当前批次页时继续查看已读结果', () => {
       const current = deferred<ReturnType<typeof batchPage>>()
       mocks.get.mockResolvedValueOnce(batchPage(0, 2)).mockReturnValueOnce(stale.promise)
         .mockReturnValueOnce(current.promise).mockResolvedValueOnce(batchPage(0, 0))
-      const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+      const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
       await flushPromises()
       await wrapper.get('button').trigger('click')
       await wrapper.setProps({ instanceId, nodeId })
@@ -270,7 +265,7 @@ describe('批次翻页失败后仍可导航', () => {
   ] as const)('读取%s失败后可以返回先前可读的页', async (_name, go, back, failingOffset, previousOffset) => {
     const failed = deferred<ReturnType<typeof batchPage>>()
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset)))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch' })
     try {
       await flushPromises()
       if (previousOffset > 0) {
@@ -304,7 +299,7 @@ describe('批次翻页失败后仍可导航', () => {
 
   it('已确认批次缩短但最后有效页读取失败时，只保留新范围内的导航', async () => {
     mocks.get.mockImplementation((_instanceId, _nodeId, offset) => Promise.resolve(batchPage(offset, 152)))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     try {
       await flushPromises()
       for (let page = 0; page < 2; page++) {
@@ -337,7 +332,7 @@ describe('批次翻页失败后仍可导航', () => {
   it('刷新会重试失败的页，确认结果为空后不保留分页按钮', async () => {
     mocks.get.mockResolvedValueOnce(batchPage(0)).mockRejectedValueOnce(new Error('临时失败'))
       .mockResolvedValueOnce(batchPage(50))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch', runStatus: 'WAITING' })
     try {
       await flushPromises()
       await pageButton(wrapper, '下一页')!.trigger('click')
@@ -364,7 +359,7 @@ describe('批次翻页失败后仍可导航', () => {
     const stale = deferred<ReturnType<typeof batchPage>>()
     mocks.get.mockResolvedValueOnce(batchPage(0)).mockReturnValueOnce(stale.promise)
       .mockRejectedValueOnce(new Error('新批次暂时不可用'))
-    const wrapper = mount(LoopRunResults, { props: { instanceId: 1, nodeId: 'batch' } })
+    const wrapper = mountResults({ instanceId: 1, nodeId: 'batch' })
     try {
       await flushPromises()
       await pageButton(wrapper, '下一页')!.trigger('click')
