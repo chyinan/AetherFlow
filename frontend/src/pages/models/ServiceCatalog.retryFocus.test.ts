@@ -176,3 +176,40 @@ it('重试中离开目录，旧回执不影响新页面，返回后使用独立�
   expect(router.currentRoute.value.path).toBe('/projects')
   expect(dispatches).toHaveLength(3)
 })
+
+it('Python 不可达时字幕仍列在目录中但不算可用，恢复后重新计数', async () => {
+  const interactiveTypes = ['FFMPEG', 'IMAGE_GENERATION', 'LLM', 'PROMPT', 'SUBTITLE', 'SUMMARY', 'TRANSLATE', 'UPSCALE', 'WHISPER']
+  const independentTypes = ['IMAGE_GENERATION', 'PROMPT', 'UPSCALE']
+  const offlineSnapshot: AiWorkflowCapabilities = {
+    runtimeReachable: false, llmExecutable: false, whisperExecutable: false,
+    llmProviders: [], imageProviders: ['COMFYUI'], supportedNodeTypes: interactiveTypes, executableNodeTypes: independentTypes,
+    unavailableReasons: Object.fromEntries(['FFMPEG', 'LLM', 'SUBTITLE', 'SUMMARY', 'TRANSLATE', 'WHISPER']
+      .map(type => [type, 'python ai runtime is unavailable'])),
+  }
+  const recoveredSnapshot: AiWorkflowCapabilities = {
+    ...offlineSnapshot, runtimeReachable: true, executableNodeTypes: [...independentTypes, 'SUBTITLE'],
+    unavailableReasons: {
+      FFMPEG: 'ffmpeg is unavailable', LLM: 'llm runtime is disabled', SUMMARY: 'llm runtime is disabled',
+      TRANSLATE: 'llm runtime is disabled', WHISPER: 'whisper runtime is disabled',
+    },
+  }
+  reply = () => ({ ...success, data: offlineSnapshot })
+  const { page } = await render()
+  const card = (type: string) => page.get(`[data-service="${type}"]`)
+  const status = (type: string) => card(type).get('h2 + span').text()
+  const messages = modelRoleMessages['zh-CN']
+  expect(page.get('[role="status"]').text()).toBe('3 项当前可用 / 9 项服务能力')
+  expect(status('SUBTITLE')).toBe(messages.unavailable)
+  expect(card('SUBTITLE').text()).toContain('python ai runtime is unavailable')
+  expect(card('SUBTITLE').find('[data-action="open-capability-support"]').exists()).toBe(true)
+  for (const type of independentTypes) expect(status(type)).toBe(messages.available)
+
+  reply = () => ({ ...success, data: recoveredSnapshot })
+  await page.get('[data-testid="refresh-capabilities"]').trigger('click')
+  await flushPromises()
+  expect(page.get('[role="status"]').text()).toBe('4 项当前可用 / 9 项服务能力')
+  expect(status('SUBTITLE')).toBe(messages.available)
+  expect(card('SUBTITLE').find('[data-action="open-capability-support"]').exists()).toBe(false)
+  expect(status('WHISPER')).toBe(messages.unavailable)
+  expect(dispatches).toEqual([['get', readPath], ['get', readPath]])
+})
