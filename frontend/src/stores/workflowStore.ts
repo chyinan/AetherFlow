@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { CUSTOM_NODE_STORAGE_KEY, customDefinitionKey, customNodeTemplate, exportCustomDefinitions, importCustomDefinitions, mergeCustomDefinitions, parseCustomDefinition, type CustomDefinition } from '@/utils/customNodes'
 import { readCustomNodeLibrary, withCustomNodeWriteLock } from '@/utils/customNodeStorage'
-import type { Connection } from '@vue-flow/core'
+import type { Connection, NodeChange } from '@vue-flow/core'
 import { toRaw } from 'vue'
 
 import { getWorkflowCapabilities } from '@/api/modules/ai'
@@ -481,6 +481,28 @@ export const useWorkflowStore = defineStore('workflow', {
       this.historyFuture = []
       this.markDirty()
       return true
+    },
+    recordKeyboardNodeMove(changes: readonly NodeChange[]) {
+      if (this.nodeDragSnapshot) return
+      // Vue Flow 已原地更新坐标；用同批事件的旧坐标重建移动前的历史快照。
+      // 指针拖动期间带 dragging=true，结束时不传新坐标，仍由拖动事务记录。
+      const before = new Map<string, CanvasPosition>()
+      for (const change of changes) {
+        if (change.type !== 'position' || change.dragging !== false || !change.from || !change.position) continue
+        const { from, position } = change
+        if (from.x !== position.x || from.y !== position.y) before.set(change.id, from)
+      }
+      if (before.size === 0 || !this.nodes.some((node) => before.has(node.id))) return
+
+      this.finishHttpRequestConfigEdit()
+      const snapshot = cloneGraph(this.nodes, this.edges)
+      for (const node of snapshot.nodes) {
+        const position = before.get(node.id)
+        if (position) node.position = { ...position }
+      }
+      this.historyPast = [...this.historyPast, snapshot].slice(-this.historyLimit)
+      this.historyFuture = []
+      this.markDirty()
     },
     markDirty() {
       this.editRevision += 1

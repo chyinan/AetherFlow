@@ -387,6 +387,7 @@ defineExpose({
         fit-view-on-init
         @connect="workflowStore.addConnection"
         @node-click="onNodeClick"
+        @nodes-change="workflowStore.recordKeyboardNodeMove"
         @node-drag-start="workflowStore.beginNodeDrag"
         @node-drag-stop="workflowStore.endNodeDrag"
         @nodes-initialized="focusRequestedNode"
