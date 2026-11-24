@@ -1,7 +1,12 @@
 import { nextTick, watch, type Ref } from 'vue'
 
 /** 保留设置弹窗的键盘范围、背景滚动状态和打开前焦点。 */
-export function useModalFocus(open: Ref<boolean>, dialog: Ref<HTMLElement | null>, close: () => void) {
+export function useModalFocus(
+  open: Ref<boolean>,
+  dialog: Ref<HTMLElement | null>,
+  close: () => void,
+  restoreFallback?: (opener: HTMLElement | null) => HTMLElement | null | undefined,
+) {
   let previousFocus: HTMLElement | null = null
   watch(open, (isOpen) => {
     if (isOpen) previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -44,7 +49,11 @@ export function useModalFocus(open: Ref<boolean>, dialog: Ref<HTMLElement | null
       document.removeEventListener('focusin', handleFocus)
       document.body.style.overflow = previousOverflow
       void nextTick(() => {
-        if (restoreFocus?.isConnected && !restoreFocus.closest('[inert]')) restoreFocus.focus({ preventScroll: true })
+        if (restoreFocus?.isConnected && !restoreFocus.closest('[inert]')) {
+          restoreFocus.focus({ preventScroll: true })
+        } else if (restoreFallback && document.activeElement === document.body && document.hasFocus()) {
+          restoreFallback(restoreFocus)?.focus()
+        }
       })
     })
     document.body.style.overflow = 'hidden'

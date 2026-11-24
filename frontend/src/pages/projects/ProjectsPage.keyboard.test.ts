@@ -49,9 +49,9 @@ const transport: AxiosAdapter = async config => {
   const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
   calls.push({ method, path, body: copy(body ?? null) })
   if (method === 'GET' && path === '/projects') return response(config, { records: projects, total: projects.length })
-  if (method === 'GET' && path === '/workflows/definitions') return response(config, [
+  if (method === 'GET' && path === '/workflows/definitions') return response(config, projects.some(row => row.id === '1') ? [
     { id: 101, name: '正常工作流甲', projectId: 1, version: 1, status: 'DRAFT', definitionJson: '{"nodes":[]}' },
-  ])
+  ] : [])
   if (method === 'POST' && path === '/projects') {
     if (!createGate) throw new Error('本审查未授权此内存创建')
     try {
@@ -96,6 +96,7 @@ function observe(name: string, extra: Record<string, unknown> = {}) {
   return value
 }
 async function setup() {
+  const initialProjectCount = projects.length
   const pinia = createPinia(); setActivePinia(pinia)
   tokenManager.setSession({ accessToken: 'synthetic-user-review', user: {
     id: 'project-dialog-user', name: '合成普通用户', role: 'operator', roles: ['operator'], rawRoles: ['USER'], workspace: 'fixture',
@@ -109,8 +110,8 @@ async function setup() {
   await router.push('/projects'); await router.isReady()
   wrapper = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router, i18n], config: { errorHandler: error => componentErrors.push(error) } } })
   await flushPromises()
-  expect(useProjectStore().projects).toHaveLength(1)
-  expect(wrapper.find('a[href="/workflows/101"]').exists()).toBe(true)
+  expect(useProjectStore().projects).toHaveLength(initialProjectCount)
+  expect(wrapper.find('a[href="/workflows/101"]').exists()).toBe(initialProjectCount > 0)
   return { router, store: useProjectStore() }
 }
 async function open(kind: Kind) {
@@ -346,5 +347,92 @@ describe('项目弹框焦点清理与动态可用项', () => {
     await clickClose()
     expect(document.body.style.overflow).toBe('auto')
     expect(componentErrors).toEqual([])
+  })
+})
+
+describe('首次创建项目后从被替换的入口继续操作', () => {
+  const emptyOpener = () => wrapper!.get<HTMLButtonElement>('[data-action="create-project"]')
+  const projectCard = (name: string) => wrapper!.get<HTMLElement>(`article[aria-label="${name}"]`)
+
+  beforeEach(() => {
+    projects = []
+    // jsdom 在焦点元素被移除时将 hasFocus() 视为 false；模拟前台项目页。
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  })
+
+  async function start(name: string, fromHeader = false) {
+    const opener = fromHeader ? headerTrigger() : emptyOpener()
+    opener.element.focus()
+    await opener.trigger('click'); await field().setValue(name)
+    form().get<HTMLButtonElement>('button[type="submit"]').element.focus()
+    await form().trigger('submit'); await flushPromises()
+    expect(form().element.contains(document.activeElement)).toBe(true)
+    return opener.element
+  }
+
+  it('当前创建成功后聚焦新项目卡片，并可继续新建该项目的工作流', async () => {
+    const pending = deferred<Row>(); createGate = pending
+    const { store } = await setup()
+    const opener = await start('首个项目')
+    pending.resolve(project('first', '首个项目')); await flushPromises()
+    expect(wrapper!.find('form').exists()).toBe(false)
+    expect(opener.isConnected).toBe(false)
+    const card = projectCard('首个项目')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('首个项目')
+    expect(card.attributes('tabindex')).toBe('-1')
+    await card.get('button').trigger('click'); await flushPromises()
+    expect(field().element.value).toBe(`首个项目${message('workflowSuffix')}`)
+    expect(store.currentProjectId).toBe('first')
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  })
+
+  it('等待时关闭可还原入口；服务端稍后成功移除该焦点时仍然能继续', async () => {
+    const pending = deferred<Row>(); createGate = pending
+    await setup()
+    const opener = await start('已提交项目')
+    await clickClose()
+    expect(document.activeElement).toBe(opener)
+    pending.resolve(project('late', '已提交项目')); await flushPromises()
+    expect(opener.isConnected).toBe(false)
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('已提交项目')
+  })
+
+  it.each(['header', 'blurred'] as const)('较晚的成功不会抢走 %s 场景中的焦点', async scenario => {
+    const pending = deferred<Row>(); createGate = pending
+    await setup()
+    await start('已提交项目'); await clickClose()
+    if (scenario === 'header') headerTrigger().element.focus()
+    else vi.mocked(document.hasFocus).mockReturnValue(false)
+    pending.resolve(project('late', '已提交项目')); await flushPromises()
+    expect(document.activeElement).toBe(scenario === 'header' ? headerTrigger().element : document.body)
+  })
+
+  it('从页首按钮创建仍还原原入口；首次创建失败仍保留可编辑草稿', async () => {
+    const failed = deferred<Row>(); createGate = failed
+    await setup()
+    const empty = await start('失败草稿')
+    failed.reject(new Error('受控创建失败')); await flushPromises()
+    expect(form().find('[role="alert"]').exists()).toBe(true)
+    expect(field().element.value).toBe('失败草稿')
+    await clickClose()
+    expect(document.activeElement).toBe(empty)
+
+    const pending = deferred<Row>(); createGate = pending
+    const header = await start('页首界面创建', true)
+    pending.resolve(project('first', '页首界面创建')); await flushPromises()
+    expect(document.activeElement).toBe(header)
+  })
+
+  it('先关闭的请求前置完成时，新提交仍接到新项目而非另一个项目入口', async () => {
+    const old = deferred<Row>(); createGate = old
+    const { store } = await setup()
+    await start('先发项目'); await clickClose()
+    const current = deferred<Row>(); createGate = current
+    await start('本次项目')
+    old.resolve(project('old', '先发项目')); await flushPromises()
+    expect(form().element.contains(document.activeElement)).toBe(true)
+    current.resolve(project('current', '本次项目')); await flushPromises()
+    expect(store.currentProjectId).toBe('current')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('本次项目')
   })
 })
