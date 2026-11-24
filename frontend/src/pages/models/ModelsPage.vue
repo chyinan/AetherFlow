@@ -27,6 +27,7 @@ const managementBusy = computed(() => Boolean(modelStore.loading || modelStore.s
 
 const managementWriteDisabled = computed(() => managementBusy.value || Boolean(modelStore.operationRefreshWarning))
 const selectedProvider = computed(() => modelStore.selectedProvider)
+const configuredPrimaryProviderId = computed(() => modelStore.configuredPrimaryProvider?.id)
 const canManageProviders = computed(() => authStore.isAdmin)
 
 const snapshotReadSucceeded = computed(() => !modelStore.loading && !modelStore.error)
@@ -198,6 +199,9 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                       <span v-if="provider.active" class="rounded bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-status-success">
                         {{ t('models.activeRoute') }}
                       </span>
+                      <span v-if="provider.id === configuredPrimaryProviderId" class="rounded bg-primary-soft px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {{ roleText('configuredPrimaryRoute') }}
+                      </span>
                     </div>
                     <p class="mt-1 text-xs text-text-muted">{{ provider.runtime }} · {{ provider.endpoint }}</p>
                   </div>
@@ -294,7 +298,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                 <div class="flex flex-wrap items-center gap-2">
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
-                    :disabled="!selectedProvider || selectedProvider.active || managementWriteDisabled || modelStore.snapshotSource !== 'real'"
+                    :disabled="!selectedProvider || selectedProvider.id === configuredPrimaryProviderId || managementWriteDisabled || modelStore.snapshotSource !== 'real'"
                     @click="switchPrimary"
                   >
                     <Shuffle class="h-3.5 w-3.5" />

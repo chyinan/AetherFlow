@@ -115,10 +115,14 @@ export const modelApi = {
     const normalizedProvider = String(provider).trim().toUpperCase()
     const providers = [normalizedProvider, ...(policy.providers ?? []).map((entry) => String(entry).trim().toUpperCase())]
       .filter((entry, index, entries) => entry && entries.indexOf(entry) === index) as AiProviderType[]
-    await updateProviderRoutingPolicy({ ...policy, providers })
+    const writeNeeded = String(policy.providers?.[0] ?? '').trim().toUpperCase() !== normalizedProvider
+    if (writeNeeded) await updateProviderRoutingPolicy({ ...policy, providers })
     if (!isCurrent()) throw new Error('Management context changed')
     try { return await loadRealSnapshot({ management: true }) }
-    catch (error) { throw new ModelManagementRefreshError(error) }
+    catch (error) {
+      if (writeNeeded) throw new ModelManagementRefreshError(error)
+      throw error
+    }
   },
 }
 export type { ModelCatalogItem, ModelProvider, ModelRoutingPolicy, ModelRuntimeLog }

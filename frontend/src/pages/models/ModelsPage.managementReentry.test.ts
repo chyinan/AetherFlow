@@ -38,6 +38,8 @@ function deferred() {
 let page: VueWrapper | undefined
 let router: Router
 let active: Provider
+let configuredPrimary: Provider
+let reflectPolicyWriteInActive: boolean
 let circuit: 'OPEN' | 'CLOSED'
 let calls: Dispatch[]
 let writeGate: ReturnType<typeof deferred> | undefined
@@ -46,7 +48,7 @@ let catalogFailure: string | undefined
 let writeFailure: string | undefined
 let restoreTransport: () => void
 
-const policy = () => ({ providers: active === 'OPENAI' ? ['OPENAI', 'OLLAMA'] : ['OLLAMA', 'OPENAI'], enableFailover: true, autoRecoverPrimary: true, requestTimeout: 60000, maxRetries: 2 })
+const policy = () => ({ providers: configuredPrimary === 'OPENAI' ? ['OPENAI', 'OLLAMA'] : ['OLLAMA', 'OPENAI'], enableFailover: true, autoRecoverPrimary: true, requestTimeout: 60000, maxRetries: 2 })
 const status = () => ({
   activeProvider: active, routingPolicy: policy(), metrics: {}, recentLogs: [],
   healthStates: { OPENAI: { provider: 'OPENAI', status: 'UP' }, OLLAMA: { provider: 'OLLAMA', status: 'UP' } },
@@ -73,7 +75,7 @@ async function render() {
   await router.isReady()
   page = mount(RouterView, { attachTo: document.body, global: { plugins: [pinia, router, i18n] } })
   await flushPromises()
-  expect(store().providers.find(provider => provider.active)?.providerType).toBe('OPENAI')
+  expect(store().providers.find(provider => provider.active)?.providerType).toBe(active)
   await page.findAll('aside button').find(node => node.text().includes(providerName.OLLAMA))!.trigger('click')
   await flushPromises()
   expect(store().selectedProviderId).toBe(providerId('OLLAMA'))
@@ -96,7 +98,7 @@ async function returnToManagement() {
 
 beforeEach(() => {
   i18n.global.locale.value = 'zh-CN'
-  active = 'OPENAI'; circuit = 'OPEN'; calls = []
+  active = 'OPENAI'; configuredPrimary = 'OPENAI'; reflectPolicyWriteInActive = true; circuit = 'OPEN'; calls = []
   writeGate = undefined; readGate = undefined; catalogFailure = undefined; writeFailure = undefined
   const previous = axiosInstance.defaults.adapter
   const adapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
@@ -118,7 +120,8 @@ beforeEach(() => {
       expect(JSON.parse(config.data).providers).toEqual(['OLLAMA', 'OPENAI'])
       if (writeGate) await writeGate.promise
       if (writeFailure) return fail(422, writeFailure)
-      active = 'OLLAMA'
+      configuredPrimary = 'OLLAMA'
+      if (reflectPolicyWriteInActive) active = 'OLLAMA'
       return ok(policy())
     }
     if (method === 'post' && path === recoverPath) {
@@ -233,5 +236,81 @@ describe('管理动作跨页面保持归属', () => {
     expect(writes()).toHaveLength(0)
     expect(store().providers.find(provider => provider.active)?.providerType).toBe('OLLAMA')
     expect(button('recoverProvider').element.disabled).toBe(false)
+  })
+})
+
+
+describe('已配置的主路由独立于当前活动路由', () => {
+  const card = (provider: Provider) => page!.get(`[data-provider-id="${providerId(provider)}"]`)
+
+  it('备用服务已经接管时，仍可将其设为主路由，且只写入一次', async () => {
+    active = 'OLLAMA'
+    circuit = 'CLOSED'
+    reflectPolicyWriteInActive = false
+    await render()
+    expect(store().activePolicy?.providerOrder).toEqual(['OPENAI', 'OLLAMA'])
+    expect(card('OLLAMA').text()).toContain(i18n.global.t('models.activeRoute'))
+    expect(button('setPrimary').element.disabled).toBe(false)
+    // 配置回执并不代表运行快照随之变动。
+    active = 'OPENAI'
+    button('setPrimary').element.click()
+    await flushPromises()
+    expect(writes().map(({ method, path, data }) => [method, path, JSON.parse(data!).providers])).toEqual([
+      ['put', policyPath, ['OLLAMA', 'OPENAI']],
+    ])
+    expect(store().activePolicy?.providerOrder).toEqual(['OLLAMA', 'OPENAI'])
+    expect(card('OPENAI').text()).toContain(i18n.global.t('models.activeRoute'))
+    expect(card('OLLAMA').text()).not.toContain(i18n.global.t('models.activeRoute'))
+    expect(card('OLLAMA').text()).toContain('已配置主路由')
+    expect(card('OPENAI').text()).not.toContain('已配置主路由')
+    expect(button('setPrimary').element.disabled).toBe(true)
+    button('setPrimary').element.click()
+    await flushPromises()
+    expect(writes()).toHaveLength(1)
+  })
+
+  it('配置的主路由未处于活动状态时，不发送重复设置', async () => {
+    active = 'OLLAMA'
+    circuit = 'CLOSED'
+    await render()
+    await card('OPENAI').trigger('click')
+    const disabled = button('setPrimary').element.disabled
+    button('setPrimary').element.click()
+    await store().switchSelectedProviderToPrimary()
+    await flushPromises()
+    expect(disabled).toBe(true)
+    expect(writes()).toHaveLength(0)
+    expect(card('OPENAI').text()).toContain('已配置主路由')
+    expect(card('OLLAMA').text()).not.toContain('已配置主路由')
+  })
+
+  it('最新策略已将目标置首时只读取刷新，不发重复 PUT', async () => {
+    await render()
+    configuredPrimary = 'OLLAMA'
+    await button('setPrimary').trigger('click')
+    await flushPromises()
+    expect(writes()).toHaveLength(0)
+    expect(catalogReads()).toBe(2)
+    expect(store().activePolicy?.providerOrder).toEqual(['OLLAMA', 'OPENAI'])
+    expect(store().operationRefreshWarning).toBeNull()
+    expect(button('setPrimary').element.disabled).toBe(true)
+  })
+
+  it('跳过重复写入后若刷新失败，不声称已确认一项管理写入', async () => {
+    await render()
+    configuredPrimary = 'OLLAMA'
+    catalogFailure = '策略已读取，运行快照仍不可用'
+    await button('setPrimary').trigger('click')
+    await flushPromises()
+    expect(writes()).toHaveLength(0)
+    expect(store().operationRefreshWarning).toBeNull()
+    expect(page!.get('[role="alert"]').text()).toContain(catalogFailure)
+    expect(page!.get('[role="alert"]').text()).not.toContain(modelRoleMessages['zh-CN'].confirmedRefreshTitle)
+    catalogFailure = undefined
+    await page!.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(writes()).toHaveLength(0)
+    expect(page!.find('[role="alert"]').exists()).toBe(false)
+    expect(button('setPrimary').element.disabled).toBe(true)
   })
 })

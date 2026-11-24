@@ -394,6 +394,8 @@ function mapCatalog(input: AiModelMappingInput, providers: ModelProvider[]): Mod
 
 function mapPolicy(input: AiModelMappingInput, providers: ModelProvider[]): ModelRoutingPolicy {
   const policy = input.policy ?? input.providerStatus?.routingPolicy
+  // 管理按钮只使用明确读到的策略顺序，不从运行状态或目录顺序推断。
+  const configuredPrimary = normalizeProvider(input.policy?.providers?.[0])
   const orderedProviders = (policy?.providers ?? providers.map((provider) => provider.providerType))
     .map((provider) => normalizeProvider(provider))
     .filter((provider) => provider !== 'UNKNOWN')
@@ -417,6 +419,7 @@ function mapPolicy(input: AiModelMappingInput, providers: ModelProvider[]): Mode
     timeoutMs: durationToMs(policy?.requestTimeout),
     retryCount: Math.max(0, Math.round(numberOrZero(policy?.maxRetries))),
     providerOrder: orderedProviders,
+    ...(configuredPrimary === 'UNKNOWN' ? {} : { configuredPrimaryProviderType: configuredPrimary }),
     failoverEnabled,
     autoRecoverPrimary,
   }
