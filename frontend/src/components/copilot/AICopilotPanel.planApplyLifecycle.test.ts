@@ -147,6 +147,113 @@ it('中文媒体需求澄清后，最终校验返回 503 可以重试同一预�
     expect(wrapper!.text()).not.toContain('工作流服务暂不可用');
 });
 
+async function refine(text = '在同一份会议摘要中加上决策清单') {
+    await wrapper!.get('form textarea').setValue(text);
+    await wrapper!.get('form').trigger('submit');
+    await flushPromises();
+}
+
+function visibleApply() {
+    return wrapper!.findAll('button').filter(item => item.text() === i18n.global.t('copilot.planner.apply'));
+}
+
+it('修改规划时模型暂时不可用，仍能显式应用原预览且不自动重新规划', async () => {
+    const { store, apply } = await setup(true);
+    await button('copilot.editor.chatMode').trigger('click');
+    await preview();
+    expect(visibleApply()).toHaveLength(1);
+    planWorkflow.mockRejectedValueOnce({ status: 503, message: '模型暂不可用' });
+
+    await refine();
+
+    expect(wrapper!.text()).toContain('模型暂不可用');
+    expect(visibleApply()).toHaveLength(1);
+    expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.previousPreviewRetained'));
+    expect(planWorkflow).toHaveBeenCalledTimes(2);
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(1);
+    expect(store.nodes).toHaveLength(0);
+    expect(apply).not.toHaveBeenCalled();
+
+    await button('copilot.planner.apply').trigger('click');
+    await flushPromises();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(2);
+    expect(validateCopilotDraft.mock.calls[1]?.[0]).toEqual(validateCopilotDraft.mock.calls[0]?.[0]);
+    expect(store.historyPast).toHaveLength(1);
+});
+
+it('连续修改前一次失败后，下一次继续携带原草稿；成功的新方案取代它', async () => {
+    const { context } = await setup();
+    await preview();
+    planWorkflow.mockRejectedValueOnce({ status: 503, message: '模型暂不可用' });
+    await refine();
+    const nextPlan = { ...readyMediaPlan(), explanation: '已生成带有决策清单的新计划' };
+    planWorkflow.mockResolvedValueOnce(planMessage(context.value, nextPlan, 'replacement-plan'));
+
+    await refine('继续在上一份待确认的方案中加上决策清单');
+
+    const sentDraft = (index: number) => planWorkflow.mock.calls[index]?.[1]?.context?.pendingDraft;
+    expect(sentDraft(1)).toMatchObject({ messageId: 'plan-1', stale: false });
+    expect(sentDraft(2)).toEqual(sentDraft(1));
+    expect(wrapper!.text()).toContain('已生成带有决策清单的新计划');
+    expect(visibleApply()).toHaveLength(1);
+    expect(visibleApply()[0]?.element.closest('article')?.textContent).toContain('已生成带有决策清单的新计划');
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(2);
+});
+
+it('恢复原预览不让已经被替换的最终校验自动落画布', async () => {
+    const { store, apply } = await setup();
+    await preview();
+    const superseded = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(superseded.promise);
+    await button('copilot.planner.apply').trigger('click');
+    planWorkflow.mockRejectedValueOnce({ status: 503, message: '模型暂不可用' });
+
+    await refine();
+
+    expect(visibleApply()).toHaveLength(1);
+    const nextApply = deferred<typeof ready>();
+    validateCopilotDraft.mockReturnValueOnce(nextApply.promise);
+    await button('copilot.planner.apply').trigger('click');
+    superseded.resolve(ready);
+    await flushPromises();
+    expect(store.nodes).toHaveLength(0);
+    expect(apply).not.toHaveBeenCalled();
+    await button('copilot.planner.apply').trigger('click');
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(3);
+    nextApply.resolve(ready);
+    await flushPromises();
+    expect(apply).toHaveBeenCalledTimes(1);
+});
+
+it.each(['canvas-change', 'new-conversation', 'leave-planning', 'cancel', 'nonretryable'] as const)('不在 %s 后恢复旧方案', async action => {
+    const { store, apply } = await setup();
+    await preview();
+    let rejectPlanning!: (error: { status: number; message: string }) => void;
+    planWorkflow.mockReturnValueOnce(new Promise((_, reject) => { rejectPlanning = reject; }));
+    await refine();
+    expect(visibleApply()).toHaveLength(0);
+    if (action === 'canvas-change') {
+        const start = store.templates.find(template => template.kind === 'start')!;
+        store.addNodeFromTemplate(start, { x: 5, y: 5 });
+        await flushPromises();
+    } else if (action === 'new-conversation') {
+        await button('copilot.newConversation').trigger('click');
+    } else if (action === 'leave-planning') {
+        await button('copilot.planner.leaveMode').trigger('click');
+    } else if (action === 'cancel') {
+        await button('copilot.planner.cancel').trigger('click');
+    }
+    rejectPlanning({ status: action === 'nonretryable' ? 400 : 503, message: '本轮规划失败' });
+
+    await flushPromises();
+
+    expect(visibleApply()).toHaveLength(0);
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.previousPreviewRetained'));
+    expect(apply).not.toHaveBeenCalled();
+    expect(validateCopilotDraft).toHaveBeenCalledTimes(1);
+});
+
 it('同一预览重试仍需通过最终运行能力校验', async () => {
     const { store, apply } = await setup();
     await preview();

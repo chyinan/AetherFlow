@@ -1701,6 +1701,7 @@ export const zhCN = {
       stale: '画布或已保存的工作流发生了变化，此计划已过期。请基于当前工作流重新规划。',
       apply: '应用到画布',
       retryPreview: '重试校验预览',
+      previousPreviewRetained: '已保留上一份通过校验的方案。本次未收到新方案；你可以继续补充需求，或应用上一份方案。',
       retryApply: '重试应用到画布',
       replaceWarning: '应用会替换画布上的所有现有节点；替换后可撤销一次。',
       applied: '已应用到画布。准备好后再保存或运行。',
