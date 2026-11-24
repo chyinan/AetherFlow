@@ -34,6 +34,13 @@ describe('Whisper 部署建议', () => {
       "$env:ENABLE_WHISPER='true'\n$env:WHISPER_MODEL='C:\\Models\\I''m $local; #model'\n$env:WHISPER_DEVICE='cpu'\n$env:WHISPER_COMPUTE_TYPE='int8'",
     )
   })
+  it.each(['‘', '’', '‚', '‛'])('宿主建议保留 PowerShell 单引号变体 %s 的字面值，Compose 不受影响', (quote) => {
+    const model = `D:/模型/Kai${quote}s Whisper`
+    expect(buildWhisperSuggestedSnippet({ ...draft, model }, 'host')?.split('\n')[1])
+      .toBe(`$env:WHISPER_MODEL='D:/模型/Kai${quote}${quote}s Whisper'`)
+    expect(buildWhisperSuggestedSnippet({ ...draft, model }, 'compose')?.split('\n')[1])
+      .toBe(`WHISPER_MODEL="${model}"`)
+  })
   it.each(['', '  ', 'model\nOTHER=true', 'model\rvalue', 'model\0value'])('拒绝空值或多行注入：%j', (model) => {
     expect(isValidWhisperSetupDraft({ ...draft, model })).toBe(false)
     expect(buildWhisperSuggestedSnippet({ ...draft, model }, 'host')).toBeNull()

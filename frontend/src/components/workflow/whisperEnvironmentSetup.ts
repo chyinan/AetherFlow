@@ -36,7 +36,8 @@ export function buildWhisperEnvironmentSnippet(environment: EnvironmentValues | 
 export function buildWhisperSuggestedSnippet(draft: WhisperSetupDraft, deployment: WhisperDeployment | ''): string | null {
   if (!deployment || !isValidWhisperSetupDraft(draft)) return null
   if (deployment === 'compose') return buildWhisperEnvironmentSnippet({ ...draft, enabled: true, status: 'unconfigured' })
-  const quote = (value: string) => `'${value.replace(/'/g, "''")}'`
+  // PowerShell 将排版单引号也视作分隔符，逐个加倍才能原样保留它们。
+  const quote = (value: string) => `'${value.replace(/['\u2018-\u201B]/g, (mark) => mark + mark)}'`
   return [
     "$env:ENABLE_WHISPER='true'",
     `$env:WHISPER_MODEL=${quote(draft.model)}`,

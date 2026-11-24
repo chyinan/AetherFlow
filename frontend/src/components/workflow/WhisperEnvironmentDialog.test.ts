@@ -460,6 +460,20 @@ describe('Whisper 部署感知配置向导', () => {
     await flushPromises()
     expect(writeText).toHaveBeenCalledExactlyOnceWith("$env:ENABLE_WHISPER='true'\n$env:WHISPER_MODEL='small'\n$env:WHISPER_DEVICE='cpu'\n$env:WHISPER_COMPUTE_TYPE='int8'")
   })
+  it('宿主机建议预览和复制均保留模型目录中的排版单引号', async () => {
+    render()
+    await open()
+    await reachSuggestion('host')
+    await edit('suggested-model', String.raw`D:\Models\Kai’s Whisper`)
+    await next()
+    const snippet = modal()?.querySelector('[data-testid="whisper-suggested-snippet"]')?.textContent
+    button('copy-suggestion').click()
+    await flushPromises()
+    expect(snippet?.split('\n')[1]).toBe(String.raw`$env:WHISPER_MODEL='D:\Models\Kai’’s Whisper'`)
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(snippet)
+    expect(api.getWhisperEnvironment).toHaveBeenCalledTimes(1)
+    expect(button('next').disabled).toBe(true)
+  })
   it('当前值只有显式选择才带入建议，空字段不能进入手工应用', async () => {
     render()
     await open()
