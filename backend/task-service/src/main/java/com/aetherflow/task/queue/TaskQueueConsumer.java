@@ -37,11 +37,7 @@ public class TaskQueueConsumer {
         Task task = taskStateService.findById(taskId)
                 .orElseThrow(() -> new AmqpRejectAndDontRequeueException("task not found, taskId=" + taskId));
         TaskStatus currentStatus = TaskStatus.from(task.getStatus());
-        if (currentStatus.terminal()
-                || currentStatus == TaskStatus.DISPATCHED
-                || currentStatus == TaskStatus.DISPATCHING
-                || currentStatus == TaskStatus.RETRYING
-                || currentStatus == TaskStatus.TIMEOUT) {
+        if (!canClaimDispatch(currentStatus)) {
             log.info("task dispatch message ignored, taskId={}, status={}", taskId, currentStatus);
             return;
         }
@@ -49,11 +45,11 @@ public class TaskQueueConsumer {
         try {
             if (!taskStateService.mark(task, TaskStatus.DISPATCHING,
                     LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
-                // 派发端先发消息、后落库 QUEUED 时，消费端可能在 QUEUED 提交前
-                // 读到旧状态 PENDING。重新读一次再试，避免把
-                // 有效消息丢弃、任务卡在 QUEUED 等超时扫描。
+                // PENDING 可能刚变为 QUEUED；重读后仍需检查是否可派发，
+                // 避免覆盖已取消、已完成或已被其他消费者抢占的状态。
                 Task refreshed = taskStateService.findById(taskId).orElse(null);
                 if (refreshed == null
+                        || !canClaimDispatch(TaskStatus.from(refreshed.getStatus()))
                         || !taskStateService.mark(refreshed, TaskStatus.DISPATCHING,
                         LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
                     log.info("task dispatch skipped, taskId={}, status={}",
@@ -76,6 +72,10 @@ public class TaskQueueConsumer {
             log.error("task dispatch consume failed, taskId={}", taskId, exception);
             retryManager.handleDispatchFailure(task, taskMessage, exception);
         }
+    }
+
+    private static boolean canClaimDispatch(TaskStatus status) {
+        return status == TaskStatus.PENDING || status == TaskStatus.QUEUED;
     }
 
     @RabbitListener(queues = RabbitMqNames.TASK_DEAD_LETTER_QUEUE,
