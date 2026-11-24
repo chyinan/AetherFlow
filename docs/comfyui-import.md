@@ -33,7 +33,11 @@ API 图默认按原参数执行。通用 AF 的提示词、种子、步数和模
 }
 ```
 
-只有这些输入接收 AF 字段或提示词变量的值。绑定不存在或重复的目标会报错；覆盖链接输入意味着用户明确替换该上游引用。支持的参数为 `prompt`、`negativePrompt`、`seed`、`steps`、`cfgScale`、`sampler`、`scheduler`、`width`、`height`、`batchSize`、`denoiseStrength`、`checkpoint`、`vae`、`sourceImage`。未绑定种子不会抽取随机数；多个显式种子绑定共享一次随机抽取。源图只有显式绑定时才为导入图上传。绑定仅限图像生成导入路径，内置 Upscale 行为不变。
+只有这些输入接收 AF 字段或提示词变量的值。绑定不存在或重复的目标会报错；覆盖链接输入意味着用户明确替换该上游引用。支持的参数为 `prompt`、`negativePrompt`、`seed`、`steps`、`cfgScale`、`sampler`、`scheduler`、`width`、`height`、`batchSize`、`denoiseStrength`、`checkpoint`、`vae`、`sourceImage`。未绑定种子不会抽取随机数；多个显式种子绑定共享一次随机抽取。
+
+图像节点的 ComfyUI 执行图可用十进制文本编辑 AF 随机种子。固定值范围为 0～9223372036854775807，留空或 -1 表示随机；绑定种子时，小数、科学计数法及超范围值必须修正后才能保存；旧 `options.workflowBindings` 仍生效，除非顶层明确配置覆盖列表（包括空数组）。安全整数仍按数字保存；超过 JavaScript 安全整数的固定种子在工作流配置内用十进制文本保存，工作流服务会恢复为精确整数，再由 ComfyUI Provider 按 JSON 数字提交。取消绑定不会丢弃已配置的种子，也不会修改图中的原始种子（包括无符号 64 位整数）。没有绑定时，无效的种子文本草稿不写入，不影响原图。旧版本已舍入的数值无法推知原始数字，绑定后需要重新输入。
+
+源图只有显式绑定时才为导入图上传。绑定仅限图像生成导入路径，内置 Upscale 行为不变。
 
 绑定经工作流服务送达 AI 执行器，在 Provider 内消费，不把 `workflowBindings` 发给 ComfyUI。有效 `sourceImage` 绑定启用已有图片输入入口和 ImageSourceResolver：上游 ID、ID 数组第一项、Base64 与数据 URL 在同步调用或异步派发前解析；无绑定的 API 图不读取遗留源图变量。导入图执行不会回退到 SD WebUI，避免另一个 Provider 用普通生图替代原图语义。
 

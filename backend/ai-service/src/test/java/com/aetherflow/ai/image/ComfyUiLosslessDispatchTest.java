@@ -1,10 +1,14 @@
 package com.aetherflow.ai.image;
 
 import com.aetherflow.ai.config.ImageProviderProperties;
+import com.aetherflow.ai.workflow.AiNodeExecutionContext;
+import com.aetherflow.ai.workflow.executor.ImageGenerationAiNodeExecutor;
 import com.aetherflow.common.util.ComfyUiWorkflow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -33,6 +37,52 @@ class ComfyUiLosslessDispatchTest {
             + "\"positive\":[\"text\",0],\"nfc\":\"café\",\"nfd\":\"é\"},\"_meta\":{\"title\":\"保留元数据\"}},\n"
             + "  \"text\": {\"class_type\":\"ExamplePluginText\",\"inputs\":{\"text\":\"keep\"},\"_meta\":{\"title\":\"Plugin UI\"}}\n"
             + "}\n";
+
+    @ParameterizedTest
+    @ValueSource(longs = {9_007_199_254_740_993L, Long.MAX_VALUE})
+    void dispatchesExactSeedOverridesAsUnquotedIntegers(long seed) throws Exception {
+        ObjectMapper json = new ObjectMapper();
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ImageProviderProperties properties = new ImageProviderProperties();
+        properties.getComfy().setBaseUrl("http://comfy");
+        properties.getComfy().setPollInterval(Duration.ZERO);
+        ComfyUiProvider provider = new ComfyUiProvider(builder.baseUrl("http://comfy").build(), properties);
+        server.expect(requestTo("http://comfy/prompt"))
+                .andExpect(method(POST))
+                .andExpect(request -> {
+                    JsonNode dispatched = json.readTree(((MockClientHttpRequest) request).getBodyAsBytes()).path("prompt");
+                    JsonNode inputs = dispatched.path("sampler").path("inputs");
+                    assertThat(inputs.path("seed").isIntegralNumber()).isTrue();
+                    assertThat(inputs.path("seed").longValue()).isEqualTo(seed);
+                    assertThat(inputs.path("noise_seed").bigIntegerValue()).isEqualTo(SIGNED_LONG_MAX_PLUS_ONE);
+                })
+                .andRespond(withSuccess("""
+                        {"prompt_id":"exact"}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://comfy/queue"))
+                .andRespond(withSuccess("""
+                        {"queue_running":[],"queue_pending":[]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://comfy/history/exact"))
+                .andRespond(withSuccess("""
+                        {"exact":{"outputs":{"out":{"images":[{"filename":"out.png","subfolder":"","type":"output"}]}}}}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://comfy/view?filename=out.png&subfolder=&type=output"))
+                .andRespond(withSuccess("image", MediaType.IMAGE_PNG));
+
+        ImageGenerationAiNodeExecutor executor = new ImageGenerationAiNodeExecutor(null) {
+            @Override
+            protected ImageGenerationResponse executeConfigured(
+                    AiNodeExecutionContext context, ImageGenerationRequest request, boolean upscale) {
+                return provider.generate(request);
+            }
+        };
+        executor.execute(new AiNodeExecutionContext(null, Map.of(
+                "provider", "COMFYUI", "mode", "workflow", "workflowJson", SOURCE, "seed", seed,
+                "workflowBindings", List.of(Map.of("nodeId", "sampler", "inputName", "seed", "parameter", "seed")))));
+        server.verify();
+    }
 
     @Test
     void dispatchesUint64AndSignedLongBoundaryAsExactJsonIntegersWithoutMutatingGraph() throws Exception {

@@ -7,6 +7,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ImageConnectionPayloadTest {
     @Test
+    void preciseSeedTextBecomesAnExactLongInTheAiPayload() {
+        DefaultWorkflowContext context = new DefaultWorkflowContext("workflow", "trace", "task", Map.of());
+        for (long seed : new long[]{9_007_199_254_740_993L, Long.MAX_VALUE}) {
+            assertThat(ImageWorkflowNodeSupport.imageGenerationPayload(
+                    Map.of("provider", "COMFYUI", "seed", Long.toString(seed)), context))
+                    .containsEntry("seed", seed);
+        }
+        assertThat(ImageWorkflowNodeSupport.imageGenerationPayload(
+                Map.of("provider", "COMFYUI", "seed", -1), context)).containsEntry("seed", -1L);
+    }
+
+    @Test
     void bothImagePathsPreserveConnectionReferenceWithoutEndpoint() {
         DefaultWorkflowContext context = new DefaultWorkflowContext("workflow", "trace", "task", Map.of());
         Map<String, Object> config = Map.of("connectionId", "saved-one", "provider", "COMFYUI",

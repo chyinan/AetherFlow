@@ -652,7 +652,7 @@ export const jaJP = {
         negativePromptVariable: { label: 'ネガティブプロンプト変数', description: 'ネガティブプロンプトを含むワークフロー変数。' },
         sourceImage: { label: 'ソース画像', description: 'img2img またはアップスケール用の Base64 ソース画像。' },
         sourceImageVariable: { label: 'ソース画像変数', description: 'ソース画像を含むワークフロー変数。' },
-        seed: { label: 'シード', description: '生成シード。-1 でプロバイダ側のランダムシードを使用します。' },
+        seed: { label: 'シード', description: '生成シード。-1 でプロバイダ側のランダムシードを使用します。', exactDescription: '0～9223372036854775807 の 10 進整数を入力してください。空欄または -1 でランダムシードを使用します。', exactInvalid: '0～9223372036854775807 の 10 進整数、または -1 を入力してください。保存済みのシードが丸められていた場合は、元の値を入力し直してください。', exactInactive: 'シードは未バインドのため実行グラフを変更しません。バインドする前に有効な 10 進整数を入力してください。' },
         steps: { label: 'ステップ数', description: 'サンプリングステップ数。' },
         cfgScale: { label: 'CFG スケール', description: 'Classifier-free guidance の強度。' },
         sampler: { label: 'サンプラー', description: 'サンプラー名。' },

@@ -650,7 +650,7 @@ export const enUS = {
         negativePromptVariable: { label: 'Negative prompt variable', description: 'Workflow variable containing the negative prompt.' },
         sourceImage: { label: 'Source image', description: 'Base64 source image for img2img or upscaling.' },
         sourceImageVariable: { label: 'Source image variable', description: 'Workflow variable containing the source image.' },
-        seed: { label: 'Seed', description: 'Generation seed. Use -1 for a random provider seed.' },
+        seed: { label: 'Seed', description: 'Generation seed. Use -1 for a random provider seed.', exactDescription: 'Enter a decimal integer from 0 to 9223372036854775807. Leave blank or enter -1 for a random seed.', exactInvalid: 'Enter a decimal integer from 0 to 9223372036854775807, or -1. If a previously saved seed was rounded, re-enter the original digits.', exactInactive: 'The seed is not bound and will not change the execution graph. Enter a valid decimal integer before adding a seed binding.' },
         steps: { label: 'Steps', description: 'Sampling steps.' },
         cfgScale: { label: 'CFG scale', description: 'Classifier-free guidance scale.' },
         sampler: { label: 'Sampler', description: 'Sampler name.' },
