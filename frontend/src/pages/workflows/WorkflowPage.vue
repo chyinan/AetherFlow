@@ -149,7 +149,16 @@ let workflowLoadSequence = 0
 let projectListLoadSequence = 0
 let projectListLoadPromise: Promise<boolean> | null = null
 let pendingWorkflowProjectSelection: { routeId: string; workflowId: string; loadSequence: number } | null = null
-let copyNavigation: { fromPath: string; fullPath: string; ownsRequest: () => boolean } | null = null
+type WorkflowCopyTarget = { path: string; query?: { projectId?: string } }
+let copyNavigation: {
+  fromPath: string
+  fullPath: string
+  ownsRequest: () => boolean
+  useLeaveConfirmation: boolean
+} | null = null
+const copyOpenRecovery = shallowRef<WorkflowCopyTarget | null>(null)
+const copyOpenRecoveryId = useId()
+const copyWorkflowTrigger = ref<HTMLButtonElement | null>(null)
 let saveNavigation: {
   fromPath: string
   fullPath: string
@@ -182,6 +191,7 @@ watch(() => route.fullPath, (to, from) => {
   // 保存回执只规范化当前画布的地址，仍在读取或转换中的较新导入必须继续生效；
   // 真正离开当前工作流时，旧导入才作废，不能落到别的页面。
   if (!preservesSavedCanvas) {
+    copyOpenRecovery.value = null
     comfyUiImportSequence += 1
     importingComfyUi.value = false
     comfyUiImportError.value = null
@@ -192,6 +202,7 @@ watch(() => route.fullPath, (to, from) => {
   invalidateWorkflowTemplatePicker()
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
+watch(() => workflowStore.workflowId, () => { copyOpenRecovery.value = null }, { flush: 'sync' })
 const showingWorkflowTemplates = ref(false)
 const workflowTemplateLoadFeedback = ref<{ status: 'retrying' } | { status: 'failed'; details: string } | null>(null)
 const workflowTemplateLoadErrorId = useId()
@@ -411,6 +422,7 @@ async function handleComfyUiFileChange(event: Event) {
   }
 
   const requestId = ++comfyUiImportSequence
+  copyOpenRecovery.value = null
   const interactionRevision = editorInteractionRevision.value
   if (!importFocus) stopBlankImportFocusTracking?.()
   showComfyUiDraftReady.value = false
@@ -753,10 +765,18 @@ function stayOnWorkflowPage() {
   settleNavigation(false)
 }
 
+function matchingCopyNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
+  return copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath
+    ? copyNavigation : null
+}
+
 function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (to.fullPath === from.fullPath) return true
-  if (copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath) {
-    return copyNavigation.ownsRequest()
+  const copy = matchingCopyNavigation(to, from)
+  if (copy) {
+    if (!copy.ownsRequest()) return false
+    if (!copy.useLeaveConfirmation) return true
+    // 显式打开已创建副本时，当前的未保存编辑使用普通离开确认。
   }
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
@@ -826,14 +846,19 @@ onBeforeRouteUpdate((to, from) => {
 })
 // 其他异步守卫等待期间仍可能应用模板或导入新画布，提交内部导航前再次核对归属。
 const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
-  if (copyNavigation?.fullPath === to.fullPath && copyNavigation.fromPath === from.fullPath) {
-    return copyNavigation.ownsRequest()
+  const copy = matchingCopyNavigation(to, from)
+  if (copy) {
+    if (!copy.ownsRequest()) return false
+    if (!copy.useLeaveConfirmation) return true
   }
   if (saveNavigation?.fullPath === to.fullPath && saveNavigation.fromPath === from.fullPath) {
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
-  if (approvedNavigation?.target === to && approvedNavigation.fromPath === from.fullPath
-    && approvedNavigation.editRevision !== workflowStore.editRevision) return requestNavigation(to, from)
+  const approval = approvedNavigation?.target === to && approvedNavigation.fromPath === from.fullPath
+    ? approvedNavigation : null
+  if (approval ? approval.editRevision !== workflowStore.editRevision : copy && workflowStore.dirty) {
+    return requestNavigation(to, from)
+  }
   return true
 })
 const initializingWorkflow = ref(hasWorkflowContext.value)
@@ -1050,6 +1075,12 @@ async function saveWorkflow() {
   }
 }
 
+function dismissCopyOpenRecovery(event: MouseEvent) {
+  if (copyingWorkflow.value) return
+  if (document.activeElement === event.currentTarget) copyWorkflowTrigger.value?.focus()
+  copyOpenRecovery.value = null
+}
+
 async function copyWorkflow() {
   if (!workflowStore.backendDefinitionId || copyingWorkflow.value || workflowStore.saving) return
   const sequence = ++pageCopySequence
@@ -1057,41 +1088,62 @@ async function copyWorkflow() {
   const importSequence = comfyUiImportSequence
   const workflowId = workflowStore.workflowId
   const editRevision = workflowStore.editRevision
+  let target = copyOpenRecovery.value
+  const useLeaveConfirmation = target !== null && workflowStore.dirty
   const ownsRequest = () => pageActive && sequence === pageCopySequence
     && navigationRevision === pageNavigationRevision
     // 接受新导入即改变画布意图，不必等待读取或转换完成后才保护它。
-    && importSequence === comfyUiImportSequence
-    && workflowId === workflowStore.workflowId && editRevision === workflowStore.editRevision
+    && importSequence === comfyUiImportSequence && workflowId === workflowStore.workflowId
+    && (useLeaveConfirmation || editRevision === workflowStore.editRevision)
+  const canFollow = () => ownsRequest() && !workflowNavigation.pending && !pendingNavigation.value
   copyingWorkflow.value = true
-  workflowStore.setRunError(null)
   try {
-    if (workflowStore.dirty) {
-      const saved = await workflowStore.saveCurrentWorkflow({
-        projectId: resolveWorkflowProjectId(),
-      })
-      // 自动保存只服务于点击时的图，不能复制保存等待期间换入或修改的图。
-      if (!saved || !ownsRequest() || workflowStore.dirty
-        || workflowNavigation.pending || pendingNavigation.value) return
+    if (!target) {
+      workflowStore.setRunError(null)
+      if (workflowStore.dirty) {
+        const saved = await workflowStore.saveCurrentWorkflow({
+          projectId: resolveWorkflowProjectId(),
+        })
+        // 自动保存只服务于点击时的图，不能复制保存等待期间换入或修改的图。
+        if (!saved || !canFollow() || workflowStore.dirty) return
+      }
+      const copied = await workflowStore.copyCurrentWorkflow()
+      target = {
+        path: `/workflows/${copied.id}`,
+        query: route.query.projectId ? { projectId: routeQueryString(route.query.projectId) } : undefined,
+      }
     }
-    const copied = await workflowStore.copyCurrentWorkflow()
-    if (!ownsRequest() || workflowNavigation.pending || pendingNavigation.value) return
-    const target = {
-      path: `/workflows/${copied.id}`,
-      query: route.query.projectId ? { projectId: routeQueryString(route.query.projectId) } : undefined,
-    }
-    const navigation = { fromPath: route.fullPath, fullPath: router.resolve(target).fullPath, ownsRequest }
-    copyNavigation = navigation
-    try {
-      // 保留原画布，只有路由守卫完成后才由正常加载流程打开副本。
-      await router.replace(target)
-    } finally {
-      if (copyNavigation === navigation) copyNavigation = null
-    }
+    if (!canFollow() || (!useLeaveConfirmation && workflowStore.dirty)) return
+    await openCreatedWorkflowCopy(target, { ownsRequest, canFollow, useLeaveConfirmation })
   } catch (error) {
     if (ownsRequest()) workflowStore.setRunError(`${t('workflow.copyFailed')}: ${runErrorMessage(error)}`)
   } finally {
     if (sequence === pageCopySequence) copyingWorkflow.value = false
   }
+}
+
+async function openCreatedWorkflowCopy(
+  target: WorkflowCopyTarget,
+  { ownsRequest, canFollow, useLeaveConfirmation }: {
+    ownsRequest: () => boolean
+    canFollow: () => boolean
+    useLeaveConfirmation: boolean
+  },
+) {
+  let navigation: typeof copyNavigation = null
+  try {
+    navigation = { fromPath: route.fullPath, fullPath: router.resolve(target).fullPath, ownsRequest, useLeaveConfirmation }
+    copyNavigation = navigation
+    // 保留原画布，只有路由守卫完成后才由正常加载流程打开副本。
+    const failure = await router.replace(target)
+    if (!failure) return
+  } catch {
+    // 创建回执已经返回；导航异常不代表复制失败。
+  } finally {
+    if (copyNavigation === navigation) copyNavigation = null
+  }
+  // 仍在原画布才能提供重试；不抢占用户较新的导航、编辑或导入。
+  if (canFollow()) copyOpenRecovery.value = target
 }
 
 async function resumeWorkflowTemplatePicker() {
@@ -1487,6 +1539,16 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         <p v-if="workflowPageError" class="mt-2 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-xs font-medium text-status-error" role="alert">
           {{ workflowPageError }}
         </p>
+        <div v-if="copyOpenRecovery" class="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2 text-xs font-medium text-primary">
+          <span :id="copyOpenRecoveryId" data-testid="copy-open-recovery" role="status">{{ t('workflow.copyCreatedNotOpened') }}</span>
+          <button
+            type="button"
+            class="rounded border border-primary/30 bg-white px-2 py-1 hover:bg-primary-soft/40 disabled:opacity-60"
+            data-action="dismiss-copy-open-recovery"
+            :disabled="copyingWorkflow"
+            @click="dismissCopyOpenRecovery"
+          >{{ t('common.close') }}</button>
+        </div>
         <p
           v-if="workflowTemplateLoadError"
           :id="workflowTemplateLoadErrorId"
@@ -1557,15 +1619,21 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
         </button>
         <button
           v-if="workflowStore.backendDefinitionId"
+          ref="copyWorkflowTrigger"
           type="button"
           data-action="copy-workflow"
           class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:border-primary/30 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-          :disabled="copyingWorkflow || workflowStore.saving"
+          :disabled="(!copyOpenRecovery && copyingWorkflow) || workflowStore.saving"
+          :aria-disabled="copyOpenRecovery && copyingWorkflow ? true : undefined"
+          :aria-describedby="copyOpenRecovery ? copyOpenRecoveryId : undefined"
           @click="copyWorkflow"
         >
           <LoaderCircle v-if="copyingWorkflow" class="h-4 w-4 animate-spin" />
+          <RotateCcw v-else-if="copyOpenRecovery" class="h-4 w-4" />
           <Copy v-else class="h-4 w-4" />
-          {{ copyingWorkflow ? t('workflow.copyingWorkflow') : t('workflow.copyWorkflow') }}
+          {{ copyOpenRecovery
+            ? t(copyingWorkflow ? 'workflow.openingCreatedCopy' : 'workflow.retryOpenCreatedCopy')
+            : t(copyingWorkflow ? 'workflow.copyingWorkflow' : 'workflow.copyWorkflow') }}
         </button>
         <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50" :title="t('workflow.undo')" :aria-label="t('workflow.undo')" :disabled="!workflowStore.canUndo" @click="workflowStore.undo">
           <Undo2 class="h-4 w-4" />
