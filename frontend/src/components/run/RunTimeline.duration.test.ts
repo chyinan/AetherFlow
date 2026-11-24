@@ -158,3 +158,49 @@ describe('运行时间线的未知终态耗时', () => {
     expect(wrapper.text()).not.toContain('耗时暂无数据')
   })
 })
+
+const eventAt = (eventId: string, eventType: RuntimeEvent['eventType'], nodeId: string, milliseconds: number,
+  attributes: RuntimeEvent['attributes'], runtimeState: RuntimeEvent['runtimeState'] = 'RUNNING'): RuntimeEvent => ({
+  eventId, eventType, workflowId: '901', traceId: 'trace-901', nodeId, runtimeState, attributes,
+  occurredAt: new Date(Date.UTC(2026, 9, 15, 12, 0, 0, milliseconds)).toISOString(),
+})
+
+describe('并行运行的节点结果不被工作流完成摘要覆盖', () => {
+  it.each([{}, { resumed: true }, { recovered: true }])('保留先结束节点的实际结果和耗时：%j', attributes => {
+    const nodes = mapRuntimeEventsToNodePatches([
+      eventAt('slow-start', 'NODE_STARTED', 'slow', 0, { nodeType: 'WHISPER' }),
+      eventAt('fast-start', 'NODE_STARTED', 'fast', 1000, { nodeType: 'PROMPT' }),
+      eventAt('fast-done', 'NODE_COMPLETED', 'fast', 1250, { nodeType: 'PROMPT' }),
+      eventAt('slow-done', 'NODE_COMPLETED', 'slow', 13000, { nodeType: 'WHISPER' }),
+      eventAt('workflow-done', 'WORKFLOW_COMPLETED', 'fast', 13001, attributes, 'SUCCESS'),
+    ])
+    expect(nodes.find(node => node.nodeId === 'fast')).toMatchObject({
+      status: 'success', durationMs: 250, output: JSON.stringify({ nodeType: 'PROMPT' }),
+    })
+    expect(nodes.find(node => node.nodeId === 'slow')?.durationMs).toBe(13000)
+    const wrapper = render(nodes)
+    expect(wrapper.text()).toContain('250ms')
+    expect(wrapper.text()).not.toContain('12001ms')
+    expect(wrapper.findAll('[data-testid="output-content"]')[1]!.text()).toContain('PROMPT')
+  })
+
+  it('归档只剩工作流摘要时保留终态提示，但不把摘要当作测得的结束时间', () => {
+    const nodes = mapRuntimeEventsToNodePatches([
+      eventAt('fast-start', 'NODE_STARTED', 'fast', 1000, { nodeType: 'PROMPT' }),
+      eventAt('workflow-done', 'WORKFLOW_COMPLETED', 'fast', 13001, { recovered: true }, 'SUCCESS'),
+    ])
+    expect(nodes[0]).toMatchObject({ status: 'success', output: 'WORKFLOW_COMPLETED' })
+    expect(nodes[0]?.durationMs).toBeUndefined()
+    expect(render(nodes).text()).toContain('耗时暂无数据')
+  })
+
+  it('携带其他结果属性的完成事件保留原有兼容行为', () => {
+    const attributes = { resumed: true, output: '保留历史结果' }
+    const nodes = mapRuntimeEventsToNodePatches([
+      eventAt('fast-start', 'NODE_STARTED', 'fast', 1000, {}),
+      eventAt('legacy-done', 'WORKFLOW_COMPLETED', 'fast', 1250, attributes, 'SUCCESS'),
+      eventAt('workflow-summary', 'WORKFLOW_COMPLETED', 'fast', 13001, {}, 'SUCCESS'),
+    ])
+    expect(nodes[0]).toMatchObject({ status: 'success', durationMs: 250, output: JSON.stringify(attributes) })
+  })
+})

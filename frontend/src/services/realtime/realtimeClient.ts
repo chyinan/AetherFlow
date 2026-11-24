@@ -1,5 +1,6 @@
 import { runtimeEnv } from '@/config/runtimeEnv'
 import {
+  isWorkflowCompletionSummary,
   mapRuntimeEventToLogEntry,
   mapRuntimeEventToNodePatch,
   mapRuntimeStateToRunStatus,
@@ -19,7 +20,7 @@ import { createSseClient, SseHttpError, type SseConnection } from './sseClient'
 
 type RunHandlers = {
   onLog?: (entry: RunLogEntry) => void
-  onNodePatch?: (patch: RunNodeState) => void
+  onNodePatch?: (patch: RunNodeState, completionSummary?: boolean) => void
   onRunPatch?: (patch: Partial<WorkflowRun>) => void
   onConnectionChange?: (state: 'online' | 'reconnecting' | 'offline') => void
 }
@@ -208,7 +209,8 @@ export const realtimeClient = {
 
       const nodePatch = mapRuntimeEventToNodePatch(event)
       if (nodePatch) {
-        handlers.onNodePatch?.(nodePatch)
+        if (isWorkflowCompletionSummary(event)) handlers.onNodePatch?.(nodePatch, true)
+        else handlers.onNodePatch?.(nodePatch)
       }
 
       if (isTerminalRuntimeEvent(event)) {

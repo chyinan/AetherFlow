@@ -90,6 +90,77 @@ class WorkflowInstanceQueryServiceImplTest {
     }
 
     @Test
+    void workflowCompletionKeepsTheEarlierParallelNodeResult() {
+        Instant fastStart = Instant.parse("2026-05-29T01:00:12Z");
+        Instant fastEnd = fastStart.plusMillis(250);
+        Instant runEnd = fastStart.plusSeconds(12);
+        when(instanceMapper.selectById(99L)).thenReturn(instance());
+
+        for (Map<String, Object> summary : List.<Map<String, Object>>of(
+                Map.of(), Map.of("resumed", true), Map.of("recovered", true))) {
+            doReturn(List.of(
+                    timelineEvent(RuntimeEventType.NODE_STARTED, "slow", fastStart.minusSeconds(1), Map.of("nodeType", "WHISPER")),
+                    timelineEvent(RuntimeEventType.NODE_STARTED, "fast", fastStart, Map.of("nodeType", "PROMPT")),
+                    timelineEvent(RuntimeEventType.NODE_COMPLETED, "fast", fastEnd, Map.of("nodeType", "PROMPT")),
+                    timelineEvent(RuntimeEventType.NODE_COMPLETED, "slow", runEnd.minusMillis(1), Map.of("nodeType", "WHISPER")),
+                    timelineEvent(RuntimeEventType.WORKFLOW_COMPLETED, "fast", runEnd, summary)
+            )).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
+
+            RunView detail = asUser(7L, () -> queryService.getInstance(99L));
+            assertThat(detail.status()).isEqualTo("SUCCESS");
+            assertThat(detail.nodes()).filteredOn(node -> "fast".equals(node.nodeId())).singleElement().satisfies(node -> {
+                assertThat(node.status()).isEqualTo("SUCCESS");
+                assertThat(node.latestEventType()).isEqualTo("NODE_COMPLETED");
+                assertThat(node.startedAt()).isEqualTo(fastStart);
+                assertThat(node.completedAt()).isEqualTo(fastEnd);
+                assertThat(node.attributes()).containsExactlyEntriesOf(Map.of("nodeType", "PROMPT"));
+            });
+            assertThat(asUser(7L, () -> queryService.logs(99L))).anySatisfy(log ->
+                    assertThat(log.eventType()).isEqualTo("WORKFLOW_COMPLETED"));
+        }
+    }
+
+    @Test
+    void workflowCompletionWithMissingNodeEventKeepsStatusWithoutInventingDuration() {
+        Instant fastStart = Instant.parse("2026-05-29T01:00:12Z");
+        when(instanceMapper.selectById(99L)).thenReturn(instance());
+        doReturn(List.of(
+                timelineEvent(RuntimeEventType.NODE_STARTED, "fast", fastStart, Map.of("nodeType", "PROMPT")),
+                timelineEvent(RuntimeEventType.WORKFLOW_COMPLETED, "fast", fastStart.plusSeconds(12), Map.of("recovered", true))
+        )).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
+        assertThat(asUser(7L, () -> queryService.getInstance(99L)).nodes()).singleElement().satisfies(node -> {
+            assertThat(node.status()).isEqualTo("SUCCESS");
+            assertThat(node.latestEventType()).isEqualTo("WORKFLOW_COMPLETED");
+            assertThat(node.completedAt()).isNull();
+            assertThat(node.attributes()).isEmpty();
+        });
+    }
+
+    @Test
+    void laterSummaryDoesNotEraseSubstantiveCompletionAttributes() {
+        Instant start = Instant.parse("2026-05-29T01:00:12Z");
+        Instant end = start.plusMillis(250);
+        Map<String, Object> actual = Map.of("resumed", true, "output", "附带实际结果");
+        when(instanceMapper.selectById(99L)).thenReturn(instance());
+        doReturn(List.of(
+                timelineEvent(RuntimeEventType.NODE_STARTED, "fast", start, Map.of("nodeType", "PROMPT")),
+                timelineEvent(RuntimeEventType.WORKFLOW_COMPLETED, "fast", end, actual),
+                timelineEvent(RuntimeEventType.WORKFLOW_COMPLETED, "fast", end.plusSeconds(12), Map.of())
+        )).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
+        assertThat(asUser(7L, () -> queryService.getInstance(99L)).nodes()).singleElement().satisfies(node -> {
+            assertThat(node.status()).isEqualTo("SUCCESS");
+            assertThat(node.completedAt()).isEqualTo(end);
+            assertThat(node.attributes()).containsExactlyEntriesOf(actual);
+        });
+    }
+
+    private static RuntimeEvent timelineEvent(RuntimeEventType type, String nodeId, Instant at, Map<String, Object> attributes) {
+        return RuntimeEvent.of(type, "99", "trace-1", "99", nodeId,
+                type == RuntimeEventType.WORKFLOW_COMPLETED ? RuntimeState.SUCCESS : RuntimeState.RUNNING,
+                at, attributes);
+    }
+
+    @Test
     void detailThrowsWhenInstanceDoesNotExist() {
         when(instanceMapper.selectById(404L)).thenReturn(null);
 

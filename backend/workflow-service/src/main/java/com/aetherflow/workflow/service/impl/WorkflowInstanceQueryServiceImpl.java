@@ -333,16 +333,26 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
         }
 
         private void apply(RuntimeEvent event) {
+            Map<String, Object> eventAttributes = event.attributes();
+            boolean completionSummary = event.eventType() == RuntimeEventType.WORKFLOW_COMPLETED
+                    && (eventAttributes.isEmpty() || (eventAttributes.size() == 1
+                    && (Boolean.TRUE.equals(eventAttributes.get("resumed"))
+                    || Boolean.TRUE.equals(eventAttributes.get("recovered")))));
+            // 工作流完成的节点 ID 仅是上下文，不能覆盖真实节点结果或作为节点完成时间。
+            if (completionSummary
+                    && (RuntimeState.SUCCESS.name().equals(status) || RuntimeState.FAILED.name().equals(status))) {
+                return;
+            }
             latestEventType = event.eventType().name();
             status = nodeStatus(event);
-            attributes = event.attributes();
+            attributes = completionSummary ? Map.of() : eventAttributes;
             if (startedAt == null && event.eventType() == RuntimeEventType.NODE_STARTED) {
                 startedAt = event.occurredAt();
             }
-            if (event.eventType() == RuntimeEventType.NODE_COMPLETED
+            if (!completionSummary && (event.eventType() == RuntimeEventType.NODE_COMPLETED
                     || event.runtimeState() == RuntimeState.SUCCESS
                     || event.runtimeState() == RuntimeState.FAILED
-                    || event.runtimeState() == RuntimeState.CANCELLED) {
+                    || event.runtimeState() == RuntimeState.CANCELLED)) {
                 completedAt = event.occurredAt();
             }
         }
