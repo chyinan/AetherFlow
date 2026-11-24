@@ -21,12 +21,14 @@ let wrapper: VueWrapper | undefined
 let rows: BatchRunResult[] = []
 let status: 'FAILED' | 'SUCCESS' | 'WAITING' = 'FAILED'
 let responseWait: Promise<void> | undefined
+let batchReadFailed = false
 const requests: string[] = []
 
 beforeEach(() => {
   rows = []
   status = 'FAILED'
   responseWait = undefined
+  batchReadFailed = false
   requests.length = 0
   i18n.global.locale.value = 'zh-CN'
   axiosInstance.defaults.adapter = async config => {
@@ -36,6 +38,9 @@ beforeEach(() => {
     if (url.includes('/batch-results?')) {
       requests.push(url)
       await responseWait
+      if (batchReadFailed) {
+        return { config, data: { code: 503, message: '测试：批次读取暂不可用' }, status: 200, statusText: 'OK', headers: {} }
+      }
       const params = new URL(url, 'https://fixture.invalid').searchParams
       const offset = Number(params.get('offset'))
       data = { nodeId: params.get('nodeId'), status, offset, total: rows.length, results: rows.slice(offset, offset + Number(params.get('limit'))) }
@@ -159,4 +164,84 @@ it('仅有 item 的旧记录仍只显示一份原值；英文和日文标签随�
   await flushPromises()
   expect(row.text()).toContain('入力項目')
   expect(row.findAll('pre')).toHaveLength(1)
+})
+
+
+const batchJourney = [
+  {
+    locale: 'en-US', title: 'Item results', refresh: 'Refresh', previous: 'Previous page', next: 'Next page',
+    loading: 'Loading…', error: 'Could not load item results. Please retry.',
+    refreshing: 'Refreshing. Showing the last loaded results…', previousResults: 'Showing the last loaded results.',
+    first: 'Item 1 · SUCCESS', last: 'Item 51 · FAILED',
+  },
+  {
+    locale: 'ja-JP', title: '項目別の結果', refresh: '更新', previous: '前のページ', next: '次のページ',
+    loading: '読み込み中…', error: '項目別の結果を読み込めませんでした。再試行してください。',
+    refreshing: '更新中です。前回読み込んだ結果を表示しています…', previousResults: '前回読み込んだ結果を表示しています。',
+    first: '1 件目 · SUCCESS', last: '51 件目 · FAILED',
+  },
+] as const
+
+it.each(batchJourney)('$locale：分页、失败重试和旧结果反馈均使用检查器所选语言', async labels => {
+  i18n.global.locale.value = labels.locale
+  status = 'FAILED'
+  const originalError = 'Provider timed out on interview 51'
+  rows = Array.from({ length: 51 }, (_, index) => ({
+    index,
+    item: `Interview ${index + 1}`,
+    status: index === 50 ? 'FAILED' : 'SUCCESS',
+    variables: { text: `原始输出 ${index + 1}` },
+    ...(index === 50 ? { error: originalError } : {}),
+  }))
+  const panel = await open()
+  const getButton = (label: string) => panel.findAll<HTMLButtonElement>('button').find(button => button.text() === label)!
+  expect(panel.get('h3').text()).toBe(`${labels.title} · 51`)
+  expect(panel.findAll('summary')[0]?.text()).toBe(labels.first)
+  expect(getButton(labels.previous).element.disabled).toBe(true)
+  expect(getButton(labels.next).element.disabled).toBe(false)
+
+  let finishTurn!: () => void
+  responseWait = new Promise<void>(resolve => { finishTurn = resolve })
+  await getButton(labels.next).trigger('click')
+  expect(panel.get('[role="status"]').text()).toBe(labels.loading)
+  batchReadFailed = true
+  finishTurn()
+  await flushPromises()
+  expect(panel.get('[role="alert"]').text()).toBe(labels.error)
+  expect(getButton(labels.previous).element.disabled).toBe(false)
+  expect(panel.find('summary').exists()).toBe(false)
+
+  batchReadFailed = false
+  responseWait = undefined
+  await getButton(labels.refresh).trigger('click')
+  await flushPromises()
+  expect(panel.find('[role="alert"]').exists()).toBe(false)
+  const detail = unfold(panel)
+  expect(detail.get('summary').text()).toBe(labels.last)
+  expect(detail.text()).toContain(originalError)
+  expect(detail.get('pre').text()).toBe('"Interview 51"')
+  expect(detail.findAll('pre')[1]?.text()).toContain('原始输出 51')
+  expect(requests.map(url => new URL(url, 'https://fixture.invalid').searchParams.get('offset')))
+    .toEqual(['0', '50', '50'])
+
+  let finishRefresh!: () => void
+  responseWait = new Promise<void>(resolve => { finishRefresh = resolve })
+  await getButton(labels.refresh).trigger('click')
+  expect(panel.get('[role="status"]').text()).toBe(labels.refreshing)
+  expect(panel.get('details').element).toBe(detail.element)
+  batchReadFailed = true
+  finishRefresh()
+  await flushPromises()
+  expect(panel.get('[role="alert"]').text()).toContain(labels.error)
+  expect(panel.get('[role="alert"]').text()).toContain(labels.previousResults)
+
+  const other = batchJourney.find(next => next.locale !== labels.locale)!
+  i18n.global.locale.value = other.locale
+  await flushPromises()
+  expect(panel.get('[role="alert"]').text()).toContain(other.error)
+  expect(panel.get('[role="alert"]').text()).toContain(other.previousResults)
+  expect(panel.get('details').element).toBe(detail.element)
+  expect(detail.element.open).toBe(true)
+  expect(detail.text()).toContain(originalError)
+  expect(requests).toHaveLength(4)
 })
