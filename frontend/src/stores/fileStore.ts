@@ -7,6 +7,13 @@ import type { FileAsset } from '@/types/file'
 import type { WorkflowRun } from '@/types/run'
 import { formatDateTime } from '@/utils/localeFormat'
 
+type FileClassification = Pick<FileAsset, 'source' | 'artifactKind' | 'type' | 'workflowId' | 'linkedRunId'>
+
+function classificationOf(file: FileAsset): FileClassification {
+  const { source, artifactKind, type, workflowId, linkedRunId } = file
+  return { source, artifactKind, type, workflowId, linkedRunId }
+}
+
 // pattern: Imperative Shell
 export const useFileStore = defineStore('file', {
   state: () => ({
@@ -18,10 +25,13 @@ export const useFileStore = defineStore('file', {
     uploadError: null as string | null,
     deletingIds: [] as string[],
     downloadingIds: [] as string[],
+    classificationRequests: new Map<string, symbol>(),
+    classificationsDuringLoad: null as Map<string, FileClassification> | null,
     fileActionError: null as string | null,
     loadRequestId: 0,
   }),
   getters: {
+    classifyingIds: (state) => [...state.classificationRequests.keys()],
     inputFiles: (state) => state.files.filter((file) => file.source === 'input'),
     artifactFiles: (state) => state.files.filter((file) => file.source === 'artifact'),
     processingCount: (state) => state.files.filter((file) => file.status === 'processing').length,
@@ -35,12 +45,18 @@ export const useFileStore = defineStore('file', {
     async loadFiles() {
       const requestId = ++this.loadRequestId
       const isCurrent = () => this.loadRequestId === requestId
+      const classificationsDuringLoad = new Map<string, FileClassification>()
+      this.classificationsDuringLoad = classificationsDuringLoad
       this.loading = true
       this.loadError = null
       try {
         const loadedFiles = await fileApi.listFiles()
         if (isCurrent()) {
-          this.files = loadedFiles
+          // 只合并这次读取期间确认的分类，其余元数据及成品仍以列表为准。
+          this.files = loadedFiles.map((file) => {
+            const classification = classificationsDuringLoad.get(file.id)
+            return classification ? { ...file, ...classification } : file
+          })
         }
       } catch (error) {
         if (isCurrent()) {
@@ -52,6 +68,7 @@ export const useFileStore = defineStore('file', {
         throw error
       } finally {
         if (isCurrent()) {
+          this.classificationsDuringLoad = null
           this.loading = false
         }
       }
@@ -152,34 +169,50 @@ export const useFileStore = defineStore('file', {
     },
     async toggleSource(fileId: string) {
       const file = this.files.find((item) => item.id === fileId)
-      if (!file) {
+      if (!file || this.classificationRequests.has(fileId)) {
         return
       }
-      const previous = { ...file }
+
+      this.fileActionError = null
       const source = file.source === 'input' ? 'artifact' : 'input'
       const artifactKind = source === 'input' ? 'input' : file.artifactKind === 'input' ? 'document' : file.artifactKind
-      file.source = source
-      file.artifactKind = artifactKind
-      file.result = source === 'input'
-        ? i18n.global.t('files.mockResults.markedInput')
-        : i18n.global.t('files.mockResults.markedArtifact')
-      file.updatedAt = formatDateTime(new Date())
       if (!file.backendFileId) {
+        file.source = source
+        file.artifactKind = artifactKind
+        file.result = source === 'input'
+          ? i18n.global.t('files.mockResults.markedInput')
+          : i18n.global.t('files.mockResults.markedArtifact')
+        file.updatedAt = formatDateTime(new Date())
         return
       }
+
+      const request = Symbol()
+      this.classificationRequests.set(fileId, request)
+      const isCurrent = () => this.classificationRequests.get(fileId) === request
       try {
         const persisted = await fileApi.updateClassification(file.backendFileId, {
           source,
           artifactKind,
           workflowId: file.workflowId ?? null,
         })
-        Object.assign(file, persisted)
+        if (!isCurrent()) return
+
+        // 终态刷新可能已用同一 ID 的新卡片替换原对象。
+        const current = this.files.find((item) => item.id === fileId)
+        if (current) {
+          const classification = classificationOf(persisted)
+          Object.assign(current, classification)
+          if (current === file) current.updatedAt = persisted.updatedAt
+          this.classificationsDuringLoad?.set(fileId, classification)
+        }
       } catch (error) {
-        Object.assign(file, previous)
-        this.fileActionError = error instanceof Error && error.message
-          ? error.message
-          : i18n.global.t('files.updateFailed')
+        if (isCurrent()) {
+          const normalized = toApiError(error, 'file')
+          this.fileActionError = normalized.message || i18n.global.t('files.updateFailed')
+        }
         throw error
+      } finally {
+        if (isCurrent()) this.classificationRequests.delete(fileId)
       }
     },
     addArtifactsFromRun(run: WorkflowRun) {

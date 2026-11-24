@@ -1000,6 +1000,7 @@ export const zhCN = {
     producer: '生成节点',
     markAsInput: '标记为输入',
     markAsArtifact: '标记为产物',
+    updateFailed: '文件分类保存失败，请重试。',
     download: '下载',
     delete: '删除',
     confirmDelete: '确认删除“{name}”？删除后该文件不会再出现在输入文件或生成产物列表中。',

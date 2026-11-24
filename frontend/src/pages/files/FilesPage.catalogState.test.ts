@@ -180,3 +180,32 @@ describe('未筛选文件页的列表状态', () => {
     expect(listRequest).toHaveBeenCalledTimes(2)
   })
 })
+
+it('分类接口的业务错误在成品页显示原因，重试成功后提示消失', async () => {
+  const generated = { ...artifact, objectKey: 'workflow/exports/9/export/hash-summary.md' }
+  const requests = vi.fn()
+  axiosInstance.defaults.adapter = async (request) => {
+    if (request.method === 'get' && request.url === '/files') return listResponse(request, [generated])
+    if (request.method !== 'patch' || request.url !== '/files/21/classification') {
+      throw new Error(`非预期测试请求: ${request.method} ${request.url}`)
+    }
+    requests(JSON.parse(request.data))
+    const data = requests.mock.calls.length === 1
+      ? { code: 409, success: false, message: '模拟：分类暂时不可保存' }
+      : { code: 0, success: true, data: { ...generated, source: 'input', artifactKind: 'input' } }
+    return { ...listResponse(request, []), data }
+  }
+  const router = await render('/files?runId=run-9')
+  const classify = () => wrapper!.get('[data-testid="artifact-section"] article button:not([aria-label])')
+  await classify().trigger('click')
+  await flushPromises()
+  expect(wrapper!.get('[role="alert"]').text()).toBe('模拟：分类暂时不可保存')
+  expect(classify().text()).toBe('标记为输入')
+
+  await classify().trigger('click')
+  await flushPromises()
+  expect(requests.mock.calls).toEqual(Array(2).fill([{ source: 'input', artifactKind: 'input', workflowId: '9' }]))
+  expect(wrapper!.find('[role="alert"]').exists()).toBe(false)
+  expect(classify().text()).toBe('标记为产物')
+  expect(router.currentRoute.value.query.runId).toBe('run-9')
+})

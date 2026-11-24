@@ -13,6 +13,7 @@ const props = defineProps<{
   layout?: 'grid' | 'single'
   deletingIds?: string[]
   downloadingIds?: string[]
+  classifyingIds?: string[]
   actionsDisabled?: boolean
 }>()
 
@@ -29,6 +30,12 @@ const iconMap: Record<FileAsset['type'], Component> = {
   video: FileVideo,
   document: FileText,
   artifact: PackageCheck,
+}
+
+function toggleSource(fileId: string) {
+  if (!props.actionsDisabled && !props.classifyingIds?.includes(fileId)) {
+    emit('toggleSource', fileId)
+  }
 }
 
 const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'grid gap-3 lg:grid-cols-2'))
@@ -95,9 +102,11 @@ const gridClass = computed(() => (props.layout === 'single' ? 'grid gap-3' : 'gr
         </div>
         <button
           type="button"
-          class="mt-3 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-primary transition hover:border-primary/30 hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50"
+          class="mt-3 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-primary transition hover:border-primary/30 hover:bg-primary-soft disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           :disabled="props.actionsDisabled"
-          @click="emit('toggleSource', file.id)"
+          :aria-disabled="props.classifyingIds?.includes(file.id) || undefined"
+          :aria-busy="props.classifyingIds?.includes(file.id) || undefined"
+          @click="toggleSource(file.id)"
         >
           {{ file.source === 'input' ? t('files.markAsArtifact') : t('files.markAsInput') }}
         </button>

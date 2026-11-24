@@ -992,6 +992,7 @@ export const enUS = {
     producer: 'Producer node',
     markAsInput: 'Mark as input',
     markAsArtifact: 'Mark as artifact',
+    updateFailed: 'Failed to save the file classification. Please retry.',
     download: 'Download',
     delete: 'Delete',
     confirmDelete: 'Delete "{name}"? It will no longer appear in input files or generated artifacts.',

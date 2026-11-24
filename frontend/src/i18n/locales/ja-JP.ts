@@ -994,6 +994,7 @@ export const jaJP = {
     producer: '生成ノード',
     markAsInput: '入力としてマーク',
     markAsArtifact: '成果物としてマーク',
+    updateFailed: 'ファイルの分類を保存できませんでした。再試行してください。',
     download: 'ダウンロード',
     delete: '削除',
     confirmDelete: '「{name}」を削除しますか？ 削除すると入力や成果物に表示されなくなります。',
