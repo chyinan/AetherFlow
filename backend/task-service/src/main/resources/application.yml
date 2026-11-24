@@ -79,6 +79,9 @@ seata:
 
 aetherflow:
   task:
+    # 必须与 workflow-service / ai-service 的 TASK_INTERNAL_TOKEN 一致，
+    # 否则内部派发调用会被判 403 invalid internal task token（节点执行直接失败）。
+    internal-token: ${TASK_INTERNAL_TOKEN:aetherflow-task-internal-dev-token}
     publisher-confirm-timeout: ${TASK_PUBLISHER_CONFIRM_TIMEOUT:5s}
     max-retries: ${TASK_MAX_RETRIES:3}
     scan-limit: ${TASK_SCAN_LIMIT:100}
