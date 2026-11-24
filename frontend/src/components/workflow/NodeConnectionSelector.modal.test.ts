@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 const mocks = vi.hoisted(() => ({ getNodeConnections: vi.fn(), createNodeConnection: vi.fn(), updateNodeConnection: vi.fn(), probeNodeConnection: vi.fn(), probeSavedNodeConnection: vi.fn() }))
 vi.mock('@/api/modules/nodeConnections', () => mocks)
 import { i18n } from '@/i18n'
-import type { NodeConnectionProbe } from '@/api/modules/nodeConnections'
+import type { NodeConnection, NodeConnectionProbe } from '@/api/modules/nodeConnections'
 import NodeConnectionSelector from './NodeConnectionSelector.vue'
 
 const source = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
@@ -36,8 +36,8 @@ async function openForm(nodeType: 'IMAGE_GENERATION' | 'UPSCALE' = 'IMAGE_GENERA
   return { opener, dialog, name: dialog.querySelector<HTMLInputElement>('[data-testid="connection-name"]')! }
 }
 
-function key(target: HTMLElement, value: string, shiftKey = false) {
-  const event = new KeyboardEvent('keydown', { key: value, shiftKey, bubbles: true, cancelable: true })
+function key(target: HTMLElement, value: string, shiftKey = false, repeat = false) {
+  const event = new KeyboardEvent('keydown', { key: value, shiftKey, repeat, bubbles: true, cancelable: true })
   target.dispatchEvent(event)
   return event
 }
@@ -56,6 +56,32 @@ function startPendingTest(dialog: HTMLElement) {
   test.focus()
   test.click()
   return { resolve, reject, test }
+}
+
+async function startPendingSave(dialog: HTMLElement, name: HTMLInputElement) {
+  name.value = '工作室图像连接'
+  name.dispatchEvent(new Event('input', { bubbles: true }))
+  const test = startPendingTest(dialog)
+  test.resolve(usable)
+  await flushPromises()
+
+  let resolve!: (connection: NodeConnection) => void
+  let reject!: (cause: Error) => void
+  mocks.createNodeConnection.mockReturnValueOnce(new Promise<NodeConnection>((yes, no) => {
+    resolve = yes
+    reject = no
+  }))
+  const save = dialog.querySelector<HTMLButtonElement>('[data-testid="save-connection"]')!
+  expect(save.disabled).toBe(false)
+  save.focus()
+  save.click()
+  await flushPromises()
+  return { save, resolve, reject }
+}
+
+const savedConnection: NodeConnection = {
+  id: 'studio-connection', name: '工作室图像连接', provider: 'COMFYUI',
+  baseUrl: 'http://sample-service:8188', readOnly: false,
 }
 
 const usable: NodeConnectionProbe = {
@@ -234,6 +260,75 @@ describe('节点连接弹窗模态交互', () => {
     const reopened = document.querySelector('[data-testid="connection-dialog"] [role="status"]')
     expect(reopened).not.toBe(announcement)
     expect(reopened?.textContent?.trim()).toBe('')
+  })
+
+  it('键盘保存等待时仍可环绕 Tab，失败后同按钮可重试而不重复提交', async () => {
+    const { dialog, name, opener } = await openForm()
+    const { save, reject } = await startPendingSave(dialog, name)
+    const close = dialog.querySelector<HTMLButtonElement>('button')!
+    expect.soft(save.disabled).toBe(false)
+    expect.soft(save.getAttribute('aria-disabled')).toBe('true')
+    expect.soft(document.activeElement).toBe(save)
+    expect.soft(key(save, 'Tab').defaultPrevented).toBe(true)
+    expect.soft(document.activeElement).toBe(close)
+    expect.soft(key(close, 'Tab', true).defaultPrevented).toBe(true)
+    expect.soft(document.activeElement).toBe(save)
+    save.click()
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(1)
+    expect(wrapper!.emitted('apply')).toBeUndefined()
+
+    reject(new Error('模拟保存失败'))
+    await flushPromises()
+    expect(dialog.querySelector('[data-testid="form-error"]')?.textContent).toContain('模拟保存失败')
+    expect(name.value).toBe(savedConnection.name)
+    expect(save.disabled).toBe(false)
+    expect(save.getAttribute('aria-disabled')).toBeNull()
+    expect(document.activeElement).toBe(save)
+    expect(mocks.probeNodeConnection).toHaveBeenCalledTimes(1)
+
+    mocks.createNodeConnection.mockResolvedValueOnce(savedConnection)
+    save.click()
+    await flushPromises()
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(2)
+    expect(wrapper!.emitted('apply')).toEqual([[{ connectionId: savedConnection.id, provider: 'COMFYUI' }, 'modal-node']])
+    expect(dialog.isConnected).toBe(false)
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('保存失败后长按 Enter 不会自动重试，重新按键仍可完成保存', async () => {
+    const { dialog, name } = await openForm()
+    const { save, reject } = await startPendingSave(dialog, name)
+    expect.soft(key(save, 'Enter').defaultPrevented).toBe(true)
+    expect.soft(key(save, ' ').defaultPrevented).toBe(true)
+
+    reject(new Error('模拟保存失败'))
+    await flushPromises()
+    expect(document.activeElement).toBe(save)
+    expect.soft(key(save, 'Enter', false, true).defaultPrevented).toBe(true)
+    expect.soft(key(save, ' ', false, true).defaultPrevented).toBe(true)
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(1)
+
+    expect(key(save, 'Enter').defaultPrevented).toBe(false)
+    expect(key(save, ' ').defaultPrevented).toBe(false)
+    // jsdom 不合成键盘默认点击，单独派发正常的按钮点击。
+    mocks.createNodeConnection.mockResolvedValueOnce(savedConnection)
+    save.click()
+    await flushPromises()
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(2)
+    expect(dialog.isConnected).toBe(false)
+  })
+
+  it('保存失败不把焦点从用户后来选择的关闭控件移回保存', async () => {
+    const { dialog, name } = await openForm()
+    const { save, reject } = await startPendingSave(dialog, name)
+    const close = dialog.querySelector<HTMLButtonElement>('button')!
+    close.focus()
+    reject(new Error('模拟保存失败'))
+    await flushPromises()
+    expect(document.activeElement).toBe(close)
+    expect(save.disabled).toBe(false)
+    expect(save.getAttribute('aria-disabled')).toBeNull()
+    expect(mocks.createNodeConnection).toHaveBeenCalledTimes(1)
   })
 
   it('从在途测试按钮按 Escape 可立即退出并忽略迟到响应', async () => {
