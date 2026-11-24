@@ -9,8 +9,19 @@ import type { WorkflowRun } from '@/types/run'
 import { homeMessages } from './homeMessages'
 import { homeRunPageSize, type HomeRunGroup, type HomeRunSnapshot } from './homeStore'
 
-const props = defineProps<{ group: HomeRunGroup; loading: boolean; error: boolean; loaded: boolean; snapshot: HomeRunSnapshot | null }>()
-const emit = defineEmits<{ retry: [] }>()
+const props = defineProps<{
+  group: HomeRunGroup
+  loading: boolean
+  error: boolean
+  loaded: boolean
+  snapshot: HomeRunSnapshot | null
+  opening?: { id: string; name: string; phase: 'opening' | 'failed'; showRetry: boolean }
+}>()
+const emit = defineEmits<{
+  retry: []
+  openRun: [run: Pick<WorkflowRun, 'id' | 'workflowName'>]
+  retryOpenRun: []
+}>()
 const sectionHeading = ref<HTMLElement | null>(null)
 const runList = ref<HTMLUListElement | null>(null)
 const { t } = useI18n({ useScope: 'local', messages: homeMessages })
@@ -34,6 +45,13 @@ watch(() => props.snapshot?.items, items => {
   }
 })
 
+function openRunLink(event: MouseEvent, run: WorkflowRun) {
+  // 保留修饰键和非主键链接行为；仅接管本页的普通打开。
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) return
+  event.preventDefault()
+  emit('openRun', run)
+}
+
 function retryInline() {
   if (props.loading) return
   sectionHeading.value?.focus({ preventScroll: true })
@@ -52,6 +70,16 @@ function retryInline() {
         <RefreshCw class="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
+    <div v-if="opening" data-run-open-feedback class="mt-4 flex min-w-0 flex-wrap items-center gap-2 text-sm">
+      <p v-if="opening.phase === 'opening'" role="status" class="min-w-0 break-words text-text-muted">{{ t('runOpeningHint', { name: opening.name, id: opening.id }) }}</p>
+      <p v-else role="alert" class="min-w-0 break-words text-status-warning">{{ t('runOpenFailedHint', { name: opening.name, id: opening.id }) }}</p>
+      <button
+        v-if="opening.showRetry" type="button"
+        class="rounded border border-app-border bg-white px-2 py-1 font-medium text-primary aria-disabled:opacity-50"
+        :aria-disabled="opening.phase === 'opening'" :aria-label="t('retryOpenRun', { name: opening.name, id: opening.id })"
+        @click="$emit('retryOpenRun')"
+      >{{ t('retry') }}</button>
+    </div>
     <p v-if="loading" data-state="loading" role="status" class="py-8 text-sm text-text-muted">{{ t('loading') }}</p>
     <div v-else-if="error" data-state="error" role="alert" :aria-labelledby="`home-${group}-title`" class="my-4 rounded-lg border border-status-warning/30 bg-amber-50 p-3 text-sm text-text-secondary">
       <p>{{ t('loadFailed') }}</p>
@@ -65,13 +93,15 @@ function retryInline() {
       <p v-else-if="snapshot.items.length === 0" data-state="empty" class="py-8 text-sm text-text-muted">{{ t(`${group}Empty`) }}</p>
       <ul v-if="snapshot.items.length" ref="runList" class="mt-4 divide-y divide-app-border">
         <li v-for="run in snapshot.items" :key="run.id">
-          <RouterLink :to="`/runs/${encodeURIComponent(run.id)}`" data-link="run" :data-run-id="run.id" class="group flex items-center justify-between gap-3 rounded-lg py-3 text-sm transition hover:bg-app-muted">
-            <div class="min-w-0">
-              <p class="break-words font-medium text-text-primary group-hover:text-primary">{{ run.workflowName }}</p>
-              <p class="mt-1 break-all text-xs text-text-muted">{{ run.id }} · {{ run.startedAt }}</p>
-              <p class="mt-2 text-xs font-medium" :class="run.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ t(runStatusMessageKey(run)) }}</p>
-            </div>
-            <span class="flex shrink-0 items-center gap-1 text-xs text-primary">{{ t(group === 'completed' ? 'openResult' : 'openRun') }}<ArrowUpRight class="h-3.5 w-3.5" aria-hidden="true" /></span>
+          <RouterLink v-slot="{ href }" :to="`/runs/${encodeURIComponent(run.id)}`" custom>
+            <a :href="href" data-link="run" :data-run-id="run.id" class="group flex items-center justify-between gap-3 rounded-lg py-3 text-sm transition hover:bg-app-muted" @click="openRunLink($event, run)">
+              <div class="min-w-0">
+                <p class="break-words font-medium text-text-primary group-hover:text-primary">{{ run.workflowName }}</p>
+                <p class="mt-1 break-all text-xs text-text-muted">{{ run.id }} · {{ run.startedAt }}</p>
+                <p class="mt-2 text-xs font-medium" :class="run.status === 'failed' ? 'text-status-error' : 'text-text-secondary'">{{ t(runStatusMessageKey(run)) }}</p>
+              </div>
+              <span class="flex shrink-0 items-center gap-1 text-xs text-primary">{{ t(group === 'completed' ? 'openResult' : 'openRun') }}<ArrowUpRight class="h-3.5 w-3.5" aria-hidden="true" /></span>
+            </a>
           </RouterLink>
         </li>
       </ul>
