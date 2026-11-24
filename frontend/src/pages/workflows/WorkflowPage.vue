@@ -730,7 +730,12 @@ const leaveAlreadySaved = computed(() => {
   return receipt !== null && ownsToolbarSave(receipt) && !workflowStore.dirty
 })
 let approvedNavigation: { fromPath: string; target: RouteLocationNormalized; editRevision: number } | null = null
-let toolbarLeaveChoice: { pending: PendingNavigation; receipt: ToolbarSaveReceipt } | null = null
+type LeaveSaveChoice = {
+  pending: PendingNavigation
+  receipt: ToolbarSaveReceipt | null
+  navigationFinished: boolean
+}
+let leaveSaveChoice: LeaveSaveChoice | null = null
 let stopWaitingForRestoredHistory: (() => void) | undefined
 
 function settleNavigation(allowed: boolean) {
@@ -755,14 +760,16 @@ function discardNavigation() {
   settleNavigation(true)
 }
 
-function rememberToolbarLeaveChoice() {
+function rememberLeaveSaveChoice(awaitingReceipt = false) {
   const pending = pendingNavigation.value
   const receipt = toolbarSaveDuringLeave.value
-  toolbarLeaveChoice = pending && receipt ? { pending, receipt } : null
+  leaveSaveChoice = pending && (receipt || awaitingReceipt)
+    ? { pending, receipt, navigationFinished: false } : null
 }
 
 function stayOnWorkflowPage() {
-  rememberToolbarLeaveChoice()
+  // 留页只取消导航；仍在途的首次保存可能已经写入服务端。
+  rememberLeaveSaveChoice(leaveSaveBusy.value && String(route.params.id || 'new') === 'new')
   settleNavigation(false)
 }
 
@@ -783,7 +790,7 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
     return ownsSaveNavigation(to.fullPath, from.fullPath)
   }
   // 新目标取代旧目标；旧保存只能结束请求，不能替用户决定新的导航。
-  toolbarLeaveChoice = null
+  leaveSaveChoice = null
   stopWaitingForRestoredHistory?.()
   const handingOffTemplateModal = showingWorkflowTemplates.value || (pendingNavigation.value !== null && !leaveDialogReady.value)
   settleNavigation(false)
@@ -812,10 +819,12 @@ async function saveBeforeLeaving() {
   const pending = pendingNavigation.value
   if (!pending || leaveSaveBusy.value || workflowStore.saving) return
   if (leaveAlreadySaved.value) {
-    rememberToolbarLeaveChoice()
+    rememberLeaveSaveChoice()
     settleNavigation(true)
     return
   }
+  const navigationRevision = pageNavigationRevision
+  const saveSequenceAtStart = pageSaveSequence
   const saveSequence = ++leaveSaveSequence
   leaveSaveBusy.value = true
   leaveSaveError.value = ''
@@ -823,18 +832,32 @@ async function saveBeforeLeaving() {
   try {
     const projectId = resolveWorkflowProjectId()
     const saved = await workflowStore.saveCurrentWorkflow({ projectId })
-    if (!ownsRequest()) return
+    if (!ownsRequest()) {
+      const choice = leaveSaveChoice
+      if (choice?.pending !== pending) return
+      const receipt = saved && { workflowId: saved.workflowId, projectId, navigationRevision, saveSequence: saveSequenceAtStart }
+      if (!receipt || !ownsToolbarSave(receipt)) {
+        leaveSaveChoice = null
+        return
+      }
+      if (projectId) projectStore.linkWorkflowToProject(String(projectId), receipt.workflowId)
+      projectStore.updateWorkflowStatus(receipt.workflowId, 'ready')
+      choice.receipt = receipt
+      restoreLeaveSaveAddress(choice)
+      return
+    }
     if (!saved || workflowStore.dirty) {
       leaveSaveError.value = ct(saved ? 'leaveChanged' : 'leaveFailed')
       return
     }
     if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
     projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
-    rememberToolbarLeaveChoice()
+    rememberLeaveSaveChoice()
     // 继续原来的 push/back/replace，保留历史语义，不额外跳转规范化地址。
     settleNavigation(true)
   } catch {
     if (ownsRequest()) leaveSaveError.value = workflowStore.savingError || ct('leaveFailed')
+    else if (leaveSaveChoice?.pending === pending) leaveSaveChoice = null
   } finally {
     if (saveSequence === leaveSaveSequence) leaveSaveBusy.value = false
   }
@@ -898,35 +921,41 @@ function invalidateRunStart() {
   pendingStart = null
 }
 
+function restoreLeaveSaveAddress(choice: LeaveSaveChoice) {
+  const { receipt, navigationFinished } = choice
+  if (leaveSaveChoice !== choice || !navigationFinished || !receipt) return
+  leaveSaveChoice = null
+  toolbarSaveDuringLeave.value = null
+  const fromPath = choice.pending.fromPath
+  const restore = () => {
+    if (route.fullPath === fromPath && router.options.history.location === fromPath
+      && !workflowNavigation.pending && !pendingNavigation.value) {
+      void canonicalizeToolbarSave(receipt).catch(() => {})
+    }
+  }
+  if (route.fullPath !== fromPath || workflowNavigation.pending) return
+  if (router.options.history.location === fromPath) {
+    restore()
+  } else {
+    // 浏览器 Back 取消时，原历史项须等 Vue Router 的 popstate 回到后才可替换。
+    const onPopState = () => {
+      stopWaitingForRestoredHistory?.()
+      restore()
+    }
+    stopWaitingForRestoredHistory = () => {
+      window.removeEventListener('popstate', onPopState)
+      stopWaitingForRestoredHistory = undefined
+    }
+    window.addEventListener('popstate', onPopState)
+  }
+}
+
 function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocationNormalized) {
   if (approvedNavigation?.target === to) approvedNavigation = null
-  const choice = toolbarLeaveChoice
+  const choice = leaveSaveChoice
   if (choice?.pending.target === to) {
-    toolbarLeaveChoice = null
-    toolbarSaveDuringLeave.value = null
-    const fromPath = choice.pending.fromPath
-    const restore = () => {
-      if (route.fullPath === fromPath && router.options.history.location === fromPath
-        && !workflowNavigation.pending && !pendingNavigation.value) {
-        void canonicalizeToolbarSave(choice.receipt).catch(() => {})
-      }
-    }
-    if (route.fullPath === fromPath && !workflowNavigation.pending) {
-      if (router.options.history.location === fromPath) {
-        restore()
-      } else {
-        // 浏览器 Back 取消时，原历史项须等 Vue Router 的 popstate 回到后才可替换。
-        const onPopState = () => {
-          stopWaitingForRestoredHistory?.()
-          restore()
-        }
-        stopWaitingForRestoredHistory = () => {
-          window.removeEventListener('popstate', onPopState)
-          stopWaitingForRestoredHistory = undefined
-        }
-        window.addEventListener('popstate', onPopState)
-      }
-    }
+    choice.navigationFinished = true
+    restoreLeaveSaveAddress(choice)
   }
   // 导航失败留在原地址，或成功更新同一画布的首存地址：恢复守卫期间搁置的选择。
   if (route.fullPath === from.fullPath
