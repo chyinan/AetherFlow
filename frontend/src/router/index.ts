@@ -4,7 +4,7 @@ import { i18n } from '@/i18n/index'
 import type { AuthUser } from '@/services/api/authApi'
 import { useAuthStore } from '@/stores/authStore'
 import { defaultProductPath } from '@/product/roleCapabilities'
-import { observeWorkflowNavigation } from '@/utils/workflowNavigation'
+import { observeWorkflowNavigation, pendingWorkflowNavigation } from '@/utils/workflowNavigation'
 
 type RouteRole = AuthUser['role']
 
@@ -138,6 +138,31 @@ export const router = createRouter({
   ],
 })
 
+// 部署后旧标签页可能仍引用已替换的懒加载分块；用新入口加载原本要去的页面。
+const CHUNK_RELOAD_KEY = 'aetherflow:chunk-reload-at'
+
+router.onError((error: unknown, to) => {
+  const message = error instanceof Error ? error.message : String(error)
+  if (!/Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk .* failed/i.test(message)) {
+    return
+  }
+  // 在观察器清除出错导航之前核对归属，不能让较早失败的请求接管新页面。
+  if (pendingWorkflowNavigation(router) !== to) return
+
+  const now = Date.now()
+  const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0)
+  if (Number.isFinite(last) && now - last < 10_000) {
+    return
+  }
+  window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now))
+  if (router.options.history.location === to.fullPath) {
+    window.location.reload()
+  } else {
+    // 正常的站内 push 要等分块加载成功才更新地址，直接刷新仍会回到来源页面。
+    window.location.assign(router.resolve(to.fullPath).href)
+  }
+})
+
 // 在现有异步守卫之前记录导航意图，不改变守卫的许可结果。
 observeWorkflowNavigation(router)
 
@@ -187,24 +212,4 @@ router.afterEach((to) => {
   const titleKey = to.meta.titleKey as string | undefined
   const pageTitle = titleKey ? i18n.global.t(titleKey) : i18n.global.t('app.name')
   window.document.title = `${pageTitle} · ${i18n.global.t('app.name')}`
-})
-
-// 重新构建前端后，旧页面持有的 index.html 仍指向已被替换的分块文件，
-// 懒加载会抛 "Failed to fetch dynamically imported module"（分块 404）。
-// 这里做一次带守卫的自动重载：重新拉取新的 index.html 即可恢复，
-// 用 sessionStorage 计数避免资源真缺失时无限刷新。
-const CHUNK_RELOAD_KEY = 'aetherflow:chunk-reload-at'
-
-router.onError((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error)
-  if (!/Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk .* failed/i.test(message)) {
-    return
-  }
-  const now = Date.now()
-  const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0)
-  if (Number.isFinite(last) && now - last < 10_000) {
-    return
-  }
-  window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now))
-  window.location.reload()
 })
