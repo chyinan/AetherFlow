@@ -150,6 +150,12 @@ public class WorkflowAsyncCompletionService {
         }
     }
 
+    boolean hasTerminalSnapshot(Long workflowInstanceId) {
+        return snapshotRepository.findByWorkflowId(String.valueOf(workflowInstanceId))
+                .map(snapshot -> isTerminal(snapshot.runtimeState()))
+                .orElse(false);
+    }
+
     private boolean isTerminal(RuntimeState state) {
         return state == RuntimeState.SUCCESS
                 || state == RuntimeState.FAILED
