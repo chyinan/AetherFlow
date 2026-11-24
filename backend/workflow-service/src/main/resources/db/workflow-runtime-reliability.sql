@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_runtime_snapshot (
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_workflow_runtime_snapshot_workflow (workflow_id),
     KEY idx_af_workflow_runtime_snapshot_state (runtime_state, updated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS af_workflow_runtime_event (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_runtime_event (
     updated_at DATETIME NOT NULL,
     UNIQUE KEY uk_af_workflow_runtime_event_event (event_id),
     KEY idx_af_workflow_runtime_event_workflow (workflow_id, occurred_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS af_workflow_cancellation_cleanup (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS af_workflow_cancellation_cleanup (
     UNIQUE KEY uk_af_workflow_cancellation_cleanup_instance (workflow_instance_id),
     KEY idx_af_workflow_cancellation_cleanup_due (status, next_attempt_at, updated_at),
     KEY idx_af_workflow_cancellation_cleanup_retention (status, updated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 INSERT IGNORE INTO af_workflow_cancellation_cleanup
     (workflow_instance_id, user_id, status, attempt_count, next_attempt_at, created_at, updated_at)
