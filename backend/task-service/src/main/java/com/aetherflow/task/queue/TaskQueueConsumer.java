@@ -49,7 +49,18 @@ public class TaskQueueConsumer {
         try {
             if (!taskStateService.mark(task, TaskStatus.DISPATCHING,
                     LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
-                return;
+                // 派发端先发消息、后落库 QUEUED 时，消费端可能在 QUEUED 提交前
+                // 读到旧状态 PENDING。重新读一次再试，避免把
+                // 有效消息丢弃、任务卡在 QUEUED 等超时扫描。
+                Task refreshed = taskStateService.findById(taskId).orElse(null);
+                if (refreshed == null
+                        || !taskStateService.mark(refreshed, TaskStatus.DISPATCHING,
+                        LocalDateTime.now().plus(properties.getDispatchTimeout()))) {
+                    log.info("task dispatch skipped, taskId={}, status={}",
+                            taskId, refreshed == null ? "MISSING" : refreshed.getStatus());
+                    return;
+                }
+                task = refreshed;
             }
             TaskMessageDTO workerMessage = taskMessageFactory.from(task);
             sentinelGuard.checkConsumerDispatch();

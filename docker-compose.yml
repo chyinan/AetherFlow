@@ -758,9 +758,19 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: ai-service
-    deploy: *java-service-deploy
+    deploy:
+      <<: *java-service-deploy
+      resources:
+        limits:
+          cpus: "2.0"
+          # 媒体节点把产物以 base64 内联在 JSON 里回传（单次上限 50MB），
+          # 反序列化时字符串与字节数组同时在堆上，1G 容器（默认堆仅 ~256MB）
+          # 会直接 OOM，这里单独放宽。
+          memory: 3G
+          pids: 512
     environment:
       <<: *java-service-env
+      JAVA_TOOL_OPTIONS: ${AI_SERVICE_JAVA_OPTS:--XX:MaxRAMPercentage=75}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       PYTHON_AI_STATUS_TIMEOUT_MILLIS: ${PYTHON_AI_STATUS_TIMEOUT_MILLIS:-3000}

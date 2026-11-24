@@ -3,9 +3,12 @@ package com.aetherflow.ai.config;
 // pattern: Imperative Shell
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import com.fasterxml.jackson.core.StreamReadConstraints;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -13,6 +16,17 @@ import java.time.Duration;
 @Configuration
 @EnableConfigurationProperties({PythonAiProperties.class, AiTaskProperties.class, FileClientProperties.class, TaskClientProperties.class, AiInternalProperties.class})
 public class AiClientConfig {
+
+    /**
+     * 媒体节点把产物以 base64 塞在 JSON 里返回，50MB 上限对应约 67MB 字符串，
+     * 而 Jackson 默认 maxStringLength 只有 20MB，会抛 StreamConstraintsException。
+     * 这里放宽到 80MB（仅调读取上限）。
+     */
+    @Bean
+    public Jackson2ObjectMapperBuilderCustomizer pythonMediaReadConstraintsCustomizer() {
+        return builder -> builder.postConfigurer(mapper -> mapper.getFactory().setStreamReadConstraints(
+                StreamReadConstraints.builder().maxStringLength(80 * 1024 * 1024).build()));
+    }
 
     /**
      * RestClient for the Python AI service. Uses {@link JdkClientHttpRequestFactory} backed
