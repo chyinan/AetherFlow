@@ -199,7 +199,8 @@ watch(() => route.fullPath, (to, from) => {
     showComfyUiDraftReady.value = false
     clearBlankImportFocus()
   }
-  invalidateWorkflowTemplatePicker()
+  // 首存仅更新当前画布地址时，保留同一模板选择器和仍在等候的结果。
+  if (!preservesSavedCanvas) invalidateWorkflowTemplatePicker()
 }, { flush: 'sync' })
 const copyingWorkflow = ref(false)
 watch(() => workflowStore.workflowId, () => { copyOpenRecovery.value = null }, { flush: 'sync' })
@@ -927,8 +928,11 @@ function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocati
       }
     }
   }
-  // 较新的、未弹确认的导航也可能失败；只在实际仍留在原地址时恢复。
-  if (route.fullPath === from.fullPath) void resumeWorkflowTemplatePicker()
+  // 导航失败留在原地址，或成功更新同一画布的首存地址：恢复守卫期间搁置的选择。
+  if (route.fullPath === from.fullPath
+    || (route.fullPath === to.fullPath && ownsSaveNavigation(to.fullPath, from.fullPath))) {
+    void resumeWorkflowTemplatePicker()
+  }
 }
 
 const stopWatchingNavigationError = router.onError((_error, to, from) => finishWorkflowNavigation(to, from))
