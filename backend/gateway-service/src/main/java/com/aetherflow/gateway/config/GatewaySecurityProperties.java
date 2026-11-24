@@ -26,6 +26,9 @@ public class GatewaySecurityProperties {
             "/actuator/health",
             "/health",
             "/notify/ws",
+            // Browser EventSource cannot set an Authorization header; the notify SSE
+            // endpoint authenticates via the streamToken query parameter instead.
+            "/notify/sse/**",
             "/workflow/runtime/ws/**",
             "/swagger-ui/**",
             "/webjars/**",

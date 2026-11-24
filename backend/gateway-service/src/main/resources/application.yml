@@ -147,6 +147,9 @@ aetherflow:
         - /actuator/health
         - /health
         - /notify/ws
+        # 浏览器 EventSource 无法设置 Authorization 头，通知 SSE 用 query 参数里的
+        # streamToken 由 notify-service 自行校验，网关这里必须放行。
+        - /notify/sse/**
         - /workflow/runtime/ws/**
         - /swagger-ui/**
         - /webjars/**
