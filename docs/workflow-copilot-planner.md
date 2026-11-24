@@ -48,6 +48,12 @@ read failure; it reloads only the catalog without resetting the conversation or
 an unsent prompt. This does not send a message or change default routing when
 no model is selected.
 
+Closing and reopening Copilot in the same workflow editor keeps the explicitly
+chosen model if it is still selectable, including after a successful catalog
+retry. If it is no longer listed or is disabled, the picker uses its existing
+fallback. This choice is not a saved setting and is not carried to a different
+workflow or copied into the generated Summary node.
+
 ## Deployment note
 
 The Docker MySQL migrations now have a unique sequence: V25 adds the workflow

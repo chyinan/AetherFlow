@@ -938,3 +938,87 @@ describe('Run 启动操作的工作流与导航所有权', () => {
     expect(copilotApi.planWorkflow).not.toHaveBeenCalled()
   })
 })
+
+describe('工作流编辑页恢复 Copilot 时保留本次选择的规划模型', () => {
+  function modelCatalog(chosenStatus: 'ready' | 'disabled' = 'ready') {
+    return {
+      providers: [
+        { id: 'provider-local', name: 'Local', providerType: 'OLLAMA' },
+        { id: 'provider-studio', name: 'Studio', providerType: 'OPENAI' },
+      ],
+      models: [
+        { id: 'catalog-local', providerId: 'provider-local', kind: 'chat', status: 'ready', name: 'local-planner' },
+        { id: 'catalog-studio', providerId: 'provider-studio', kind: 'chat', status: chosenStatus, name: 'studio-planner' },
+      ],
+    }
+  }
+
+  async function openPanel() {
+    await wrapper!.get('[data-testid="open-copilot"]').trigger('click')
+    await flushPromises()
+    return wrapper!.getComponent(AICopilotPanel)
+  }
+
+  async function closePanel(panel: Awaited<ReturnType<typeof openPanel>>) {
+    await panel.findAll('button').find(button => button.attributes('title') === i18n.global.t('copilot.close'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper!.findComponent(AICopilotPanel).exists()).toBe(false)
+  }
+
+  async function selectPlannerAndClose() {
+    modelApi.refreshSnapshot.mockResolvedValue(modelCatalog())
+    copilotApi.listConversations.mockResolvedValue([{ id: 'conv-1', workflowId: '101' }])
+    copilotApi.listMessages.mockResolvedValue([plannerHistoryMessage()])
+    const panel = await openPanel()
+    expect(panel.text()).toContain(i18n.global.t('copilot.planner.mode'))
+    await panel.get<HTMLSelectElement>('form select').setValue('catalog-studio')
+    await panel.get('form textarea').setValue('用中文总结会议视频')
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.planWorkflow).toHaveBeenLastCalledWith('用中文总结会议视频', expect.objectContaining({
+      conversationId: 'conv-1', provider: 'OPENAI', model: 'studio-planner',
+    }))
+    await closePanel(panel)
+  }
+
+  it.each(['ready', 'retry', 'disabled'] as const)('同一规划继续使用仍可选模型，模型列表 %s 时保留现有回退', async (catalogStatus) => {
+    await setup('/workflows/101?projectId=11', true, document.body)
+    await selectPlannerAndClose()
+    if (catalogStatus === 'retry') {
+      modelApi.refreshSnapshot.mockRejectedValueOnce(new Error('模型列表暂不可用'))
+    }
+    const nextCatalog = modelCatalog(catalogStatus === 'disabled' ? 'disabled' : 'ready')
+    nextCatalog.models.unshift({ ...nextCatalog.models[0], id: 'catalog-new-local', name: 'new-local-planner' })
+    modelApi.refreshSnapshot.mockResolvedValue(nextCatalog)
+    const panel = await openPanel()
+    expect(panel.text()).toContain(i18n.global.t('copilot.planner.mode'))
+    if (catalogStatus === 'retry') {
+      expect(panel.get<HTMLSelectElement>('form select').element.disabled).toBe(true)
+      await panel.get('[data-testid="copilot-model-retry"]').trigger('click')
+      await flushPromises()
+    }
+    expect(copilotApi.planWorkflow).toHaveBeenCalledTimes(1)
+    expect(panel.get<HTMLSelectElement>('form select').element.value)
+      .toBe(catalogStatus === 'disabled' ? 'catalog-new-local' : 'catalog-studio')
+    await panel.get('form textarea').setValue('再补上三条行动项')
+    await panel.get('form').trigger('submit')
+    await flushPromises()
+    expect(copilotApi.planWorkflow).toHaveBeenLastCalledWith('再补上三条行动项', expect.objectContaining({
+      conversationId: 'conv-1',
+      provider: catalogStatus === 'disabled' ? 'OLLAMA' : 'OPENAI',
+      model: catalogStatus === 'disabled' ? 'new-local-planner' : 'studio-planner',
+    }))
+    expect(copilotApi.editCanvas).not.toHaveBeenCalled()
+    expect(copilotApi.stream).not.toHaveBeenCalled()
+  })
+
+  it('同一编辑页切换到另一个工作流时不带入上一个工作流的选择', async () => {
+    const { router } = await setup('/workflows/101?projectId=11', true, document.body)
+    await selectPlannerAndClose()
+    await router.push('/workflows/102?projectId=11')
+    await flushPromises()
+    const panel = await openPanel()
+    expect(panel.get<HTMLSelectElement>('form select').element.value).toBe('catalog-local')
+    expect(copilotApi.planWorkflow).toHaveBeenCalledTimes(1)
+  })
+})

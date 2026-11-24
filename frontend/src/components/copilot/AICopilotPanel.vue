@@ -35,6 +35,7 @@ import type { WorkflowDefinition } from '@/types/workflow'
 
 const props = defineProps<{
   context?: WorkflowCopilotSnapshot
+  modelPreference?: string
   applyWorkflowDraft?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
   applyCanvasEdit?: (draft: CopilotWorkflowDraftApplyRequest) => boolean
   applyCanvasAction?: (action: WorkflowCopilotCanvasAction) => boolean
@@ -80,7 +81,7 @@ const chatViewport = ref<HTMLDivElement | null>(null)
 let chatTailScrollQueued = false
 const models = ref<ModelCatalogItem[]>([])
 const providers = ref<ModelProvider[]>([])
-const selectedModelId = ref('')
+const localModelPreference = ref('')
 const conversationId = ref<string>()
 const historyNotice = ref('')
 const canvasActionResults = ref(new Map<string, boolean>())
@@ -137,6 +138,7 @@ const { t: presentationText } = useI18n({ useScope: 'local', messages: {
 } })
 const emit = defineEmits<{
   close: []
+  'update:modelPreference': [id: string]
 }>()
 
 const messages = ref<CopilotMessage[]>([
@@ -171,9 +173,19 @@ const modelPickerStatus = computed(() => modelsLoading.value
   : modelsLoadFailed.value
     ? presentationText('modelLoadFailed')
     : availableModels.value.length ? '' : t('copilot.modelUnavailable'))
-const selectedModel = computed(() =>
-  availableModels.value.find((model) => model.id === selectedModelId.value),
-)
+const selectedModel = computed(() => {
+  const preferredId = props.modelPreference ?? localModelPreference.value
+  return availableModels.value.find((model) => model.id === preferredId)
+    ?? availableModels.value.find((model) => model.status === 'ready')
+    ?? availableModels.value[0]
+})
+const selectedModelId = computed({
+  get: () => selectedModel.value?.id ?? '',
+  set: (id: string) => {
+    localModelPreference.value = id
+    emit('update:modelPreference', id)
+  },
+})
 const latestPlanMessage = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant' && message.plan))
 
 function nowText() {
@@ -206,17 +218,12 @@ async function loadModels() {
     if (panelDisposed) return
     providers.value = snapshot.providers
     models.value = snapshot.models
-    selectedModelId.value =
-      availableModels.value.find((model) => model.status === 'ready')?.id ||
-      availableModels.value[0]?.id ||
-      ''
     restoreModelFocus = Boolean(modelRetryButton.value && modelRetryButton.value === document.activeElement)
     modelsLoadFailed.value = false
   } catch {
     if (panelDisposed) return
     providers.value = []
     models.value = []
-    selectedModelId.value = ''
     modelsLoadFailed.value = true
   } finally {
     if (!panelDisposed) modelsLoading.value = false
