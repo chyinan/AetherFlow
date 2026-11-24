@@ -30,7 +30,7 @@ it('失败节点可编辑且保留重跑入口，点击只导航并保留来源�
   expect(link.element.tagName).toBe('A')
   expect(link.text()).toBe('编辑此节点')
   await wrapper!.get('button').trigger('click')
-  expect(wrapper!.emitted('rerun')).toEqual([[failed]])
+  expect(wrapper!.emitted('rerun')).toEqual([[failed, wrapper!.get('button').element]])
   await link.trigger('click'); await link.trigger('click'); await flushPromises()
   expect(router.currentRoute.value.path).toBe('/workflows/workflow-9')
   expect(router.currentRoute.value.query).toEqual({

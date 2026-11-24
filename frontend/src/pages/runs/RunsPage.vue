@@ -157,19 +157,21 @@ const cancellationCleanupMessage = computed(() => {
   if (cleanup.status === 'FAILED' || cleanup.lastError) return t('runs.cleanupFailed')
   return t('runs.cleanupPending')
 })
-const rerunTarget = shallowRef<{ node: RunNodeState; source: RouteLocationNormalizedLoaded } | null>(null)
-const rerunReceipt = shallowRef<{ instanceId: number; source: RouteLocationNormalizedLoaded } | null>(null)
+type RerunOrigin = { source: RouteLocationNormalizedLoaded; opener: HTMLButtonElement | null }
+const rerunTarget = shallowRef<(RerunOrigin & { node: RunNodeState }) | null>(null)
+const rerunReceipt = shallowRef<(RerunOrigin & { instanceId: number }) | null>(null)
 const canRerun = computed(() => selectedDetailReady.value && runStore.currentRun?.backendStatus === 'FAILED' && Boolean(runStore.currentRun?.backendInstanceId))
 
-function openRerun(node: RunNodeState) {
+function openRerun(node: RunNodeState, trigger: HTMLButtonElement) {
   rerunReceipt.value = null
-  rerunTarget.value = { node, source: router.currentRoute.value }
+  const opener = document.activeElement === trigger ? trigger : null
+  rerunTarget.value = { node, source: router.currentRoute.value, opener }
 }
 
 function completeRerun(instanceId: number) {
   const target = rerunTarget.value
   rerunTarget.value = null
-  if (target) rerunReceipt.value = { instanceId, source: target.source }
+  if (target) rerunReceipt.value = { instanceId, source: target.source, opener: target.opener }
 }
 
 watch(
@@ -183,7 +185,13 @@ watch(
     }
     if (pending) return
     rerunReceipt.value = null
-    await router.push({ name: 'run-detail', params: { id: `run-${receipt.instanceId}` }, query: location.query })
+    const runId = `run-${receipt.instanceId}`
+    // 对话框关闭后，只有原入口仍保有焦点，才交接给派生运行详情。
+    if (receipt.opener && document.activeElement === receipt.opener) {
+      await selectRun(runId)
+    } else {
+      await router.push({ name: 'run-detail', params: { id: runId }, query: location.query })
+    }
   },
   { flush: 'post' },
 )
