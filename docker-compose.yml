@@ -241,6 +241,10 @@ services:
       FILE_URL_REWRITE_TO: ${FILE_URL_REWRITE_TO:-http://minio:9000}
       FILE_URL_ALLOWED_HOSTS: ${FILE_URL_ALLOWED_HOSTS:-}
       FILE_URL_REQUIRE_HOST_ALLOWLIST: ${FILE_URL_REQUIRE_HOST_ALLOWLIST:-false}
+      # 同一 docker 网络内的对象存储（minio）属于内网地址，媒体节点拿到的
+      # fileUrl 就是 http://minio:9000/...，必须在 python 侧显式信任，
+      # 否则会被 SSRF 内网校验拦成 400 "access to internal/private URLs".
+      FILE_URL_TRUSTED_INTERNAL_HOSTS: ${FILE_URL_TRUSTED_INTERNAL_HOSTS:-minio}
       OTEL_SERVICE_NAME: python-ai-service
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     expose:

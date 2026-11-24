@@ -161,8 +161,12 @@ public class TaskDispatchServiceImpl implements TaskDispatchService {
     private void publishForDispatchAfterCommit(Task task, TaskMessageDTO taskMessage, LocalDateTime dispatchDeadline) {
         Runnable publisher = () -> {
             try {
-                taskQueueProducer.publishForDispatch(taskMessage);
+                // 必须先落库 QUEUED 再发消息：消费端拿到消息后会立刻做
+                // PENDING/QUEUED -> DISPATCHING 的状态 CAS，若消息先到、QUEUED 后到，
+                // CAS 必然失败，消息被丢弃，任务卡在 QUEUED 直到
+                // 超时扫描（默认 5 分钟）才被重新拾取。
                 taskStateService.mark(task, TaskStatus.QUEUED, dispatchDeadline);
+                taskQueueProducer.publishForDispatch(taskMessage);
             } catch (RuntimeException exception) {
                 log.error("task dispatch publish after commit failed, taskId={}", task.getId(), exception);
                 retryManager.handleDispatchFailure(task, taskMessage, exception);

@@ -1568,6 +1568,24 @@ def is_internal_url(url: str) -> bool:
     return False
 
 
+def _trusted_internal_source_host(hostname: str) -> bool:
+    """FILE_URL_TRUSTED_INTERNAL_HOSTS 里显式声明的内网主机视为可信来源。
+
+    典型场景：对象存储（minio）跑在同一 docker 网络内，fileUrl 天然是
+    http://minio:9000/...，属于内网地址；运维显式列白名单后不应再按
+    SSRF 规则拦截，否则所有基于 MinIO 的媒体节点都会 400。
+    """
+    normalized = hostname.strip().lower().rstrip(".")
+    trusted = {
+        item.strip().lower().rstrip(".")
+        for item in os.getenv("FILE_URL_TRUSTED_INTERNAL_HOSTS", "").split(",")
+        if item.strip()
+    }
+    if not trusted:
+        return False
+    return any(normalized == item or normalized.endswith(f".{item}") for item in trusted)
+
+
 def _source_host_allowed(hostname: str, *, rewritten: bool) -> bool:
     normalized_host = hostname.strip().lower().rstrip(".")
     configured_hosts = {
@@ -1575,6 +1593,8 @@ def _source_host_allowed(hostname: str, *, rewritten: bool) -> bool:
         for item in os.getenv("FILE_URL_ALLOWED_HOSTS", "").split(",")
         if item.strip()
     }
+    if _trusted_internal_source_host(hostname):
+        return True
     require_allowlist = os.getenv(
         "FILE_URL_REQUIRE_HOST_ALLOWLIST",
         "false" if _is_dev_env() else "true",
@@ -1596,7 +1616,9 @@ def _materialize_source(file_url: str) -> Path:
     if file_url.startswith(("http://", "https://")):
         download_url = _rewrite_file_url(file_url)
         rewritten = download_url != file_url
-        if not rewritten and is_internal_url(download_url):
+        if not rewritten and is_internal_url(download_url) and not _trusted_internal_source_host(
+            urllib.parse.urlparse(download_url).hostname or ""
+        ):
             raise HTTPException(status_code=400, detail="access to internal/private URLs is not allowed")
         parsed_download_url = urllib.parse.urlparse(download_url)
         if parsed_download_url.scheme not in ("http", "https") or not parsed_download_url.hostname:
@@ -1605,7 +1627,9 @@ def _materialize_source(file_url: str) -> Path:
             raise HTTPException(status_code=400, detail="file URL user info is not allowed")
         if not _source_host_allowed(parsed_download_url.hostname, rewritten=rewritten):
             raise HTTPException(status_code=400, detail="file URL host is not allowed")
-        if is_internal_url(download_url) and not rewritten:
+        if is_internal_url(download_url) and not rewritten and not _trusted_internal_source_host(
+            parsed_download_url.hostname or ""
+        ):
             raise HTTPException(status_code=400, detail="access to internal/private URLs is not allowed")
         suffix = Path(file_url.split("?")[0]).suffix or ".bin"
         target = Path(tempfile.gettempdir()) / f"aetherflow-input-{uuid.uuid4().hex}{suffix}"

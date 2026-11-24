@@ -4,6 +4,7 @@ package com.aetherflow.workflow.runtime.async;
 
 import com.aetherflow.common.core.RabbitMqNames;
 import com.aetherflow.common.dto.NotifyMessageDTO;
+import com.aetherflow.workflow.config.WorkflowAiResultMessagingConfig;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +27,8 @@ public class WorkflowAiResultListener {
     @Autowired(required = false)
     private WorkflowInstanceMapper workflowInstanceMapper;
 
-    @RabbitListener(queues = RabbitMqNames.WORKFLOW_AI_RESULT_QUEUE)
+    @RabbitListener(queues = RabbitMqNames.WORKFLOW_AI_RESULT_QUEUE,
+            containerFactory = WorkflowAiResultMessagingConfig.AI_RESULT_LISTENER_FACTORY)
     public void handle(NotifyMessageDTO message) {
         if (message == null
                 || (!"AI_TASK_SUCCEEDED".equals(message.getEventType())
