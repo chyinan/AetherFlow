@@ -2,6 +2,7 @@ export const homeMessages = {
   'zh-CN': {
     personalTitle: '我的工作台', personalHint: '继续创作，跟进运行，查看完成结果', personalScope: '这里仅展示你自己的工作流和运行记录',
     newWorkflow: '新建或导入工作流', importHint: '也可以在编辑器中导入 ComfyUI JSON。', projects: '前往项目', allWorkflows: '查看项目与工作流',
+    workflowOpening: '正在打开工作流编辑器…', workflowOpenFailed: '暂时无法打开工作流编辑器，请重试；若仍失败，请刷新页面后再试。', retryOpenWorkflow: '重试打开工作流编辑器',
     refresh: '刷新', retry: '重试', loading: '正在加载…', loadFailed: '此区块暂时加载失败，请重试',
     continueTitle: '继续编辑', continueHint: '你的已保存工作流', savedOnly: '此处仅列出已保存的工作流，不恢复未保存的画布修改',
     noWorkflows: '还没有已保存的工作流', startHint: '新建工作流前，请先选择或创建项目。', createProject: '前往项目创建',
@@ -22,6 +23,7 @@ export const homeMessages = {
   'en-US': {
     personalTitle: 'My workbench', personalHint: 'Keep creating, follow your runs, and open completed results', personalScope: 'Only your own workflows and runs appear here',
     newWorkflow: 'Create or import a workflow', importHint: 'You can also import ComfyUI JSON in the editor.', projects: 'Go to projects', allWorkflows: 'View projects and workflows',
+    workflowOpening: 'Opening the workflow editor…', workflowOpenFailed: 'Could not open the workflow editor. Retry, or refresh the page if it still fails.', retryOpenWorkflow: 'Retry opening the workflow editor',
     refresh: 'Refresh', retry: 'Retry', loading: 'Loading…', loadFailed: 'This section could not load. Please retry',
     continueTitle: 'Continue editing', continueHint: 'Your saved workflows', savedOnly: 'Only saved workflows appear here. Unsaved canvas changes are not restored',
     noWorkflows: 'No saved workflows yet', startHint: 'To create a workflow, choose or create a project first.', createProject: 'Go to project creation',
@@ -42,6 +44,7 @@ export const homeMessages = {
   'ja-JP': {
     personalTitle: 'マイワークベンチ', personalHint: '編集を続け、実行状況と完了した結果を確認します', personalScope: '自分のワークフローと実行履歴のみを表示します',
     newWorkflow: 'ワークフローを作成・インポート', importHint: 'ComfyUI JSON をエディターにインポートすることもできます。', projects: 'プロジェクトへ', allWorkflows: 'プロジェクトとワークフローを見る',
+    workflowOpening: 'ワークフローエディターを開いています…', workflowOpenFailed: 'ワークフローエディターを開けませんでした。再試行し、改善しない場合はページを更新してください。', retryOpenWorkflow: 'ワークフローエディターを開き直す',
     refresh: '更新', retry: '再試行', loading: '読み込み中…', loadFailed: 'このセクションを読み込めませんでした。再試行してください',
     continueTitle: '編集を続ける', continueHint: '保存済みワークフロー', savedOnly: '保存済みワークフローのみを表示します。未保存のキャンバス変更は復元しません',
     noWorkflows: '保存済みワークフローはまだありません', startHint: 'ワークフローを新規作成する前に、プロジェクトを選択または作成してください。', createProject: 'プロジェクト作成へ',

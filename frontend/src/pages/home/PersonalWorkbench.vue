@@ -9,6 +9,8 @@ import { useAuthStore } from '@/stores/authStore'
 import HomeRunSection from './HomeRunSection.vue'
 import { homeMessages } from './homeMessages'
 import { useHomeStore, type HomeRunGroup } from './homeStore'
+import { newWorkbenchWorkflowPath, useWorkbenchWorkflowOpen } from './useWorkbenchWorkflowOpen'
+import WorkbenchNewWorkflowFeedback from './WorkbenchNewWorkflowFeedback.vue'
 
 const auth = useAuthStore()
 const home = useHomeStore()
@@ -19,6 +21,7 @@ const loading = computed(() => home.workflows.loading || groups.some(group => ho
 const workflows = computed(() => [...(home.workflows.data ?? [])]
   .filter(workflow => Boolean(workflow.id) && workflow.id !== 'new')
   .slice(0, 4))
+const { workflowOpening, openWorkflow, openWorkflowLink } = useWorkbenchWorkflowOpen()
 
 // 只为本轮活动读取记住已确认的终态：在途收集，结果到达后只保留相交的 ID。
 const confirmedTerminalIds = shallowRef<ReadonlySet<string>>(new Set())
@@ -69,13 +72,22 @@ onBeforeUnmount(() => home.clearPersonal())
           <p class="mt-2 text-sm text-text-secondary">{{ t('personalHint') }}</p>
           <p class="mt-2 text-xs text-text-muted">{{ t('personalScope') }}</p>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-start gap-2">
           <button type="button" data-action="refresh-all" :disabled="loading" class="inline-flex items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm text-text-secondary hover:bg-app-muted disabled:opacity-50" @click="refresh">
             <RefreshCw class="h-4 w-4" aria-hidden="true" />{{ t('refresh') }}
           </button>
-          <RouterLink to="/workflows/new" data-action="new-workflow" class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90">
-            <Plus class="h-4 w-4" aria-hidden="true" />{{ t('newWorkflow') }}
-          </RouterLink>
+          <div class="min-w-0 space-y-2">
+            <RouterLink v-slot="{ href }" :to="newWorkbenchWorkflowPath" custom>
+              <a :href="href" data-action="new-workflow" :aria-busy="workflowOpening?.phase === 'opening' || undefined"
+                :aria-describedby="workflowOpening?.source === 'header' ? 'new-workflow-header-notice' : undefined"
+                class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                @click="openWorkflowLink($event, 'header')">
+                <Plus class="h-4 w-4" aria-hidden="true" />{{ t('newWorkflow') }}
+              </a>
+            </RouterLink>
+            <WorkbenchNewWorkflowFeedback v-if="workflowOpening?.source === 'header'" source="header"
+              :phase="workflowOpening.phase" :show-retry="workflowOpening.showRetry" @retry="openWorkflow('header')" />
+          </div>
         </div>
       </div>
     </header>
@@ -94,7 +106,12 @@ onBeforeUnmount(() => home.clearPersonal())
             <h3 class="font-medium text-text-primary">{{ t('noWorkflows') }}</h3><p class="mt-2 text-sm leading-6 text-text-secondary">{{ t('startHint') }}</p>
             <div class="mt-4 flex flex-wrap gap-3">
               <RouterLink to="/projects" data-action="create-project" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-primary"><FolderKanban class="h-4 w-4" aria-hidden="true" />{{ t('createProject') }}</RouterLink>
-              <RouterLink to="/workflows/new" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white">{{ t('newWorkflow') }}</RouterLink>
+              <RouterLink v-slot="{ href }" :to="newWorkbenchWorkflowPath" custom>
+                <a :href="href" data-action="new-workflow-empty" :aria-busy="workflowOpening?.phase === 'opening' || undefined"
+                  :aria-describedby="workflowOpening?.source === 'empty' ? 'new-workflow-empty-notice' : undefined"
+                  class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white"
+                  @click="openWorkflowLink($event, 'empty')">{{ t('newWorkflow') }}</a>
+              </RouterLink>
             </div>
             <p class="mt-3 text-xs text-text-muted">{{ t('importHint') }}</p>
           </div>
@@ -109,6 +126,8 @@ onBeforeUnmount(() => home.clearPersonal())
             </li>
           </ul>
         </template>
+        <WorkbenchNewWorkflowFeedback v-if="workflowOpening?.source === 'empty'" source="empty" class="mt-4"
+          :phase="workflowOpening.phase" :show-retry="workflowOpening.showRetry" @retry="openWorkflow('empty')" />
         <p class="mt-4 text-xs leading-5 text-text-muted">{{ t('savedOnly') }}</p>
       </section>
       <div class="grid items-stretch gap-5 xl:grid-cols-3">
