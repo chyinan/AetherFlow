@@ -352,7 +352,14 @@ function chooseDefaultProvider(event: Event) {
   emit('apply', { connectionId: undefined, provider: normalizeProvider((event.target as HTMLSelectElement).value) }, props.nodeId)
 }
 function handleDialogKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return }
+  if (event.key === 'Escape') {
+    event.stopPropagation()
+    // 先让输入法取消候选；组合结束后，仍按住的同一个 Escape 不应丢弃草稿。
+    if (event.isComposing || event.keyCode === 229 || event.repeat) return
+    event.preventDefault()
+    close()
+    return
+  }
   const key = event.key.toLowerCase()
   if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'y')) {
     // 不触发背后画布的撤销或重做，保留输入框的原生默认行为。
