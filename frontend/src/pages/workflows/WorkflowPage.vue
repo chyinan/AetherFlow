@@ -660,8 +660,8 @@ function handleBeforeUnload(event: BeforeUnloadEvent) {
 
 function handleEditorKeydown(event: KeyboardEvent) {
   // 离开确认弹窗打开时隔离画布快捷键：撤销/重做不得在用户做决定时改动画布。
-  // 模板选择器同样是模态交互，焦点位于其按钮时不得触发画布历史操作。
-  if (pendingNavigation.value || showingWorkflowTemplates.value) {
+  // 模板选择器同样是模态交互。读取、重试和空白引导都没有可编辑的当前画布。
+  if (workflowSurface.value !== 'editor' || pendingNavigation.value || showingWorkflowTemplates.value) {
     return
   }
   const target = event.target as HTMLElement | null
@@ -834,6 +834,11 @@ const stopGuardingSaveNavigation = router.beforeResolve((to, from) => {
 const initializingWorkflow = ref(hasWorkflowContext.value)
 let initialWorkflowResources: Promise<void> | undefined
 const workflowLoadRetry = shallowRef<{ workflowId: string; loadSequence: number; opener: EventTarget | null } | null>(null)
+const workflowSurface = computed(() => {
+  if (!workflowLoadRetry.value && (workflowStore.loading || (initializingWorkflow.value && !workflowStore.loadingError))) return 'loading'
+  if (workflowStore.loadingError || workflowLoadRetry.value) return 'recovery'
+  return shouldShowEmptyWorkflowGuide.value ? 'empty' : 'editor'
+})
 watch([() => workflowStore.loading, () => workflowStore.loadingError, initializingWorkflow], async ([loading, error, initializing]) => {
   const attempt = workflowLoadRetry.value
   if (!attempt || loading || (initializing && !error) || !ownsWorkflowLoad(attempt.loadSequence, attempt.workflowId)) return
@@ -1358,14 +1363,14 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
   <p class="sr-only" role="status" data-testid="comfyui-import-draft-status">{{ comfyUiDraftMessage }}</p>
 
   <!-- 失败后原地重试，保持退出入口和正在使用的键盘焦点。 -->
-  <section v-if="!workflowLoadRetry && (workflowStore.loading || (initializingWorkflow && !workflowStore.loadingError))" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-if="workflowSurface === 'loading'" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="flex items-center gap-3 rounded-xl border border-app-border bg-white px-6 py-5 text-sm font-medium text-text-secondary shadow-panel">
       <LoaderCircle class="h-5 w-5 animate-spin text-primary" />
       {{ t('workflow.loading') }}
     </div>
   </section>
 
-  <section v-else-if="workflowStore.loadingError || workflowLoadRetry" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-else-if="workflowSurface === 'recovery'" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="w-full max-w-xl rounded-2xl border border-status-error/25 bg-white p-7 shadow-panel">
       <p class="text-lg font-semibold text-text-primary">{{ t('workflow.loadFailedTitle') }}</p>
       <p aria-live="polite" aria-atomic="true" class="mt-3 rounded-lg px-4 py-3 text-sm leading-6" :class="workflowLoadRetry ? 'bg-app-bg2 text-text-secondary' : 'bg-red-50 text-status-error'">
@@ -1383,7 +1388,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
     </div>
   </section>
 
-  <section v-else-if="shouldShowEmptyWorkflowGuide" class="grid h-full place-items-center bg-app-bg px-6">
+  <section v-else-if="workflowSurface === 'empty'" class="grid h-full place-items-center bg-app-bg px-6">
     <div class="w-full max-w-3xl overflow-hidden rounded-2xl border border-app-border bg-white shadow-panel">
       <div class="border-b border-app-border bg-gradient-to-r from-primary/8 via-white to-white px-8 py-7">
         <div class="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-white shadow-node">
