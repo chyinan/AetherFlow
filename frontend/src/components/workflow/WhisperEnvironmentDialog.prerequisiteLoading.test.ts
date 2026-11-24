@@ -110,7 +110,7 @@ describe('Whisper prerequisite refresh', () => {
       expect(blockers()).toEqual([])
       expect(prerequisites().textContent).toContain('Prerequisite results will appear when the refresh finishes.')
       expect(prerequisites().textContent).not.toContain('The current snapshot shows none of these blockers.')
-      expect(button('refresh').disabled).toBe(true)
+      expect(button('refresh').getAttribute('aria-disabled')).toBe('true')
       expect(transport.get).toHaveBeenCalledTimes(2)
       expect(refreshCapabilities).toHaveBeenCalledTimes(2)
 
@@ -119,7 +119,7 @@ describe('Whisper prerequisite refresh', () => {
       await flushPromises()
       expect(blockers()).toEqual(['unreachable'])
       expect(prerequisites().textContent).not.toContain('Prerequisite results will appear when the refresh finishes.')
-      expect(button('refresh').disabled).toBe(false)
+      expect(button('refresh').getAttribute('aria-disabled')).toBeNull()
 
       await click('refresh')
       expect(blockers()).toEqual([])
@@ -144,7 +144,7 @@ describe('Whisper prerequisite refresh', () => {
     expect(dialog().querySelector('[data-testid="whisper-status"]')).toBeNull()
     expect(blockers()).toEqual([])
     expect(prerequisites().textContent).toContain(unknownText)
-    expect(button('refresh').disabled).toBe(false)
+    expect(button('refresh').getAttribute('aria-disabled')).toBeNull()
     expect(button('next').disabled).toBe(false)
     expect(refreshCapabilities).toHaveBeenCalledTimes(2)
 
