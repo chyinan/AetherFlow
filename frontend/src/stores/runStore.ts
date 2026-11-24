@@ -1082,7 +1082,9 @@ export const useRunStore = defineStore('run', {
     },
     stopRealtime() {
       this.stopRunRealtime()
-      useUiStore().stopNotificationStream()
+      // 通知流是应用级订阅，由 TopStatusBar 在挂载时建立；这里不能顺手把它关掉，
+      // 否则进入没有运行上下文的页面（如 /workflows/new）时 clearCurrentRun 会切断
+      // 全局通知 SSE，而 TopStatusBar 已挂载、不会重新订阅，消息中心将永久显示离线。
     },
   },
 })
