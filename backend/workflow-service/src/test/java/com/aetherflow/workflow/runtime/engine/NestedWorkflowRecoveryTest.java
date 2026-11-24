@@ -33,8 +33,13 @@ class NestedWorkflowRecoveryTest {
         assertThat(last.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
         assertThat(dispatched).hasSize(3); assertThat(finished).hasValue(3);
         assertThat(last.completedNodeIds()).containsExactly("batch");
+        assertThat(last.currentNodeIds()).isEmpty();
+        assertThat(last.currentNodeId()).isEqualTo("batch");
         assertThat((List<?>) last.variables().get("results")).hasSize(3);
+        engine = engine(registry, repository);
         assertThat(engine.completeWaitingNode(request, last, dispatched.get(2), NodeResult.success(Map.of()))).isEqualTo(last);
+        assertThat(dispatched).hasSize(3);
+        assertThat(finished).hasValue(3);
     }
 
     @Test void 失败策略继续保留错误项且不会重复已完成项() {

@@ -91,6 +91,8 @@ Runtime snapshot persistence is introduced in phase 2. A snapshot captures enoug
 
 On service startup, recovery scans workflows in `RUNNING` or `RETRYING` state. Runtime acquires the workflow lock, loads the latest snapshot, rebuilds the DAG, skips completed nodes, recomputes ready nodes, and resumes execution. In-flight nodes with no completed output are treated as not completed and may be executed again; real node implementations must remain idempotent for external side effects.
 
+For a successful run without active nodes, the singular `currentNodeId` and the `WORKFLOW_COMPLETED` event point to the last top-level node recorded in `completedNodeIds`. The persisted order gives the same value when the instance and terminal notification are reconciled after a restart. This does not add a completed node to `currentNodeIds` or change failure attribution.
+
 ### Snapshot Table
 
 `af_workflow_runtime_snapshot` is required because `WorkflowExecutionSnapshot` is currently only an in-memory return value.

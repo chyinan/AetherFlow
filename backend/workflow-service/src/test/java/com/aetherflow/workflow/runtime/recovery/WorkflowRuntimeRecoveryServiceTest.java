@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -117,7 +118,7 @@ class WorkflowRuntimeRecoveryServiceTest {
         WorkflowDefinitionDTO definition = definition(node("node-end", "END", Map.of()));
         WorkflowRuntimeSnapshot snapshot = new WorkflowRuntimeSnapshot(
                 "42", "trace-42", "task-42", 7L, definition, RuntimeState.SUCCESS,
-                List.of("node-end"), List.of("node-end"), List.of(),
+                List.of(), List.of("node-end"), List.of(),
                 Map.of("userId", 7L, "username", "alice"),
                 Map.of(), Instant.parse("2026-09-01T10:00:00Z"));
         when(repository.findTerminalNeedingReconciliation(10)).thenReturn(List.of(snapshot));
@@ -129,6 +130,7 @@ class WorkflowRuntimeRecoveryServiceTest {
 
         assertThat(recoveryService.reconcileTerminalWorkflows(10)).isEqualTo(1);
         verify(repository).findTerminalNeedingReconciliation(10);
+        verify(instanceMapper).transitionRuntimeState(eq(42L), eq("SUCCESS"), eq("node-end"), any(), any());
         verify(notificationOutbox).enqueue(42L, 7L, "trace-42", RuntimeState.SUCCESS, "node-end");
     }
 

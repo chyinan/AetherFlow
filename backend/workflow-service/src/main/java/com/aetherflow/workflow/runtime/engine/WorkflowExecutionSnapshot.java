@@ -29,6 +29,13 @@ public record WorkflowExecutionSnapshot(
         nodeOutputs = nodeOutputs == null ? Map.of() : Map.copyOf(nodeOutputs);
         completedNodeIds = completedNodeIds == null ? List.of() : List.copyOf(completedNodeIds);
         failedNodeIds = failedNodeIds == null ? List.of() : List.copyOf(failedNodeIds);
+        if (runtimeState == RuntimeState.SUCCESS && currentNodeIds.isEmpty()) {
+            currentNodeId = lastCompletedNodeOr(completedNodeIds, currentNodeId);
+        }
+    }
+
+    static String lastCompletedNodeOr(List<String> completedNodeIds, String fallback) {
+        return completedNodeIds.isEmpty() ? fallback : completedNodeIds.get(completedNodeIds.size() - 1);
     }
 
     public WorkflowExecutionSnapshot(String workflowId,
