@@ -21,7 +21,7 @@ import urllib.parse
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -440,31 +440,34 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/ai/status")
-def ai_status() -> dict[str, Any]:
+def ai_status(probeProvider: Literal["openai", "ollama"] | None = None) -> dict[str, Any]:
     _ensure_runtime_env_loaded()
     whisper_enabled = _enabled("ENABLE_WHISPER")
-    ollama_models = _ollama_model_names()
+    llm_enabled = _enabled("ENABLE_LLM")
     providers = _status_providers()
-    openai_models = _openai_model_names()
-    models = {
-        "ollama": ollama_models,
-    }
-    if openai_models:
-        models["openai"] = openai_models
-    return {
+    result = {
         "service": "python-ai-service",
         "status": "UP",
         "capabilities": ["whisper", "ffmpeg", "subtitle", "llm"],
         "providers": providers,
-        "models": models,
         "whisperEnabled": whisper_enabled,
         "whisperRuntimeReady": _whisper_runtime_ready() if whisper_enabled else False,
         "whisperModel": os.getenv("WHISPER_MODEL", "small"),
-        "llmEnabled": _enabled("ENABLE_LLM"),
+        "llmEnabled": llm_enabled,
         "ffmpegAvailable": shutil.which("ffmpeg") is not None,
-        # 上游 provider 的实时可达性快照，供 Java 侧健康探针判定 UP/DEGRADED。
-        "providerHealth": _provider_health_snapshot(),
     }
+    if probeProvider is not None:
+        # 健康检查只等待选中的上游，不等待另一个提供商或普通目录请求。
+        result["providerHealth"] = (
+            _provider_health_snapshot(probeProvider) if llm_enabled and probeProvider in providers else {}
+        )
+    else:
+        models = {"ollama": _ollama_model_names()}
+        openai_models = _openai_model_names()
+        if openai_models:
+            models["openai"] = openai_models
+        result["models"] = models
+    return result
 
 
 @app.get("/ai/whisper/environment", dependencies=[Depends(_require_runtime_api_key)])
@@ -1485,7 +1488,7 @@ def _openai_model_names() -> list[str]:
     return [_provider_default_model(route_provider)]
 
 
-def _probe_ollama(reachable_timeout: float = 3.0) -> dict[str, Any]:
+def _probe_ollama(reachable_timeout: float) -> dict[str, Any]:
     """探测 Ollama 是否真的能应答（不只是端口通）。"""
     started = time.perf_counter()
     try:
@@ -1502,7 +1505,7 @@ def _probe_ollama(reachable_timeout: float = 3.0) -> dict[str, Any]:
         }
 
 
-def _probe_openai(reachable_timeout: float = 3.0) -> dict[str, Any] | None:
+def _probe_openai(reachable_timeout: float) -> dict[str, Any] | None:
     """用 /models 轻量探测 OpenAI 兼容网关；未配置时返回 None（不参与状态）。"""
     route_provider = _openai_route_provider_id()
     if not route_provider:
@@ -1534,12 +1537,11 @@ def _probe_openai(reachable_timeout: float = 3.0) -> dict[str, Any] | None:
         }
 
 
-def _provider_health_snapshot() -> dict[str, dict[str, Any]]:
-    snapshot: dict[str, dict[str, Any]] = {"ollama": _probe_ollama()}
-    openai_snapshot = _probe_openai()
-    if openai_snapshot is not None:
-        snapshot["openai"] = openai_snapshot
-    return snapshot
+def _provider_health_snapshot(provider: Literal["openai", "ollama"]) -> dict[str, dict[str, Any]]:
+    # HTTP 各阶段使用较短超时，给默认 3 秒的 Java 状态请求留出余量。
+    upstream_timeout = 2.0
+    probe = _probe_ollama(upstream_timeout) if provider == "ollama" else _probe_openai(upstream_timeout)
+    return {provider: probe} if probe is not None else {}
 
 
 def is_internal_url(url: str) -> bool:
