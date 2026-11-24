@@ -25,6 +25,9 @@ public class WorkflowNodeCatalogService {
     private OCRProviderRegistry ocrProviderRegistry;
     @Autowired(required = false)
     private EmbeddingProperties embeddingProperties;
+    /** Copilot 生成节点时填入的默认模型；不能写死 llama3。 */
+    @org.springframework.beans.factory.annotation.Value("${aetherflow.node.default-ai-model:qwen3-8b}")
+    private String defaultAiModel = "qwen3-8b";
     private static final List<String> IMAGE_SAMPLERS = List.of(
             "Euler",
             "Euler a",
@@ -343,7 +346,7 @@ public class WorkflowNodeCatalogService {
                         field("promptVariable", "STRING", false, "Workflow variable used as prompt input.", "question"),
                         field("context", "STRING", false, "Fallback fixed context used when prompt is empty.", "Context text"),
                         field("provider", "STRING", false, "Optional AI provider override.", "OLLAMA", List.of("OPENAI", "OLLAMA")),
-                        field("model", "STRING", false, "Optional model override.", "llama3"),
+                        field("model", "STRING", false, "Optional model override.", defaultAiModel),
                         field("temperature", "NUMBER", false, "Sampling temperature.", 0.3),
                         field("maxTokens", "NUMBER", false, "Optional token cap.", 1200),
                         field("structuredOutput", "BOOLEAN", false, "Whether the model should return structured output.", false)
@@ -370,7 +373,7 @@ public class WorkflowNodeCatalogService {
                         field("sourceLanguage", "STRING", false, "Source language hint.", "auto"),
                         field("targetLanguage", "STRING", false, "Target language.", "en-US"),
                         field("provider", "STRING", false, "Optional AI provider override.", "OLLAMA", List.of("OPENAI", "OLLAMA")),
-                        field("model", "STRING", false, "Optional model override.", "llama3"),
+                        field("model", "STRING", false, "Optional model override.", defaultAiModel),
                         field("promptVersion", "STRING", false, "Optional prompt version.", "translate-v1")
                 ),
                 List.of(variable("transcription", "STRING", "Text produced by WHISPER or another upstream node.", "你好")),
@@ -719,7 +722,7 @@ public class WorkflowNodeCatalogService {
                         field("task", "STRING", false, "Fixed task text. Prefer taskVariable for workflow binding.", "Research this question"),
                         field("taskVariable", "STRING", false, "Workflow variable used as task input.", "question"),
                         field("strategy", "STRING", false, "Planning strategy label.", "plan"),
-                        field("model", "STRING", false, "Optional model override.", "llama3")
+                        field("model", "STRING", false, "Optional model override.", defaultAiModel)
                 ),
                 List.of(variable("question", "STRING", "Task input.", "What should happen next?")),
                 List.of(
@@ -739,7 +742,7 @@ public class WorkflowNodeCatalogService {
                 List.of(
                         field("input", "STRING", false, "Fixed question. Prefer inputVariable for workflow binding.", "How do I reset billing?"),
                         field("inputVariable", "STRING", false, "Workflow variable used as question input.", "question"),
-                        field("model", "STRING", false, "Optional model override.", "llama3")
+                        field("model", "STRING", false, "Optional model override.", defaultAiModel)
                 ),
                 List.of(variable("question", "STRING", "Question input.", "How do I reset billing?")),
                 List.of(variable("intentJson", "OBJECT", "Normalized intent and entities.", Map.of("intent", "billing"))),
@@ -919,7 +922,7 @@ public class WorkflowNodeCatalogService {
                         field("input", "STRING", false, "Fixed input text. Prefer inputVariable.", "Book a meeting tomorrow"),
                         field("inputVariable", "STRING", false, "Workflow variable used as input text.", "text"),
                         field("instruction", "STRING", false, "Extraction instruction.", "Extract date and intent"),
-                        field("model", "STRING", false, "Optional model override.", "llama3")
+                        field("model", "STRING", false, "Optional model override.", defaultAiModel)
                 ),
                 List.of(variable("text", "STRING", "Input text.", "Book a meeting tomorrow")),
                 List.of(variable("paramsJson", "OBJECT", "Extracted parameters.", Map.of("intent", "book_meeting"))),

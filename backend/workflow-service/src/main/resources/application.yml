@@ -66,6 +66,10 @@ feign:
     enabled: true
 
 aetherflow:
+  node:
+    # Copilot 生成节点时填入的默认模型名，必须与本地已安装模型一致；
+    # 写死 llama3 会让 SUMMARY/TRANSLATE 等节点在 Ollama 上 model not found。
+    default-ai-model: ${AI_DEFAULT_MODEL:qwen3-8b}
   security:
     jwt:
       issuer: aetherflow

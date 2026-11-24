@@ -245,6 +245,7 @@ services:
       # fileUrl 就是 http://minio:9000/...，必须在 python 侧显式信任，
       # 否则会被 SSRF 内网校验拦成 400 "access to internal/private URLs".
       FILE_URL_TRUSTED_INTERNAL_HOSTS: ${FILE_URL_TRUSTED_INTERNAL_HOSTS:-minio}
+      AI_DEFAULT_MODEL: ${AI_DEFAULT_MODEL:-qwen3-8b}
       OTEL_SERVICE_NAME: python-ai-service
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     expose:
@@ -771,6 +772,11 @@ services:
     environment:
       <<: *java-service-env
       JAVA_TOOL_OPTIONS: ${AI_SERVICE_JAVA_OPTS:--XX:MaxRAMPercentage=75}
+      # 未在 .env 中显式传给容器时，AiTaskProperties 会回落到代码里的 "llama3"，
+      # 本地 Ollama 只有 qwen3-8b，导致 SUMMARY/TRANSLATE 等 LLM 节点 500。
+      AI_DEFAULT_MODEL: ${AI_DEFAULT_MODEL:-qwen3-8b}
+      AI_DEFAULT_PROVIDER: ${AI_DEFAULT_PROVIDER:-OLLAMA}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       AI_SERVICE_API_KEY: ${AI_SERVICE_API_KEY:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
       PYTHON_AI_STATUS_TIMEOUT_MILLIS: ${PYTHON_AI_STATUS_TIMEOUT_MILLIS:-3000}
@@ -815,9 +821,18 @@ services:
       dockerfile: docker/java-service.Dockerfile
       args:
         SERVICE: file-service
-    deploy: *java-service-deploy
+    deploy:
+      <<: *java-service-deploy
+      resources:
+        limits:
+          cpus: "2.0"
+          # 接收 ai-service 回传的产物（base64 内联，单次上限 50MB → 约 67MB 字符串），
+          # 1G 容器默认堆仅 ~256MB，反序列化阶段会 OOM。
+          memory: 2G
+          pids: 512
     environment:
       <<: *java-service-env
+      JAVA_TOOL_OPTIONS: ${FILE_SERVICE_JAVA_OPTS:--XX:MaxRAMPercentage=75}
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:?Run scripts/aetherflow-init-env.ps1 before starting AetherFlow}
     expose:
       - "8105"

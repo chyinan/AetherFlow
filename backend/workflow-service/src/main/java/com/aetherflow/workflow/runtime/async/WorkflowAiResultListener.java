@@ -111,8 +111,11 @@ public class WorkflowAiResultListener {
 
     private boolean isStaleCompletion(IllegalStateException exception) {
         String message = exception.getMessage();
+        // 实例不存在（已被清理或号不存在）时同样视为过期事件丢弃，
+        // 否则会被无限重投成为毒消息循环。
         return message != null && (message.startsWith("stale external AI completion")
-                || message.startsWith("invalid external AI task identity"));
+                || message.startsWith("invalid external AI task identity")
+                || message.startsWith("workflow runtime snapshot not found"));
     }
 
     private boolean belongsToMessageUser(Long workflowInstanceId,

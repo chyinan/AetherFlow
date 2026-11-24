@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -986,6 +987,33 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
     return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata=metadata)
 
 
+async def _resolve_ollama_model(client, requested: str) -> str:
+    """请求的模型不在已安装模型里时回落到可用模型。
+
+    Copilot 生成的节点常写死在地并不存在的模型名（历史默认值
+    llama3），直接透传会让 Ollama 返回 model not found，节点直接 500。
+    这里先探测本机已安装模型：命中则原样使用，
+    否则回落到 AI_DEFAULT_MODEL 或第一个可用模型。
+    """
+    name = (requested or "").strip()
+    try:
+        listed = await client.list()
+        names = {getattr(item, "model", "") for item in getattr(listed, "models", [])}
+    except Exception:
+        return name
+    names = {item for item in names if item}
+    if not names:
+        return name
+    if name in names or f"{name}:latest" in names:
+        return name
+    preferred = os.getenv("AI_DEFAULT_MODEL", "").strip()
+    for candidate in (preferred, *sorted(names)):
+        if candidate and (candidate in names or f"{candidate}:latest" in names):
+            logger.warning("ollama model %r is not installed, fallback to %r", name, candidate)
+            return candidate
+    return name
+
+
 async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
     _ensure_runtime_env_loaded()
     import ollama
@@ -999,12 +1027,13 @@ async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
         timeout=_effective_timeout_seconds(request),
     )
     try:
-        response = await client.generate(model=request.model, prompt=request.prompt, options=request.options)
+        resolved_model = await _resolve_ollama_model(client, request.model)
+        response = await client.generate(model=resolved_model, prompt=request.prompt, options=request.options)
         if not _ollama_response_done(response):
             raise HTTPException(status_code=502, detail="Ollama returned a response without a completion marker")
         metadata = {"done": True}
         metadata.update(_ollama_usage_metadata(response))
-        return LlmResponse(provider="ollama", model=request.model,
+        return LlmResponse(provider="ollama", model=resolved_model,
                            text=_ollama_response_text(response), metadata=metadata)
     finally:
         close = getattr(client, "close", None)
@@ -1062,7 +1091,24 @@ def _ollama_response_text(chunk: Any) -> str:
     直接按字典读取会丢掉全部正文；旧字典格式继续兼容。
     """
     value = _ollama_response_field(chunk, "response")
-    return value if isinstance(value, str) else ""
+    return _strip_reasoning_tags(value) if isinstance(value, str) else ""
+
+
+_THINK_BLOCK = re.compile(r"<think\b[^>]*>.*?</think\s*>", re.IGNORECASE | re.DOTALL)
+
+
+def _strip_reasoning_tags(text: str) -> str:
+    """剥掉 Qwen3 类模型输出的 <think> 思考段。
+
+    这些标签不属于答案正文，会被直接写进导出的 Markdown 产物。
+    未闭合的 <think> 前缀也一并剥掉。
+    """
+    if not text or "<think" not in text.lower():
+        return text
+    stripped = _THINK_BLOCK.sub("", text)
+    stripped = re.sub(r"<think\b[^>]*>.*", "", stripped, flags=re.IGNORECASE | re.DOTALL)
+    stripped = re.sub(r"</think\s*>", "", stripped, flags=re.IGNORECASE)
+    return stripped.strip()
 
 
 def _ollama_response_done(chunk: Any) -> bool:
