@@ -25,7 +25,7 @@ import { canvasEditFailureConversationId } from '@/services/copilot/copilotCanva
 import { hasCustomNodeDraftOperations, prepareCustomNodeDraft } from '@/services/copilot/copilotCustomNodeDraft'
 import { customDefinitionKey, customNodeTemplate, type CustomDefinition } from '@/utils/customNodes'
 import { COPILOT_CANVAS_NODE_LIMIT, type CopilotCanvasEdit } from '@/types/copilotCanvasEdit'
-import { UNCONFIRMED_CONVERSATION, conversationSessionKey, readConversationSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
+import { UNCONFIRMED_CONVERSATION, conversationSessionKey, readConversationSelection, shouldCarryDraftSelection, writeConversationSelection } from '@/services/copilot/copilotConversationSession'
 import { modelApi } from '@/services/api/modelApi'
 import { workflowApi } from '@/services/api/workflowApi'
 import type { CopilotMessage } from '@/types/copilot'
@@ -1397,7 +1397,21 @@ function actionButtonLabel(message: CopilotMessage) {
   return t(message.action.labelKey, { node: t(`workflow.catalog.items.${action.nodeKind}.label`) })
 }
 
+let previousConversationScope: typeof props.context = props.context
+
 watch(() => conversationSessionKey(props.context), () => {
+  const nextScopeKey = conversationSessionKey(props.context)
+  const previousScope = previousConversationScope
+  previousConversationScope = props.context
+  // 草稿保存成功后 workflowId 会从 new 变成真实 id，导致会话作用域键变化。
+  // 此时对话本身仍然有效，不能 reset 清空——否则用户刚发出的聊天记录会瞬间消失。
+  // 只把当前会话选择写到新作用域，让后续刷新/重进能接续同一段对话。
+  if (shouldCarryDraftSelection(previousScope, props.context)) {
+    if (conversationId.value) {
+      writeConversationSelection(nextScopeKey, conversationId.value)
+    }
+    return
+  }
   resetConversationState()
   void loadConversationHistory()
 })

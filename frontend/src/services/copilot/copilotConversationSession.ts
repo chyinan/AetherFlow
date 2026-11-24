@@ -26,6 +26,23 @@ export function readConversationSelection(key: string): string | null {
   }
 }
 
+/**
+ * 草稿保存后 workflowId 会从 'new' 变成真实 ID，作用域键随之变化。
+ * 只有同一项目、同一名称的「草稿 → 已保存」这一种迁移才应该沿用原会话。
+ */
+export function shouldCarryDraftSelection(
+  previous: Readonly<ConversationScope> | undefined,
+  next: Readonly<ConversationScope> | undefined,
+): boolean {
+  if (!previous || !next) return false
+  const previousId = previous.workflowId ?? 'new'
+  const nextId = next.workflowId ?? 'new'
+  return previousId === 'new'
+    && nextId !== 'new'
+    && (previous.workflowName ?? '') === (next.workflowName ?? '')
+    && (previous.projectId ?? null) === (next.projectId ?? null)
+}
+
 export function writeConversationSelection(key: string, selection: string): void {
   try {
     window.sessionStorage.setItem(key, selection)
