@@ -188,3 +188,23 @@ router.afterEach((to) => {
   const pageTitle = titleKey ? i18n.global.t(titleKey) : i18n.global.t('app.name')
   window.document.title = `${pageTitle} · ${i18n.global.t('app.name')}`
 })
+
+// 重新构建前端后，旧页面持有的 index.html 仍指向已被替换的分块文件，
+// 懒加载会抛 "Failed to fetch dynamically imported module"（分块 404）。
+// 这里做一次带守卫的自动重载：重新拉取新的 index.html 即可恢复，
+// 用 sessionStorage 计数避免资源真缺失时无限刷新。
+const CHUNK_RELOAD_KEY = 'aetherflow:chunk-reload-at'
+
+router.onError((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error)
+  if (!/Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk .* failed/i.test(message)) {
+    return
+  }
+  const now = Date.now()
+  const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0)
+  if (Number.isFinite(last) && now - last < 10_000) {
+    return
+  }
+  window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(now))
+  window.location.reload()
+})
