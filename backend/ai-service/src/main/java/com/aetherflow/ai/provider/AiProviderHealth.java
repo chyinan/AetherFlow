@@ -43,8 +43,13 @@ public record AiProviderHealth(
     }
 
     public static AiProviderHealth up(AiProviderType provider, long latencyMillis, String message, Map<String, Object> metadata) {
+        return up(provider, latencyMillis, message, "PROVIDER_ADAPTER", metadata);
+    }
+
+    public static AiProviderHealth up(AiProviderType provider, long latencyMillis, String message,
+                                      String observationSource, Map<String, Object> metadata) {
         return new AiProviderHealth(provider, ProviderHealthStatus.UP, true, Instant.now(), latencyMillis, message,
-                "PROVIDER_ADAPTER", metadata == null ? Map.of() : Map.copyOf(metadata));
+                observationSource, metadata == null ? Map.of() : Map.copyOf(metadata));
     }
 
     public static AiProviderHealth degraded(AiProviderType provider, long latencyMillis, String message, Map<String, Object> metadata) {

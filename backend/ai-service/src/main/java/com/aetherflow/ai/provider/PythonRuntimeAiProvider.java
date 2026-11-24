@@ -75,6 +75,22 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
                     return AiProviderHealth.unknown(type(), "Python AI runtime did not confirm this provider route is configured",
                             HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
                 }
+                // Python 侧已对上游 provider 做了实时探测；能确认可达就报 UP，
+                // 否则维持 DEGRADED（healthy=true），不会因探测失败而打开熔断。
+                Map<String, Object> upstream = upstreamProbe(status);
+                if (upstream != null && Boolean.TRUE.equals(upstream.get("reachable"))) {
+                    long upstreamLatency = longValue(upstream.get("latencyMillis"), -1L);
+                    return AiProviderHealth.up(type(),
+                            upstreamLatency > 0 ? upstreamLatency : latency,
+                            "Python AI runtime and upstream provider are reachable",
+                            HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
+                }
+                if (upstream != null) {
+                    return AiProviderHealth.degraded(type(), latency,
+                            "Python AI runtime is reachable but upstream provider probe failed: "
+                                    + upstream.getOrDefault("detail", "unknown"),
+                            HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
+                }
                 return AiProviderHealth.degraded(type(), latency,
                         "Python AI runtime is reachable; upstream provider availability was not probed",
                         HEALTH_OBSERVATION_SOURCE, runtimeMetadata(status));
@@ -171,13 +187,45 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
         return providerList.stream().anyMatch(provider -> expected.equals(String.valueOf(provider).toLowerCase(Locale.ROOT)));
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> upstreamProbe(Map<String, Object> status) {
+        Object raw = status.get("providerHealth");
+        if (!(raw instanceof Map<?, ?> probes)) {
+            return null;
+        }
+        Object self = ((Map<String, Object>) probes).get(type().name().toLowerCase(Locale.ROOT));
+        return self instanceof Map<?, ?> probe ? (Map<String, Object>) probe : null;
+    }
+
+    private long longValue(Object value, long fallback) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text) {
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException ignored) {
+                return fallback;
+            }
+        }
+        return fallback;
+    }
+
     private Map<String, Object> runtimeMetadata(Map<String, Object> status) {
         java.util.LinkedHashMap<String, Object> metadata = new java.util.LinkedHashMap<>();
         if (status.get("llmEnabled") instanceof Boolean enabled) metadata.put("llmEnabled", enabled);
         if (status.get("providers") instanceof Collection<?> providers) {
             metadata.put("configuredProviders", providers.stream().filter(String.class::isInstance).toList());
         }
-        metadata.put("upstreamProviderHealth", ProviderHealthStatus.UNKNOWN.name());
+        Map<String, Object> probe = upstreamProbe(status);
+        if (probe != null) {
+            metadata.put("upstreamProviderHealth",
+                    Boolean.TRUE.equals(probe.get("reachable")) ? ProviderHealthStatus.UP.name()
+                            : ProviderHealthStatus.DOWN.name());
+            if (probe.get("detail") != null) metadata.put("upstreamDetail", probe.get("detail"));
+        } else {
+            metadata.put("upstreamProviderHealth", ProviderHealthStatus.UNKNOWN.name());
+        }
         return Map.copyOf(metadata);
     }
 

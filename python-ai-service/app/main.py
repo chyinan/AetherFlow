@@ -462,6 +462,8 @@ def ai_status() -> dict[str, Any]:
         "whisperModel": os.getenv("WHISPER_MODEL", "small"),
         "llmEnabled": _enabled("ENABLE_LLM"),
         "ffmpegAvailable": shutil.which("ffmpeg") is not None,
+        # 上游 provider 的实时可达性快照，供 Java 侧健康探针判定 UP/DEGRADED。
+        "providerHealth": _provider_health_snapshot(),
     }
 
 
@@ -1481,6 +1483,63 @@ def _openai_model_names() -> list[str]:
     if not route_provider:
         return []
     return [_provider_default_model(route_provider)]
+
+
+def _probe_ollama(reachable_timeout: float = 3.0) -> dict[str, Any]:
+    """探测 Ollama 是否真的能应答（不只是端口通）。"""
+    started = time.perf_counter()
+    try:
+        _ollama_client(timeout_seconds=reachable_timeout).list()
+        return {
+            "reachable": True,
+            "latencyMillis": int((time.perf_counter() - started) * 1000),
+        }
+    except Exception as exc:  # noqa: BLE001 - 探测失败不应影响 /ai/status
+        return {
+            "reachable": False,
+            "latencyMillis": int((time.perf_counter() - started) * 1000),
+            "detail": type(exc).__name__,
+        }
+
+
+def _probe_openai(reachable_timeout: float = 3.0) -> dict[str, Any] | None:
+    """用 /models 轻量探测 OpenAI 兼容网关；未配置时返回 None（不参与状态）。"""
+    route_provider = _openai_route_provider_id()
+    if not route_provider:
+        return None
+    preset = PROVIDER_PRESETS[route_provider]
+    api_key = os.getenv(f"{preset['envPrefix']}_API_KEY", "").strip()
+    base_url = _provider_base_url(route_provider).rstrip("/")
+    started = time.perf_counter()
+    try:
+        response = httpx.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=reachable_timeout,
+            trust_env=False,
+        )
+        elapsed = int((time.perf_counter() - started) * 1000)
+        # 404/405 说明网关在线但没实现 /models，不等于不可用；4xx 鉴权类错误才算不可用。
+        reachable = response.status_code < 500 and response.status_code not in (401, 403)
+        return {
+            "reachable": reachable,
+            "latencyMillis": elapsed,
+            "detail": f"HTTP {response.status_code}",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "reachable": False,
+            "latencyMillis": int((time.perf_counter() - started) * 1000),
+            "detail": type(exc).__name__,
+        }
+
+
+def _provider_health_snapshot() -> dict[str, dict[str, Any]]:
+    snapshot: dict[str, dict[str, Any]] = {"ollama": _probe_ollama()}
+    openai_snapshot = _probe_openai()
+    if openai_snapshot is not None:
+        snapshot["openai"] = openai_snapshot
+    return snapshot
 
 
 def is_internal_url(url: str) -> bool:
