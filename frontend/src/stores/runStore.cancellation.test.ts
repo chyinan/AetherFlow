@@ -644,4 +644,38 @@ describe('取消运行的异步目标与订阅隔离', () => {
     expect(store.currentRun?.cancellationCleanup).toEqual(complete)
     expect(store.runs[0]?.cancellationCleanup).toEqual(complete)
   })
+
+  it('尚无清理记录的 NOT_REQUIRED(0) 能显示，但不能覆盖后来创建的真实清理进展', async () => {
+    const store = setupStore()
+    const empty = { workflowInstanceId: 101, status: 'NOT_REQUIRED', attemptCount: 0, retryable: false }
+    mocks.getWorkflowCancellationCleanup.mockResolvedValue(empty)
+    await store.loadCancellationCleanup(101)
+    expect(store.currentRun?.cancellationCleanup).toEqual(empty)
+
+    const firstFailure = { workflowInstanceId: 101, status: 'FAILED', attemptCount: 1, retryable: true }
+    mocks.cancelWorkflowInstance.mockResolvedValueOnce(firstFailure)
+    await store.cancelCurrentRun()
+    expect(store.currentRun?.cancellationCleanup).toEqual(firstFailure)
+
+    await store.loadCancellationCleanup(101)
+    expect(store.currentRun?.cancellationCleanup).toEqual(firstFailure)
+    expect(store.runs[0]?.cancellationCleanup).toEqual(firstFailure)
+  })
+
+  it('清理记录到期后读到的 COMPLETE(0) 仍胜过较早的有记录失败', async () => {
+    const store = setupStore()
+    const cancellation = deferred<WorkflowRun['cancellationCleanup']>()
+    mocks.cancelWorkflowInstance.mockReturnValueOnce(cancellation.promise)
+    const pending = store.cancelCurrentRun()
+    subscription(0).handlers.onRunPatch?.({ status: 'cancelled', backendStatus: 'CANCELLED', progress: 100 })
+
+    const complete = { workflowInstanceId: 101, status: 'COMPLETE', attemptCount: 0, retryable: false }
+    mocks.getWorkflowCancellationCleanup.mockResolvedValueOnce(complete)
+    await store.loadCancellationCleanup(101)
+    cancellation.resolve({ workflowInstanceId: 101, status: 'FAILED', attemptCount: 3, retryable: true })
+    await pending
+
+    expect(store.currentRun?.cancellationCleanup).toEqual(complete)
+    expect(store.runs[0]?.cancellationCleanup).toEqual(complete)
+  })
 })
