@@ -49,7 +49,7 @@ public final class WorkflowAiCapabilityPolicy {
         return NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
                 .filter(node -> node != null && requiresAsyncType(normalize(node.getNodeType())))
                 .map(node -> prefix(node, normalize(node.getNodeType()))
-                        + "requires WORKFLOW_AI_ASYNC_ENABLED=true for fenced artifact execution")
+                        + "需要开启 WORKFLOW_AI_ASYNC_ENABLED=true 才能执行带围栏产物的任务")
                 .toList();
     }
 
@@ -122,7 +122,7 @@ public final class WorkflowAiCapabilityPolicy {
         String provider = normalizeProvider(String.valueOf(rawProvider), imageProvider);
         if (!availableProviders.contains(provider)) {
             String label = imageProvider ? "image provider " : "llm provider ";
-            violations.add(prefix(node, nodeType) + label + provider + " is not enabled");
+            violations.add(prefix(node, nodeType) + label + provider + " 未启用");
         }
     }
 

@@ -208,7 +208,7 @@ public class WorkflowAiCapabilityPreflightService {
                         try {
                             ocrProviderRegistry.validateReady(node.getConfig());
                         } catch (BusinessException exception) {
-                            violations.add("node " + node.getNodeId() + " (OCR): " + exception.getMessage());
+                            violations.add("node " + node.getNodeId() + "（OCR）：" + exception.getMessage());
                         }
                     });
         }
@@ -218,7 +218,7 @@ public class WorkflowAiCapabilityPreflightService {
                     if (nodeProperties == null || !nodeProperties.isCodeExecutionEnabled()
                             || !nodeProperties.isCodeRuntimeIsolationConfirmed()) {
                         violations.add("node " + node.getNodeId()
-                                + " (CODE): isolated code runtime is not enabled and confirmed");
+                                + "（CODE）：隔离代码运行时未启用或未确认");
                     }
                 });
         NestedWorkflowDefinition.flatten(definition.getNodes()).stream()
@@ -233,25 +233,25 @@ public class WorkflowAiCapabilityPreflightService {
         }
         EmbeddingNodeConfig config = EmbeddingNodeConfig.from(node.getConfig(), embeddingProperties);
         if (!"ollama".equalsIgnoreCase(config.provider())) {
-            violations.add("node " + node.getNodeId() + " (EMBEDDING): only Ollama embedding provider is executable");
+            violations.add("node " + node.getNodeId() + "（EMBEDDING）：仅 Ollama 嵌入提供方可执行");
         }
         if ("memory".equalsIgnoreCase(config.vectorStoreProvider()) && !embeddingProperties.isInMemoryEnabled()) {
-            violations.add("node " + node.getNodeId() + " (EMBEDDING): in-memory vector store is disabled");
+            violations.add("node " + node.getNodeId() + "（EMBEDDING）：内存向量库已被禁用");
         }
         if ("qdrant".equalsIgnoreCase(config.vectorStoreProvider())
                 && (!embeddingProperties.isQdrantEnabled()
                 || embeddingProperties.getQdrantBaseUrl() == null
                 || embeddingProperties.getQdrantBaseUrl().contains("example.com"))) {
-            violations.add("node " + node.getNodeId() + " (EMBEDDING): Qdrant is not configured for production");
+            violations.add("node " + node.getNodeId() + "（EMBEDDING）：生产环境未配置 Qdrant");
         } else if ("qdrant".equalsIgnoreCase(config.vectorStoreProvider()) && vectorStoreConfigService != null) {
             try {
                 VectorStoreConfigService.VectorStoreRuntimeConfig runtimeConfig = vectorStoreConfigService.currentConfig();
                 if (!runtimeConfig.enabled() || runtimeConfig.baseUrl() == null
                         || runtimeConfig.baseUrl().contains("example.com")) {
-                    violations.add("node " + node.getNodeId() + " (EMBEDDING): persisted Qdrant configuration is not ready");
+                    violations.add("node " + node.getNodeId() + "（EMBEDDING）：已持久化的 Qdrant 配置未就绪");
                 }
             } catch (RuntimeException exception) {
-                violations.add("node " + node.getNodeId() + " (EMBEDDING): persisted vector store configuration is unavailable");
+                violations.add("node " + node.getNodeId() + "（EMBEDDING）：无法读取已持久化的向量库配置");
             }
         }
     }
@@ -261,14 +261,14 @@ public class WorkflowAiCapabilityPreflightService {
             Result<AiWorkflowCapabilitiesDTO> result = aiClient.capabilities();
             if (result == null || !result.isSuccess() || result.getData() == null) {
                 throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                        "workflow AI capability service returned no usable snapshot");
+                        "工作流 AI 能力服务未返回可用的能力信息");
             }
             return result.getData();
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             throw new BusinessException(ResultCode.SERVICE_UNAVAILABLE,
-                    "workflow AI capability service is unavailable");
+                    "工作流 AI 能力服务不可用，请稍后重试");
         }
     }
 }

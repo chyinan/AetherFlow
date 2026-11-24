@@ -106,6 +106,11 @@ aetherflow:
       send-buffer-size-bytes: ${WORKFLOW_RUNTIME_WS_SEND_BUFFER_SIZE_BYTES:65536}
     node:
       file-internal-token: ${FILE_INTERNAL_TOKEN:aetherflow-file-internal-dev-token}
+      # 必须与 ai-service / notify-service 的 AI_INTERNAL_TOKEN、NOTIFY_INTERNAL_TOKEN 保持一致，
+      # 否则内部 Feign 调用会被对端判定为 invalid internal ai token（403），
+      # 前端表现就是「workflow AI capability service is unavailable」。
+      ai-internal-token: ${AI_INTERNAL_TOKEN:aetherflow-ai-internal-dev-token}
+      notify-internal-token: ${NOTIFY_INTERNAL_TOKEN:aetherflow-notify-internal-dev-token}
       export-object-prefix: ${WORKFLOW_EXPORT_OBJECT_PREFIX:workflow/exports}
       default-summary-language: ${WORKFLOW_SUMMARY_LANGUAGE:English}
       default-whisper-language: ${WORKFLOW_WHISPER_LANGUAGE:auto}
