@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // pattern: Imperative Shell
 import { Building2, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-vue-next'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import {
@@ -37,6 +37,9 @@ const editingId = ref<string | null>(null)
 const total = ref(0)
 const hasLoadedWorkspaces = ref(false)
 const form = reactive<WorkspaceFormState>(createEmptyForm())
+let submittedSearch = ''
+let pendingList: { query: string } | null = null
+let pageActive = true
 
 const formTitle = computed(() => editingId.value ? t('workspaces.editTitle') : t('workspaces.createTitle'))
 const isEditing = computed(() => editingId.value !== null)
@@ -101,18 +104,40 @@ function buildUpdateRequest(values: WorkspaceLimitValues): WorkspaceUpdateReques
   return buildCreateRequest(values)
 }
 
-async function loadWorkspaces() {
+function submitSearch() {
+  submittedSearch = searchQuery.value.trim()
+  return loadWorkspaces()
+}
+
+function submitSearchOnEnter(event: KeyboardEvent) {
+  // 在按下时判断输入法状态；候选确认后松开 Enter 可能已不再 composing。
+  if (event.isComposing || event.keyCode === 229 || event.repeat) return
+  void submitSearch()
+}
+
+async function loadWorkspaces({ afterWrite = false } = {}) {
+  const query = submittedSearch
+  // 同词连续提交共享本次读取，写入后则必须重新读取服务端快照。
+  if (!pageActive || (!afterWrite && pendingList?.query === query)) return
+  const request = { query }
+  pendingList = request
   loading.value = true
   errorMessage.value = null
   try {
-    const page = await listWorkspaces(searchQuery.value.trim())
+    const page = await listWorkspaces(query)
+    if (pendingList !== request) return
     workspaces.value = page.records ?? []
     total.value = page.total ?? workspaces.value.length
     hasLoadedWorkspaces.value = true
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : t('workspaces.loadFailed')
+    if (pendingList === request) {
+      errorMessage.value = error instanceof Error ? error.message : t('workspaces.loadFailed')
+    }
   } finally {
-    loading.value = false
+    if (pendingList === request) {
+      pendingList = null
+      loading.value = false
+    }
   }
 }
 
@@ -163,7 +188,7 @@ async function saveForm() {
     }
     formOpen.value = false
     resetForm()
-    await loadWorkspaces()
+    await loadWorkspaces({ afterWrite: true })
   } catch (error) {
     formError.value = error instanceof Error ? error.message : t('workspaces.saveFailed')
   } finally {
@@ -180,7 +205,7 @@ async function removeWorkspace(workspace: WorkspaceSummary) {
   errorMessage.value = null
   try {
     await deleteWorkspace(workspace.id)
-    await loadWorkspaces()
+    await loadWorkspaces({ afterWrite: true })
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : t('workspaces.deleteFailed')
   } finally {
@@ -188,7 +213,11 @@ async function removeWorkspace(workspace: WorkspaceSummary) {
   }
 }
 
-onMounted(loadWorkspaces)
+onMounted(() => { void loadWorkspaces() })
+onBeforeUnmount(() => {
+  pageActive = false
+  pendingList = null
+})
 </script>
 
 <template>
@@ -207,9 +236,9 @@ onMounted(loadWorkspaces)
         <label class="relative min-w-[220px] flex-1 sm:flex-none">
           <span class="sr-only">{{ t('workspaces.searchLabel') }}</span>
           <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-          <input v-model="searchQuery" type="search" class="w-full rounded-md border border-app-border bg-white py-2 pl-9 pr-3 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" :placeholder="t('workspaces.searchPlaceholder')" @keyup.enter="loadWorkspaces" />
+          <input v-model="searchQuery" type="search" class="w-full rounded-md border border-app-border bg-white py-2 pl-9 pr-3 text-sm text-text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/15" :placeholder="t('workspaces.searchPlaceholder')" @keydown.enter="submitSearchOnEnter" />
         </label>
-        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary hover:border-primary/30 hover:text-primary" :disabled="loading" @click="loadWorkspaces">
+        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm font-medium text-text-secondary hover:border-primary/30 hover:text-primary" :disabled="loading" @click="submitSearch">
           <RefreshCw class="h-4 w-4" :class="loading ? 'animate-spin' : ''" />
           {{ t('common.refresh') }}
         </button>
@@ -223,7 +252,7 @@ onMounted(loadWorkspaces)
     <main class="min-h-0 overflow-y-auto px-5 py-5 lg:px-6">
       <div v-if="errorMessage" class="mb-4 flex items-start justify-between gap-3 rounded-lg border border-status-error/30 bg-red-50 px-4 py-3 text-sm text-status-error" role="alert">
         <span>{{ errorMessage }}</span>
-        <button type="button" class="font-semibold underline" @click="loadWorkspaces">{{ t('common.retry') }}</button>
+        <button type="button" class="font-semibold underline" @click="loadWorkspaces()">{{ t('common.retry') }}</button>
       </div>
 
       <div class="mb-4 flex items-center justify-between gap-3 text-xs text-text-muted">
