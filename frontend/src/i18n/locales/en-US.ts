@@ -1697,6 +1697,7 @@ export const enUS = {
       stale: 'This plan is stale because the canvas or saved workflow changed. Plan again from the current workflow.',
       apply: 'Apply to canvas',
       retryPreview: 'Retry preview validation',
+      previousPreviewRetained: 'The previous validated plan is still available. No new plan was received for this request. Continue refining it, or apply the previous plan.',
       retryApply: 'Retry applying to canvas',
       replaceWarning: 'Applying replaces every current node on the canvas. You can undo the replacement once.',
       applied: 'Applied to canvas. Save or run it when you are ready.',

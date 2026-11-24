@@ -1122,6 +1122,7 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
   const base = currentPlannerBase()
   if (!base) return
   const pendingDraft = pendingPlannerDraftContext()
+  const previousPreview = planPreview.value
   beginConversationInteraction()
   enterPlannerMode()
   cancelledPlanMessageId.value = null
@@ -1201,9 +1202,20 @@ async function sendWorkflowPlan(value = prompt.value, options: Pick<SendPromptOp
           && conversationId.value === conversationIdAtStart && apiError.workflowPlanConversationId) {
         rememberConversation(apiError.workflowPlanConversationId)
       }
+      const restorePrevious = apiError.retryable && plannerController.value === controller
+        && plannerPendingMessageId.value === assistantMessageId && plannerMode.value && !planPreview.value
+        && previousPreview && !previousPreview.applied && !previousPreview.stale
+        && previousPreview.structurallyValid && previousPreview.runtimeReady
+        && latestPlanMessage.value?.id === previousPreview.messageId
+        && previewBaseMatches(previousPreview, currentPlannerBase())
+      if (restorePrevious && previousPreview) {
+        // 旧最终校验的点击意图已被本轮规划取代；恢复内容，不恢复旧请求的预览引用。
+        planPreview.value = { ...previousPreview }
+      }
+      const failure = t('copilot.sendFailed', { message: apiError.message })
       messages.value[assistantMessageIndex] = {
         ...current,
-        content: `${t('copilot.sendFailed', { message: apiError.message })}`,
+        content: restorePrevious ? `${failure}\n\n${t('copilot.planner.previousPreviewRetained')}` : failure,
       }
     }
   } finally {
