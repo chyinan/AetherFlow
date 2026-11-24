@@ -672,7 +672,8 @@ export const useRunStore = defineStore('run', {
       if (!entry || this.logs.some((log) => log.id === entry.id)) {
         return
       }
-      this.logs = [...this.logs.slice(-80), entry]
+      // 已保存日志与实时追加共用同一窗口；新增一条不应额外淘汰当前可见记录。
+      this.logs = [...this.logs, entry].slice(-MAX_VISIBLE_LOGS)
       if (this.currentRun) {
         this.logsByRunId[this.currentRun.id] = this.logs
       }
