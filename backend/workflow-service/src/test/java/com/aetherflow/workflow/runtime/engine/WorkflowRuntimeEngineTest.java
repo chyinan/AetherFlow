@@ -477,6 +477,54 @@ class WorkflowRuntimeEngineTest {
     }
 
     @Test
+    void successfulForkUsesTheLastCompletedNodeInLiveEventsAndRestoredSnapshots() {
+        CountDownLatch slowStarted = new CountDownLatch(1);
+        CountDownLatch fastCompleted = new CountDownLatch(1);
+        List<RuntimeEvent> events = Collections.synchronizedList(new ArrayList<>());
+        NodeRegistry registry = new NodeRegistry(List.of(
+                executor("START", context -> NodeResult.success(Map.of())),
+                executor("SLOW", context -> {
+                    slowStarted.countDown();
+                    await(fastCompleted);
+                    return NodeResult.success(Map.of());
+                }),
+                executor("FAST_PARENT", context -> {
+                    await(slowStarted);
+                    return NodeResult.success(Map.of());
+                }),
+                executor("FAST", context -> NodeResult.success(Map.of()))
+        ));
+        InMemoryRuntimeSnapshotRepository repository = new InMemoryRuntimeSnapshotRepository();
+        WorkflowRuntimeEngine engine = new WorkflowRuntimeEngine(
+                registry, new RuntimeStateMachine(), event -> {
+                    events.add(event);
+                    if (event.eventType() == RuntimeEventType.NODE_COMPLETED && "z-fast".equals(event.nodeId())) {
+                        fastCompleted.countDown();
+                    }
+                }, RuntimeSleeper.noop(), repository);
+        WorkflowRuntimeRequest request = new WorkflowRuntimeRequest(
+                "workflow-terminal-fork", "trace-terminal-fork", "task-terminal-fork",
+                definition(
+                        node("start", "START", Map.of("nextNodes", List.of("a-slow", "b-fast-parent"))),
+                        node("a-slow", "SLOW", Map.of()),
+                        node("b-fast-parent", "FAST_PARENT", Map.of("next", "z-fast")),
+                        node("z-fast", "FAST", Map.of())
+                ),
+                Map.of(), RetryPolicy.none());
+
+        WorkflowExecutionSnapshot completed = engine.execute(request);
+
+        assertThat(completed.runtimeState()).isEqualTo(RuntimeState.SUCCESS);
+        assertThat(completed.completedNodeIds()).containsExactly("start", "b-fast-parent", "z-fast", "a-slow");
+        assertThat(completed.currentNodeIds()).isEmpty();
+        assertThat(completed.currentNodeId()).isEqualTo("a-slow");
+        assertThat(repository.findByWorkflowId(request.workflowId()).orElseThrow().toExecutionSnapshot())
+                .isEqualTo(completed);
+        assertThat(events.stream().filter(event -> event.eventType() == RuntimeEventType.WORKFLOW_COMPLETED))
+                .extracting(RuntimeEvent::nodeId).containsExactly("a-slow");
+    }
+
+    @Test
     void isolatesCurrentNodeIdentityAcrossParallelExecutors() throws Exception {
         CountDownLatch bothStarted = new CountDownLatch(2);
         CountDownLatch releaseBranches = new CountDownLatch(1);

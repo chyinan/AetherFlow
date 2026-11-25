@@ -175,7 +175,7 @@ public class WorkflowRuntimeEngine {
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime completed, completedNodes={}", tracker.completedNodeIds().size()));
-            publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of());
+            publishWorkflowCompleted(context, tracker, Map.of());
             saveSnapshot(request, context, tracker);
             return snapshot(context, tracker);
         } catch (WorkflowCancellationException exception) {
@@ -276,7 +276,7 @@ public class WorkflowRuntimeEngine {
             context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
             RuntimeLogContext.run(context, context.currentNodeId(),
                     () -> log.info("workflow runtime recovered, completedNodes={}", tracker.completedNodeIds().size()));
-            publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("recovered", true));
+            publishWorkflowCompleted(context, tracker, Map.of("recovered", true));
             saveSnapshot(request, context, tracker);
             return snapshot(context, tracker);
         } catch (WorkflowCancellationException exception) {
@@ -563,7 +563,7 @@ public class WorkflowRuntimeEngine {
                 publish(context, RuntimeEventType.WORKFLOW_WAITING, context.currentNodeId(), Map.of());
             } else {
                 context.updateRuntimeState(stateMachine.transition(context.runtimeState(), RuntimeState.SUCCESS));
-                publish(context, RuntimeEventType.WORKFLOW_COMPLETED, context.currentNodeId(), Map.of("resumed", true));
+                publishWorkflowCompleted(context, tracker, Map.of("resumed", true));
             }
             ensureNotCancelled(request);
         } catch (WorkflowCancellationException cancelled) {
@@ -670,8 +670,11 @@ public class WorkflowRuntimeEngine {
         try {
             boolean waiting = executeDag(request, WorkflowDag.from(request.definition()), context, tracker);
             context.updateRuntimeState(waiting ? RuntimeState.WAITING : RuntimeState.SUCCESS);
-            publish(context, waiting ? RuntimeEventType.WORKFLOW_WAITING : RuntimeEventType.WORKFLOW_COMPLETED,
-                    rootId, Map.of("resumed", true));
+            if (waiting) {
+                publish(context, RuntimeEventType.WORKFLOW_WAITING, rootId, Map.of("resumed", true));
+            } else {
+                publishWorkflowCompleted(context, tracker, Map.of("resumed", true));
+            }
         } catch (WorkflowCancellationException cancelled) {
             context.updateRuntimeState(RuntimeState.CANCELLED);
             publish(context, RuntimeEventType.WORKFLOW_CANCELLED, rootId, Map.of("reason", "user_cancelled"));
@@ -1473,6 +1476,15 @@ public class WorkflowRuntimeEngine {
                 tracker.currentNodeIds(),
                 tracker.failedNodeIds()
         ), activeFencingToken.get());
+    }
+
+    private void publishWorkflowCompleted(DefaultWorkflowContext context,
+                                          ExecutionTracker tracker,
+                                          Map<String, Object> attributes) {
+        // 成功终态没有正在执行的节点，事件与快照都指向最后被记录为完成的顶层节点。
+        String nodeId = WorkflowExecutionSnapshot.lastCompletedNodeOr(
+                tracker.completedNodeIds(), context.currentNodeId());
+        publish(context, RuntimeEventType.WORKFLOW_COMPLETED, nodeId, attributes);
     }
 
     private void publish(DefaultWorkflowContext context,
