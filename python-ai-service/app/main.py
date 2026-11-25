@@ -990,31 +990,21 @@ def _call_ollama(request: LlmRequest) -> LlmResponse:
     return LlmResponse(provider="ollama", model=request.model, text=response.get("response", ""), metadata=metadata)
 
 
-async def _resolve_ollama_model(client, requested: str) -> str:
-    """请求的模型不在已安装模型里时回落到可用模型。
-
-    Copilot 生成的节点常写死在地并不存在的模型名（历史默认值
-    llama3），直接透传会让 Ollama 返回 model not found，节点直接 500。
-    这里先探测本机已安装模型：命中则原样使用，
-    否则回落到 AI_DEFAULT_MODEL 或第一个可用模型。
-    """
+async def _ollama_model_candidates(client: Any, requested: str) -> tuple[str, ...]:
+    """已安装的请求模型保持不变，否则按顺序给出自动回退候选。"""
     name = (requested or "").strip()
     try:
         listed = await client.list()
         names = {getattr(item, "model", "") for item in getattr(listed, "models", [])}
     except Exception:
-        return name
+        return (name,)
     names = {item for item in names if item}
-    if not names:
-        return name
-    if name in names or f"{name}:latest" in names:
-        return name
+    if not names or name in names or f"{name}:latest" in names:
+        return (name,)
     preferred = os.getenv("AI_DEFAULT_MODEL", "").strip()
-    for candidate in (preferred, *sorted(names)):
-        if candidate and (candidate in names or f"{candidate}:latest" in names):
-            logger.warning("ollama model %r is not installed, fallback to %r", name, candidate)
-            return candidate
-    return name
+    if preferred and (preferred in names or f"{preferred}:latest" in names):
+        return (preferred, *sorted(names - {preferred, f"{preferred}:latest"}))
+    return tuple(sorted(names))
 
 
 async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
@@ -1030,8 +1020,21 @@ async def _call_ollama_async(request: LlmRequest) -> LlmResponse:
         timeout=_effective_timeout_seconds(request),
     )
     try:
-        resolved_model = await _resolve_ollama_model(client, request.model)
-        response = await client.generate(model=resolved_model, prompt=request.prompt, options=request.options)
+        candidates = await _ollama_model_candidates(client, request.model)
+        for index, resolved_model in enumerate(candidates):
+            try:
+                response = await client.generate(model=resolved_model, prompt=request.prompt, options=request.options)
+            except ollama.ResponseError as exc:
+                # /api/tags 也会列出不支持文本生成的模型。
+                # 仅在 Ollama 明确拒绝自动候选的生成能力时才换用下一个模型。
+                if (index == len(candidates) - 1 or exc.status_code != 400
+                        or exc.error != f'"{resolved_model}" does not support generate'):
+                    raise
+                logger.warning("ollama fallback model %r does not support text generation", resolved_model)
+            else:
+                break
+        if resolved_model != request.model.strip():
+            logger.warning("ollama model %r is not installed, fallback to %r", request.model, resolved_model)
         if not _ollama_response_done(response):
             raise HTTPException(status_code=502, detail="Ollama returned a response without a completion marker")
         metadata = {"done": True}

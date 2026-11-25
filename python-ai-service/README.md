@@ -59,3 +59,7 @@ python -m unittest discover -s python-ai-service/tests -p test_whisper_environme
 ```
 
 测试把所有 Whisper 构造、环境加载、FFmpeg 可用性和依赖检测替换为内存假实现；不启动真实服务、不访问外部模型服务、不下载模型。
+
+## Ollama 文本节点的模型回退
+
+Summary 等通过非流式 Ollama 调用生成文本的节点，优先使用已安装的请求模型，包含省略 `:latest` 的写法。请求模型未安装时，先尝试已安装的 `AI_DEFAULT_MODEL`，再按模型名排序尝试其他候选。只有 Ollama 明确拒绝某个自动候选并表示它不支持文本生成（例如嵌入模型）时，才继续下一个候选。不替换已安装的显式选项，也不因其他推理错误或超时换模型。成功结果的 `model` 是实际使用的模型；如需固定模型，请在 Ollama 安装并在节点中选择它。
