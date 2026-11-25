@@ -55,6 +55,7 @@ const draftScenario = ref<ProjectSummary['scenario']>('media')
 const creatingProject = ref(false)
 const createProjectFailed = ref(false)
 let createProjectGeneration = 0
+let createdProjectFocusId: string | undefined
 const showWorkflowPanel = ref(false)
 const workflowDraftName = ref('')
 const workflowDraftProjectId = ref('')
@@ -80,6 +81,8 @@ onBeforeUnmount(() => { savedWorkflowOpening.value = null })
 let workflowPanelGeneration = 0
 const projectsLoaded = ref(false)
 const projectsHeading = ref<HTMLElement | null>(null)
+const emptyProjectCreateButton = ref<HTMLButtonElement | null>(null)
+const projectCards = ref<HTMLElement[]>([])
 const projectRetryButton = ref<HTMLButtonElement | null>(null)
 // store 开始回读就会清除错误；保留旧提示和同一按钮，直到当前列表回读结束。
 const projectLoadNotice = computed<string | null>((previous) => (
@@ -93,7 +96,6 @@ const deleteFocus = new Map<string, DeleteFocus>()
 
 onBeforeUnmount(() => deleteFocus.forEach(focus => focus.release()))
 
-useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject)
 useModalFocus(showWorkflowPanel, workflowDialog, dismissWorkflowPanel)
 
 watch(projectLoadNotice, (notice) => {
@@ -105,6 +107,27 @@ watch(projectLoadNotice, (notice) => {
 })
 
 const firstProject = computed(() => projectStore.projects[0])
+
+function projectCreationFocusTarget(projectId = firstProject.value?.id) {
+  if (projectDialogOpen.value) return
+  // 卡片不会响应长按 Enter 的重复事件，下一次 Tab 才进入该项目的操作。
+  return projectCards.value.find(card => card.dataset.projectId === projectId) ?? projectsHeading.value
+}
+
+useModalFocus(showCreatePanel, createProjectDialog, closeCreateProject, (opener) => {
+  if (opener?.dataset.action === 'create-project') return projectCreationFocusTarget(createdProjectFocusId)
+})
+
+watch(firstProject, (project, previous) => {
+  const opener = emptyProjectCreateButton.value
+  if (!project || previous || !opener || projectDialogOpen.value || document.activeElement !== opener) return
+  // 等待时关闭可还原入口，但较晚的成功仍可能让空状态和入口一起消失。
+  void nextTick(() => {
+    if (!opener.isConnected && document.activeElement === document.body && document.hasFocus()) {
+      projectCreationFocusTarget(project.id)?.focus()
+    }
+  })
+})
 const workflowCount = computed(() => {
   if (projectStore.workflowSummaries.length > 0) {
     return projectStore.workflowSummaries.length
@@ -142,6 +165,7 @@ function workflowsFor(project: ProjectSummary) {
 
 function openCreateProject() {
   createProjectGeneration += 1
+  createdProjectFocusId = undefined
   creatingProject.value = false
   createProjectFailed.value = false
   draftName.value = t('projects.defaultProjectName')
@@ -329,6 +353,7 @@ async function submitCreate() {
     // 已提交请求仍可能创建成功；旧回执只补充列表，不接管新弹框或页面选择。
     if (generation !== createProjectGeneration) return
     projectStore.selectProject(project.id)
+    createdProjectFocusId = project.id
     showCreatePanel.value = false
   } catch {
     if (generation === createProjectGeneration) createProjectFailed.value = true
@@ -430,7 +455,7 @@ async function retryLoadProjects() {
             <p class="text-base font-semibold text-text-primary">{{ t('projects.emptyProjectsTitle') }}</p>
             <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('projects.emptyProjectsHint') }}</p>
           </div>
-          <button data-action="create-project" type="button" class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateProject">
+          <button ref="emptyProjectCreateButton" data-action="create-project" type="button" class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node" @click="openCreateProject">
             <Plus class="h-4 w-4" />
             {{ t('projects.createProject') }}
           </button>
@@ -487,6 +512,8 @@ async function retryLoadProjects() {
           <article
             v-for="project in projectStore.projects"
             :key="project.id"
+            ref="projectCards"
+            :data-project-id="project.id"
             :aria-label="project.name"
             tabindex="-1"
             class="flex min-h-[320px] flex-col rounded-lg border bg-white shadow-sm transition hover:border-primary/30 hover:shadow-node focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
