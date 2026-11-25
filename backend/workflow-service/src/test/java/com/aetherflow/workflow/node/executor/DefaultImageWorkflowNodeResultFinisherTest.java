@@ -82,20 +82,20 @@ class DefaultImageWorkflowNodeResultFinisherTest {
         DefaultImageWorkflowNodeResultFinisher finisher = new DefaultImageWorkflowNodeResultFinisher(storage);
         Map<String, Object> image = Map.of("id", 77L, "objectKey", "tenant-7/image.png");
         Map<String, Object> media = Map.of("id", 78L, "objectKey", "tenant-7/voice.flac");
-        Map<String, Object> output = Map.of(
-                "provider", "COMFYUI",
-                "mode", "workflow",
-                "metadata", Map.of("imageCount", 1, "mediaCount", 1),
-                "artifactFiles", List.of(image, media),
-                "artifactTypeBindings", List.of(Map.of("index", 0, "type", "image"),
-                        Map.of("index", 1, "type", "media")),
-                "imageFileIds", List.of(77L),
-                "imageObjectKeys", List.of("tenant-7/image.png"),
-                "imageUrls", List.of("https://files/image.png"),
-                "mediaFileIds", List.of(78L),
-                "mediaObjectKeys", List.of("tenant-7/voice.flac"),
-                "mediaUrls", List.of("https://files/voice.flac"),
-                "mediaUrl", "https://files/voice.flac"
+        Map<String, Object> output = Map.ofEntries(
+                Map.entry("provider", "COMFYUI"),
+                Map.entry("mode", "workflow"),
+                Map.entry("metadata", Map.of("imageCount", 1, "mediaCount", 1)),
+                Map.entry("artifactFiles", List.of(image, media)),
+                Map.entry("artifactTypeBindings", List.of(Map.of("index", 0, "type", "image"),
+                        Map.of("index", 1, "type", "media"))),
+                Map.entry("imageFileIds", List.of(77L)),
+                Map.entry("imageObjectKeys", List.of("tenant-7/image.png")),
+                Map.entry("imageUrls", List.of("https://files/image.png")),
+                Map.entry("mediaFileIds", List.of(78L)),
+                Map.entry("mediaObjectKeys", List.of("tenant-7/voice.flac")),
+                Map.entry("mediaUrls", List.of("https://files/voice.flac")),
+                Map.entry("mediaUrl", "https://files/voice.flac")
         );
 
         NodeResult result = finisher.finish("IMAGE_GENERATION", "1001", "node-image", Map.of("userId", 7L), output);
@@ -124,7 +124,8 @@ class DefaultImageWorkflowNodeResultFinisherTest {
 
         NodeResult result = finisher.finish("IMAGE_GENERATION", "1001", "node-image", Map.of("userId", 7L), output);
 
-        assertThat(result.status()).isEqualTo("SUCCEEDED");
+        assertThat(result.successful()).isTrue();
+        assertThat(result.waiting()).isFalse();
         assertThat(result.variables()).containsEntry("imageFiles", List.of())
                 .containsEntry("imageGenerationMetadata", output.get("metadata"));
         verifyNoInteractions(storage);
@@ -153,6 +154,7 @@ class DefaultImageWorkflowNodeResultFinisherTest {
         DefaultImageWorkflowNodeResultFinisher finisher = new DefaultImageWorkflowNodeResultFinisher(storage);
         Map<String, Object> output = Map.of(
                 "provider", "COMFYUI",
+                "mode", "workflow",
                 "metadata", Map.of("comfyOutputMetadata", Map.of(
                         "terminalStatus", "unknown", "outputs", Map.of("17", Map.of("text", List.of("hello")))))
         );
