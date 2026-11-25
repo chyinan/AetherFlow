@@ -198,6 +198,69 @@ describe('同一循环体的图像步骤共享连接目录，诊断各自独立'
     expect(mocks.probeSavedNodeConnection.mock.calls.map(([id]) => id)).toEqual([a.id, b.id, b.id])
   })
 
+  it.each([
+    { label: '只改名', changeAddress: false, cancelled: false, refreshPeer: false },
+    { label: '已取消的步骤', changeAddress: true, cancelled: true, refreshPeer: false },
+    { label: '仍显示旧地址诊断的步骤', changeAddress: true, cancelled: false, refreshPeer: true },
+    { label: '目录暂不可用时的换址', changeAddress: true, cancelled: false, refreshPeer: false, catalogUnavailable: true },
+  ])('同级步骤保存共享连接：$label', async ({ changeAddress, cancelled, refreshPeer, catalogUnavailable }) => {
+    const oldPeerProbe = deferred<NodeConnectionProbe>()
+    if (cancelled) mocks.probeSavedNodeConnection.mockReturnValueOnce(oldPeerProbe.promise)
+    const shared = [nodes[0]!, { ...nodes[1]!, config: { provider: a.provider, connectionId: a.id } }]
+    const wrapper = render(shared, document.body)
+    await flushPromises()
+    const stepA = wrapper.find(byStep('a'))
+    const stepB = wrapper.find(byStep('b'))
+    if (cancelled) await stepA.get(cancel).trigger('click')
+    else expect(stepA.get(selectedStatus).text()).toContain(a.id)
+    if (catalogUnavailable) {
+      mocks.getNodeConnections.mockRejectedValueOnce(new Error('目录暂时不可用'))
+      await stepB.get(refresh).trigger('click')
+      await flushPromises()
+      expect(stepA.text()).toContain('目录暂时不可用')
+      expect(stepA.get(selectedStatus).text()).toContain(a.id)
+    }
+
+    const edited = { ...a, name: 'Shared studio renamed', ...(changeAddress ? { baseUrl: 'http://studio-new.test:8188' } : {}) }
+    const write = deferred<NodeConnection>()
+    mocks.probeNodeConnection.mockResolvedValue(probe(a.id))
+    mocks.updateNodeConnection.mockReturnValueOnce(write.promise)
+    await stepB.get('[data-testid="edit-connection"]').trigger('click')
+    const dialog = document.querySelector('[data-testid="connection-dialog"]')!
+    const setField = (selector: string, value: string) => {
+      const input = dialog.querySelector<HTMLInputElement>(selector)!
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    setField('[data-testid="connection-name"]', edited.name)
+    if (changeAddress) setField('[data-testid="connection-url"]', edited.baseUrl)
+    dialog.querySelector<HTMLButtonElement>('[data-testid="test-connection"]')!.click()
+    await flushPromises()
+    dialog.querySelector<HTMLButtonElement>('[data-testid="save-connection"]')!.click()
+    await flushPromises()
+    expect(mocks.updateNodeConnection).toHaveBeenCalledExactlyOnceWith(a.id, {
+      name: edited.name, provider: edited.provider, baseUrl: edited.baseUrl,
+    })
+    const peerCalls = () => mocks.probeSavedNodeConnection.mock.calls.filter(([, nodeType]) => nodeType === 'IMAGE_GENERATION')
+    expect(peerCalls()).toHaveLength(1)
+    mocks.probeSavedNodeConnection.mockImplementation(async (id: string) => ({ ...probe(id), message: '保存后重新诊断' }))
+    write.resolve(edited)
+    if (cancelled) oldPeerProbe.resolve({ ...probe(a.id), message: '已取消的迟到结果' })
+    await flushPromises()
+
+    expect(stepA.get('[data-testid="connection-select"]').text()).toContain(edited.name)
+    expect(peerCalls()).toHaveLength(refreshPeer ? 2 : 1)
+    if (cancelled || catalogUnavailable) {
+      if (cancelled) expect(stepA.text()).toContain('本次测试已取消')
+      expect(stepA.find(selectedStatus).exists()).toBe(false)
+      mocks.getNodeConnections.mockResolvedValueOnce({ connections: [edited, b] })
+      await stepA.get(refresh).trigger('click')
+      await flushPromises()
+      expect(peerCalls()).toHaveLength(2)
+    }
+    expect(stepA.get(selectedStatus).text()).toContain(changeAddress ? '保存后重新诊断' : a.id)
+  })
+
   it('刷新发现同级连接不存在时丢弃旧请求，把焦点还给当前重测按钮', async () => {
     const oldProbe = deferred<NodeConnectionProbe>()
     mocks.probeSavedNodeConnection.mockImplementation((id: string) => id === a.id ? oldProbe.promise : Promise.resolve(probe(id)))

@@ -381,12 +381,12 @@ watch(selectedKey, () => { close(false); void refreshSelected() }, { flush: 'syn
 watch([ready, selectedTarget, saveOutcome], ([loaded, target, outcome], [, , previousOutcome]) => {
   const saved = outcome?.status === 'saved' && outcome !== previousOutcome
   if (saved) emit('saved')
-  // 合并同一批目录发布和保存回执。地址或 Provider 变化时补测受影响的同级节点，
-  // 同地址重命名或别处刷新不重测，也不恢复用户已经取消的诊断。
-  const targetChanged = loaded && !selectedCancelled.value && diagnosedTarget !== null && diagnosedTarget !== target
-  if (saved && outcome.connection.id === effectiveId.value) {
-    void refreshSelected()
-  } else if (targetChanged) {
+  // 当前连接的保存回执即使遇到目录读取失败，也足以确认地址或 Provider 已变化；
+  // 只改名不重测，用户已取消的诊断仍须手动重测。
+  const selectedSaved = saved && outcome.connection.id === effectiveId.value
+  const targetChanged = (loaded || selectedSaved) && !selectedCancelled.value
+    && diagnosedTarget !== null && diagnosedTarget !== target
+  if (targetChanged) {
     refreshChangedTarget()
   } else if (loaded && waitingForCatalog) {
     void refreshSelected()
