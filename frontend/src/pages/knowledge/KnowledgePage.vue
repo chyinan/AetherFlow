@@ -422,11 +422,10 @@ async function handleSourceUpload(event: Event) {
     wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
     input.value = ''
   } catch (error) {
-    setPageError(error, async () => {
-      const uploaded = await fileStore.upload(file)
-      selectedFileId.value = uploaded.id
-      wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
-    })
+    // 上传失败只在文件区就地提示：早先这里走 setPageError，会把整个知识库
+    // 页面替换成一张错误卡片（挑错格式时尤其吓人），看起来像「页面炸了」。
+    fileListError.value = errorMessage(error)
+    input.value = ''
   }
 }
 

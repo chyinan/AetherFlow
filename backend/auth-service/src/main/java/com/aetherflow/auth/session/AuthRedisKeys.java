@@ -22,6 +22,14 @@ public final class AuthRedisKeys {
         return AUTH_PREFIX + "refresh:" + Objects.requireNonNull(userId, "userId must not be null");
     }
 
+    /**
+     * 刚被轮换掉的 refresh token。并发刷新（多标签页、并行请求）时允许在宽限期内重放，
+     * 否则后到的那个请求会因为「旧 token」被直接 401，前端随即清空会话表现为掉登录。
+     */
+    public static String previousRefreshKey(Long userId) {
+        return AUTH_PREFIX + "refresh:prev:" + Objects.requireNonNull(userId, "userId must not be null");
+    }
+
     public static String blacklistKey(String token) {
         return AUTH_PREFIX + "blacklist:" + Objects.requireNonNull(token, "token must not be null").trim();
     }

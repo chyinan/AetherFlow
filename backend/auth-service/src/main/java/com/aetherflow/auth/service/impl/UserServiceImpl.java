@@ -138,13 +138,32 @@ public class UserServiceImpl implements UserService {
         if (!ENABLED.equals(user.getStatus())) {
             throw new BusinessException(ResultCode.FORBIDDEN, "user disabled");
         }
+        // 宽限期重放：并发刷新（多标签页、并行请求）时，后到的请求拿的是「刚刚被
+        // 轮换掉」的 refresh token。直接 401 会让前端立刻清空会话，用户看到的就是
+        // 「点一下按钮就被退出登录」。宽限期内改为沿用当前有效 refresh token 续发。
+        boolean replay = false;
         if (!authSessionService.isRefreshTokenActive(user.getId(), request.getRefreshToken())) {
-            throw new UnauthorizedException("refresh token expired or revoked");
+            if (!authSessionService.isRecentPreviousRefreshToken(user.getId(), request.getRefreshToken())) {
+                throw new UnauthorizedException("refresh token expired or revoked");
+            }
+            replay = true;
         }
         AuthTokenBundle bundle = authTokenService.issueTokenBundle(user.getId(), user.getUsername(), rolesFor(user));
-        if (!authSessionService.rotateRefreshToken(user.getId(), request.getRefreshToken(),
+        if (!replay && !authSessionService.rotateRefreshToken(user.getId(), request.getRefreshToken(),
                 bundle.getRefreshToken(), authTokenService.refreshTokenTtl())) {
-            throw new UnauthorizedException("refresh token expired or revoked");
+            // 预检通过但轮换失败，说明刚好被另一个并发请求抢先换掉了。
+            if (!authSessionService.isRecentPreviousRefreshToken(user.getId(), request.getRefreshToken())) {
+                throw new UnauthorizedException("refresh token expired or revoked");
+            }
+            replay = true;
+        }
+        if (replay) {
+            String activeRefreshToken = authSessionService.getRefreshToken(user.getId());
+            if (activeRefreshToken == null || activeRefreshToken.isBlank()) {
+                throw new UnauthorizedException("refresh token expired or revoked");
+            }
+            bundle = new AuthTokenBundle(bundle.getAccessToken(), activeRefreshToken,
+                    bundle.getAccessExpiresInSeconds(), bundle.getRefreshExpiresInSeconds());
         }
         blacklistExistingAccessToken(user.getId());
         authSessionService.storeAccessToken(user.getId(), bundle.getAccessToken(), authTokenService.accessTokenTtl());

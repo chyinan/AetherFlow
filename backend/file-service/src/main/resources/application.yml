@@ -80,6 +80,9 @@ aetherflow:
         - png
         - webp
         - gif
+        - bmp
+        - tif
+        - tiff
         - mp4
         - mov
         - avi
@@ -89,31 +92,92 @@ aetherflow:
         - ogg
         - m4a
         - aac
+        - flac
         - pdf
         - txt
         - csv
+        - tsv
         - json
+        - xml
+        - yaml
+        - yml
+        - html
+        - htm
+        - xhtml
+        - md
+        - markdown
+        - mdx
+        - text
+        - properties
+        - rtf
+        - doc
+        - docx
+        - odt
+        - xls
+        - xlsx
+        - ods
+        - ppt
+        - pptx
+        - odp
+        - epub
+        - eml
+        - msg
+        - srt
+        - vtt
+        - ass
         - zip
+      # 知识库文档格式的 MIME 由浏览器/客户端决定，差异很大（text/markdown、
+      # application/octet-stream、application/vnd.openxmlformats-… 等）。
+      # 这里保留白名单，同时允许「扩展名已通过白名单」的文件放宽 MIME 校验，
+      # 否则每接一种文档格式都会新增一类 400。
       allowed-mime-types:
         - image/jpeg
         - image/png
         - image/webp
         - image/gif
+        - image/bmp
+        - image/tiff
         - video/mp4
         - video/quicktime
         - video/x-msvideo
         - video/webm
         - audio/mpeg
         - audio/wav
+        - audio/x-wav
         - audio/ogg
         - audio/mp4
         - audio/aac
+        - audio/flac
         - application/pdf
         - application/json
         - application/zip
         - application/octet-stream
+        - application/xml
+        - application/xhtml+xml
+        - application/x-yaml
+        - application/msword
+        - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+        - application/vnd.ms-excel
+        - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+        - application/vnd.ms-powerpoint
+        - application/vnd.openxmlformats-officedocument.presentationml.presentation
+        - application/vnd.oasis.opendocument.text
+        - application/vnd.oasis.opendocument.spreadsheet
+        - application/vnd.oasis.opendocument.presentation
+        - application/rtf
+        - application/epub+zip
+        - message/rfc822
         - text/plain
         - text/csv
+        - text/tab-separated-values
+        - text/markdown
+        - text/x-markdown
+        - text/html
+        - text/xml
+        - text/yaml
+        - text/vtt
+        - text/rtf
+        - text/x-properties
       blocked-extensions:
         - exe
         - dll

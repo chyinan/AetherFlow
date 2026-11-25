@@ -40,7 +40,7 @@ public class FileUploadGuardServiceImpl implements FileUploadGuardService {
         validateExtension(extension);
 
         String contentType = normalizeContentType(file.getContentType());
-        validateContentType(contentType);
+        validateContentType(contentType, extension);
         validateHeader(file);
 
         return new FileUploadProfile(originalName, extension, contentType, size);
@@ -86,11 +86,19 @@ public class FileUploadGuardServiceImpl implements FileUploadGuardService {
         return normalized.trim().toLowerCase(Locale.ROOT);
     }
 
-    private void validateContentType(String contentType) {
+    private void validateContentType(String contentType, String extension) {
         Set<String> allowed = normalizeSet(uploadProperties.getAllowedMimeTypes());
-        if (!allowed.isEmpty() && !allowed.contains(contentType)) {
-            throw new FileTypeException("upload file MIME type is not allowed");
+        if (allowed.isEmpty() || allowed.contains(contentType)) {
+            return;
         }
+        // 扩展名已通过白名单时放宽 MIME 校验：知识库文档（md/docx/xlsx/epub…）
+        // 各客户端上报的 MIME 五花八门，严格双白名单会让每种新格式都变成 400。
+        // 真正的防可执行文件校验仍在 validateHeader 做魔数检查。
+        Set<String> allowedExtensions = normalizeSet(uploadProperties.getAllowedExtensions());
+        if (allowedExtensions.contains(extension)) {
+            return;
+        }
+        throw new FileTypeException("upload file MIME type is not allowed");
     }
 
     private void validateHeader(MultipartFile file) {

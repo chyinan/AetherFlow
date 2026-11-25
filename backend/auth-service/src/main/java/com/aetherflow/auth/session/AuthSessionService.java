@@ -17,6 +17,7 @@ import java.util.Set;
 public class AuthSessionService {
 
     private static final String REVOKED = "revoked";
+    private static final Duration REFRESH_REPLAY_GRACE = Duration.ofSeconds(90);
     private static final String TOKEN_PATTERN = "auth:token:*";
     private static final String LOGIN_FAILURE_PATTERN = "auth:login:fail:*";
     private static final DefaultRedisScript<Long> ROTATE_REFRESH_SCRIPT = new DefaultRedisScript<>(
@@ -52,7 +53,23 @@ public class AuthSessionService {
                 expectedRefreshToken,
                 replacementRefreshToken,
                 String.valueOf(refreshTtl.toMillis()));
-        return Long.valueOf(1L).equals(result);
+        if (Long.valueOf(1L).equals(result)) {
+            // 记住刚被替换掉的 token，短时间内允许重放（并发刷新/多标签页）。
+            redisTemplate.opsForValue().set(
+                    AuthRedisKeys.previousRefreshKey(userId), expectedRefreshToken, REFRESH_REPLAY_GRACE);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 判断给定 refresh token 是否是「刚刚被轮换掉」的那一个（宽限期内的并发重放）。
+     */
+    public boolean isRecentPreviousRefreshToken(Long userId, String refreshToken) {
+        if (userId == null || !StringUtils.hasText(refreshToken)) {
+            return false;
+        }
+        return refreshToken.equals(redisTemplate.opsForValue().get(AuthRedisKeys.previousRefreshKey(userId)));
     }
 
     public String getAccessToken(Long userId) {
