@@ -173,7 +173,7 @@ describe('未保存导航的任务连续性', () => {
     expect(router.currentRoute.value.fullPath).toBe('/workflows/102?projectId=22')
   })
 
-  it.each(['成功', '失败'] as const)('保存期间选择留页，迟到%s不跳转或规范化新建地址', async (outcome) => {
+  async function stayWhileFirstSaveIsPending() {
     const { store, router } = await setup('/workflows/new?projectId=11')
     const pending = deferred<WorkflowDefinition>()
     api.saveWorkflow.mockReturnValueOnce(pending.promise)
@@ -185,13 +185,32 @@ describe('未保存导航的任务连续性', () => {
     await choose('stay')
     expect(isNavigationFailure(await navigation)).toBe(true)
     expect(hasDialog()).toBe(false)
-    if (outcome === '成功') pending.resolve(submitted)
-    else pending.reject(new Error('取消后的保存失败'))
+    return { store, router, pending, replace, submitted }
+  }
+
+  it('保存期间选择留页，迟到成功只更新同一画布的首次保存地址，不继续原目标', async () => {
+    const { store, router, pending, replace, submitted } = await stayWhileFirstSaveIsPending()
+    pending.resolve(submitted)
+    await flushPromises()
+    // 用户取消的是离开，不是已提交的首次保存。保留 /new 会让再次打开时只看见空白画布。
+    expect(router.currentRoute.value.fullPath).toBe('/workflows/201?projectId=11')
+    expect(replace).toHaveBeenCalledExactlyOnceWith({ path: '/workflows/201', query: { projectId: 11 } })
+    expect(api.getWorkflow.mock.calls.map(call => call[0])).toEqual(['new'])
+    expect(hasDialog()).toBe(false)
+    expect(store.dirty).toBe(false)
+    expect(store.saving).toBe(false)
+    expect(projects.linkWorkflowToProject).toHaveBeenCalledExactlyOnceWith('11', '201')
+    expect(projects.updateWorkflowStatus).toHaveBeenCalledExactlyOnceWith('201', 'ready')
+  })
+
+  it('保存期间选择留页，迟到失败保持新建地址，不跳转或更新项目', async () => {
+    const { store, router, pending, replace } = await stayWhileFirstSaveIsPending()
+    pending.reject(new Error('取消后的保存失败'))
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/workflows/new?projectId=11')
     expect(replace).not.toHaveBeenCalled()
     expect(hasDialog()).toBe(false)
-    expect(store.dirty).toBe(outcome === '失败')
+    expect(store.dirty).toBe(true)
     expect(store.saving).toBe(false)
     expect(projects.linkWorkflowToProject).not.toHaveBeenCalled()
     expect(projects.updateWorkflowStatus).not.toHaveBeenCalled()
