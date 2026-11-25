@@ -826,7 +826,7 @@ watch(
               </div>
             </div>
             <div v-show="selectedDetailReady" class="grid min-h-[24rem] min-w-0 gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:flex-1">
-              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :can-rerun="canRerun" @rerun="openRerun" />
+              <RunTimeline class="max-h-[32rem] min-h-0 min-w-0 xl:max-h-none" :run-id="selectedRun?.id" :workflow-id="selectedRun?.workflowId" :return-location="route.fullPath" :nodes="selectedRun?.nodeStates ?? []" :run-cancelled="selectedRun?.backendStatus === 'CANCELLED'" :can-rerun="canRerun" @rerun="openRerun" />
               <LogStream
                 class="h-[24rem] min-h-0 min-w-0 lg:h-[32rem] xl:h-full"
                 :run-id="selectedRun?.id"

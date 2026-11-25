@@ -121,6 +121,66 @@ class WorkflowInstanceQueryServiceImplTest {
     }
 
     @Test
+    void workflowCancellationKeepsEarlierCompletedNodeResults() {
+        Instant start = Instant.parse("2026-05-29T01:00:12Z");
+        Instant finished = start.plusMillis(250);
+        Instant cancelled = start.plusSeconds(12);
+        WorkflowInstance instance = instance();
+        instance.setStatus("CANCELLED");
+        instance.setCurrentNodeId("fast");
+        when(instanceMapper.selectById(99L)).thenReturn(instance);
+
+        for (String result : List.of("SUCCESS", "FAILED")) {
+            Map<String, Object> attributes = Map.of("nodeType", "PROMPT", "itemStatus", result, "output", "保留实际结果");
+            doReturn(List.of(
+                    timelineEvent(RuntimeEventType.NODE_STARTED, "slow", start.minusSeconds(1), Map.of()),
+                    timelineEvent(RuntimeEventType.NODE_WAITING, "slow", start.minusMillis(1), Map.of("taskId", "external")),
+                    timelineEvent(RuntimeEventType.NODE_STARTED, "fast", start, Map.of("nodeType", "PROMPT")),
+                    timelineEvent(RuntimeEventType.NODE_COMPLETED, "fast", finished, attributes),
+                    RuntimeEvent.of(RuntimeEventType.WORKFLOW_CANCELLED, "99", "trace-1", "99", "fast",
+                            RuntimeState.CANCELLED, cancelled, Map.of("reason", "user_cancelled"))
+            )).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
+
+            RunView detail = asUser(7L, () -> queryService.getInstance(99L));
+            assertThat(detail.status()).isEqualTo("CANCELLED");
+            assertThat(detail.nodes()).filteredOn(node -> "fast".equals(node.nodeId())).singleElement().satisfies(node -> {
+                assertThat(node.status()).isEqualTo(result);
+                assertThat(node.latestEventType()).isEqualTo("NODE_COMPLETED");
+                assertThat(node.startedAt()).isEqualTo(start);
+                assertThat(node.completedAt()).isEqualTo(finished);
+                assertThat(node.attributes()).containsExactlyEntriesOf(attributes);
+            });
+            assertThat(detail.nodes()).filteredOn(node -> "slow".equals(node.nodeId())).singleElement().satisfies(node ->
+                    assertThat(node.status()).isEqualTo("WAITING"));
+            assertThat(asUser(7L, () -> queryService.logs(99L))).anySatisfy(log ->
+                    assertThat(log.eventType()).isEqualTo("WORKFLOW_CANCELLED"));
+        }
+    }
+
+    @Test
+    void workflowCancellationStillEndsTheActualWaitingNode() {
+        Instant start = Instant.parse("2026-05-29T01:00:12Z");
+        Instant cancelled = start.plusSeconds(12);
+        WorkflowInstance instance = instance();
+        instance.setStatus("CANCELLED");
+        instance.setCurrentNodeId("image");
+        when(instanceMapper.selectById(99L)).thenReturn(instance);
+        doReturn(List.of(
+                timelineEvent(RuntimeEventType.NODE_STARTED, "image", start, Map.of("nodeType", "IMAGE_GENERATION")),
+                timelineEvent(RuntimeEventType.NODE_WAITING, "image", start.plusMillis(1), Map.of("taskId", "external")),
+                RuntimeEvent.of(RuntimeEventType.WORKFLOW_CANCELLED, "99", "trace-1", "99", "image",
+                        RuntimeState.CANCELLED, cancelled, Map.of("reason", "user_cancelled"))
+        )).when(runtimeEventStore).findLatestByWorkflowId(eq("99"), anyInt());
+
+        assertThat(asUser(7L, () -> queryService.getInstance(99L)).nodes()).singleElement().satisfies(node -> {
+            assertThat(node.status()).isEqualTo("CANCELLED");
+            assertThat(node.latestEventType()).isEqualTo("WORKFLOW_CANCELLED");
+            assertThat(node.completedAt()).isEqualTo(cancelled);
+            assertThat(node.attributes()).containsEntry("reason", "user_cancelled");
+        });
+    }
+
+    @Test
     void workflowCompletionWithMissingNodeEventKeepsStatusWithoutInventingDuration() {
         Instant fastStart = Instant.parse("2026-05-29T01:00:12Z");
         when(instanceMapper.selectById(99L)).thenReturn(instance());

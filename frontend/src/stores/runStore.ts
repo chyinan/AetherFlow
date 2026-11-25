@@ -158,7 +158,7 @@ function runBelongsToWorkflow(run: WorkflowRun, workflowStore: ReturnType<typeof
 }
 
 function isTerminalNodeStatus(status: RunNodeState['status']) {
-  return status === 'success' || status === 'failed' || status === 'skipped'
+  return status === 'success' || status === 'failed' || status === 'skipped' || status === 'cancelled'
 }
 
 function isTerminalRunStatus(status: WorkflowRun['status']) {
@@ -187,7 +187,7 @@ function mergeNodeOutput(existing: RunNodeState, incoming: RunNodeState) {
   if (!existing.output) return incoming.output
   if (!isNodeOutputSummary(existing.output) && isNodeOutputSummary(incoming.output)) return existing.output
   // 同状态回放可能只带部分属性；补齐字段而不是用节点类型等元数据擦除错误原因。
-  if (existing.status === incoming.status) {
+  if (existing.status === incoming.status || incoming.status === 'cancelled') {
     try {
       const currentAttributes: unknown = JSON.parse(existing.output)
       const incomingAttributes: unknown = JSON.parse(incoming.output)
@@ -693,7 +693,8 @@ export const useRunStore = defineStore('run', {
       }
     },
     patchNodeState(patch: RunNodeState, options: { inferRunStatus?: boolean } = {}) {
-      if (!this.currentRun || isCancelledRun(this.currentRun)) {
+      // 同一终态事件先更新运行摘要，明确的节点取消仍需随后补齐；其他迟到节点事件不得复活运行。
+      if (!this.currentRun || (isCancelledRun(this.currentRun) && patch.status !== 'cancelled')) {
         return
       }
       this.mergeCurrentNodeRetryCount(patch)
@@ -725,7 +726,7 @@ export const useRunStore = defineStore('run', {
         })
       }
       // 后端确认终态后，节点只能补齐详情；尚未恢复完整的节点局部推导结果仍需重新计算。
-      if (options.inferRunStatus !== false
+      if (options.inferRunStatus !== false && !isCancelledRun(this.currentRun)
         && this.currentRun.backendStatus !== 'SUCCESS' && this.currentRun.backendStatus !== 'FAILED') {
         const completed = this.currentRun.nodeStates.filter((node) => ['success', 'failed', 'skipped'].includes(node.status)).length
         this.currentRun.progress = Math.round((completed / Math.max(this.currentRun.nodeStates.length, 1)) * 100)
