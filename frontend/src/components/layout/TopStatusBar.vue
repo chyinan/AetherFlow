@@ -52,8 +52,12 @@ async function retryNotificationHistory() {
 }
 
 function notificationMessage(item: (typeof notificationItems.value)[number]) {
+  const params = { ...(item.messageParams ?? {}) }
+  for (const [name, key] of Object.entries(item.messageParamKeys ?? {})) {
+    params[name] = t(key)
+  }
   return t(item.messageKey, {
-    ...(item.messageParams ?? {}),
+    ...params,
     status: item.statusKey ? t(item.statusKey) : '',
   })
 }
@@ -178,7 +182,7 @@ onBeforeUnmount(() => {
                 <div class="flex items-center justify-between gap-3">
                   <div class="flex min-w-0 items-center gap-2">
                     <span v-if="!item.read" class="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                    <p class="truncate text-sm font-semibold text-text-primary">{{ item.title }}</p>
+                    <p class="truncate text-sm font-semibold text-text-primary">{{ item.titleKey ? t(item.titleKey) : item.title }}</p>
                   </div>
                     <StatusDot v-if="item.tone" :tone="item.tone" :label="item.tone" />
                 </div>
