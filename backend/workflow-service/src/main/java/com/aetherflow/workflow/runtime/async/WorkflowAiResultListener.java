@@ -7,6 +7,7 @@ import com.aetherflow.common.dto.NotifyMessageDTO;
 import com.aetherflow.workflow.config.WorkflowAiResultMessagingConfig;
 import com.aetherflow.workflow.entity.WorkflowInstance;
 import com.aetherflow.workflow.mapper.WorkflowInstanceMapper;
+import com.aetherflow.workflow.runtime.core.WorkflowRuntimeLeaseLostException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -56,7 +57,7 @@ public class WorkflowAiResultListener {
                     completionService.completeFailure(workflowInstanceId, nodeId, taskId, error);
                 }
             } catch (IllegalStateException exception) {
-                if (isStaleCompletion(exception)) {
+                if (isStaleCompletion(workflowInstanceId, exception)) {
                     log.warn("stale AI failure event ignored, workflowInstanceId={}, nodeId={}, taskId={}",
                             workflowInstanceId, nodeId, taskId);
                     return;
@@ -76,7 +77,7 @@ public class WorkflowAiResultListener {
                 completionService.completeSuccess(workflowInstanceId, nodeId, taskId, output(payload.get("output")));
             }
         } catch (IllegalStateException exception) {
-            if (isStaleCompletion(exception)) {
+            if (isStaleCompletion(workflowInstanceId, exception)) {
                 log.warn("stale AI success event ignored, workflowInstanceId={}, nodeId={}, taskId={}",
                         workflowInstanceId, nodeId, taskId);
                 return;
@@ -109,7 +110,11 @@ public class WorkflowAiResultListener {
         return Map.copyOf(result);
     }
 
-    private boolean isStaleCompletion(IllegalStateException exception) {
+    private boolean isStaleCompletion(Long workflowInstanceId, IllegalStateException exception) {
+        if (exception instanceof WorkflowRuntimeLeaseLostException) {
+            // 终态快照不会授予 fencing token。只确认已结束实例的回执；活跃实例的租约冲突继续重投。
+            return completionService.hasTerminalSnapshot(workflowInstanceId);
+        }
         String message = exception.getMessage();
         // 实例不存在（已被清理或号不存在）时同样视为过期事件丢弃，
         // 否则会被无限重投成为毒消息循环。
