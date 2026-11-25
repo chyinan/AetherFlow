@@ -18,7 +18,7 @@ import {
   Workflow,
   Zap,
 } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -88,6 +88,8 @@ const cleanSpaces = ref(true)
 const cleanUrls = ref(false)
 const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
+const failedSourceUpload = shallowRef<{ file: File; message: string } | null>(null)
+let sourceUploadRequestId = 0
 const deletingDatasetId = ref('')
 const deletingDocumentId = ref('')
 const MAX_TOP_K = 50
@@ -222,6 +224,7 @@ function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
 
 function openCreateFlow(preferredSource: SourceType = 'file', targetDatasetId = '') {
   datasetOpenRequestId += 1
+  clearSourceUpload()
   difyStore.pendingWizardDatasetId = targetDatasetId
   difyStore.pendingWizardPersistenceComplete = false
   difyStore.pendingWizardDataset = targetDatasetId ? selectedDataset.value ?? null : null
@@ -250,6 +253,7 @@ function resetRetrievalState() {
 function backToList() {
   datasetOpenRequestId += 1
   resetRetrievalState()
+  clearSourceUpload()
   viewMode.value = 'datasets'
   createStep.value = 1
 }
@@ -272,6 +276,7 @@ function continueFromSource() {
   if (!selectedFile.value) {
     return
   }
+  clearSourceUpload()
   wizardDatasetName.value = finalDatasetName.value
   createStep.value = 2
 }
@@ -408,24 +413,40 @@ async function createEmptyDataset() {
   }
 }
 
+function clearSourceUpload() {
+  sourceUploadRequestId += 1
+  failedSourceUpload.value = null
+}
+
+async function uploadKnowledgeSource(file: File) {
+  if (fileStore.uploading || viewMode.value !== 'create' || createStep.value !== 1) {
+    return
+  }
+  const requestId = ++sourceUploadRequestId
+  failedSourceUpload.value = null
+  // 已发出的上传仍会更新共享文件列表，但过期回执不能覆盖向导的新选择或提示。
+  const isCurrent = () => requestId === sourceUploadRequestId && viewMode.value === 'create' && createStep.value === 1
+  try {
+    const uploaded = await fileStore.upload(file)
+    if (!isCurrent()) return
+    selectedFileId.value = uploaded.id
+    wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
+  } catch (error) {
+    if (isCurrent()) failedSourceUpload.value = { file, message: errorMessage(error) }
+  }
+}
+
+function retrySourceUpload() {
+  const file = failedSourceUpload.value?.file
+  if (file) void uploadKnowledgeSource(file)
+}
+
 async function handleSourceUpload(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) {
-    return
-  }
-  pageError.value = ''
-  lastRetry.value = null
-  try {
-    const uploaded = await fileStore.upload(file)
-    selectedFileId.value = uploaded.id
-    wizardDatasetName.value = file.name.replace(/\.[^.]+$/, '')
+  if (file) {
     input.value = ''
-  } catch (error) {
-    // 上传失败只在文件区就地提示：早先这里走 setPageError，会把整个知识库
-    // 页面替换成一张错误卡片（挑错格式时尤其吓人），看起来像「页面炸了」。
-    fileListError.value = errorMessage(error)
-    input.value = ''
+    await uploadKnowledgeSource(file)
   }
 }
 
@@ -514,6 +535,7 @@ async function loadPage() {
 onMounted(loadPage)
 onBeforeUnmount(() => {
   datasetOpenRequestId += 1
+  clearSourceUpload()
   difyStore.cancelIngestionRequests?.()
 })
 
@@ -694,13 +716,26 @@ onBeforeUnmount(() => {
                 </div>
                 <p class="mt-1 text-xs text-text-muted">{{ fileStore.uploadProgress }}%</p>
               </div>
+              <div v-if="failedSourceUpload" class="mx-auto mt-4 flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-left text-sm text-status-error">
+                <p role="alert" class="min-w-0 break-words">{{ failedSourceUpload.message }}</p>
+                <button
+                  data-action="retry-source-upload"
+                  type="button"
+                  class="shrink-0 rounded border border-status-error/30 bg-white px-2 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                  :disabled="fileStore.uploading"
+                  :aria-label="`${t('common.retry')} · ${t('knowledge.flow.uploadTextFile')}`"
+                  @click="retrySourceUpload"
+                >
+                  {{ t('common.retry') }}
+                </button>
+              </div>
               <p class="mx-auto mt-4 max-w-2xl text-xs leading-5 text-text-muted">{{ t('knowledge.flow.supportedTypes') }}</p>
             </div>
 
             <div class="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
               <label class="min-w-0">
                 <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('knowledge.importFromFiles') }}</span>
-                <select v-model="selectedFileId" class="w-full rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary">
+                <select v-model="selectedFileId" class="w-full rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" @change="clearSourceUpload">
                   <option v-for="file in importableFiles" :key="file.id" :value="file.id">
                     {{ file.name }} · {{ file.workflowName ?? file.workflowId ?? t('common.none') }}
                   </option>
