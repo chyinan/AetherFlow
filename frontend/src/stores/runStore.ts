@@ -139,7 +139,11 @@ function errorMessage(error: unknown) {
   return `${status}${apiError.message}`
 }
 
-function refreshArtifactsForRun(runId: string) {
+function refreshArtifactsForRun(run: WorkflowRun) {
+  // 冷加载只能看见已产生事件的节点，局部 100% 不能消耗真实运行的终态刷新。
+  // 无服务端标识或状态的演示运行保留原有完成行为。
+  if ((run.backendStatus || runtimeWorkflowIdFromRun(run)) && run.backendStatus !== 'SUCCESS') return
+  const runId = run.id
   const fileStore = useFileStore()
   fileStore.markRunArtifactsReady(runId)
   if (refreshedArtifactRuns.has(runId)) {
@@ -729,7 +733,7 @@ export const useRunStore = defineStore('run', {
           this.currentRun.status = 'failed'
         } else if (this.currentRun.progress >= 100) {
           this.currentRun.status = 'success'
-          refreshArtifactsForRun(this.currentRun.id)
+          refreshArtifactsForRun(this.currentRun)
         } else if (this.currentRun.nodeStates.some((node) => node.status === 'running')) {
           this.currentRun.status = 'running'
         }
@@ -762,7 +766,7 @@ export const useRunStore = defineStore('run', {
         if (runInList) Object.assign(runInList, this.currentRun)
       }
       if (this.currentRun.status === 'success') {
-        refreshArtifactsForRun(this.currentRun.id)
+        refreshArtifactsForRun(this.currentRun)
       }
     },
     applyHumanApprovalSnapshot(options: {
