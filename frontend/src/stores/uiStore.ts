@@ -381,6 +381,8 @@ export const useUiStore = defineStore('ui', {
       }
       if (state !== this.lastRealtimeNoticeState) {
         const now = Date.now()
+        const instant = new Date(now)
+        const occurredAt = instant.toISOString()
         const existingNoticeIndex = this.lastRealtimeNoticeId
           ? this.notifications.findIndex((item) => item.id === this.lastRealtimeNoticeId)
           : -1
@@ -392,7 +394,8 @@ export const useUiStore = defineStore('ui', {
         const notice = state === 'online' && this.lastRealtimeNoticeState !== 'online'
           ? {
               id: noticeId,
-              time: formatTime(new Date(now)),
+              time: formatTime(instant),
+              occurredAt,
               title: 'Realtime',
               messageKey: 'notifications.realtimeRestored',
               source: 'realtime',
@@ -402,7 +405,8 @@ export const useUiStore = defineStore('ui', {
           : state !== 'online'
             ? {
                 id: noticeId,
-                time: formatTime(new Date(now)),
+                time: formatTime(instant),
+                occurredAt,
                 title: 'Realtime',
                 messageKey: 'notifications.connectionIssue',
                 messageParams: {

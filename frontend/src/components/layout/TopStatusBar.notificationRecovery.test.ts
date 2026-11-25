@@ -118,6 +118,34 @@ describe('正常与既有合并契约对照', () => {
     expect(titles()).toHaveLength(2); expect(store.unreadNotificationCount).toBe(1); expect(store.notificationsLoading).toBe(false)
     server = [record(3)]; await toggle(); await toggle(); expect(titles()).toEqual(['合成历史通知3']); observe('有缓存刷新失败及重开恢复')
   })
+  it.each(['offline', 'online'] as const)('满20条历史时重新打开面板仍保留最新的 %s 连接提示', async state => {
+    const historicalTime = Date.parse('2026-10-16T09:00:00.000Z')
+    server = Array.from({ length: 20 }, (_, index) => ({
+      ...record(20 - index),
+      payload: { title: `合成历史通知${20 - index}`, message: 'notifications.connectionUnknown' },
+      createdAt: new Date(historicalTime - index * 60_000).toISOString(),
+    }))
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-16T10:00:00.000Z'))
+    const store = await setup()
+    live.onConnectionChange('offline')
+    if (state === 'online') live.onConnectionChange('online')
+    const messageKey = state === 'offline' ? 'notifications.connectionIssue' : 'notifications.realtimeRestored'
+    const notice = store.notifications[0]!
+    expect(notice.messageKey).toBe(messageKey)
+    expect(notice.read).toBe(false)
+
+    await toggle()
+    expect(titles()).toHaveLength(20)
+    expect(store.notifications.find(item => item.id === notice.id)).toMatchObject({ messageKey, read: false })
+    expect(titles()[0]).toBe('Realtime')
+    expect(store.notifications.at(-1)?.id).toBe('record-2')
+
+    await toggle()
+    await toggle()
+    expect(titles()[0]).toBe('Realtime')
+    expect(store.notifications[0]?.id).toBe(notice.id)
+    expect(doubles.list).toHaveBeenCalledTimes(3)
+  })
   it('正常历史替换旧后端记录，同时保留新实时项及本地连接合成项', async () => {
     const store = await setup(); await toggle(); emitLive('历史刷新期间的合成实时项'); live.onConnectionChange('offline')
     server = [record(3)]; await store.loadNotificationMessages(); await nextTick()
