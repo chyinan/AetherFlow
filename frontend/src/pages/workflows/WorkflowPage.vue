@@ -104,6 +104,8 @@ async function locatePreflightIssue(issue: PreflightIssue) {
   if (issue.field) requestNodeConfigFieldFocus(issue.nodeId, issue.field)
 }
 const showCopilot = ref(false)
+// 面板关闭会卸载组件；仅在当前编辑页保留用户主动选择的模型。
+const copilotModelPreference = ref('')
 const editorInteractionRevision = ref(0)
 function noteEditorInteraction() {
   editorInteractionRevision.value += 1
@@ -991,6 +993,7 @@ watch(
   async ([workflowId]) => {
     // 保存或 Run 仅规范化当前画布地址时，不能重新加载覆盖较新的编辑。
     if (activeRunStart?.canonicalRoute === route.fullPath || ownsSaveNavigation(route.fullPath)) return
+    copilotModelPreference.value = ''
     workflowLoadRetry.value = null
     if (!hasWorkflowContext.value) {
       initializingWorkflow.value = false
@@ -1721,6 +1724,7 @@ function handleCopilotCanvasEdit(request: CopilotWorkflowDraftApplyRequest) {
       >
         <div v-if="showCopilot" class="absolute inset-y-0 right-0 z-30 w-[min(390px,calc(100%-1rem))] border-l border-app-border bg-white shadow-panel">
           <AICopilotPanel
+            v-model:model-preference="copilotModelPreference"
             :context="copilotContext"
             :apply-workflow-draft="handleCopilotWorkflowDraft"
             :apply-canvas-edit="handleCopilotCanvasEdit"
