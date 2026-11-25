@@ -40,7 +40,9 @@ export type WorkflowNodeStatus =
   | 'success'
   | 'failed'
   | 'skipped'
+  | 'waiting'
   | 'paused'
+  | 'cancelled'
 
 export interface WorkflowNodeData {
   label: string

@@ -165,7 +165,7 @@ it('对照：实时收到批处理的工作流等待摘要仍可查看和复制�
   expect(store?.realtimeRunId).toBe('run-101')
   await emit(waiting(101, attributes))
   await emit(workflowWaiting(101))
-  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'waiting' })
   await checkReadableAndCopyable(attributes)
 })
 
@@ -174,7 +174,7 @@ it('冷打开历史运行时，同一批处理等待摘要不能覆盖已经存�
   histories.set(101, [started(101), waiting(101, attributes), workflowWaiting(101)])
   await open('/runs/run-101')
   expect(get).toHaveBeenCalledWith('/workflow/runtime/events/101')
-  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'waiting' })
   await checkReadableAndCopyable(attributes)
 })
 
@@ -244,7 +244,7 @@ it.each(['resumed', 'recovered'] as const)('冷打开持久化历史时，流程
 
   expect(get).toHaveBeenCalledWith('/workflow-instances/101')
   expect(get).toHaveBeenCalledWith('/workflow/runtime/events/101')
-  expect(store?.currentRun?.nodeStates.find(node => node.nodeId === 'batch')).toMatchObject({ status: 'paused' })
+  expect(store?.currentRun?.nodeStates.find(node => node.nodeId === 'batch')).toMatchObject({ status: 'waiting' })
   await checkReadableAndCopyable(attributes)
   expect(panel().text()).not.toContain('前一版等待结果')
 })
@@ -257,7 +257,7 @@ it.each(['resumed', 'recovered'] as const)('实时收到流程 %s 标记后，�
   await emit(waiting(101, attributes))
   await emit(event(101, 3, 'WORKFLOW_WAITING', 'WAITING', { [flag]: true }))
 
-  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'waiting' })
   await checkReadableAndCopyable(attributes)
 })
 
@@ -294,7 +294,7 @@ it('事件读取失败时保留 HTTP 等待摘要，不冒充恢复了逐项结�
   await vi.waitFor(() => expect(store?.logs.some(log => log.message.includes('Runtime recovery incomplete'))).toBe(true), { timeout: 2000 })
 
   expect(get.mock.calls.filter(([url]) => url === '/workflow/runtime/events/101')).toHaveLength(3)
-  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'paused' })
+  expect(store?.currentRun?.nodeStates[0]).toMatchObject({ status: 'waiting' })
   expect(content()).toBe('WORKFLOW_WAITING')
   expect(panel().find('[data-testid="output-raw"]').exists()).toBe(false)
 })

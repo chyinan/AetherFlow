@@ -40,9 +40,9 @@ it('对照：RUNNING 可从页面取消并进入 CANCELLED', async () => {
   expect(store.currentRun).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED' })
   expect(cancelButton()).toBeUndefined()
 })
-it('正确契约：WAITING 映射为 paused 后仍应提供取消入口', async () => {
+it('正确契约：WAITING 映射为 waiting 后仍应提供取消入口', async () => {
   status = 'WAITING'; const store = await setup()
-  expect(store.currentRun).toMatchObject({ status: 'paused', backendStatus: 'WAITING' })
+  expect(store.currentRun).toMatchObject({ status: 'waiting', backendStatus: 'WAITING' })
   expect(store.error).toBeNull()
   expect(cancelButton()).toBeDefined()
   await cancelButton()!.trigger('click'); await flushPromises()

@@ -110,7 +110,7 @@ describe('人工审批请求的归属与中断恢复', () => {
     const { store } = await setup()
 
     expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({
-      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+      status: 'waiting', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
     })
     expect(dialog()?.textContent).toContain('approval-a')
     expect(action('approve').disabled).toBe(false)
@@ -128,7 +128,7 @@ describe('人工审批请求的归属与中断恢复', () => {
 
     events = [external]
     await refresh()
-    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({ status: 'paused' })
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')).toMatchObject({ status: 'waiting' })
     expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-a')?.approval).toBeUndefined()
     expect(dialog()).toBeNull()
     expect(approvalPosts()).toHaveLength(0)
@@ -141,7 +141,7 @@ describe('人工审批请求的归属与中断恢复', () => {
     action('approve').click(); await flushPromises()
     await moveToNextApproval()
     pending.resolve({ workflowId: '101', runtimeState: 'RUNNING', currentNodeId: 'approval-b' }); await flushPromises()
-    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-b')).toMatchObject({ status: 'paused', approval: { approved: false, approvalStatus: 'pending' } })
+    expect(store.currentRun?.nodeStates.find(node => node.nodeId === 'approval-b')).toMatchObject({ status: 'waiting', approval: { approved: false, approvalStatus: 'pending' } })
     expect(dialog()?.textContent).toContain('approval-b')
     expect(comment().value).toBe('')
     expect(approvalPosts()).toHaveLength(1)

@@ -167,7 +167,8 @@ function mapBackendNode(node: WorkflowRunNodeSummaryDTO): RunNodeState {
 
 function progressFromRun(view: WorkflowRunViewDTO, nodeStates: RunNodeState[]) {
   const status = mapRuntimeStateToRunStatus(toRuntimeState(view.status))
-  if (status === 'success' || status === 'failed' || status === 'cancelled' || status === 'paused') {
+  // WAITING 是「等外部任务」的占位终态，进度按 100% 展示，避免被旧快照回退。
+  if (status === 'success' || status === 'failed' || status === 'cancelled' || status === 'paused' || status === 'waiting') {
     return 100
   }
 
@@ -175,7 +176,7 @@ function progressFromRun(view: WorkflowRunViewDTO, nodeStates: RunNodeState[]) {
     return status === 'running' ? 8 : 0
   }
 
-  const completed = nodeStates.filter((node) => ['success', 'failed', 'paused', 'skipped'].includes(node.status)).length
+  const completed = nodeStates.filter((node) => ['success', 'failed', 'paused', 'waiting', 'skipped'].includes(node.status)).length
   return Math.round((completed / Math.max(nodeStates.length, 1)) * 100)
 }
 
@@ -389,7 +390,7 @@ export async function listRunsPage(query: RunPageQuery = {}): Promise<RunPage> {
     if (shouldUseMockFallback(error, 'workflow')) {
       const filtered = mockRuns.filter(run => (query.definitionId === undefined || run.definitionId === query.definitionId)
         && (!query.workflowId || run.workflowId === query.workflowId)
-        && (!query.status || (run.backendStatus ?? ({ queued: 'PENDING', running: 'RUNNING', paused: 'WAITING', success: 'SUCCESS', failed: 'FAILED', cancelled: 'CANCELLED' }[run.status])) === query.status))
+        && (!query.status || (run.backendStatus ?? ({ queued: 'PENDING', running: 'RUNNING', waiting: 'WAITING', paused: 'WAITING', success: 'SUCCESS', failed: 'FAILED', cancelled: 'CANCELLED' }[run.status])) === query.status))
       return delay({ items: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length, page, pageSize })
     }
     throw error

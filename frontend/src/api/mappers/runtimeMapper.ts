@@ -35,7 +35,9 @@ export function mapRuntimeStateToRunStatus(state?: RuntimeState): RunStatus {
     case 'CANCELLED':
       return 'cancelled'
     case 'WAITING':
-      return 'paused'
+      // WAITING 是「已派发给外部任务、等结果回传」，节点仍在推进。
+      // 早先映射成 paused，界面上就成了一场「工作流自己暂停了」的误判。
+      return 'waiting'
     default:
       return 'running'
   }
@@ -52,8 +54,9 @@ export function mapRuntimeStateToNodeStatus(state?: RuntimeState): WorkflowNodeS
       return 'success'
     case 'FAILED':
       return 'failed'
-    case 'CANCELLED':
     case 'WAITING':
+      return 'waiting'
+    case 'CANCELLED':
       return 'paused'
     default:
       return 'queued'
@@ -108,11 +111,11 @@ function mapRuntimeEventToNodeStatus(event: RuntimeEvent): WorkflowNodeStatus {
     case 'NODE_RETRYING':
       return 'running'
     case 'NODE_WAITING':
-      return 'paused'
+      return 'waiting'
     case 'WORKFLOW_FAILED':
       return 'failed'
     case 'WORKFLOW_CANCELLED':
-      return 'paused'
+      return 'cancelled'
     default:
       return mapRuntimeStateToNodeStatus(event.runtimeState)
   }
@@ -239,14 +242,14 @@ export function mergeHumanApprovalState(
   if (terminalNodeStatus(currentStatus) && incomingStatus !== currentStatus) return null
   if (incomingApproval === null) return null
   if (incomingStatus === undefined) return incomingApproval ?? currentApproval
-  if (incomingStatus !== 'paused') {
+  if (incomingStatus !== 'paused' && incomingStatus !== 'waiting') {
     if (incomingApproval !== undefined) {
       return incomingApproval.approvalStatus === 'pending' ? null : incomingApproval
     }
     return currentApproval?.approvalStatus === 'pending' ? null : currentApproval
   }
   if (incomingApproval !== undefined) return incomingApproval
-  if (currentStatus === 'paused') return currentApproval
+  if (currentStatus === 'paused' || currentStatus === 'waiting') return currentApproval
   return currentApproval ? null : undefined
 }
 
@@ -305,15 +308,16 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       // 工作流完成的节点 ID 仅是上下文，不能覆盖已有节点结论或作为节点完成时间。
       if (completionSummary && terminalNodeStatus(previous?.status)) return
       const durationMs = completionSummary ? undefined : durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
-      if (durationMs !== undefined && ['success', 'failed', 'paused'].includes(patch.status)) {
+      if (durationMs !== undefined && ['success', 'failed', 'paused', 'waiting'].includes(patch.status)) {
         patch.durationMs = durationMs
       }
       if (previous) {
         if (terminalNodeStatus(previous.status) && previous.status !== patch.status) return
         const merged = { ...previous, ...patch }
         // 没有节点数据的工作流等待摘要只确认等待状态，不应抹掉该节点真正的等待结果。
+        const waitingStatuses = (status?: string) => status === 'paused' || status === 'waiting'
         if (event.eventType === 'WORKFLOW_WAITING' && patch.output === event.eventType
-          && previous.status === 'paused' && patch.status === 'paused' && previous.output?.startsWith('{')) {
+          && waitingStatuses(previous.status) && waitingStatuses(patch.status) && previous.output?.startsWith('{')) {
           merged.output = previous.output
         }
         const approval = mergeHumanApprovalState(previous.status, previous.approval, patch.status, patch.approval)

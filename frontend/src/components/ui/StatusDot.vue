@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
-  tone: 'online' | 'degraded' | 'offline' | 'running' | 'success' | 'warning' | 'error' | 'paused'
+  tone: 'online' | 'degraded' | 'offline' | 'running' | 'success' | 'warning' | 'error' | 'paused' | 'waiting'
   label?: string
 }>()
 
@@ -18,6 +18,7 @@ const toneClass: Record<typeof props.tone, string> = {
   warning: 'bg-status-warning',
   error: 'bg-status-error',
   paused: 'bg-status-paused',
+  waiting: 'bg-status-running',
 }
 
 const labelKeys: Record<string, string> = {
@@ -32,6 +33,7 @@ const labelKeys: Record<string, string> = {
   offline: 'status.offline',
   online: 'status.online',
   paused: 'status.paused',
+  waiting: 'status.waiting',
   queued: 'status.queued',
   rotating: 'status.rotating',
   running: 'status.running',

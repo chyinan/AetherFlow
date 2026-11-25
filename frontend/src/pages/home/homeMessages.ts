@@ -19,7 +19,7 @@ export const homeMessages = {
     servicesTitle: '共享服务可用性', servicesHint: '当前提供方的状态快照；不代表每个工作流都具备执行条件', servicesEmpty: '暂无共享服务状态',
     serviceCounts: '{online} 个在线 / {total} 个提供方', configureServices: '配置共享服务', mockWarning: '当前显示演示数据，不能作为真实服务可用性依据',
     platformTitle: '平台状态', platformHint: '查看共享服务指标与治理诊断，进一步排查平台问题', platformAction: '查看平台状态',
-    status: { queued: '排队中', running: '运行中', paused: '等待中', awaitingApproval: '等待人工审批', failed: '失败', success: '已完成', cancelled: '已取消', online: '在线', degraded: '降级', offline: '离线', unknown: '待确认' },
+    status: { queued: '排队中', running: '运行中', waiting: '等待中', paused: '等待中', awaitingApproval: '等待人工审批', failed: '失败', success: '已完成', cancelled: '已取消', online: '在线', degraded: '降级', offline: '离线', unknown: '待确认' },
   },
   'en-US': {
     personalTitle: 'My workbench', personalHint: 'Keep creating, follow your runs, and open completed results', personalScope: 'Only your own workflows and runs appear here',
@@ -41,7 +41,7 @@ export const homeMessages = {
     servicesTitle: 'Shared service availability', servicesHint: 'Current provider status snapshot. Individual workflow execution requirements may differ', servicesEmpty: 'No shared service status available',
     serviceCounts: '{online} online / {total} providers', configureServices: 'Configure shared services', mockWarning: 'Demo data is displayed and cannot establish actual service availability',
     platformTitle: 'Platform status', platformHint: 'Inspect shared service metrics and governance diagnostics to investigate platform issues', platformAction: 'View platform status',
-    status: { queued: 'Queued', running: 'Running', paused: 'Waiting', awaitingApproval: 'Awaiting approval', failed: 'Failed', success: 'Completed', cancelled: 'Cancelled', online: 'Online', degraded: 'Degraded', offline: 'Offline', unknown: 'Unknown' },
+    status: { queued: 'Queued', running: 'Running', waiting: 'Waiting', paused: 'Waiting', awaitingApproval: 'Awaiting approval', failed: 'Failed', success: 'Completed', cancelled: 'Cancelled', online: 'Online', degraded: 'Degraded', offline: 'Offline', unknown: 'Unknown' },
   },
   'ja-JP': {
     personalTitle: 'マイワークベンチ', personalHint: '編集を続け、実行状況と完了した結果を確認します', personalScope: '自分のワークフローと実行履歴のみを表示します',
@@ -63,6 +63,6 @@ export const homeMessages = {
     servicesTitle: '共有サービスの可用性', servicesHint: '現在のプロバイダー状態です。各ワークフローの実行条件とは異なる場合があります', servicesEmpty: '共有サービスの状態がありません',
     serviceCounts: 'オンライン {online} / 全 {total} プロバイダー', configureServices: '共有サービスを設定', mockWarning: 'デモデータを表示中です。実際のサービス可用性を示すものではありません',
     platformTitle: 'プラットフォーム状態', platformHint: '共有サービスの指標とガバナンス診断で問題を調査します', platformAction: 'プラットフォーム状態を見る',
-    status: { queued: 'キュー待ち', running: '実行中', paused: '待機中', awaitingApproval: '承認待ち', failed: '失敗', success: '完了', cancelled: 'キャンセル済み', online: 'オンライン', degraded: '劣化', offline: 'オフライン', unknown: '未確認' },
+    status: { queued: 'キュー待ち', running: '実行中', waiting: '待機中', paused: '待機中', awaitingApproval: '承認待ち', failed: '失敗', success: '完了', cancelled: 'キャンセル済み', online: 'オンライン', degraded: '劣化', offline: 'オフライン', unknown: '未確認' },
   },
 }

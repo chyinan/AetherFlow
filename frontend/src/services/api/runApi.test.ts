@@ -34,9 +34,9 @@ describe('runApi 正式模式', () => {
 
     const run = await runApi.getRun('run-101')
 
-    expect(run.nodeStates.find((node) => node.nodeId === 'external-ai')).toMatchObject({ status: 'paused', approval: null })
+    expect(run.nodeStates.find((node) => node.nodeId === 'external-ai')).toMatchObject({ status: 'waiting', approval: null })
     expect(run.nodeStates.find((node) => node.nodeId === 'human')).toMatchObject({
-      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+      status: 'waiting', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
     })
   })
 

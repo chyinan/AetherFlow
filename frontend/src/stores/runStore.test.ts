@@ -162,7 +162,7 @@ describe('真实运行初始化', () => {
     runStore.patchNodeState({
       nodeId: 'node-human',
       label: '人工审批',
-      status: 'paused',
+      status: 'waiting',
       approval: {
         approved: false,
         approvalStatus: 'pending',
@@ -201,7 +201,7 @@ describe('真实运行初始化', () => {
   it('实时异步 AI 等待清除残留审批状态但继续保持 WAITING', () => {
     const runStore = useRunStore()
     const current = run('run-a')
-    current.nodeStates = [{ nodeId: 'node-ai', label: 'AI', status: 'paused', approval: {
+    current.nodeStates = [{ nodeId: 'node-ai', label: 'AI', status: 'waiting', approval: {
       approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
     } }]
     runStore.currentRun = current
@@ -212,16 +212,16 @@ describe('真实运行初始化', () => {
 
     runStore.patchNodeState(mapRuntimeEventToNodePatch(event)!)
 
-    expect(runStore.currentRun?.nodeStates[0]).toMatchObject({ nodeId: 'node-ai', status: 'paused' })
+    expect(runStore.currentRun?.nodeStates[0]).toMatchObject({ nodeId: 'node-ai', status: 'waiting' })
     expect(runStore.currentRun?.nodeStates[0]?.approval).toBeUndefined()
   })
 
   it('实时 WORKFLOW_WAITING 保留 HUMAN 审批，终态后旧审批不能复活', () => {
     const runStore = useRunStore()
     const current = run('run-a')
-    current.status = 'paused'
+    current.status = 'waiting'
     current.backendStatus = 'WAITING'
-    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'paused', approval: {
+    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'waiting', approval: {
       approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
     } }]
     runStore.currentRun = current
@@ -231,7 +231,7 @@ describe('真实运行初始化', () => {
     }
     runStore.patchNodeState(mapRuntimeEventToNodePatch(workflowWaiting)!)
     expect(runStore.currentRun?.nodeStates[0]).toMatchObject({
-      status: 'paused', approval: { approvalStatus: 'pending', reviewer: 'ops' },
+      status: 'waiting', approval: { approvalStatus: 'pending', reviewer: 'ops' },
     })
 
     const completed: RuntimeEvent = {
@@ -248,20 +248,20 @@ describe('真实运行初始化', () => {
   it('HTTP 历史摘要明确标记外部等待时清除旧的待审批标记', async () => {
     const runStore = useRunStore()
     const current = run('run-a')
-    current.status = 'paused'
+    current.status = 'waiting'
     current.backendStatus = 'WAITING'
-    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'paused', approval: {
+    current.nodeStates = [{ nodeId: 'node-human', label: 'Human', status: 'waiting', approval: {
       approved: false, approvalStatus: 'pending', reviewer: 'ops', method: 'webapp',
     } }]
     runStore.currentRun = current
     runStore.runs = [current]
-    const snapshot = { ...run('run-a'), status: 'paused' as const, backendStatus: 'WAITING' as const,
-      nodeStates: [{ nodeId: 'node-human', label: 'Human', status: 'paused' as const, approval: null }] }
+    const snapshot = { ...run('run-a'), status: 'waiting' as const, backendStatus: 'WAITING' as const,
+      nodeStates: [{ nodeId: 'node-human', label: 'Human', status: 'waiting' as const, approval: null }] }
     runApiMocks.listRuns.mockResolvedValue([snapshot])
 
     await runStore.loadRuns({ selectDefault: false })
 
-    expect(runStore.currentRun?.nodeStates[0]?.status).toBe('paused')
+    expect(runStore.currentRun?.nodeStates[0]?.status).toBe('waiting')
     expect(runStore.currentRun?.nodeStates[0]?.approval).toBeUndefined()
   })
 
@@ -504,11 +504,11 @@ describe('真实运行初始化', () => {
 
   it('把已取消运行视为终态，忽略迟到的运行中事件', () => {
     const runStore = useRunStore()
-    runStore.currentRun = { ...run('run-a'), status: 'paused', backendStatus: 'CANCELLED' }
+    runStore.currentRun = { ...run('run-a'), status: 'waiting', backendStatus: 'CANCELLED' }
 
     runStore.patchCurrentRun({ status: 'running', backendStatus: 'RUNNING' })
 
-    expect(runStore.currentRun.status).toBe('paused')
+    expect(runStore.currentRun.status).toBe('waiting')
     expect(runStore.currentRun.backendStatus).toBe('CANCELLED')
   })
 })

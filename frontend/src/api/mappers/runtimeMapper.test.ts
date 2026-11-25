@@ -22,11 +22,11 @@ describe('runtimeMapper waiting state', () => {
     expect(mapObservationToRunPatch({ workflowId: '101', traceId: 'trace-101', runtimeState: 'CANCELLED' })).toMatchObject({ status: 'cancelled', backendStatus: 'CANCELLED' })
   })
 
-  it('maps waiting workflow to paused instead of running', () => {
-    expect(mapRuntimeStateToRunStatus('WAITING')).toBe('paused')
+  it('maps waiting workflow to waiting instead of running', () => {
+    expect(mapRuntimeStateToRunStatus('WAITING')).toBe('waiting')
   })
 
-  it('maps node waiting event to paused with an actionable message', () => {
+  it('maps node waiting event to waiting with an actionable message', () => {
     const event: RuntimeEvent = {
       eventId: 'event-1',
       eventType: 'NODE_WAITING',
@@ -36,7 +36,7 @@ describe('runtimeMapper waiting state', () => {
       runtimeState: 'RUNNING',
     }
 
-    expect(mapRuntimeEventToNodePatch(event)?.status).toBe('paused')
+    expect(mapRuntimeEventToNodePatch(event)?.status).toBe('waiting')
     expect(mapRuntimeEventToLogEntry(event).message).toContain('waiting for an external result')
   })
 
@@ -47,7 +47,7 @@ describe('runtimeMapper waiting state', () => {
     }
 
     const patch = mapRuntimeEventToNodePatch(event)
-    expect(patch?.status).toBe('paused')
+    expect(patch?.status).toBe('waiting')
     expect(patch?.approval).toBeNull()
   })
 
@@ -106,7 +106,7 @@ describe('runtimeMapper waiting state', () => {
     }
 
     expect(mapRuntimeEventsToNodePatches([human, workflowWaiting])[0]).toMatchObject({
-      status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
+      status: 'waiting', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' },
     })
     expect(mapRuntimeEventsToNodePatches([human, workflowWaiting, completed, human])[0]).toMatchObject({
       status: 'success', approval: null,

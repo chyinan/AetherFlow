@@ -142,7 +142,7 @@ describe('运行历史刷新与所选详情协调', () => {
     mocks.listWorkflowInstances.mockResolvedValue({ items: [{ id: 101, status, durationMs: 900, nodes: [] }], total: 1 })
     await store.refreshRuns()
     await store.refreshRuns()
-    expect(store.currentRun).toMatchObject({ status: status === 'CANCELLED' ? 'cancelled' : 'paused', backendStatus: status, progress: 100, durationMs: 900 })
+    expect(store.currentRun).toMatchObject({ status: status === 'CANCELLED' ? 'cancelled' : 'waiting', backendStatus: status, progress: 100, durationMs: 900 })
     expect(store.runs[0]).toEqual(store.currentRun)
     if (status === 'WAITING') {
       mocks.listWorkflowInstances.mockResolvedValue({ items: [{ id: 101, status: 'RUNNING', durationMs: 1000, nodes: [] }], total: 1 })
@@ -232,7 +232,7 @@ describe('运行历史刷新与所选详情协调', () => {
     const status = runtimeState === 'SUCCESS' ? 'success' : runtimeState === 'FAILED' ? 'failed' : 'cancelled'
     mocks.recoverRuntime.mockResolvedValue({
       runPatch: mapObservationToRunPatch({ workflowId: '101', traceId: 'runtime-trace', runtimeState, progress: 1 }),
-      nodePatches: withNodes ? [{ nodeId: 'node-a', label: '节点 A', status: status === 'cancelled' ? 'paused' : status }] : [], logs: [],
+      nodePatches: withNodes ? [{ nodeId: 'node-a', label: '节点 A', status: status === 'cancelled' ? 'waiting' : status }] : [], logs: [],
     })
     await store.recoverCurrentRunRuntime()
     expect(store.currentRun).toMatchObject({ status, backendStatus: runtimeState, progress: 100 })
@@ -308,8 +308,8 @@ describe('运行历史刷新与所选详情协调', () => {
 
   it('WAITING 的占位 100% 不会阻止真正恢复为 RUNNING', async () => {
     const store = setupStore()
-    store.currentRun = run('run-a', { status: 'paused', backendStatus: 'WAITING', progress: 100,
-      nodeStates: [{ nodeId: 'node-a', label: '审批节点', status: 'paused', approval: { approved: false, approvalStatus: 'pending' } }],
+    store.currentRun = run('run-a', { status: 'waiting', backendStatus: 'WAITING', progress: 100,
+      nodeStates: [{ nodeId: 'node-a', label: '审批节点', status: 'waiting', approval: { approved: false, approvalStatus: 'pending' } }],
     })
     store.runs = [store.currentRun]
     mocks.listRuns.mockResolvedValue([run('run-a', { progress: 20, durationMs: 700 })])
@@ -334,7 +334,7 @@ describe('运行历史刷新与所选详情协调', () => {
       definitionId: 12, currentNodeId: 'node-a', artifactCount: 1, artifactNames: ['result.txt'],
       nodeStates: [
         { nodeId: 'node-a', label: '已完成节点', status: 'success', durationMs: 90, output: '详细输出', retryCount: 2 },
-        { nodeId: 'node-b', label: '人工审批', status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' } },
+        { nodeId: 'node-b', label: '人工审批', status: 'waiting', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' } },
         { nodeId: 'node-local', label: '仅本地节点', status: 'queued' },
       ],
     })
@@ -342,7 +342,7 @@ describe('运行历史刷新与所选详情协调', () => {
       progress: 70, durationMs: 700, definitionId: undefined, currentNodeId: undefined,
       nodeStates: [
         { nodeId: 'node-a', label: 'node-a', status: 'running', durationMs: undefined, output: undefined },
-        { nodeId: 'node-b', label: 'node-b', status: 'paused' },
+        { nodeId: 'node-b', label: 'node-b', status: 'waiting' },
         { nodeId: 'node-server', label: '服务端节点', status: 'queued' },
       ],
     })])
@@ -350,7 +350,7 @@ describe('运行历史刷新与所选详情协调', () => {
     expect(store.currentRun).toMatchObject({ definitionId: 12, currentNodeId: 'node-a', artifactCount: 1, artifactNames: ['result.txt'], progress: 70 })
     expect(store.currentRun?.nodeStates).toEqual([
       { nodeId: 'node-a', label: '已完成节点', status: 'success', durationMs: 90, output: '详细输出', retryCount: 2 },
-      { nodeId: 'node-b', label: '人工审批', status: 'paused', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' } },
+      { nodeId: 'node-b', label: '人工审批', status: 'waiting', approval: { approved: false, approvalStatus: 'pending', reviewer: 'ops' } },
       { nodeId: 'node-local', label: '仅本地节点', status: 'queued' },
       { nodeId: 'node-server', label: '服务端节点', status: 'queued' },
     ])

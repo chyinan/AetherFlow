@@ -208,7 +208,7 @@ const canCancelCurrentRun = computed(() => {
   // 已知节点的局部完成不代表运行结束，取消入口以服务端状态为准。
   return run.backendStatus
     ? ['PENDING', 'RUNNING', 'RETRYING', 'WAITING'].includes(run.backendStatus)
-    : ['queued', 'running', 'paused'].includes(run.status)
+    : ['queued', 'running', 'waiting', 'paused'].includes(run.status)
 })
 
 async function cancelCurrentRun() {
@@ -345,7 +345,7 @@ const approvalDialogCandidate = computed<HumanApprovalRequestView | null>(() => 
   const run = runStore.currentRun
   // 运行已结束时，历史节点上的 pending 不能重新变成可执行审批。
   if (!run || ['SUCCESS', 'FAILED', 'CANCELLED'].includes(run.backendStatus ?? '')) return null
-  const pendingNode = run.nodeStates.find((node) => node.status === 'paused' && node.approval?.approvalStatus === 'pending')
+  const pendingNode = run.nodeStates.find((node) => (node.status === 'paused' || node.status === 'waiting') && node.approval?.approvalStatus === 'pending')
   const instanceId = run?.backendInstanceId ?? (run?.runtimeWorkflowId ? Number(run.runtimeWorkflowId) : undefined)
   if (!run || !pendingNode?.approval || !instanceId || !Number.isInteger(instanceId) || instanceId <= 0) {
     return null

@@ -218,7 +218,7 @@ function mergeRunSnapshot(current: WorkflowRun, incoming: WorkflowRun, preserveC
   const currentInferredTerminal = isTerminalRunStatus(current.status) && !currentTerminal
   const incomingTerminal = isTerminalRunStatus(incoming.status) || isCancelledRun(incoming)
   // WAITING 摘要使用 100% 占位；真正恢复运行时允许更新为实际进度。
-  const resumesFromWaiting = current.status === 'paused' && incoming.status === 'running'
+  const resumesFromWaiting = (current.status === 'paused' || current.status === 'waiting') && incoming.status === 'running'
   // 列表请求发出后收到的运行更新，以及已经确认的终态，不能被旧 HTTP 快照覆盖。
   if (preserveCurrent || (currentTerminal && (
     current.status !== incoming.status || isCancelledRun(current) !== isCancelledRun(incoming)
@@ -322,7 +322,7 @@ export const useRunStore = defineStore('run', {
           acc[run.status] += 1
           return acc
         },
-        { queued: 0, running: 0, success: 0, failed: 0, paused: 0, cancelled: 0 } as Record<WorkflowRun['status'], number>,
+        { queued: 0, running: 0, waiting: 0, success: 0, failed: 0, paused: 0, cancelled: 0 } as Record<WorkflowRun['status'], number>,
       ),
     currentRunProgress: (state) => state.currentRun?.progress ?? 0,
   },
@@ -702,7 +702,7 @@ export const useRunStore = defineStore('run', {
         && (!isTerminalNodeStatus(patch.status) || state.status !== patch.status)) {
         return
       }
-      const normalizedPatch = patch.approval || patch.approval === null || patch.status === 'paused'
+      const normalizedPatch = patch.approval || patch.approval === null || patch.status === 'paused' || patch.status === 'waiting'
         ? patch
         : { ...patch, approval: undefined }
       const approval = mergeHumanApprovalState(state?.status, state?.approval, patch.status, patch.approval)

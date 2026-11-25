@@ -210,11 +210,31 @@ function recoverNotificationHistory(
   })()
 }
 
+// 工作流/任务事件的本地文案：服务端部分事件只带事件名，甚至把 title 直接写成
+// 事件名（如 WORKFLOW_COMPLETED），原样渲染对使用者毫无意义。
+function notificationEventKey(eventType?: string) {
+  switch (String(eventType ?? '').trim().toUpperCase()) {
+    case 'WORKFLOW_STARTED': return 'notifications.workflowStarted'
+    case 'WORKFLOW_COMPLETED': return 'notifications.workflowCompleted'
+    case 'WORKFLOW_FAILED': return 'notifications.workflowFailed'
+    case 'WORKFLOW_CANCELLED': return 'notifications.workflowCancelled'
+    case 'WORKFLOW_WAITING': return 'notifications.workflowWaiting'
+    case 'AI_TASK_STARTED': return 'notifications.aiTaskStarted'
+    case 'AI_TASK_SUCCEEDED': return 'notifications.aiTaskSucceeded'
+    case 'AI_TASK_FAILED': return 'notifications.aiTaskFailed'
+    default: return ''
+  }
+}
+
 function notificationTitle(message: NotifyMessageDTO) {
   const title = typeof message.payload.title === 'string' ? message.payload.title.trim() : ''
-  return title
-    ? title
-    : message.eventType || message.channel || 'Notify'
+  const eventType = typeof message.eventType === 'string' ? message.eventType.trim() : ''
+  // title 与事件名相同说明是没翻译过的占位文案，走本地映射。
+  if (title && title.toUpperCase() !== eventType.toUpperCase()) {
+    return title
+  }
+  const key = notificationEventKey(eventType)
+  return key ? i18n.global.t(key) : (eventType || message.channel || 'Notify')
 }
 
 function notificationServiceLabel(message: NotifyMessageDTO) {
@@ -250,7 +270,23 @@ function notificationMessageKey(message: NotifyMessageDTO) {
     return rawMessage
   }
 
+  const eventKey = notificationEventKey(message.eventType)
+  if (eventKey) {
+    return `${eventKey}Detail`
+  }
+
   return 'notifications.connectionUnknown'
+}
+
+function notificationMessageParams(message: NotifyMessageDTO) {
+  const nodeType = typeof message.payload.nodeType === 'string' ? message.payload.nodeType.trim() : ''
+  const nodeId = typeof message.payload.nodeId === 'string' ? message.payload.nodeId.trim() : ''
+  const instance = message.payload.workflowInstanceId
+  return {
+    service: notificationServiceLabel(message),
+    node: nodeType || nodeId || i18n.global.t('notifications.nodeUnknown'),
+    instance: instance === undefined || instance === null ? '' : String(instance),
+  }
 }
 
 function notificationTone(message: NotifyMessageDTO): UiNotification['tone'] {
@@ -291,9 +327,7 @@ function normalizeRecord(record: NotificationRecordDTO): UiNotification {
     occurredAt,
     title: notificationTitle(message),
     messageKey,
-    messageParams: {
-      service: notificationServiceLabel(message),
-    },
+    messageParams: notificationMessageParams(message),
     statusKey: statusKeyForTone(tone),
     source: record.channel ?? 'notify',
     read: (record.status ?? '').toUpperCase() === 'READ',
@@ -472,9 +506,7 @@ export const useUiStore = defineStore('ui', {
         occurredAt: normalizeNotificationTimestamp(message.occurredAt) ?? new Date().toISOString(),
         title: notificationTitle(message),
         messageKey,
-        messageParams: {
-          service: notificationServiceLabel(message),
-        },
+        messageParams: notificationMessageParams(message),
         statusKey: statusKeyForTone(tone),
         source: message.channel ?? 'notify',
         read: (message.status ?? '').toUpperCase() === 'READ',

@@ -29,8 +29,9 @@ const historyQuery = () => props.group === 'failed' ? { status: 'FAILED' } : pro
 
 function runStatusMessageKey(run: WorkflowRun) {
   // WAITING 同时用于异步处理和人工审批；只在已有摘要证实时提示审批。
-  const awaitingApproval = run.status === 'paused'
-    && run.nodeStates.some(node => node.status === 'paused'
+  // 等待外部任务的节点现在是 waiting；审批仍走 paused，两者都要能识别。
+  const awaitingApproval = (run.status === 'paused' || run.status === 'waiting')
+    && run.nodeStates.some(node => (node.status === 'paused' || node.status === 'waiting')
       && node.approval?.approvalStatus === 'pending' && node.approval.approved === false)
   return awaitingApproval ? 'status.awaitingApproval' : `status.${run.status}`
 }
