@@ -22,7 +22,7 @@ class ProviderHealthAttributionTest {
     void pythonRuntimeReachabilityIsNotReportedAsUpstreamOpenAiHealth() {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("http://python-ai");
         var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
-        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://python-ai/ai/status"))
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://python-ai/ai/status?probeProvider=openai"))
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
                         "{\"llmEnabled\":true,\"providers\":[\"openai\"]}", org.springframework.http.MediaType.APPLICATION_JSON));
         OpenAIProvider provider = new OpenAIProvider(builder.build(), mock(PythonAiInferenceClientFactory.class),
@@ -43,7 +43,7 @@ class ProviderHealthAttributionTest {
     void missingPythonRuntimeProviderFieldsRemainUnknown() {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("http://python-ai");
         var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
-        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://python-ai/ai/status"))
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo("http://python-ai/ai/status?probeProvider=openai"))
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
                         "{\"service\":\"python-ai\"}", org.springframework.http.MediaType.APPLICATION_JSON));
         OpenAIProvider provider = new OpenAIProvider(builder.build(), mock(PythonAiInferenceClientFactory.class),
@@ -54,6 +54,53 @@ class ProviderHealthAttributionTest {
         org.assertj.core.api.Assertions.assertThat(health.status()).isEqualTo(ProviderHealthStatus.UNKNOWN);
         org.assertj.core.api.Assertions.assertThat(health.healthy()).isFalse();
         org.assertj.core.api.Assertions.assertThat(health.observationSource()).isEqualTo("PYTHON_AI_RUNTIME");
+        server.verify();
+    }
+
+    @Test
+    void selectedProviderObservationIsUsedRatherThanUnrelatedProbe() {
+        var builder = org.springframework.web.client.RestClient.builder().baseUrl("http://python-ai");
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://python-ai/ai/status?probeProvider=openai"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess("""
+                        {"llmEnabled":true,"providers":["openai","ollama"],"providerHealth":{
+                          "openai":{"reachable":true,"latencyMillis":12},
+                          "ollama":{"reachable":false,"detail":"ReadTimeout"}
+                        }}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+        OpenAIProvider provider = new OpenAIProvider(builder.build(), mock(PythonAiInferenceClientFactory.class),
+                new com.aetherflow.ai.sentinel.SentinelAiGuard(), new com.fasterxml.jackson.databind.ObjectMapper());
+
+        AiProviderHealth health = provider.health();
+
+        org.assertj.core.api.Assertions.assertThat(health.status()).isEqualTo(ProviderHealthStatus.UP);
+        org.assertj.core.api.Assertions.assertThat(health.latencyMillis()).isEqualTo(12L);
+        org.assertj.core.api.Assertions.assertThat(health.metadata()).containsEntry("upstreamProviderHealth", "UP");
+        server.verify();
+    }
+
+    @Test
+    void targetedOllamaProbeFailureRemainsDegradedRatherThanRuntimeDown() {
+        var builder = org.springframework.web.client.RestClient.builder().baseUrl("http://python-ai");
+        var server = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://python-ai/ai/status?probeProvider=ollama"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess("""
+                        {"llmEnabled":true,"providers":["ollama"],"providerHealth":{
+                          "ollama":{"reachable":false,"latencyMillis":2000,"detail":"ReadTimeout"}
+                        }}
+                        """, org.springframework.http.MediaType.APPLICATION_JSON));
+        OllamaProvider provider = new OllamaProvider(builder.build(), mock(PythonAiInferenceClientFactory.class),
+                new com.aetherflow.ai.sentinel.SentinelAiGuard(), new com.fasterxml.jackson.databind.ObjectMapper());
+
+        AiProviderHealth health = provider.health();
+
+        org.assertj.core.api.Assertions.assertThat(health.status()).isEqualTo(ProviderHealthStatus.DEGRADED);
+        org.assertj.core.api.Assertions.assertThat(health.healthy()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(health.metadata())
+                .containsEntry("upstreamProviderHealth", "DOWN")
+                .containsEntry("upstreamDetail", "ReadTimeout");
         server.verify();
     }
 

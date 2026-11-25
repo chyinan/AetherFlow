@@ -39,6 +39,17 @@ WHISPER_COMPUTE_TYPE=int8
 
 此接口不读取模型目录、不自动发现用户机器文件、不重新加载环境配置，也不创建模型。无法仅靠静态配置确认模型是否缺失时返回 `unloaded`，不会猜测为 `missing_model`。在进程外改动部署文件后、重启前，接口只能看到旧进程的环境值。
 
+## LLM 提供商探测
+
+普通 `GET /ai/status` 仍用于读取运行时能力和模型目录，不追加健康探测。
+Java 对单个提供商做健康检查时使用 `GET /ai/status?probeProvider=openai` 或
+`GET /ai/status?probeProvider=ollama`。该请求不刷新模型目录，只返回选中提供商的
+`providerHealth` 结果；LLM 关闭或该提供商未配置时，结果为空。上游检查失败只表示
+该提供商降级，不代表 Python 服务离线。`/models` 可达也不代表已验证模型推理。
+
+上游 HTTP 各阶段的超时为 2 秒，为 Java 的默认 3 秒状态请求留出余量。这不是
+上游请求的总时限；若自定义了更短的 Java 状态超时，仍需给上游请求留出返回时间。
+
 ## 聚焦回归
 
 在仓库根目录运行（兼容 PowerShell）：

@@ -58,7 +58,9 @@ public abstract class PythonRuntimeAiProvider implements AiProvider {
             try {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> status = pythonAiStatusRestClient.get()
-                        .uri("/ai/status")
+                        .uri(uri -> uri.path("/ai/status")
+                                .queryParam("probeProvider", type().name().toLowerCase(Locale.ROOT))
+                                .build())
                         .retrieve()
                         .body(Map.class);
                 long latency = System.currentTimeMillis() - startedAt;
