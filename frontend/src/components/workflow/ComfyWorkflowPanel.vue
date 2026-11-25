@@ -8,9 +8,9 @@ const emit = defineEmits<{
   'replace-workflow': [values: Record<string, unknown>, nodeId: string]
 }>()
 const { t } = useI18n({ useScope: 'local', messages: {
-  'zh-CN': { title: 'ComfyUI 原图与执行图', wrap: '导入创建 4 个 AF 外层节点，封装原图的 {nodes} 个节点、{links} 条连线。', summary: '原图：{nodes} 个节点、{links} 条连线。', missing: '尚未载入 API 执行图。请从 ComfyUI 导出 API 格式 JSON 后选择该文件。', api: 'API 执行图：{nodes} 个节点。默认保持原参数与插件节点。', ui: '原图已保留。请在原有 ComfyUI 中导出 API 格式 JSON，再载入执行图。当前界面 JSON 只能查看和保存，不能运行。', invalid: '执行图格式无效，请重新导出 API 格式 JSON。', plugins: '插件、模型和原生前端尚未验证。依赖插件前端的编辑仍在原有 ComfyUI 完成。', unresolved: '原始正向提示词尚未解析：插件文本链或多分支需要原生 ComfyUI 求值；没有用负向文本代替。', list: '查看内部节点与输入', source: '查看完整原图 JSON', load: '载入 API 执行图', preserve: '载入后保留原图，清空旧参数绑定；不会运行工作流。', bindings: '指定参数覆盖', hint: '默认不覆盖。明确添加目标后，才使用下方对应的 AF 参数或提示词变量；其他节点及输入保持原样。', target: '执行图输入', parameter: 'AF 参数', add: '添加覆盖', remove: '移除', empty: '未设置覆盖，按原图参数执行。', error: '无法读取文件，请选择有效的 API JSON。', linked: '覆盖链接输入会替换原有上游引用。', format: '原图格式：{format}' },
-  en: { title: 'ComfyUI source and execution graph', wrap: 'Import creates 4 AF wrapper nodes around {nodes} original nodes and {links} links.', summary: 'Source graph: {nodes} nodes, {links} links.', missing: 'No API execution graph loaded. Export API JSON from ComfyUI and select the file here.', api: 'API execution graph: {nodes} nodes. Original parameters and plugin nodes are retained by default.', ui: 'Source retained. Export API JSON from your existing ComfyUI and load it here. UI JSON can be viewed and saved, but cannot run.', invalid: 'Invalid execution graph. Export API JSON again.', plugins: 'Plugins, models and native frontend are unverified. Edit frontend-dependent plugins in your existing ComfyUI.', unresolved: 'Original positive prompt unresolved: plugin chains or multiple branches require native evaluation. Negative text was not substituted.', list: 'Internal nodes and inputs', source: 'Complete source JSON', load: 'Load API execution graph', preserve: 'Retains source and clears old bindings. Does not run the graph.', bindings: 'Explicit parameter overrides', hint: 'No overrides by default. Add a target to use the corresponding AF parameter or prompt variable below. Other inputs remain unchanged.', target: 'Execution input', parameter: 'AF parameter', add: 'Add override', remove: 'Remove', empty: 'No overrides; run with original parameters.', error: 'Cannot read file. Select valid API JSON.', linked: 'Overriding a linked input replaces its upstream reference.', format: 'Source format: {format}' },
-  ja: { title: 'ComfyUI 原図と実行グラフ', wrap: '4 個の AF ノードが原図の {nodes} ノードと {links} 接続を包みます。', summary: '原図：{nodes} ノード、{links} 接続。', missing: 'API 実行グラフがありません。ComfyUI で API JSON を出力し、そのファイルを選択してください。', api: 'API 実行グラフ：{nodes} ノード。元のパラメータを保持します。', ui: '原図は保持されます。既存の ComfyUI で API JSON を出力し、ここに読み込んでください。UI JSON は表示と保存のみ可能です。', invalid: '実行形式が無効です。API JSON を再出力してください。', plugins: 'プラグイン、モデル、専用フロントエンドは未検証です。専用 UI の編集は既存の ComfyUI で行います。', unresolved: '元の正向プロンプトは未解析です。プラグインと複数分岐は元の環境で評価します。負向テキストで代用しません。', list: '内部ノードと入力', source: '原図 JSON 全体', load: 'API 実行グラフを読み込む', preserve: '原図を保持し、以前のバインドを解除します。実行しません。', bindings: '明示的なパラメータ上書き', hint: '既定では上書きしません。対象を追加した入力のみ AF の値を使用します。', target: '実行入力', parameter: 'AF パラメータ', add: '上書きを追加', remove: '削除', empty: '上書きなし。原図の値を使用します。', error: '有効な API JSON を選択してください。', linked: '接続入力の上書きは元の参照を置換します。', format: '原図形式：{format}' },
+  'zh-CN': { title: 'ComfyUI 原图与执行图', wrap: '导入创建 4 个 AF 外层节点，封装原图的 {nodes} 个节点、{links} 条连线。', summary: '原图：{nodes} 个节点、{links} 条连线。', missing: '尚未载入 API 执行图。请从 ComfyUI 导出 API 格式 JSON 后选择该文件。', api: 'API 执行图：{nodes} 个节点。默认保持原参数与插件节点。', ui: '原图已保留。请在原有 ComfyUI 中导出 API 格式 JSON，再载入执行图。当前界面 JSON 只能查看和保存，不能运行。', invalid: '执行图格式无效，请重新导出 API 格式 JSON。', plugins: '插件、模型和原生前端尚未验证。依赖插件前端的编辑仍在原有 ComfyUI 完成。', unresolved: '原始正向提示词尚未解析：插件文本链或多分支需要原生 ComfyUI 求值；没有用负向文本代替。', list: '查看内部节点与输入', source: '查看完整原图 JSON', load: '载入 API 执行图', preserve: '载入后保留原图，清空旧参数绑定；不会运行工作流。', bindings: '指定参数覆盖', hint: '默认不覆盖。明确添加目标后，才使用下方对应的 AF 参数或提示词变量；其他节点及输入保持原样。', target: '执行图输入', parameter: 'AF 参数', add: '添加覆盖', remove: '移除', empty: '未设置覆盖，按原图参数执行。', error: '无法读取文件，请选择有效的 API JSON。', reading: '正在读取 API 执行图…', changed: '读取期间修改了参数覆盖。已保留当前执行图和覆盖；如需替换，请重新选择文件。', linked: '覆盖链接输入会替换原有上游引用。', format: '原图格式：{format}' },
+  en: { title: 'ComfyUI source and execution graph', wrap: 'Import creates 4 AF wrapper nodes around {nodes} original nodes and {links} links.', summary: 'Source graph: {nodes} nodes, {links} links.', missing: 'No API execution graph loaded. Export API JSON from ComfyUI and select the file here.', api: 'API execution graph: {nodes} nodes. Original parameters and plugin nodes are retained by default.', ui: 'Source retained. Export API JSON from your existing ComfyUI and load it here. UI JSON can be viewed and saved, but cannot run.', invalid: 'Invalid execution graph. Export API JSON again.', plugins: 'Plugins, models and native frontend are unverified. Edit frontend-dependent plugins in your existing ComfyUI.', unresolved: 'Original positive prompt unresolved: plugin chains or multiple branches require native evaluation. Negative text was not substituted.', list: 'Internal nodes and inputs', source: 'Complete source JSON', load: 'Load API execution graph', preserve: 'Retains source and clears old bindings. Does not run the graph.', bindings: 'Explicit parameter overrides', hint: 'No overrides by default. Add a target to use the corresponding AF parameter or prompt variable below. Other inputs remain unchanged.', target: 'Execution input', parameter: 'AF parameter', add: 'Add override', remove: 'Remove', empty: 'No overrides; run with original parameters.', error: 'Cannot read file. Select valid API JSON.', reading: 'Reading the API execution graph…', changed: 'Overrides changed while reading. The current graph and overrides are unchanged. Select the file again to replace them.', linked: 'Overriding a linked input replaces its upstream reference.', format: 'Source format: {format}' },
+  ja: { title: 'ComfyUI 原図と実行グラフ', wrap: '4 個の AF ノードが原図の {nodes} ノードと {links} 接続を包みます。', summary: '原図：{nodes} ノード、{links} 接続。', missing: 'API 実行グラフがありません。ComfyUI で API JSON を出力し、そのファイルを選択してください。', api: 'API 実行グラフ：{nodes} ノード。元のパラメータを保持します。', ui: '原図は保持されます。既存の ComfyUI で API JSON を出力し、ここに読み込んでください。UI JSON は表示と保存のみ可能です。', invalid: '実行形式が無効です。API JSON を再出力してください。', plugins: 'プラグイン、モデル、専用フロントエンドは未検証です。専用 UI の編集は既存の ComfyUI で行います。', unresolved: '元の正向プロンプトは未解析です。プラグインと複数分岐は元の環境で評価します。負向テキストで代用しません。', list: '内部ノードと入力', source: '原図 JSON 全体', load: 'API 実行グラフを読み込む', preserve: '原図を保持し、以前のバインドを解除します。実行しません。', bindings: '明示的なパラメータ上書き', hint: '既定では上書きしません。対象を追加した入力のみ AF の値を使用します。', target: '実行入力', parameter: 'AF パラメータ', add: '上書きを追加', remove: '削除', empty: '上書きなし。原図の値を使用します。', error: '有効な API JSON を選択してください。', reading: 'API 実行グラフを読み込み中…', changed: '読み込み中にパラメータの上書きが変更されました。現在の実行グラフと上書きを保持しました。置き換える場合は、ファイルを選び直してください。', linked: '接続入力の上書きは元の参照を置換します。', format: '原図形式：{format}' },
 } })
 const execution = computed(() => describeComfyGraph(props.config.workflowJson ?? props.config.workflow))
 function isEmptyGraph(value: unknown) {
@@ -26,7 +26,8 @@ const missingExecution = computed(() => isEmptyGraph(execution.value.raw))
 const metadata = computed(() => isRecord(props.config.comfyImport) ? props.config.comfyImport : {})
 const bindings = computed(() => Array.isArray(props.config.workflowBindings) ? props.config.workflowBindings : [])
 const bindingError = computed(() => comfyBindingError(props.config.workflowBindings, execution.value.graph))
-const target = ref(''), parameter = ref<string>('prompt'), loadError = ref('')
+const target = ref(''), parameter = ref<string>('prompt')
+const loadFeedback = ref<'reading' | 'changed' | 'invalid' | 'error' | null>(null)
 const bindingAttempted = ref(false)
 const proposedBindings = computed(() => {
   if (!target.value) return null
@@ -39,20 +40,33 @@ const visibleBindingError = computed(() => bindingError.value || (bindingAttempt
 watch(target, () => { bindingAttempted.value = false }, { flush: 'sync' })
 const input = ref<HTMLInputElement | null>(null)
 const targets = computed(() => execution.value.nodes.flatMap((node) => Object.keys(node.inputs).map((name) => ({ key: JSON.stringify([node.id, name]), label: `${node.id} · ${node.type} · ${name}` }))))
-let alive = true, sequence = 0
+let alive = true, sequence = 0, bindingsRevision = 0
+watch(() => props.config.workflowBindings, () => { bindingsRevision++ }, { flush: 'sync' })
 onBeforeUnmount(() => { alive = false; sequence++ })
 async function loadApi(event: Event) {
   const element = event.target as HTMLInputElement, file = element.files?.[0]
   if (!file) return
+  // 先清空选择器，让同一个文件也能显式重试。
+  element.value = ''
   const current = ++sequence, nodeId = props.nodeId
   const previousGraph = props.config.workflowJson, previousSource = props.config.workflow
+  const previousBindingsRevision = bindingsRevision
   const isCurrent = () => alive && current === sequence && nodeId === props.nodeId
     && previousGraph === props.config.workflowJson && previousSource === props.config.workflow
-  loadError.value = ''
+  const mayApply = () => {
+    if (!isCurrent()) return false
+    // 换图会清除已有覆盖，因此不能抹掉用户在读文件后做出的更新。
+    if (previousBindingsRevision !== bindingsRevision) {
+      loadFeedback.value = 'changed'
+      return false
+    }
+    return true
+  }
+  loadFeedback.value = 'reading'
   try {
     const text = await readComfyWorkflowFile(file)
-    if (!isCurrent()) return
-    if (describeComfyGraph(text).format !== 'API') { loadError.value = t('invalid'); return }
+    if (!mayApply()) return
+    if (describeComfyGraph(text).format !== 'API') { loadFeedback.value = 'invalid'; return }
     const values: Record<string, unknown> = {
       workflowJson: text,
       workflowBindings: [],
@@ -63,8 +77,8 @@ async function loadApi(event: Event) {
     }
     emit('replace-workflow', values, nodeId)
     target.value = ''
-  } catch { if (isCurrent()) loadError.value = t('error') }
-  finally { if (alive && current === sequence) element.value = '' }
+  } catch { if (mayApply()) loadFeedback.value = 'error' }
+  finally { if (alive && current === sequence && loadFeedback.value === 'reading') loadFeedback.value = null }
 }
 function addBinding() {
   const next = proposedBindings.value
@@ -89,6 +103,8 @@ function addBinding() {
     <input ref="input" class="hidden" type="file" accept=".json,application/json" data-testid="comfy-api-file" @change="loadApi" />
     <button type="button" class="rounded-lg border border-app-border px-3 py-2 text-primary" @click="input?.click()">{{ t('load') }}</button>
     <p class="text-xs text-text-muted">{{ t('preserve') }}</p>
+    <p v-if="loadFeedback === 'reading' || loadFeedback === 'changed'" data-testid="comfy-api-load-status"
+      role="status" class="text-xs text-text-secondary">{{ t(loadFeedback) }}</p>
     <div v-if="execution.format === 'API'" class="space-y-2 border-t border-app-border pt-3">
       <h4 class="font-semibold">{{ t('bindings') }}</h4><p class="text-xs leading-5 text-text-muted">{{ t('hint') }} {{ t('linked') }}</p>
       <label class="block text-xs">{{ t('target') }}<select v-model="target" data-testid="comfy-target" class="mt-1 w-full rounded border border-app-border bg-app-bg px-2 py-2"><option value="">—</option><option v-for="item in targets" :key="item.key" :value="item.key">{{ item.label }}</option></select></label>
@@ -97,7 +113,7 @@ function addBinding() {
       <p v-if="!bindings.length" class="text-xs text-text-muted">{{ t('empty') }}</p>
       <div v-for="(binding, index) in bindings" :key="index" class="flex items-center justify-between gap-2 text-xs"><code>{{ binding.nodeId }}.{{ binding.inputName }} ← {{ binding.parameter }}</code><button type="button" :aria-label="t('remove')" class="px-2 py-1 text-primary" @click="emit('update', 'workflowBindings', bindings.filter((_, i) => i !== index))">{{ t('remove') }}</button></div>
     </div>
-    <p v-if="loadError" role="alert" class="text-xs text-status-error">{{ loadError }}</p>
+    <p v-if="loadFeedback === 'invalid' || loadFeedback === 'error'" role="alert" class="text-xs text-status-error">{{ t(loadFeedback) }}</p>
     <p v-if="visibleBindingError" role="alert" class="text-xs text-status-error">{{ visibleBindingError }}</p>
   </section>
 </template>

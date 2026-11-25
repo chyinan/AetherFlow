@@ -206,6 +206,58 @@ async function seedEditor(initial: Record<string, unknown> = {}) {
 
 const seedOverride = { nodeId: 'a', inputName: 'seed', parameter: 'seed' }
 
+it.each(['添加并保存', '移除后读取失败'] as const)('读取 API 图期间%s的覆盖不被旧请求撤销，可重选同一文件', async (edit) => {
+  const removing = edit === '移除后读取失败'
+  const { store, graph, config: persistedConfig } = await seedEditor({
+    workflowBindings: removing ? [seedOverride] : [],
+  })
+  const panel = wrapper!.get('[data-testid="comfy-workflow-panel"]')
+  const file = panel.get<HTMLInputElement>('[data-testid="comfy-api-file"]')
+  const nextGraph = '{"b":{"class_type":"KSampler","inputs":{"steps":38}}}'
+  let resolveRead!: (bytes: ArrayBuffer) => void
+  let rejectRead!: (error: Error) => void
+  const bytes = new TextEncoder().encode(nextGraph).buffer as ArrayBuffer
+  const read = vi.fn()
+    .mockImplementationOnce(() => new Promise<ArrayBuffer>((resolve, reject) => {
+      resolveRead = resolve
+      rejectRead = reject
+    }))
+    .mockResolvedValueOnce(bytes)
+  Object.defineProperty(file.element, 'files', { configurable: true, value: [{ arrayBuffer: read }] })
+  await file.trigger('change')
+
+  if (removing) {
+    await panel.get('button[aria-label="移除"]').trigger('click')
+  } else {
+    await panel.get('[data-testid="comfy-target"]').setValue(JSON.stringify(['a', 'seed']))
+    await panel.get('[data-testid="comfy-parameter"]').setValue('seed')
+    await panel.get('[data-testid="comfy-add-binding"]').trigger('click')
+    expect(await store.saveCurrentWorkflow()).toEqual({ workflowId: '42' })
+    expect(persistedConfig()).toMatchObject({ workflowJson: graph, workflowBindings: [seedOverride] })
+  }
+  const bindings = removing ? [] : [seedOverride]
+  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: graph, workflowBindings: bindings })
+  const historyLength = store.historyPast.length
+
+  if (removing) rejectRead(new Error('模拟较早的读取失败'))
+  else resolveRead(bytes)
+  await flushPromises()
+
+  expect(store.nodes[0]!.data.config).toMatchObject({ workflowJson: graph, workflowBindings: bindings })
+  expect(store.historyPast).toHaveLength(historyLength)
+  expect(panel.get('[data-testid="comfy-api-load-status"]').text()).toContain('请重新选择文件')
+  expect(panel.text()).not.toContain('无法读取文件')
+  expect(http.put).toHaveBeenCalledTimes(removing ? 0 : 1)
+
+  await file.trigger('change')
+  await flushPromises()
+  expect(read).toHaveBeenCalledTimes(2)
+  expect(store.nodes[0]!.data.config).toMatchObject({ workflow: graph, workflowJson: nextGraph, workflowBindings: [] })
+  expect(store.historyPast).toHaveLength(historyLength + 1)
+  expect(panel.find('[data-testid="comfy-api-load-status"]').exists()).toBe(false)
+  expect(http.put).toHaveBeenCalledTimes(removing ? 0 : 1)
+})
+
 it.each([
   ['9007199254740993', '9007199254740993'],
   ['9223372036854775807', '9223372036854775807'],
