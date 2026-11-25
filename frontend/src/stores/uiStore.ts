@@ -26,6 +26,8 @@ export interface UiNotification {
   source?: string
   read: boolean
   tone?: 'online' | 'degraded' | 'offline'
+  /** 明确关联终态通知的本次运行；旧通知不猜测目标。 */
+  runId?: string
 }
 
 type NotificationMutation = 'markAllRead' | 'clear'
@@ -307,6 +309,24 @@ function statusKeyForTone(tone: UiNotification['tone']) {
   return tone ? `status.${tone}` : undefined
 }
 
+function notificationInstanceRunId(value: unknown) {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined
+  const id = String(value).trim()
+  return /^[1-9]\d*$/.test(id) && Number.isSafeInteger(Number(id)) ? `run-${id}` : undefined
+}
+
+function notificationRunId(message: NotifyMessageDTO) {
+  const eventType = String(message.eventType ?? '').trim().toUpperCase()
+  const terminalStatus = eventType === 'WORKFLOW_COMPLETED' ? 'SUCCESS'
+    : eventType === 'WORKFLOW_FAILED' ? 'FAILED'
+      : eventType === 'WORKFLOW_CANCELLED' ? 'CANCELLED' : undefined
+  // Notify 节点也能使用同名事件，但它携带 nodeId/taskId，而非工作流终态回执。
+  // 只使用显式实例 ID，不把 workflowId（定义或运行标识）或通知 eventId 猜成实例。
+  if (message.channel?.toUpperCase() !== 'WORKFLOW' || !terminalStatus
+    || message.payload.status !== terminalStatus || message.payload.nodeId != null || message.payload.taskId != null) return undefined
+  return notificationInstanceRunId(message.payload.workflowInstanceId)
+}
+
 function normalizeRecord(record: NotificationRecordDTO): UiNotification {
   // 历史 createdAt 是 LocalDateTime（不带 offset），按配置的服务器偏移补齐成绝对时刻，
   // 否则会和带 offset 的实时通知相差"服务器时区 − 浏览器时区"。
@@ -332,6 +352,7 @@ function normalizeRecord(record: NotificationRecordDTO): UiNotification {
     source: record.channel ?? 'notify',
     read: (record.status ?? '').toUpperCase() === 'READ',
     tone,
+    runId: notificationRunId(message),
   }
 }
 
@@ -351,7 +372,12 @@ function readStoredNotifications(userId?: string | number | null) {
         && typeof item?.time === 'string'
         && typeof item?.title === 'string'
         && typeof item?.messageKey === 'string'
-    }).map((item) => ({ ...item, read: Boolean(item.read) }))
+    }).map((item) => ({
+      ...item,
+      read: Boolean(item.read),
+      runId: typeof item.runId === 'string' && item.runId.startsWith('run-')
+        ? notificationInstanceRunId(item.runId.slice(4)) : undefined,
+    }))
   } catch {
     return []
   }
@@ -511,6 +537,7 @@ export const useUiStore = defineStore('ui', {
         source: message.channel ?? 'notify',
         read: (message.status ?? '').toUpperCase() === 'READ',
         tone,
+        runId: notificationRunId(message),
       })
       this.notifications = this.notifications.slice(0, 20)
       writeStoredNotifications(this.notifications)

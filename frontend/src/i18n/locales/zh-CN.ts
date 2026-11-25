@@ -146,6 +146,7 @@ export const zhCN = {
     deleteConfirm: '确定删除工作区“{name}”吗？',
   },
   notifications: {
+    viewRun: '查看本次运行',
     loading: '正在读取消息…',
     loadFailed: '读取消息失败。已有消息仍保留，请重试。',
     retryLoad: '重新读取',
