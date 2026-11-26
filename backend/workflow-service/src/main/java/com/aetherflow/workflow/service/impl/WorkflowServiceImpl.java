@@ -73,6 +73,8 @@ public class WorkflowServiceImpl implements WorkflowService {
     private static final String STATUS_ENABLED = "ENABLED";
     private static final String STATUS_DELETED = "DELETED";
     private static final String DEFAULT_OWNER = "aether.operator";
+    private static final int DEFINITION_NAME_MAX_CHARACTERS = 128;
+    private static final String COPY_NAME_SUFFIX = " Copy";
 
     private final WorkflowDefinitionMapper definitionMapper;
     private final WorkflowInstanceMapper instanceMapper;
@@ -464,10 +466,18 @@ public class WorkflowServiceImpl implements WorkflowService {
         WorkflowDefinitionDTO copy = readDefinition(source.getDefinitionJson());
         String requestedName = request == null ? null : request.getName();
         copy.setName(requestedName == null || requestedName.isBlank()
-                ? source.getName() + " Copy" : requestedName.trim());
+                ? defaultCopyName(source.getName()) : requestedName.trim());
         copy.setProjectId(source.getProjectId());
         copy.setIdempotencyKey(null);
         return createDefinition(copy);
+    }
+
+    private static String defaultCopyName(String sourceName) {
+        // 与数据库 VARCHAR(128) 的字符数一致，不截断 UTF-16 代理对。
+        int prefixCharacters = Math.min(DEFINITION_NAME_MAX_CHARACTERS - COPY_NAME_SUFFIX.length(),
+                sourceName.codePointCount(0, sourceName.length()));
+        int prefixEnd = sourceName.offsetByCodePoints(0, prefixCharacters);
+        return sourceName.substring(0, prefixEnd) + COPY_NAME_SUFFIX;
     }
 
     @Override
