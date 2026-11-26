@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import type { AxiosAdapter } from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { createMemoryHistory, createRouter, isNavigationFailure, NavigationFailureType, RouterView } from 'vue-router'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { axiosInstance } from '@/api/client/apiClient'
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
@@ -207,4 +207,113 @@ it('首次保存不抹去同一画布的模板目录失败提示，可以就地�
   expect(templateError().exists()).toBe(false)
   expect(store.workflowName).toBe('Media digest')
   expect(requests.filter(request => request === 'get /workflows/templates')).toHaveLength(3)
+})
+
+it('工具栏首次保存回执不抢占处于异步守卫的同路由导航', async () => {
+  const { store, router, confirmSave } = await startFirstSave()
+  const pending = deferred<boolean>()
+  const entered = deferred<void>()
+  router.beforeEach(async to => {
+    if (to.fullPath === '/workflows/new') {
+      entered.resolve()
+      return pending.promise
+    }
+  })
+  const userNavigation = router.push('/workflows/new')
+  await entered.promise
+  confirmSave()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.fullPath).toBe('/workflows/new?name=模板首跑')
+  expect(store.dirty).toBe(false)
+
+  pending.resolve(true)
+  expect.soft(await userNavigation).toBeUndefined()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.fullPath).toBe('/workflows/new')
+  expect(requests).toEqual(['get /workflows/templates', 'post /workflows/definitions'])
+})
+
+it('用户目标被守卫拒绝后，才在原编辑器补上首存正式地址', async () => {
+  const { store, router, confirmSave } = await startFirstSave()
+  const pending = deferred<boolean>()
+  const entered = deferred<void>()
+  router.beforeEach(to => {
+    if (to.fullPath === '/workflows/new') {
+      entered.resolve()
+      return pending.promise
+    }
+  })
+  const userNavigation = router.push('/workflows/new')
+  await entered.promise
+  confirmSave()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.fullPath).toBe('/workflows/new?name=模板首跑')
+  expect(store.backendDefinitionId).toBe(501)
+  const graph = JSON.stringify(store.nodes)
+  pending.resolve(false)
+  expect.soft(isNavigationFailure(await userNavigation, NavigationFailureType.aborted)).toBe(true)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe('/workflows/501')
+  expect(JSON.stringify(store.nodes)).toBe(graph)
+  expect(requests).toEqual(['get /workflows/templates', 'post /workflows/definitions'])
+})
+
+it('等待同一画布的定位与锚点导航，规范化后的地址仍保留其目标', async () => {
+  const { store, router, confirmSave } = await startFirstSave()
+  const pending = deferred<boolean>()
+  const entered = deferred<void>()
+  router.beforeEach(to => {
+    if (to.params.id === 'new' && to.hash === '#summary') {
+      entered.resolve()
+      return pending.promise
+    }
+  })
+  const userNavigation = router.push({ path: '/workflows/new', query: { name: '模板首跑', nodeId: 'summary' }, hash: '#summary' })
+  await entered.promise
+  confirmSave()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.params.id).toBe('new')
+  const graph = JSON.stringify(store.nodes)
+  pending.resolve(true)
+  expect.soft(await userNavigation).toBeUndefined()
+  await flushPromises()
+
+  expect.soft(router.currentRoute.value.fullPath).toBe('/workflows/501?nodeId=summary#summary')
+  expect(JSON.stringify(store.nodes)).toBe(graph)
+  expect(requests).toEqual(['get /workflows/templates', 'post /workflows/definitions'])
+})
+
+it('守卫等候期间有较新编辑，换画布前仍询问，留在当前画布保留新编辑', async () => {
+  const { store, router, confirmSave } = await startFirstSave()
+  const pending = deferred<boolean>()
+  const entered = deferred<void>()
+  router.beforeEach(to => {
+    if (to.fullPath === '/workflows/new') {
+      entered.resolve()
+      return pending.promise
+    }
+  })
+  const userNavigation = router.push('/workflows/new')
+  await entered.promise
+  confirmSave()
+  await flushPromises()
+  expect.soft(router.currentRoute.value.params.id).toBe('new')
+  store.updateNodeConfig('summary', 'textVariable', '后续手动编辑')
+  expect(store.dirty).toBe(true)
+  const graph = JSON.stringify(store.nodes)
+  const history = JSON.stringify(store.historyPast)
+  pending.resolve(true)
+  await flushPromises()
+  const dialog = new DOMWrapper(document.body).find('[data-testid="unsaved-navigation-dialog"]')
+  expect.soft(dialog.exists()).toBe(true)
+  if (dialog.exists()) await dialog.get('[data-action="leave-stay"]').trigger('click')
+  expect.soft(isNavigationFailure(await userNavigation, NavigationFailureType.aborted)).toBe(true)
+  await flushPromises()
+
+  expect(router.currentRoute.value.fullPath).toBe('/workflows/501')
+  expect(store.dirty).toBe(true)
+  expect(JSON.stringify(store.nodes)).toBe(graph)
+  expect(JSON.stringify(store.historyPast)).toBe(history)
+  expect(requests).toEqual(['get /workflows/templates', 'post /workflows/definitions'])
 })
