@@ -10,14 +10,28 @@ function escapeHtml(value: string) {
 }
 
 function inlineMarkdown(value: string) {
-  let html = escapeHtml(value)
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>')
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
-  html = html.replace(/_([^_]+)_/g, '<em>$1</em>')
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-  return html
+  // Code text and link destinations are literal, not another emphasis pass.
+  // Escaping first makes these internal markers distinct from authored entities.
+  const fragments: string[] = []
+  const protect = (html: string) => {
+    fragments.push(html)
+    return `&#0;${fragments.length - 1}&#0;`
+  }
+  const renderEscaped = (text: string, links: boolean): string => {
+    const pattern = links
+      ? /`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+      : /`([^`]+)`/g
+    let html = text.replace(pattern, (_match, code: string | undefined, label: string | undefined, href: string | undefined) => {
+      if (code !== undefined) return protect(`<code>${code}</code>`)
+      return protect(`<a href="${href}" target="_blank" rel="noopener noreferrer">${renderEscaped(label!, false)}</a>`)
+    })
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    html = html.replace(/(^|[^\p{L}\p{N}_])__([^_]+)__(?![\p{L}\p{N}_])/gu, '$1<strong>$2</strong>')
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    html = html.replace(/(^|[^\p{L}\p{N}_])_([^_]+)_(?![\p{L}\p{N}_])/gu, '$1<em>$2</em>')
+    return html.replace(/&#0;(\d+)&#0;/g, (_token, index: string) => fragments[Number(index)]!)
+  }
+  return renderEscaped(escapeHtml(value), true)
 }
 
 export function renderCopilotMarkdown(markdown: string) {
