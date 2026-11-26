@@ -1561,8 +1561,8 @@ onMounted(() => {
             <span>{{ message.role === 'assistant' ? t('copilot.assistant') : t('copilot.user') }}</span>
             <span>{{ message.createdAt }}</span>
           </div>
-          <div v-if="message.role === 'assistant'" class="copilot-markdown" v-html="renderCopilotMarkdown(message.content)" />
-          <p v-else class="whitespace-pre-line">{{ message.content }}</p>
+          <div v-if="message.role === 'assistant'" class="copilot-markdown [overflow-wrap:anywhere]" v-html="renderCopilotMarkdown(message.content)" />
+          <p v-else class="whitespace-pre-line [overflow-wrap:anywhere]">{{ message.content }}</p>
           <p v-if="stoppedChatMessageIds.has(message.id)" class="mt-2 text-xs text-text-muted" role="status">{{ presentationText('chatStopped') }}</p>
           <p v-if="canvasEditResults.has(message.id)" class="mt-2 whitespace-pre-line rounded-md border px-2.5 py-2 text-xs leading-5" :class="canvasEditResults.get(message.id)?.success ? 'border-status-success/25 bg-green-50 text-status-success' : 'border-status-warning/30 bg-amber-50 text-status-warning'" role="status">
             {{ canvasEditResults.get(message.id)?.text }}
@@ -1818,6 +1818,7 @@ onMounted(() => {
 
 .copilot-markdown :deep(pre) {
   overflow-x: auto;
+  overflow-wrap: normal;
   margin: 0.6rem 0;
   border-radius: 0.45rem;
   background: rgb(15 23 42);
