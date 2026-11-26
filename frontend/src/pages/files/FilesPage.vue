@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import FileAssetList from '@/components/file/FileAssetList.vue'
 import FileUploader from '@/components/file/FileUploader.vue'
 import { useFileStore } from '@/stores/fileStore'
+import { toApiError } from '@/api/client/apiError'
 import { runReturnLocation } from '@/utils/runNavigation'
 import { runArtifactMessages } from './runArtifactMessages'
 
@@ -77,8 +78,29 @@ function retryLoadFiles() {
   void fileStore.loadFiles().catch(() => undefined)
 }
 
+// 动作回执属于具体文件；切换运行后不把旧下载的迟到错误挂在新成品上。
+const actionErrors = ref(new Map<string, { name: string; message: string }>())
+const visibleActionErrors = computed(() => {
+  const files = runFilterId.value ? visibleArtifacts.value : fileStore.files
+  return files.flatMap(file => {
+    const error = actionErrors.value.get(file.id)
+    return error ? [{ fileId: file.id, ...error }] : []
+  })
+})
+async function performFileAction(fileId: string, fallback: string, action: () => Promise<unknown>, normalize = false) {
+  const name = fileStore.files.find(file => file.id === fileId)?.name ?? fileId
+  actionErrors.value.delete(fileId)
+  try {
+    await action()
+  } catch (error) {
+    const message = normalize ? toApiError(error, 'file').message
+      : error instanceof Error ? error.message : ''
+    actionErrors.value.set(fileId, { name, message: message || t(fallback) })
+  }
+}
+
 async function downloadFile(fileId: string) {
-  await fileStore.download(fileId).catch(() => undefined)
+  await performFileAction(fileId, 'files.downloadFailed', () => fileStore.download(fileId))
 }
 
 async function deleteFile(fileId: string) {
@@ -87,11 +109,11 @@ async function deleteFile(fileId: string) {
   if (!confirmed) {
     return
   }
-  await fileStore.deleteAsset(fileId).catch(() => undefined)
+  await performFileAction(fileId, 'files.deleteFailed', () => fileStore.deleteAsset(fileId))
 }
 
 async function toggleFileSource(fileId: string) {
-  await fileStore.toggleSource(fileId).catch(() => undefined)
+  await performFileAction(fileId, 'files.updateFailed', () => fileStore.toggleSource(fileId), true)
 }
 </script>
 
@@ -146,8 +168,8 @@ async function toggleFileSource(fileId: string) {
         <div v-if="!runFilterId && fileStore.loading" class="rounded-md border border-app-border bg-white px-3 py-4 text-sm text-text-secondary" aria-busy="true">
           {{ t('common.loading') }}
         </div>
-        <p v-if="fileStore.fileActionError" role="alert" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error">
-          {{ fileStore.fileActionError }}
+        <p v-for="error in visibleActionErrors" :key="error.fileId" role="alert" data-testid="file-action-error" :data-file-id="error.fileId" class="rounded-md border border-status-error/30 bg-red-50 px-3 py-2 text-sm font-medium text-status-error [overflow-wrap:anywhere]">
+          <span class="font-semibold">{{ error.name }}</span> · {{ error.message }}
         </p>
 
         <section class="grid gap-4" :class="runFilterId ? 'grid-cols-1' : 'xl:grid-cols-2'">

@@ -199,7 +199,7 @@ it('分类接口的业务错误在成品页显示原因，重试成功后提示�
   const classify = () => wrapper!.get('[data-testid="artifact-section"] article button:not([aria-label])')
   await classify().trigger('click')
   await flushPromises()
-  expect(wrapper!.get('[role="alert"]').text()).toBe('模拟：分类暂时不可保存')
+  expect(wrapper!.get('[role="alert"]').text()).toBe('summary.md · 模拟：分类暂时不可保存')
   expect(classify().text()).toBe('标记为输入')
 
   await classify().trigger('click')
