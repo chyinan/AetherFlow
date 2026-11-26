@@ -273,6 +273,25 @@ it('长服务名与端点保留完整详情文本和名称关联', async () => {
   expect(snapshot.get(`#${snapshot.attributes('aria-labelledby')}`).text()).toContain(name)
 })
 
+it('长端点和默认模型标识在卡片与所选详情中均可换行，保留目录模型标题的原有省略样式', async () => {
+  const endpoint = `https://provider.example.invalid/${'x'.repeat(82)}`
+  const modelId = `models/${'model'.repeat(18)}`
+  store.providers[1] = provider({ ...store.providers[1], endpoint, defaultModel: modelId })
+  store.models[1] = { ...store.models[1]!, name: modelId }
+  await renderPage()
+  const card = choice('provider-backup')
+  await card.trigger('click')
+  const cardEndpoint = card.findAll('p').find((entry) => entry.text().endsWith(endpoint))!
+  const cardModel = card.findAll('p').find((entry) => entry.text() === modelId)!
+  const detailModel = details().findAll('span').find((entry) => entry.text() === modelId)!
+  for (const entry of [cardEndpoint, cardModel, detailModel]) {
+    expect.soft(entry.classes()).toContain('[overflow-wrap:anywhere]')
+  }
+  const modelName = details().get('article p')
+  expect(modelName.text()).toBe(modelId)
+  expect(modelName.classes()).toContain('truncate')
+})
+
 it.each([
   ['zh-CN', '整体服务概况', '所选服务详情'],
   ['en-US', 'Overall service summary', 'Selected service details'],
