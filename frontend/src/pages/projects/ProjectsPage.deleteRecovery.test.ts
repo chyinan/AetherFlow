@@ -147,6 +147,31 @@ describe('正常／取消对照：真实页面、store 与 API 映射', () => {
     expect(hasRow('102')).toBe(true)
   })
 
+  it('长工作流名的列表仍限制列宽，等待和失败提示可换行且保留完整目标名', async () => {
+    const name = 'workflow0123'.repeat(4)
+    definitions[0]!.name = name
+    const pending = deferred<void>()
+    http.delete.mockReturnValueOnce(pending.promise)
+    await setup()
+
+    const card = wrapper!.get('article[data-project-id="1"]')
+    expect(card.element.parentElement?.classList.contains('grid-cols-1')).toBe(true)
+    expect(card.element.parentElement?.classList.contains('xl:grid-cols-3')).toBe(true)
+    const link = card.get('a[href="/workflows/101"]')
+    expect(link.get('.truncate').text()).toBe(name)
+
+    await clickDelete('101')
+    const waiting = link.get('[role="status"]')
+    expect(waiting.text()).toContain(name)
+    expect(waiting.element.parentElement?.classList.contains('[overflow-wrap:anywhere]')).toBe(true)
+
+    pending.reject(new Error('结果未知')); await flushPromises()
+    const failure = link.get('[role="alert"]')
+    expect(failure.text()).toContain(name)
+    expect(failure.element.parentElement?.classList.contains('[overflow-wrap:anywhere]')).toBe(true)
+    expect(http.delete).toHaveBeenCalledTimes(1)
+  })
+
   it('失败后取消重试不再派发 DELETE', async () => {
     http.delete.mockRejectedValueOnce(new Error('删除暂时不可用'))
     await setup(); await clickDelete()

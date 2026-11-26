@@ -508,7 +508,7 @@ async function retryLoadProjects() {
           </div>
         </section>
 
-        <section class="grid gap-4 xl:grid-cols-3">
+        <section class="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <article
             v-for="project in projectStore.projects"
             :key="project.id"
@@ -547,7 +547,7 @@ async function retryLoadProjects() {
                   {{ t('projects.openLatestWorkflow') }}
                 </button>
               </div>
-              <div v-if="savedWorkflowOpening?.source === 'latest' && savedWorkflowOpening.projectId === project.id" data-workflow-open-feedback class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <div v-if="savedWorkflowOpening?.source === 'latest' && savedWorkflowOpening.projectId === project.id" data-workflow-open-feedback class="mt-2 flex flex-wrap items-center gap-2 text-xs [overflow-wrap:anywhere]">
                 <p v-if="savedWorkflowOpening.phase === 'opening'" role="status" class="text-text-muted">{{ t('projects.savedWorkflowOpeningHint', { name: savedWorkflowOpening.name }) }}</p>
                 <p v-else role="alert" class="text-status-warning">{{ t('projects.savedWorkflowOpenFailedHint', { name: savedWorkflowOpening.name }) }}</p>
                 <button v-if="savedWorkflowOpening.showRetry" type="button" class="rounded border border-app-border bg-white px-2 py-1 font-medium text-primary" :aria-disabled="savedWorkflowOpening.phase === 'opening'" :aria-label="t('projects.retrySavedWorkflow', { name: savedWorkflowOpening.name })" @click="openSavedWorkflow(savedWorkflowOpening, true)">{{ t('common.retry') }}</button>
@@ -592,7 +592,7 @@ async function retryLoadProjects() {
                     class="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-l-md py-2 pl-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     @click.stop="openWorkflowLink($event, project, workflow)"
                   >
-                    <div class="min-w-0">
+                    <div class="min-w-0 [overflow-wrap:anywhere]">
                       <p class="truncate text-sm font-medium text-text-primary">{{ workflow.name }}</p>
                       <p class="mt-1 text-[11px] text-text-muted">{{ workflow.updatedAt }}</p>
                       <p v-if="projectStore.deletingWorkflowIds[workflow.id]" role="status" class="mt-1 text-xs text-text-muted">{{ t('projects.deletingWorkflowHint', { name: workflow.name }) }}</p>
@@ -625,7 +625,7 @@ async function retryLoadProjects() {
                     <Trash2 class="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <div v-if="savedWorkflowOpening?.source === 'row' && savedWorkflowOpening.projectId === project.id && savedWorkflowOpening.workflowId === workflow.id" data-workflow-open-feedback class="flex basis-full flex-wrap items-center gap-2 px-3 pb-2 text-xs">
+                <div v-if="savedWorkflowOpening?.source === 'row' && savedWorkflowOpening.projectId === project.id && savedWorkflowOpening.workflowId === workflow.id" data-workflow-open-feedback class="flex basis-full flex-wrap items-center gap-2 px-3 pb-2 text-xs [overflow-wrap:anywhere]">
                   <p v-if="savedWorkflowOpening.phase === 'opening'" role="status" class="text-text-muted">{{ t('projects.savedWorkflowOpeningHint', { name: savedWorkflowOpening.name }) }}</p>
                   <p v-else role="alert" class="text-status-warning">{{ t('projects.savedWorkflowOpenFailedHint', { name: savedWorkflowOpening.name }) }}</p>
                   <button v-if="savedWorkflowOpening.showRetry" type="button" class="rounded border border-app-border bg-white px-2 py-1 font-medium text-primary" :aria-disabled="savedWorkflowOpening.phase === 'opening'" :aria-label="t('projects.retrySavedWorkflow', { name: savedWorkflowOpening.name })" @click="openSavedWorkflow(savedWorkflowOpening, true)">{{ t('common.retry') }}</button>
