@@ -28,6 +28,7 @@ let failLogs: Set<number>
 let emptyList: Set<number>
 let pending: Map<number, Promise<void>>
 let calls: Array<{ url: string; method: string; definitionId?: number; workflowId?: string }>
+let runStatus: string
 let rejectStart: boolean
 let failStartList: boolean
 
@@ -46,13 +47,14 @@ function unavailable(config: InternalAxiosRequestConfig) {
 function run(definitionId: number) {
   return {
     id: definitionId + 800, definitionId, workflowId: String(definitionId), workflowName: `工作流 ${definitionId}`,
-    status: definitionId === 101 ? 'FAILED' : 'SUCCESS', nodes: [], startedAt: occurredAt,
+    status: definitionId === 101 ? 'FAILED' : runStatus, nodes: [], startedAt: occurredAt,
   }
 }
 
 beforeEach(() => {
   localStorage.clear()
   i18n.global.locale.value = 'zh-CN'
+  runStatus = 'SUCCESS'
   failList = new Set()
   failLogs = new Set()
   emptyList = new Set()
@@ -279,4 +281,71 @@ describe('编辑器控制台只显示当前工作流的运行', () => {
     expect(panel().find(retry).exists()).toBe(false)
     expect(requestsFor(102)).toHaveLength(1)
   })
+})
+
+
+it('重开同一画布查询失败时保留缓存并明确重试，读到终态后解除启动阻塞', async () => {
+  runStatus = 'RUNNING'
+  const { wrapper, router, runs, workflow, panel } = await setup('/workflows/102')
+  await router.push('/projects')
+  await flushPromises()
+  runStatus = 'SUCCESS'
+  failList.add(102)
+  await router.push('/workflows/102')
+  await vi.waitFor(() => expect(runs.workflowRunLookup?.loading).toBe(false))
+  await wrapper.get(`button[aria-label="${i18n.global.t('workflow.openLogs')}"]`).trigger('click')
+
+  expect(panel().text()).toContain('run-902')
+  expect(panel().text()).toContain('运行 902 的专属归档日志')
+  expect(panel().text()).toContain('上次读取的结果')
+  expect(runs.currentRun?.backendStatus).toBe('RUNNING')
+  const button = panel().get<HTMLButtonElement>(retry)
+  const resumed = deferred()
+  pending.set(102, resumed.promise)
+  failList.delete(102)
+  button.element.focus()
+  const revision = workflow.editRevision
+  const readsBeforeRetry = requestsFor(102).length
+  await button.trigger('click')
+  await button.trigger('click')
+  await flushPromises()
+  expect(requestsFor(102)).toHaveLength(readsBeforeRetry + 1)
+  expect(panel().get(retry).attributes('aria-disabled')).toBe('true')
+  expect(panel().text()).toContain('run-902')
+  expect(panel().text()).toContain('运行 902 的专属归档日志')
+  resumed.resolve()
+  await vi.waitFor(() => expect(runs.currentRun?.backendStatus).toBe('SUCCESS'))
+  await flushPromises()
+  expect(panel().find(retry).exists()).toBe(false)
+  expect(panel().text()).not.toContain('上次读取的结果')
+  const start = wrapper.findAll('header button').find(button => button.text() === i18n.global.t('workflow.run'))
+  expect(start).toBeDefined()
+  expect(start!.attributes('disabled')).toBeUndefined()
+  expect(workflow.editRevision).toBe(revision)
+  expect(router.currentRoute.value.path).toBe('/workflows/102')
+  expect(calls.every(call => call.method === 'get')).toBe(true)
+  expect(document.activeElement).toBe(panel().get('[tabindex="-1"]').element)
+})
+
+it('缓存运行重试中切换工作流，迟到结果不更新新画布的运行', async () => {
+  runStatus = 'RUNNING'
+  const { wrapper, router, runs, panel } = await setup('/workflows/102')
+  await router.push('/projects')
+  await flushPromises()
+  failList.add(102)
+  await router.push('/workflows/102')
+  await vi.waitFor(() => expect(runs.workflowRunLookup?.loading).toBe(false))
+  await wrapper.get(`button[aria-label="${i18n.global.t('workflow.openLogs')}"]`).trigger('click')
+  const response = deferred()
+  pending.set(102, response.promise)
+  failList.delete(102)
+  await panel().get(retry).trigger('click')
+  await flushPromises()
+  await router.push('/workflows/103')
+  await vi.waitFor(() => expect(panel().text()).toContain('run-903'))
+  response.resolve()
+  await flushPromises()
+  expect(runs.currentRun?.id).toBe('run-903')
+  expect(panel().text()).not.toContain('run-902')
+  expect(panel().find(retry).exists()).toBe(false)
 })

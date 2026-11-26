@@ -33,7 +33,7 @@ const unavailableLogRunId = computed(() => {
 })
 const lookupState = computed(() => {
   const lookup = runStore.workflowRunLookup
-  if (currentRun.value || !lookup || lookup.workflowId !== workflowStore.workflowId
+  if (!lookup || lookup.workflowId !== workflowStore.workflowId
     || lookup.definitionId !== workflowStore.backendDefinitionId) return null
   return lookup.loading ? 'loading' : 'failed'
 })
@@ -96,7 +96,7 @@ async function locate(nodeId: string | undefined, failure: ImageExecutionFailure
 
     <div ref="runSummary" tabindex="-1" class="border-b border-white/10 p-4 focus-visible:outline focus-visible:outline-primary">
       <p class="text-xs text-slate-400">{{ t('workflow.currentRun') }}</p>
-      <template v-if="!lookupState">
+      <template v-if="currentRun || !lookupState">
         <p class="mt-1 truncate text-sm font-semibold">{{ currentRun?.id ?? t('workflow.noRunSelected') }}</p>
         <p class="mt-2 text-xs text-slate-400">{{ currentRun?.workflowName ?? t('workflow.loadRunHint') }}</p>
       </template>
@@ -104,7 +104,9 @@ async function locate(nodeId: string | undefined, failure: ImageExecutionFailure
 
     <div class="min-h-0 flex-1 overflow-y-auto p-3 font-mono text-xs leading-6">
       <div v-if="lookupState" class="rounded bg-white/5 px-2 py-1 text-slate-200">
-        <p role="status">{{ consoleText(lookupState === 'loading' ? 'loadingWorkflowRuns' : 'workflowRunsUnavailable') }}</p>
+        <p role="status">{{ consoleText(currentRun
+          ? lookupState === 'loading' ? 'refreshingCachedWorkflowRun' : 'cachedWorkflowRunUnavailable'
+          : lookupState === 'loading' ? 'loadingWorkflowRuns' : 'workflowRunsUnavailable') }}</p>
         <button
           v-if="showLookupRecovery"
           ref="retryButton"
