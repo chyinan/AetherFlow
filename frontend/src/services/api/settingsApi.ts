@@ -346,7 +346,8 @@ export const settingsApi = {
       baseUrl: payload.baseUrl,
       defaultModel: payload.defaultModel,
     } satisfies ProviderConfigUpdatePayload)
-    const runtimeProviders = await modelApi.refreshSnapshot().then((snapshot) => snapshot.providers)
+    // 配置写回执已确认保存；运行目录只是展示补充，失败不能把保存误报为失败。
+    const runtimeProviders = await modelApi.refreshSnapshot().then((snapshot) => snapshot.providers).catch(() => [] as ModelProvider[])
     const runtimeByProviderKey = new Map(runtimeProviders.map((provider) => [providerKeyFromRuntime(provider), provider]))
     return mapModelProvider(updated, runtimeByProviderKey.get(providerKey))
   },

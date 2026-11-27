@@ -43,6 +43,7 @@ let preset: ProviderConfigEntry
 let routeDefault: string | undefined
 let configResult: 'ok' | 'unavailable' | 'empty' | 'unconfigured'
 let runtimeResult: 'ok' | 'unavailable' | 'empty'
+let saveRejected: boolean
 const catalogReads = { config: 0, runtime: 0 }
 const saveRequest = vi.fn<(payload: ProviderConfigUpdatePayload) => void>()
 
@@ -89,6 +90,7 @@ beforeEach(() => {
   routeDefault = activeRouteModel
   configResult = 'ok'
   runtimeResult = 'ok'
+  saveRejected = false
   catalogReads.config = 0
   catalogReads.runtime = 0
   saveRequest.mockClear()
@@ -96,6 +98,10 @@ beforeEach(() => {
     if (request.method === 'put' && request.url === '/ai/provider/config/openai') {
       const payload = JSON.parse(request.data) as ProviderConfigUpdatePayload
       saveRequest(payload)
+      if (saveRejected) {
+        const response = { ...reply(request, null), status: 422, statusText: 'Unprocessable Entity', data: { code: 422, message: '合成配置拒绝', data: null } }
+        throw new AxiosError('合成配置拒绝', AxiosError.ERR_BAD_RESPONSE, request, undefined, response)
+      }
       preset = {
         ...preset,
         baseUrl: payload.baseUrl ?? preset.baseUrl,
@@ -282,5 +288,47 @@ describe('模型提供方配置目录用实际 HTTP 响应恢复后再编辑', (
     expect(wrapper!.text()).toContain(i18n.global.t('settings.notInstalledProviderTitle'))
     expect(wrapper!.text()).toContain(configuredModel)
     expect(saveRequest).not.toHaveBeenCalled()
+  })
+})
+
+// 受控 HTTP 回执：配置已保存后，运行目录暂不可用不应把保存判为失败。
+describe('模型配置保存与运行目录读取隔离', () => {
+  it('配置写确认后运行目录失败不误报保存失败，重开保留回执且不会重复写', async () => {
+    preset = { ...preset, configured: true, enabled: true }
+    await mountProviderSettings()
+    const dialog = await openProvider()
+    await modelInput(dialog).setValue('confirmed-after-put')
+    runtimeResult = 'unavailable'
+    const readsBeforeSave = catalogReads.runtime
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper!.find('[data-testid="provider-config-dialog"]').exists()).toBe(false), { timeout: 3000 })
+    expect(saveRequest).toHaveBeenCalledTimes(1)
+    expect(catalogReads.runtime).toBe(readsBeforeSave + 3)
+    expect(modelInput(await openProvider()).element.value).toBe('confirmed-after-put')
+    expect(saveRequest).toHaveBeenCalledTimes(1)
+    await wrapper!.get('[data-testid="provider-config-dialog"] header button').trigger('click')
+    wrapper!.unmount(); wrapper = undefined
+    const reloaded = await mountProviderSettings()
+    await vi.waitFor(() => expect(reloaded.loading).toBe(false), { timeout: 3000 })
+    await flushPromises()
+    expect(modelInput(await openProvider()).element.value).toBe('confirmed-after-put')
+    expect(saveRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('配置写明确失败时保留草稿，用户重试只提交当前草稿', async () => {
+    await mountProviderSettings()
+    const dialog = await openProvider()
+    await modelInput(dialog).setValue('retry-this-draft')
+    saveRejected = true
+    await dialog.get('form').trigger('submit'); await flushPromises()
+    expect(dialog.get('[role="alert"]').text()).toContain(i18n.global.t('settings.providerConfigFailed'))
+    expect(modelInput(dialog).element.value).toBe('retry-this-draft')
+    expect(saveRequest).toHaveBeenCalledTimes(1)
+    saveRejected = false
+    await dialog.get('form').trigger('submit'); await flushPromises()
+    expect(wrapper!.find('[data-testid="provider-config-dialog"]').exists()).toBe(false)
+    expect(saveRequest).toHaveBeenCalledTimes(2)
+    expect(saveRequest).toHaveBeenLastCalledWith(expect.objectContaining({ defaultModel: 'retry-this-draft' }))
   })
 })
