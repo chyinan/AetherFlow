@@ -54,6 +54,9 @@ const draftName = ref('')
 const draftScenario = ref<ProjectSummary['scenario']>('media')
 const creatingProject = ref(false)
 const createProjectFailed = ref(false)
+const checkingCreatedProjects = ref(false)
+const createProjectCheckFailed = ref(false)
+const createProjectBusy = computed(() => creatingProject.value || checkingCreatedProjects.value)
 let createProjectGeneration = 0
 let createdProjectFocusId: string | undefined
 const showWorkflowPanel = ref(false)
@@ -167,6 +170,8 @@ function openCreateProject() {
   createProjectGeneration += 1
   createdProjectFocusId = undefined
   creatingProject.value = false
+  checkingCreatedProjects.value = false
+  createProjectCheckFailed.value = false
   createProjectFailed.value = false
   draftName.value = t('projects.defaultProjectName')
   draftScenario.value = 'media'
@@ -177,6 +182,8 @@ function closeCreateProject() {
   createProjectGeneration += 1
   showCreatePanel.value = false
   creatingProject.value = false
+  checkingCreatedProjects.value = false
+  createProjectCheckFailed.value = false
   createProjectFailed.value = false
 }
 onBeforeUnmount(closeCreateProject)
@@ -342,11 +349,12 @@ async function deleteWorkflow(project: ProjectSummary, workflow: WorkflowSummary
 
 async function submitCreate() {
   const name = draftName.value.trim()
-  if (!name || creatingProject.value) {
+  if (!name || createProjectBusy.value) {
     return
   }
   const generation = createProjectGeneration
   creatingProject.value = true
+  createProjectCheckFailed.value = false
   createProjectFailed.value = false
   try {
     const project = await projectStore.createProject({ name, scenario: draftScenario.value })
@@ -359,6 +367,28 @@ async function submitCreate() {
     if (generation === createProjectGeneration) createProjectFailed.value = true
   } finally {
     if (generation === createProjectGeneration) creatingProject.value = false
+  }
+}
+
+async function checkCreatedProjects() {
+  if (!createProjectFailed.value || createProjectBusy.value) return
+  const generation = createProjectGeneration
+  checkingCreatedProjects.value = true
+  createProjectCheckFailed.value = false
+  try {
+    // 创建回执丢失不代表未创建；这里只回读目录，不按名称猜测身份或再次提交。
+    const requestId = projectStore.loadRequestId + 1
+    await projectStore.loadProjects()
+    if (generation !== createProjectGeneration || requestId !== projectStore.loadRequestId) return
+    // 项目目录成功即可查看；附带的工作流目录警告由列表原有提示继续展示。
+    showCreatePanel.value = false
+  } catch {
+    if (generation === createProjectGeneration) createProjectCheckFailed.value = true
+  } finally {
+    if (generation === createProjectGeneration) {
+      checkingCreatedProjects.value = false
+      projectsLoaded.value = true
+    }
   }
 }
 
@@ -669,7 +699,7 @@ async function retryLoadProjects() {
     </main>
 
     <div v-if="showCreatePanel" class="fixed inset-0 z-40 grid place-items-center bg-slate-950/30 p-4">
-      <form ref="createProjectDialog" role="dialog" aria-modal="true" aria-labelledby="create-project-dialog-title" aria-describedby="create-project-dialog-hint" tabindex="-1" class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-app-border bg-white p-5 shadow-panel" :aria-busy="creatingProject" @submit.prevent="submitCreate">
+      <form ref="createProjectDialog" role="dialog" aria-modal="true" aria-labelledby="create-project-dialog-title" aria-describedby="create-project-dialog-hint" tabindex="-1" class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-app-border bg-white p-5 shadow-panel" :aria-busy="createProjectBusy" @submit.prevent="submitCreate">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
             <p id="create-project-dialog-title" class="text-sm font-semibold text-text-primary">{{ t('projects.createProjectTitle') }}</p>
@@ -682,12 +712,12 @@ async function retryLoadProjects() {
 
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.nameLabel') }}</span>
-          <input v-model="draftName" :disabled="creatingProject" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60" />
+          <input v-model="draftName" :disabled="createProjectBusy" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60" />
         </label>
 
         <label class="mt-4 block">
           <span class="mb-1 block text-sm font-medium text-text-secondary">{{ t('projects.scenario') }}</span>
-          <select v-model="draftScenario" :disabled="creatingProject" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60">
+          <select v-model="draftScenario" :disabled="createProjectBusy" class="w-full rounded-md border border-app-border px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-60">
             <option value="media">{{ t('projects.scenarios.media') }}</option>
             <option value="document">{{ t('projects.scenarios.document') }}</option>
             <option value="knowledge">{{ t('projects.scenarios.knowledge') }}</option>
@@ -696,13 +726,18 @@ async function retryLoadProjects() {
         </label>
 
         <p v-if="createProjectFailed" role="alert" class="mt-4 text-sm text-status-warning">{{ t('projects.createFailedHint') }}</p>
+        <button v-if="createProjectFailed" type="button" data-testid="project-create-check-list" :aria-disabled="createProjectBusy" class="mt-2 rounded-md border border-primary/30 px-3 py-2 text-sm text-primary aria-disabled:cursor-wait aria-disabled:opacity-60" @click="checkCreatedProjects">
+          {{ checkingCreatedProjects ? t('projects.checkingCreatedProjects') : t('projects.checkCreatedProjects') }}
+        </button>
+        <p v-if="createProjectCheckFailed" data-testid="project-create-check-error" role="alert" class="mt-2 text-sm text-status-warning">{{ t('projects.checkCreatedProjectsFailed') }}</p>
+        <p v-if="checkingCreatedProjects" role="status" class="mt-2 text-sm text-text-muted">{{ t('projects.checkingCreatedProjects') }}</p>
         <p v-if="creatingProject" role="status" class="mt-4 text-sm text-text-muted">{{ t('projects.creatingHint') }}</p>
 
         <div class="mt-5 flex justify-end gap-2">
           <button type="button" class="rounded-md border border-app-border px-3 py-2 text-sm text-text-secondary" @click="closeCreateProject">
             {{ t('common.close') }}
           </button>
-          <button type="submit" :disabled="creatingProject || !draftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
+          <button type="submit" :disabled="createProjectBusy || !draftName.trim()" class="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white shadow-node disabled:opacity-60">
             {{ creatingProject ? t('common.loading') : t('projects.createProject') }}
           </button>
         </div>
