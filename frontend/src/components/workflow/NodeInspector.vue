@@ -562,8 +562,16 @@ function textConfig(key: string, fallback = '') {
 }
 
 function numberConfig(key: string, fallback = 0) {
-  const value = Number(configValue(key, fallback))
+  const configured = configValue(key, fallback)
+  if (typeof configured === 'string' && configured.trim() === '') return fallback
+  const value = Number(configured)
   return Number.isFinite(value) ? value : fallback
+}
+
+// 空输入在保存映射中表示使用默认值，不应在输入框中伪装成显式的 0。
+function numberInputConfig(key: string, fallback = 0) {
+  const value = configValue(key, fallback)
+  return typeof value === 'string' && value.trim() === '' ? '' : numberConfig(key, fallback)
 }
 
 function boolConfig(key: string, fallback = false) {
@@ -1373,8 +1381,9 @@ onMounted(() => {
               <span class="mb-2 block text-sm font-semibold text-text-primary">Top K</span>
               <div class="flex items-center gap-3">
                 <input type="range" min="1" max="50" class="min-w-0 flex-1 accent-primary" data-config-field="topK" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
-                <input type="number" min="1" max="50" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" data-config-field="topK" :value="numberConfig('topK', 3)" @input="handleNumberInput('topK', $event)" />
+                <input type="number" min="1" max="50" class="w-20 rounded-md border border-app-border bg-white px-3 py-2 text-sm outline-none focus:border-primary" data-config-field="topK" :value="numberInputConfig('topK', 3)" placeholder="3" :aria-describedby="numberInputConfig('topK') === '' ? 'node-top-k-default' : undefined" @input="handleNumberInput('topK', $event)" />
               </div>
+              <p v-if="numberInputConfig('topK') === ''" id="node-top-k-default" data-number-default="topK" class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.emptyNumberDefault', { value: 3 }) }}</p>
             </label>
             <label class="block">
               <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.outputVariables') }}</span>
@@ -1386,7 +1395,7 @@ onMounted(() => {
             </label>
             <textarea
               class="min-h-20 w-full rounded-lg border border-app-border bg-white px-3 py-2 font-mono text-xs outline-none focus:border-primary"
-              :placeholder="t('workflow.inspector.metadataFilterPlaceholder')"
+              placeholder='{"sourceType":"input"}'
               data-config-field="metadataFilter" :value="textConfig('metadataFilter', '')"
               @input="handleMetadataFilterInput"
             />
@@ -1614,7 +1623,8 @@ onMounted(() => {
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.maxIterations') }}</span>
-            <input type="number" min="0" class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" data-config-field="maxIterations" :value="numberConfig('maxIterations', selectedKind === 'iteration' ? 12 : 10)" @input="handleNumberInput('maxIterations', $event)" />
+            <input type="number" min="0" class="w-full rounded-lg border border-app-border bg-app-muted px-3 py-3 text-sm" data-config-field="maxIterations" :value="numberInputConfig('maxIterations', selectedKind === 'iteration' ? 12 : 10)" :placeholder="String(selectedKind === 'iteration' ? 12 : 10)" :aria-describedby="numberInputConfig('maxIterations') === '' ? 'node-max-iterations-default' : undefined" @input="handleNumberInput('maxIterations', $event)" />
+            <p v-if="numberInputConfig('maxIterations') === ''" id="node-max-iterations-default" data-number-default="maxIterations" class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.emptyNumberDefault', { value: selectedKind === 'iteration' ? 12 : 10 }) }}</p>
           </label>
           <label v-if="selectedKind === 'loop'" class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.stopWhen') }}</span>
@@ -1627,7 +1637,8 @@ onMounted(() => {
             <input :aria-label="t('workflow.inspector.iteration.indexVariable')" class="mt-2 w-full rounded border p-2" data-config-field="indexVariable" :value="textConfig('indexVariable', selectedKind === 'iteration' ? 'iterationIndex' : 'loopIteration')" @input="handleTextInput('indexVariable', $event)" />
           </label>
           <label v-if="selectedKind === 'iteration'" class="block text-sm">{{ t('workflow.inspector.iteration.concurrencyLimit') }}
-            <input :aria-label="t('workflow.inspector.iteration.concurrencyLimit')" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" data-config-field="concurrency" :value="numberConfig('concurrency', 1)" @input="handleNumberInput('concurrency', $event)" />
+            <input :aria-label="t('workflow.inspector.iteration.concurrencyLimit')" type="number" min="1" max="8" class="mt-2 w-full rounded border p-2" data-config-field="concurrency" :value="numberInputConfig('concurrency', 1)" placeholder="1" :aria-describedby="numberInputConfig('concurrency') === '' ? 'node-concurrency-default' : undefined" @input="handleNumberInput('concurrency', $event)" />
+            <p v-if="numberInputConfig('concurrency') === ''" id="node-concurrency-default" data-number-default="concurrency" class="mt-2 text-xs leading-5 text-text-muted">{{ t('workflow.inspector.emptyNumberDefault', { value: 1 }) }}</p>
           </label>
           <label v-if="selectedKind === 'iteration'" class="block text-sm">{{ t('workflow.inspector.iteration.failureStrategy') }}
             <select :aria-label="t('workflow.inspector.iteration.failureStrategy')" class="mt-2 w-full rounded border p-2" data-config-field="failureStrategy" :value="textConfig('failureStrategy', 'STOP')" @change="handleTextInput('failureStrategy', $event)"><option value="STOP">{{ t('workflow.inspector.iteration.stopBatch') }}</option><option value="CONTINUE">{{ t('workflow.inspector.iteration.keepFailedAndContinue') }}</option></select>

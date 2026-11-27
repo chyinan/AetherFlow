@@ -594,6 +594,7 @@ export const enUS = {
       iterationSemanticsIteration: 'Runs the steps below for each item and supports asynchronous waits and recovery. Completed items are not repeated.',
       iterationSemanticsLoop: 'Runs the steps below for each round and feeds the state back for the next round. Stops at the marker or iteration limit.',
       maxIterations: 'Max iterations',
+      emptyNumberDefault: 'Uses the default value {value} when left blank.',
       stopWhen: 'Stop marker',
       stopWhenPlaceholder: 'For example, done; matches a truthy state field or text marker',
       iteration: {
