@@ -111,9 +111,12 @@ function addBinding() {
       <label class="block text-xs">{{ t('parameter') }}<select v-model="parameter" data-testid="comfy-parameter" class="mt-1 w-full rounded border border-app-border bg-app-bg px-2 py-2"><option v-for="name in comfyParameters" :key="name" :value="name">{{ name }}</option></select></label>
       <button type="button" data-testid="comfy-add-binding" :disabled="!target" class="rounded border border-app-border px-3 py-2 text-primary disabled:opacity-50" @click="addBinding">{{ t('add') }}</button>
       <p v-if="!bindings.length" class="text-xs text-text-muted">{{ t('empty') }}</p>
-      <div v-for="(binding, index) in bindings" :key="index" class="flex items-center justify-between gap-2 text-xs"><code>{{ binding.nodeId }}.{{ binding.inputName }} ← {{ binding.parameter }}</code><button type="button" :aria-label="t('remove')" class="px-2 py-1 text-primary" @click="emit('update', 'workflowBindings', bindings.filter((_, i) => i !== index))">{{ t('remove') }}</button></div>
+      <div v-for="(binding, index) in bindings" :key="index" class="flex items-center justify-between gap-2 text-xs">
+        <code class="min-w-0 [overflow-wrap:anywhere]">{{ binding.nodeId }}.{{ binding.inputName }} ← {{ binding.parameter }}</code>
+        <button type="button" :aria-label="t('remove')" class="shrink-0 whitespace-nowrap px-2 py-1 text-primary" @click="emit('update', 'workflowBindings', bindings.filter((_, i) => i !== index))">{{ t('remove') }}</button>
+      </div>
     </div>
     <p v-if="loadFeedback === 'invalid' || loadFeedback === 'error'" role="alert" class="text-xs text-status-error">{{ t(loadFeedback) }}</p>
-    <p v-if="visibleBindingError" role="alert" class="text-xs text-status-error">{{ visibleBindingError }}</p>
+    <p v-if="visibleBindingError" role="alert" class="text-xs text-status-error [overflow-wrap:anywhere]">{{ visibleBindingError }}</p>
   </section>
 </template>
