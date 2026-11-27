@@ -189,7 +189,7 @@ const nodeRows = computed(() => {
       <div class="flex items-center gap-1">
         <button
           type="button"
-          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
+          class="nokey grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-app-muted hover:text-primary"
           :title="t('workflow.duplicateNode')"
           :aria-label="t('workflow.duplicateNode')"
           @click.stop="emit('duplicateNode', id)"
@@ -198,7 +198,7 @@ const nodeRows = computed(() => {
         </button>
         <button
           type="button"
-          class="grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
+          class="nokey grid h-7 w-7 place-items-center rounded text-text-muted hover:bg-red-50 hover:text-status-error"
           :title="t('workflow.deleteNode')"
           :aria-label="t('workflow.deleteNode')"
           @click.stop="emit('deleteNode', id)"
