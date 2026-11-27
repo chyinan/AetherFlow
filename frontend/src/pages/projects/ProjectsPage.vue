@@ -233,7 +233,7 @@ async function submitWorkflowDraft() {
     renamingWorkflow.value = true
     renameWorkflowFailed.value = false
     try {
-      await projectStore.renameProjectWorkflow(projectId, workflowId, name)
+      await projectStore.renameProjectWorkflow(projectId, workflowId, name, { backgroundRefresh: true })
       // 关闭或重开不取消已提交的保存；旧回执不能接管当前草稿。
       if (generation === workflowPanelGeneration) closeWorkflowPanel()
     } catch {
