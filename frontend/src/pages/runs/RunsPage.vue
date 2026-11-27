@@ -32,6 +32,10 @@ const directIdDraft = ref('')
 const directIdError = ref(false)
 const coldDetailTarget = ref<string>()
 const runDetailRegion = ref<HTMLElement | null>(null)
+const runHistoryRegion = ref<HTMLElement | null>(null)
+const retryingHistory = ref(false)
+let historyRetryGeneration = 0
+let historyRetryCleanup: (() => void) | undefined
 const historyKey = computed(() => JSON.stringify([filters.value.workflowId, filters.value.status, filters.value.page, filters.value.pageSize]))
 const confirmedTerminalStatuses = new Set(['SUCCESS', 'FAILED', 'CANCELLED'])
 const historyStatusMismatches = computed(() => new Set(runStore.historyRuns
@@ -114,6 +118,9 @@ function openRunById() {
 
 // 详情切换只改变运行 ID；只有实际改变列表范围时才回填筛选表单。
 watch([() => filters.value.q, historyKey], () => {
+  historyRetryGeneration += 1
+  retryingHistory.value = false
+  historyRetryCleanup?.()
   const { q, workflowId, status } = filters.value
   searchDraft.value = q
   workflowDraft.value = workflowId
@@ -455,6 +462,7 @@ onBeforeUnmount(() => {
   if (cancellationCleanupPoll) clearInterval(cancellationCleanupPoll)
   cancellationCleanupPoll = undefined
   detailFocusCleanups.forEach(cleanup => cleanup())
+  historyRetryCleanup?.()
   routeGeneration += 1
   runStore.historyRequestId += 1
   runStore.selectionRequestId += 1
@@ -505,6 +513,43 @@ async function focusAfterRunNavigation(expectedPath: string, navigate: () => Ret
 function retryHistoryPage() {
   const ready = requestHistoryPage()
   if (!selectedRouteId.value) void syncRunFromRoute(undefined, ready)
+}
+
+async function retryHistoryFromList(event: Event) {
+  if (runStore.historyLoading || retryingHistory.value) return
+  const button = event.currentTarget as HTMLButtonElement
+  const focused = document.activeElement === button
+  const location = route.fullPath
+  const generation = ++historyRetryGeneration
+  let focusIntentChanged = false
+  const recordFocusIntent = () => { focusIntentChanged = true }
+  const intentEvents = ['focusin', 'input', 'pointerdown'] as const
+  const cleanup = () => {
+    intentEvents.forEach(type => document.removeEventListener(type, recordFocusIntent))
+    if (historyRetryCleanup === cleanup) historyRetryCleanup = undefined
+  }
+  historyRetryCleanup = cleanup
+  intentEvents.forEach(type => document.addEventListener(type, recordFocusIntent))
+  retryingHistory.value = true
+  try {
+    const ready = requestHistoryPage()
+    if (!selectedRouteId.value) void syncRunFromRoute(undefined, ready)
+    await ready
+  } finally {
+    if (generation === historyRetryGeneration) {
+      const mayRestore = focused && document.activeElement === button && !focusIntentChanged
+        && active && route.fullPath === location && !runStore.historyError && !runStore.historyLoading
+      retryingHistory.value = false
+      cleanup()
+      await nextTick()
+      if (mayRestore && active && generation === historyRetryGeneration && route.fullPath === location
+        && document.activeElement === document.body) {
+        const region = runHistoryRegion.value
+        const target = region?.querySelector<HTMLElement>('[data-testid="history-run"]') ?? region?.querySelector<HTMLElement>('[data-testid="history-results-heading"]')
+        target?.focus()
+      }
+    } else cleanup()
+  }
 }
 
 function refreshRuns() {
@@ -619,7 +664,7 @@ watch(
         </section>
 
         <section data-testid="run-history-layout" class="grid min-h-0 min-w-0 gap-4 xl:flex-1 xl:overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside aria-labelledby="run-history-heading" class="max-h-[36rem] min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm xl:max-h-none">
+          <aside ref="runHistoryRegion" aria-labelledby="run-history-heading" class="max-h-[36rem] min-h-0 min-w-0 overflow-y-auto rounded-lg border border-app-border bg-white p-3 shadow-sm xl:max-h-none">
             <h2 id="run-history-heading" class="mb-3 px-1 text-sm font-semibold text-text-primary">{{ historyText('historyTitle') }}</h2>
             <p id="run-history-scope" class="mb-2 px-1 text-xs leading-5 text-text-muted">{{ historyText('scope') }}</p>
             <dl data-testid="history-summary" aria-describedby="run-history-scope" class="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 border-b border-app-border px-1 pb-3 text-xs">
@@ -658,7 +703,7 @@ watch(
               </form>
             </details>
             <div class="mb-2 flex items-center justify-between gap-2 px-1">
-              <h3 class="text-xs font-semibold text-text-secondary">{{ historyText('resultsTitle') }}</h3>
+              <h3 data-testid="history-results-heading" tabindex="-1" class="text-xs font-semibold text-text-secondary">{{ historyText('resultsTitle') }}</h3>
               <span class="rounded bg-app-muted px-2 py-1 text-xs tabular-nums text-text-secondary">{{ runStore.historyLoading || runStore.historyError ? '—' : visibleRuns.length }}</span>
             </div>
             <button
@@ -685,15 +730,15 @@ watch(
               </p>
             </button>
             <p v-if="runStore.historyLoading" role="status" data-testid="history-loading" class="py-4 text-sm text-text-muted">{{ historyText('loading') }}</p>
-            <div v-else-if="runStore.historyError" role="alert" data-testid="history-error" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              <p>{{ historyText('error') }}</p>
-              <button type="button" class="mt-2 underline" @click="retryHistoryPage">{{ historyText('retry') }}</button>
+            <div v-if="runStore.historyError || retryingHistory" :role="runStore.historyError ? 'alert' : undefined" :aria-busy="retryingHistory || undefined" data-testid="history-error" class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p v-if="runStore.historyError">{{ historyText('error') }}</p>
+              <button type="button" class="mt-2 underline aria-disabled:opacity-60" :aria-disabled="retryingHistory || undefined" @click="retryHistoryFromList">{{ historyText('retry') }}</button>
             </div>
-            <div v-else-if="historyStatusStale" data-testid="history-status-stale" class="rounded border border-app-border p-3 text-sm text-text-muted">
+            <div v-else-if="!runStore.historyLoading && historyStatusStale" data-testid="history-status-stale" class="rounded border border-app-border p-3 text-sm text-text-muted">
               <p role="status">{{ historyText('statusStale') }}</p>
               <button type="button" class="mt-2 text-primary underline" @click="retryHistoryPage">{{ historyText('retry') }}</button>
             </div>
-            <div v-else-if="visibleRuns.length === 0" data-testid="history-empty" role="status" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
+            <div v-else-if="!runStore.historyLoading && visibleRuns.length === 0" data-testid="history-empty" role="status" class="rounded-md border border-dashed border-app-border p-4 text-sm text-text-muted">
               <p>{{ filters.page > pageCount ? historyText('stale') : filters.q ? historyText('noMatch') : historyText('empty') }}</p>
               <button v-if="filters.page > 1" type="button" class="mt-2 text-primary underline" @click="updateFilters({ page: 1 })">{{ historyText('first') }}</button>
             </div>
