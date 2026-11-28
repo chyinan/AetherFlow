@@ -57,7 +57,7 @@ export function mapRuntimeStateToNodeStatus(state?: RuntimeState): WorkflowNodeS
     case 'WAITING':
       return 'waiting'
     case 'CANCELLED':
-      return 'paused'
+      return 'cancelled'
     default:
       return 'queued'
   }
@@ -229,7 +229,7 @@ export function runtimeRetryCount(eventType?: string, attributes?: Record<string
 }
 
 function terminalNodeStatus(status?: RunNodeState['status']) {
-  return status === 'success' || status === 'failed' || status === 'skipped'
+  return status === 'success' || status === 'failed' || status === 'skipped' || status === 'cancelled'
 }
 
 /** HTTP 快照与实时事件采用同一审批保留规则。 */
@@ -308,7 +308,7 @@ export function mapRuntimeEventsToNodePatches(events: RuntimeEvent[]) {
       // 工作流完成的节点 ID 仅是上下文，不能覆盖已有节点结论或作为节点完成时间。
       if (completionSummary && terminalNodeStatus(previous?.status)) return
       const durationMs = completionSummary ? undefined : durationBetween(startedAtByNode.get(patch.nodeId), event.occurredAt)
-      if (durationMs !== undefined && ['success', 'failed', 'paused', 'waiting'].includes(patch.status)) {
+      if (durationMs !== undefined && ['success', 'failed', 'paused', 'waiting', 'cancelled'].includes(patch.status)) {
         patch.durationMs = durationMs
       }
       if (previous) {

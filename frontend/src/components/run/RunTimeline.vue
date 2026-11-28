@@ -16,6 +16,7 @@ const props = defineProps<{
   workflowId?: string
   returnLocation?: string
   canRerun?: boolean
+  runCancelled?: boolean
 }>()
 
 const emit = defineEmits<{ rerun: [node: RunNodeState, trigger: HTMLButtonElement] }>()
@@ -27,9 +28,13 @@ const { t: timelineText } = useI18n({ useScope: 'local', messages: {
   'ja-JP': { ...runNavigationMessages['ja-JP'], ...runResultMessages['ja-JP'] },
 } })
 
+function isLastObservedStatus(node: RunNodeState) {
+  return props.runCancelled && !['success', 'failed', 'skipped', 'cancelled'].includes(node.status)
+}
+
 function durationLabel(node: RunNodeState) {
   if (node.durationMs !== undefined) return `${node.durationMs}ms`
-  if (node.status === 'success' || node.status === 'failed' || node.status === 'skipped') {
+  if (['success', 'failed', 'skipped', 'cancelled'].includes(node.status) || isLastObservedStatus(node)) {
     return timelineText('durationUnavailable')
   }
   return t('workflow.waiting')
@@ -54,7 +59,8 @@ function editLocation(node: RunNodeState) {
         <div class="min-w-0 flex-1 rounded-md border border-app-border bg-app-bg2 px-3 py-2">
           <div class="flex items-center justify-between gap-2">
             <p class="truncate text-sm font-medium text-text-primary">{{ node.label }}</p>
-            <StatusBadge :status="node.status" />
+            <span v-if="isLastObservedStatus(node)" class="inline-flex items-center whitespace-nowrap rounded-md border border-app-border bg-app-muted px-2 py-0.5 text-[11px] font-medium text-text-muted">{{ timelineText('lastObservedStatus', { status: t(`status.${node.status}`) }) }}</span>
+            <StatusBadge v-else :status="node.status" />
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
             <span v-if="node.reused" class="text-primary">{{ t('runs.rerunReused') }}</span>

@@ -338,8 +338,8 @@ public class WorkflowInstanceQueryServiceImpl implements WorkflowInstanceQuerySe
                     && (eventAttributes.isEmpty() || (eventAttributes.size() == 1
                     && (Boolean.TRUE.equals(eventAttributes.get("resumed"))
                     || Boolean.TRUE.equals(eventAttributes.get("recovered")))));
-            // 工作流完成的节点 ID 仅是上下文，不能覆盖真实节点结果或作为节点完成时间。
-            if (completionSummary
+            // 完成、取消事件的节点 ID 都可能只是并行执行上下文，不能覆盖已有节点终态。
+            if ((completionSummary || event.eventType() == RuntimeEventType.WORKFLOW_CANCELLED)
                     && (RuntimeState.SUCCESS.name().equals(status) || RuntimeState.FAILED.name().equals(status))) {
                 return;
             }
