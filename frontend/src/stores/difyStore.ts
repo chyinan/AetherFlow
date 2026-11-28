@@ -109,7 +109,7 @@ export const useDifyStore = defineStore('difySurface', {
     failedConversationCount: (state) => state.conversations.filter((conversation) => conversation.status === 'failed').length,
   },
   actions: {
-    async loadSurface(options: { includeProviderTelemetry?: boolean } = {}) {
+    async loadSurface(options: { includeProviderTelemetry?: boolean; includeSelectedDatasetContent?: boolean } = {}) {
       const includeProviderTelemetry = options.includeProviderTelemetry !== false
       const requestId = ++this.surfaceRequestId
       const isCurrent = () => this.surfaceRequestId === requestId
@@ -140,7 +140,7 @@ export const useDifyStore = defineStore('difySurface', {
         this.documents = this.documents.filter((document) => datasetIds.has(document.datasetId))
         this.segments = this.segments.filter((segment) => datasetIds.has(segment.datasetId))
         this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => datasetIds.has(id))
-        if (this.selectedDatasetId) {
+        if (this.selectedDatasetId && options.includeSelectedDatasetContent !== false) {
           await this.refreshDatasetContent(this.selectedDatasetId)
         }
       } finally {

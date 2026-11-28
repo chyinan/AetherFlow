@@ -515,7 +515,7 @@ async function loadPage() {
   lastRetry.value = null
   try {
     const [knowledgeResult, fileListResult] = await Promise.allSettled([
-      difyStore.loadSurface({ includeProviderTelemetry: false }),
+      difyStore.loadSurface({ includeProviderTelemetry: false, includeSelectedDatasetContent: false }),
       fileStore.loadFiles(),
     ])
     if (knowledgeResult.status === 'rejected') {
