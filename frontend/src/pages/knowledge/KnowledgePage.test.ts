@@ -49,6 +49,7 @@ describe('KnowledgePage', () => {
     mocks.difyStore.runRetrievalTest.mockReset().mockResolvedValue(undefined)
     mocks.difyStore.createDatasetFromWizard.mockReset().mockResolvedValue({ id: 'dataset-1', name: 'source' })
     mocks.fileStore.loadFiles.mockReset().mockResolvedValue(undefined)
+    mocks.fileStore.upload.mockReset()
     mocks.fileStore.files = []
     mocks.difyStore.datasets = []
     mocks.difyStore.selectedDataset = undefined
@@ -107,6 +108,102 @@ describe('KnowledgePage', () => {
     expect(wrapper.find('[data-action="retry-file-list"]').exists()).toBe(false)
     expect(wrapper.get('select').text()).toContain('cached-source.md')
     expect(wrapper.get('button[data-action="next-source"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('retries a failed source upload instead of refreshing the existing-file list', async () => {
+    const file = new File(['report'], 'report.md', { type: 'text/markdown' })
+    const asset: FileAsset = {
+      id: 'uploaded-report',
+      name: file.name,
+      mime: file.type,
+      source: 'input',
+      status: 'ready',
+      type: 'document',
+      size: '6 B',
+      updatedAt: '2026-11-25 09:00',
+    }
+    mocks.fileStore.files = [asset]
+    mocks.fileStore.loadFiles.mockRejectedValueOnce(new Error('list unavailable'))
+    mocks.fileStore.upload.mockRejectedValueOnce(new Error('upload failed')).mockResolvedValueOnce(asset)
+
+    const wrapper = mount(KnowledgePage, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.get('[data-action="create-knowledge"]').trigger('click')
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file] })
+    await input.trigger('change')
+    await flushPromises()
+
+    const retry = wrapper.find<HTMLButtonElement>('[data-action="retry-source-upload"]')
+    expect(retry.exists()).toBe(true)
+    expect(wrapper.findAll('[role="alert"]').map((alert) => alert.text())).toEqual(['upload failed', 'list unavailable'])
+    // A second click can arrive before Vue has removed the stale button.
+    retry.element.click()
+    retry.element.click()
+    await flushPromises()
+
+    expect(mocks.fileStore.upload.mock.calls).toEqual([[file], [file]])
+    expect(mocks.fileStore.loadFiles).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-action="retry-source-upload"]').exists()).toBe(false)
+    expect(wrapper.get('[role="alert"]').text()).toContain('list unavailable')
+    wrapper.unmount()
+  })
+
+  it('clears the previous upload warning when a newly chosen source uploads successfully', async () => {
+    const asset: FileAsset = {
+      id: 'new-source',
+      name: 'new.md',
+      mime: 'text/markdown',
+      source: 'input',
+      status: 'ready',
+      type: 'document',
+      size: '3 B',
+      updatedAt: '2026-11-25 09:00',
+    }
+    mocks.fileStore.files = [asset]
+    mocks.fileStore.upload.mockRejectedValueOnce(new Error('first upload failed')).mockResolvedValueOnce(asset)
+
+    const wrapper = mount(KnowledgePage, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.get('[data-action="create-knowledge"]').trigger('click')
+    const input = wrapper.get('input[type="file"]')
+    const first = new File(['old'], 'old.md', { type: 'text/markdown' })
+    const second = new File(['new'], 'new.md', { type: 'text/markdown' })
+    Object.defineProperty(input.element, 'files', { value: [first], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('first upload failed')
+
+    Object.defineProperty(input.element, 'files', { value: [second] })
+    await input.trigger('change')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(mocks.fileStore.upload.mock.calls).toEqual([[first], [second]])
+    expect(wrapper.get('button[data-action="next-source"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('does not carry an old source upload failure into a new create wizard', async () => {
+    let rejectUpload!: (error: Error) => void
+    mocks.fileStore.upload.mockReturnValueOnce(new Promise<FileAsset>((_resolve, reject) => { rejectUpload = reject }))
+    const wrapper = mount(KnowledgePage, { global: { plugins: [i18n] } })
+    await flushPromises()
+    await wrapper.get('[data-action="create-knowledge"]').trigger('click')
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['notes'], 'notes.md', { type: 'text/markdown' })],
+    })
+    await input.trigger('change')
+    const back = () => wrapper.findAll('button').find((button) =>
+      button.text() === i18n.global.t('knowledge.flow.backToKnowledge'),
+    )!
+    await back().trigger('click')
+    await wrapper.get('[data-action="create-knowledge"]').trigger('click')
+
+    rejectUpload(new Error('old wizard upload failed'))
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
