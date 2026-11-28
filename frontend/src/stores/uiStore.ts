@@ -278,7 +278,10 @@ function notificationMessageKey(message: NotifyMessageDTO) {
 
   const eventKey = notificationEventKey(message.eventType)
   if (eventKey) {
-    return `${eventKey}Detail`
+    // 可配置 Notify 节点和旧历史不一定关联运行实例；没有编号时不渲染空的 #。
+    const instance = message.payload.workflowInstanceId
+    const hasInstance = instance !== undefined && instance !== null && String(instance).trim() !== ''
+    return `${eventKey}${eventKey.startsWith('notifications.workflow') && !hasInstance ? 'GenericDetail' : 'Detail'}`
   }
 
   return 'notifications.connectionUnknown'
