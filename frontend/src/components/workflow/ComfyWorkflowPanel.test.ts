@@ -52,6 +52,32 @@ describe('ComfyUI 导入与参数绑定', () => {
     expect(wrapper.emitted('update')?.at(-1)).toEqual(['workflowBindings',[{ nodeId:'second', inputName:'steps', parameter:'steps' }]])
     wrapper.unmount()
   })
+  it('完整显示较长的输入标识和重复提示，并只移除对应覆盖', async () => {
+    const inputName = 'conditioning_prompt_for_reference_image_and_style_inheritance'
+    const longBinding = { nodeId: '33', inputName, parameter: 'prompt' }
+    const steps = { nodeId: 'first', inputName: 'steps', parameter: 'steps' }
+    const workflowJson = { ...api, 33: { class_type: 'CustomReferenceImageConditioning', inputs: { [inputName]: 'original prompt' } } }
+    const wrapper = panel({ workflowJson, workflowBindings: [steps, longBinding] })
+    try {
+      const removeLongBinding = wrapper.findAll('button[aria-label="移除"]')[1]!
+      const label = removeLongBinding.element.parentElement!.querySelector('code')!
+      expect(label.textContent).toBe(`33.${inputName} ← prompt`)
+      expect(label.classList.contains('[overflow-wrap:anywhere]')).toBe(true)
+      expect(removeLongBinding.classes()).toContain('shrink-0')
+
+      await wrapper.get('[data-testid="comfy-target"]').setValue(JSON.stringify(['33', inputName]))
+      await wrapper.get('[data-testid="comfy-add-binding"]').trigger('click')
+      const alert = wrapper.get('[role="alert"]')
+      expect(alert.text()).toBe(`重复绑定目标：33.${inputName}`)
+      expect(alert.classes()).toContain('[overflow-wrap:anywhere]')
+      expect(wrapper.emitted('update')).toBeUndefined()
+
+      await removeLongBinding.trigger('click')
+      expect(wrapper.emitted('update')).toEqual([['workflowBindings', [steps]]])
+      expect(wrapper.emitted('replace-workflow')).toBeUndefined()
+    } finally { wrapper.unmount() }
+  })
+
   describe('显式覆盖报错后的恢复', () => {
     const steps = { nodeId: 'first', inputName: 'steps', parameter: 'steps' }
     const seed = { nodeId: 'second', inputName: 'seed', parameter: 'seed' }
