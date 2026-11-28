@@ -293,7 +293,7 @@ export const useProjectStore = defineStore('project', {
       links[projectId] = (links[projectId] ?? []).filter((id) => id !== workflowId)
       writeProjectWorkflowLinks(links)
     },
-    async renameProjectWorkflow(projectId: string, workflowId: string, name: string) {
+    async renameProjectWorkflow(projectId: string, workflowId: string, name: string, options: { backgroundRefresh?: boolean } = {}) {
       const requestId = (this.workflowRenameRequestIds[workflowId] ?? 0) + 1
       this.workflowRenameRequestIds[workflowId] = requestId
       const isCurrent = () => this.workflowRenameRequestIds[workflowId] === requestId
@@ -323,27 +323,32 @@ export const useProjectStore = defineStore('project', {
       // 保存已确认，先保留名称；后续列表错误不能把已完成的保存改判为失败。
       applySavedName()
       const reloadRequestId = this.loadRequestId + 1
-      try {
-        await this.loadProjects()
-      } catch {
-        // loadProjects 已记录可单独重试的 loadError，不自动重发保存。
-      }
-      if (isCurrent() && this.loadRequestId === reloadRequestId && this.loadError) {
-        applySavedName()
-        // 仅恢复当前项目响应已给出的兄弟及本次确认条目，不接管较新的读取。
-        const project = this.projects.find((item) => item.id === projectId)
-        if (savedSummary && project
-          && !this.workflowSummaries.some((item) => item.id === saved.id)) {
-          const recovered = new Map<string, WorkflowSummary>(project.workflows.map((item) => [
-            item.id, { ...item, projectId: savedProjectId },
-          ]))
-          recovered.set(saved.id, { ...savedSummary, ...recovered.get(saved.id), name: saved.name, projectId: savedProjectId })
-          recovered.forEach((item) => {
-            if (!this.workflowSummaries.some((current) => current.id === item.id)) this.workflowSummaries.push(item)
-            if (savedProjectId === undefined) this.linkWorkflowToProject(projectId, item.id)
-          })
+      // 页面可在保存确认后立即收尾；默认 action 仍保留等待目录完成的兼容行为。
+      const refreshAfterRename = async () => {
+        try {
+          await this.loadProjects()
+        } catch {
+          // loadProjects 已记录可单独重试的 loadError，不自动重发保存。
+        }
+        if (isCurrent() && this.loadRequestId === reloadRequestId && this.loadError) {
+          applySavedName()
+          // 仅恢复当前项目响应已给出的兄弟及本次确认条目，不接管较新的读取。
+          const project = this.projects.find((item) => item.id === projectId)
+          if (savedSummary && project
+            && !this.workflowSummaries.some((item) => item.id === saved.id)) {
+            const recovered = new Map<string, WorkflowSummary>(project.workflows.map((item) => [
+              item.id, { ...item, projectId: savedProjectId },
+            ]))
+            recovered.set(saved.id, { ...savedSummary, ...recovered.get(saved.id), name: saved.name, projectId: savedProjectId })
+            recovered.forEach((item) => {
+              if (!this.workflowSummaries.some((current) => current.id === item.id)) this.workflowSummaries.push(item)
+              if (savedProjectId === undefined) this.linkWorkflowToProject(projectId, item.id)
+            })
+          }
         }
       }
+      if (options.backgroundRefresh) void refreshAfterRename()
+      else await refreshAfterRename()
       return saved
     },
     async deleteProjectWorkflow(projectId: string, workflowId: string) {

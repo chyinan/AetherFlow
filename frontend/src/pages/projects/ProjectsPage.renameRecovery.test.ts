@@ -573,3 +573,59 @@ describe('保存派发前的读取归属', () => {
     expect(componentErrors).toEqual([])
   })
 })
+
+describe('保存确认不再等待附带目录回读', () => {
+  it.each(['项目', '工作流'])('PUT已确认而%s目录仍在等待，关闭保存弹框并独立显示目录失败与只读重试', async source => {
+    const { store } = await setup()
+    const pending = deferred<unknown>()
+    const originalGet = http.get.getMockImplementation()!
+    const path = source === '项目' ? '/projects' : '/workflows/definitions'
+    let waiting = true
+    http.get.mockImplementation(async (url: string, ...rest: unknown[]) => {
+      if (url === path && waiting) return pending.promise
+      return originalGet(url, ...rest)
+    })
+    await openRename('101', '已确认不必等目录')
+    await submit()
+    expect(http.put).toHaveBeenCalledTimes(1)
+    expect(entity(101).name).toBe('已确认不必等目录')
+    expect(store.loading).toBe(true)
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(store.projectWorkflows('1')[0]?.name).toBe('已确认不必等目录')
+    pending.reject(new Error('附带目录回读失败'))
+    await flushPromises()
+    expect(store.loading).toBe(false)
+    expect(store.loadError).not.toBeNull()
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(store.projectWorkflows('1')[0]?.name).toBe('已确认不必等目录')
+    waiting = false
+    const retry = wrapper.findAll('main button').find(button => button.text() === i18n.global.t('common.retry'))!
+    await retry.trigger('click')
+    await flushPromises()
+    expect(store.loadError).toBeNull()
+    expect(http.put).toHaveBeenCalledTimes(1)
+    expect(store.projectWorkflows('1')[0]?.name).toBe('已确认不必等目录')
+    expect(componentErrors).toEqual([])
+  })
+
+  it('已有action调用者默认仍等待目录收尾后得到结果', async () => {
+    const { store } = await setup()
+    const pending = deferred<unknown>()
+    const originalGet = http.get.getMockImplementation()!
+    http.get.mockImplementation(async (path: string, ...rest: unknown[]) => path === '/projects'
+      ? pending.promise : originalGet(path, ...rest))
+    let finished = false
+    const renaming = store.renameProjectWorkflow('1', '101', '兼容等待').then(value => {
+      finished = true
+      return value
+    })
+    await flushPromises()
+    expect(entity(101).name).toBe('兼容等待')
+    expect(finished).toBe(false)
+    pending.reject(new Error('目录暂时不可用'))
+    expect((await renaming).name).toBe('兼容等待')
+    expect(finished).toBe(true)
+    expect(store.loadError).not.toBeNull()
+    expect(http.put).toHaveBeenCalledTimes(1)
+  })
+})
