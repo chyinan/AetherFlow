@@ -9,7 +9,7 @@ import {
   RotateCcw,
   Shuffle,
 } from 'lucide-vue-next'
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import ServiceCatalog from './ServiceCatalog.vue'
 import { modelRoleMessages } from './modelRoleMessages'
@@ -26,6 +26,7 @@ const { t: roleText } = useI18n({ useScope: 'local', messages: modelRoleMessages
 const managementBusy = computed(() => Boolean(modelStore.loading || modelStore.switchingProviderId || modelStore.recoveringProviderId))
 
 const managementWriteDisabled = computed(() => managementBusy.value || Boolean(modelStore.operationRefreshWarning))
+const pageHeading = ref<HTMLElement | null>(null)
 const selectedProvider = computed(() => modelStore.selectedProvider)
 const configuredPrimaryProviderId = computed(() => modelStore.configuredPrimaryProvider?.id)
 const canManageProviders = computed(() => authStore.isAdmin)
@@ -76,8 +77,12 @@ function quotaStatusText(provider: { providerType?: string; id: string; runtime?
   return isLocalProvider(provider) ? t('models.quotaNotApplicable') : t('models.quotaUnavailable')
 }
 
-function refreshStatus() {
+function refreshStatus(inlineRetryEvent?: MouseEvent) {
   if (!canManageProviders.value || managementBusy.value) return
+  // 内联重试会随错误区消失；只在它正持有焦点时交给稳定标题。
+  if (inlineRetryEvent?.currentTarget === document.activeElement) {
+    pageHeading.value?.focus({ preventScroll: true })
+  }
   void modelStore.refreshStatus({ management: true })
 }
 
@@ -103,7 +108,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
       <div class="flex items-center gap-2">
         <Brain class="h-4 w-4 text-ai" />
         <div>
-          <p class="text-sm font-semibold text-text-primary">{{ t('models.title') }}</p>
+          <h1 ref="pageHeading" tabindex="-1" class="rounded-sm text-sm font-semibold text-text-primary focus:outline focus:outline-2 focus:outline-offset-4 focus:outline-primary">{{ t('models.title') }}</h1>
           <p class="text-xs text-text-muted">{{ t('models.subtitle') }}</p>
         </div>
       </div>
@@ -112,7 +117,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
         <button
           class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-3 py-2 text-sm text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
           :disabled="managementBusy"
-          @click="refreshStatus"
+          @click="refreshStatus()"
         >
           <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': modelStore.loading }" />
           {{ modelStore.loading ? t('models.loading') : t('models.refreshStatus') }}
