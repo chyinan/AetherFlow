@@ -411,8 +411,9 @@ const selectedModelCatalogValue = computed(() => {
   const { model, provider } = configuredChatModel.value
   if (!model) return ''
   const candidates = chatModelPicker.value.options.filter((item) => item.model.name === model)
-  // TRANSLATE 只存模型名的旧配置，仅在名字唯一时显示目录选项。
-  if (!provider) return selectedKind.value === 'translate' && candidates.length === 1 ? candidates[0].value : ''
+  // 这些节点的旧选择器只写模型名；名字唯一时只回显，不自动改写旧路由。
+  const supportsModelOnlyConfig = ['translate', 'agent', 'question-understand', 'question-classifier', 'parameter-extractor'].includes(selectedKind.value)
+  if (!provider) return supportsModelOnlyConfig && candidates.length === 1 ? candidates[0].value : ''
   return candidates.find((item) => normalizedProviderType(chatModelProviderType(item.model))
     === normalizedProviderType(provider))?.value ?? ''
 })
@@ -1424,9 +1425,10 @@ onMounted(() => {
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="selectedModelValue" @change="handleChatModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+              <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
             </select>
           </label>
           <label class="block">
@@ -1459,9 +1461,10 @@ onMounted(() => {
           </label>
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }}</span>
-            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-app-border bg-white px-3 py-3 text-sm outline-none focus:border-primary" data-config-field="model" :value="selectedModelValue" @change="handleChatModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+              <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
             </select>
           </label>
           <div class="rounded-lg border border-app-border bg-app-bg2 p-3 text-sm leading-6 text-text-secondary">
@@ -1479,9 +1482,10 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'question-classifier'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="selectedModelValue" @change="handleChatModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+              <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
             </select>
           </label>
           <label class="block">
@@ -1781,9 +1785,10 @@ onMounted(() => {
         <section v-else-if="selectedKind === 'parameter-extractor'" class="space-y-5 p-5">
           <label class="block">
             <span class="mb-2 block text-sm font-semibold text-text-primary">{{ t('workflow.inspector.model') }} <span class="text-status-error">*</span></span>
-            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="textConfig('model', '')" @change="handleTextInput('model', $event)">
+            <select class="w-full rounded-lg border border-status-warning bg-amber-50 px-3 py-3 text-sm font-medium outline-none" data-config-field="model" :value="selectedModelValue" @change="handleChatModelSelection">
               <option value="">{{ t('workflow.inspector.configureModel') }}</option>
-              <option v-for="model in availableChatModels" :key="model.id" :value="model.name">{{ modelOptionLabel(model) }}</option>
+              <option v-for="option in chatModelPicker.options" :key="option.value" :value="option.value">{{ modelOptionLabel(option.model) }}</option>
+              <option v-if="configuredModelOption" :value="configuredModelOption.value" disabled>{{ configuredModelOption.label }}</option>
             </select>
           </label>
           <label class="block">

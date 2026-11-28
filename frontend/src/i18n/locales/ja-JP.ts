@@ -650,7 +650,7 @@ export const jaJP = {
       importFromTool: 'ツールからインポート',
       extractionUnset: '抽出パラメータが未設定',
       instruction: '指示',
-      instructionPlaceholder: 'ここにプロンプトを記述してください。変数挿入には「{」を入力します。',
+      instructionPlaceholder: "ここにプロンプトを記述してください。変数挿入には「{'{'}」を入力します。",
       advancedSettings: '詳細設定',
       basicMode: '基本',
       advancedMode: '詳細',

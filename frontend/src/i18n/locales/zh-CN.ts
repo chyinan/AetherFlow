@@ -654,7 +654,7 @@ export const zhCN = {
       importFromTool: '从工具导入',
       extractionUnset: '提取参数未设置',
       instruction: '指令',
-      instructionPlaceholder: '在这里写你的提示词，输入 “{” 插入变量。',
+      instructionPlaceholder: "在这里写你的提示词，输入 “{'{'}” 插入变量。",
       advancedSettings: '高级设置',
       basicMode: '基础',
       advancedMode: '高级',
