@@ -424,6 +424,7 @@ export const useUiStore = defineStore('ui', {
     notificationLoadRequest: 0,
     notificationMutation: null as NotificationMutation | null,
     notificationMutationError: null as NotificationMutation | null,
+    clearedNotificationRecordIds: [] as string[],
     lastRealtimeNoticeState: 'online' as 'online' | 'reconnecting' | 'offline',
     lastRealtimeNoticeAt: 0,
     lastRealtimeNoticeId: null as string | null,
@@ -528,6 +529,9 @@ export const useUiStore = defineStore('ui', {
       // 服务端推送的 eventId 就是通知记录 ID：与历史列表使用同一身份，
       // 实时与历史都到达时只展示一条，也不按文案去重。
       const persistentId = message.eventId?.trim()
+      // 成功清空前已知的持久记录，其排队回放可能晚于清空 ACK 才送达。
+      // 只记最近 20 个明确清空的 ID，不推断未见过的消息，也不影响权威历史读取。
+      if (persistentId && this.clearedNotificationRecordIds.includes(`record-${persistentId}`)) return
       const id = persistentId
         ? `record-${persistentId}`
         : `local-${message.occurredAt ?? Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -616,13 +620,17 @@ export const useUiStore = defineStore('ui', {
       this.notificationsLoading = false
       // 只变换操作起始已有的项；等待期间新建或替换的实时项交给后续读取协调。
       const affectedItems = new Set(this.notifications)
+      // 持久通知的 READ 回放可能替换同一条记录的对象；清空仍按稳定记录身份生效。
+      // 本地连接提示会复用 ID 表示新状态，仍只按原对象处理，保留等待期间的新提示。
+      const affectedRecordIds = new Set(this.notifications.filter((item) => item.id.startsWith('record-')).map((item) => item.id))
       try {
         if (action === 'markAllRead') {
           await markAllNotificationMessagesRead()
           this.notifications = this.notifications.map((item) => affectedItems.has(item) ? { ...item, read: true } : item)
         } else {
           await clearNotificationMessages()
-          this.notifications = this.notifications.filter((item) => !affectedItems.has(item))
+          this.clearedNotificationRecordIds = [...new Set([...affectedRecordIds, ...this.clearedNotificationRecordIds])].slice(0, 20)
+          this.notifications = this.notifications.filter((item) => !affectedItems.has(item) && !affectedRecordIds.has(item.id))
         }
         writeStoredNotifications(this.notifications)
       } catch {
@@ -642,6 +650,7 @@ export const useUiStore = defineStore('ui', {
       const streamGeneration = notificationStreamGeneration
       stopNotifications?.()
       activeNotificationUserId = normalizedUserId
+      this.clearedNotificationRecordIds = []
       this.notifications = readStoredNotifications(normalizedUserId)
       stopNotifications = realtimeClient.subscribeNotifications(normalizedUserId, {
         onMessage: (message) => this.addNotifyMessage(message),
@@ -663,6 +672,7 @@ export const useUiStore = defineStore('ui', {
       stopNotifications?.()
       stopNotifications = null
       activeNotificationUserId = null
+      this.clearedNotificationRecordIds = []
     },
   },
 })

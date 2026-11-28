@@ -20,7 +20,7 @@ import { useUiStore } from '@/stores/uiStore'
 import TopStatusBar from '@/components/layout/TopStatusBar.vue'
 
 type RecordItem = { id: number; channel: string; eventType: string; payload: { title: string; message: string }; status: string; createdAt: string }
-type LiveMessage = { eventId?: string; channel: string; eventType: string; payload: { title: string; message: string }; occurredAt: string }
+type LiveMessage = { eventId?: string; channel: string; eventType: string; payload: { title: string; message: string }; occurredAt: string; status?: string }
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const record = (id: number, status = 'UNREAD'): RecordItem => ({ id, channel: 'workflow', eventType: 'completed', payload: { title: `合成历史通知${id}`, message: `合成正常消息${id}` }, status, createdAt: `2026-10-16T10:0${id}:00.000Z` })
 let releases: (() => void)[] = []
@@ -687,4 +687,66 @@ describe('备用 WebSocket 重连历史恢复', () => {
     expect(doubles.list).toHaveBeenCalledTimes(4)
     expect(store.notifications.map(item => item.id)).toContain('record-4')
   })
+})
+
+
+describe('清空等待期间同一持久记录的状态回放', () => {
+  it.each(['成功', '失败'] as const)('READ 回放替换对象后，清空%s仍按原有记录身份处理', async result => {
+    const store = await setup(); await toggle(); const waiting = gate()
+    doubles.clear.mockImplementationOnce(async () => {
+      if (result === '成功') server = []
+      await waiting.promise
+      if (result === '失败') throw new Error('合成清空失败')
+    })
+    await clickAction('clear')
+    // 另一个普通客户端先标读，重连查询取得的 READ 快照排队到本次清空等待中才送达。
+    live.onMessage({
+      eventId: '2', channel: 'workflow', eventType: 'completed',
+      payload: { title: '合成历史通知2', message: '合成正常消息2' },
+      occurredAt: '2026-10-16T10:02:00.000Z', status: 'READ',
+    })
+    emitLive('清空提交后新建的持久通知', '3')
+    await flushPromises()
+    expect(store.notifications.find(item => item.id === 'record-2')?.read).toBe(true)
+    waiting.resolve(); await flushPromises()
+    expect(store.notifications.map(item => item.id)).toEqual(result === '成功'
+      ? ['record-3'] : ['record-3', 'record-2', 'record-1'])
+    expect(store.notifications.find(item => item.id === 'record-3')?.read).toBe(false)
+    expect(store.notificationMutationError).toBe(result === '成功' ? null : 'clear')
+    const cached = JSON.parse(localStorage.getItem('aetherflow.notifications.7') ?? '[]')
+    expect(cached.map((item: { id: string }) => item.id)).toEqual(store.notifications.map(item => item.id))
+    expect(doubles.clear).toHaveBeenCalledTimes(1)
+    expect(errors).toEqual([])
+  })
+})
+
+
+it.each(['SENT', 'READ'])('清空确认后迟到的已知 %s 回放不复活，新的持久 ID 仍正常显示', async status => {
+  const store = await setup(); await toggle(); await clickAction('clear')
+  expect(store.notifications).toEqual([])
+  live.onMessage({ eventId: '2', channel: 'workflow', eventType: 'completed',
+    payload: { title: '旧清空记录', message: 'notifications.connectionUnknown' },
+    occurredAt: '2026-10-16T10:02:00.000Z', status })
+  emitLive('真正新建的持久通知', '3')
+  await flushPromises()
+  expect(store.notifications.map(item => item.id)).toEqual(['record-3'])
+  expect(titles()).toEqual(['真正新建的持久通知'])
+  expect(store.unreadNotificationCount).toBe(1)
+  expect(doubles.clear).toHaveBeenCalledTimes(1)
+})
+
+it('排队回放去重只保留最近20个明确清空ID，停止通知流后释放', async () => {
+  const store = await setup(); await toggle()
+  store.notifications = Array.from({length:20}, (_, i) => ({...store.notifications[0]!, id: `record-${119-i}`}))
+  await clickAction('clear')
+  store.addNotifyMessage({eventId:'200', channel:'workflow', eventType:'completed',payload:{title:'下一次清空',message:'notifications.connectionUnknown'}})
+  await flushPromises()
+  await clickAction('clear')
+  expect(store.clearedNotificationRecordIds).toHaveLength(20)
+  expect(store.clearedNotificationRecordIds).toContain('record-200')
+  expect(store.clearedNotificationRecordIds).not.toContain('record-100')
+  store.stopNotificationStream()
+  expect(store.clearedNotificationRecordIds).toEqual([])
+  store.addNotifyMessage({eventId:'200',channel:'workflow',eventType:'completed',payload:{title:'新流范围不沿用去重',message:'notifications.connectionUnknown'}})
+  expect(store.notifications.map(item=>item.id)).toEqual(['record-200'])
 })
