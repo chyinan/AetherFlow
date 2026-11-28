@@ -49,7 +49,11 @@ const selectedRouteId = computed(() => Array.isArray(route.params.id) ? route.pa
 const selectedRun = computed(() => selectedRouteId.value && selectedRouteId.value === runStore.currentRun?.id
   ? runStore.currentRun : null)
 const selectedDetailReady = computed(() => Boolean(selectedRun.value))
-const pageError = computed(() => (selectedRouteId.value ? runStore.error : null) || runStore.historyError)
+const pageError = computed(() => {
+  const detailError = selectedRouteId.value ? runStore.error : null
+  if (detailError) return { scope: 'detail', message: detailError } as const
+  return runStore.historyError ? { scope: 'history', message: runStore.historyError } as const : null
+})
 const selectedOutsidePage = computed(() => selectedDetailReady.value && runStore.currentRun && !runStore.historyLoading && !runStore.historyError
   && !visibleRuns.value.some(run => run.id === runStore.currentRun?.id))
 let historyRequest: Promise<void> | undefined
@@ -516,8 +520,14 @@ const canRetryColdDetail = computed(() => Boolean(
   selectedRouteId.value && runStore.error && !selectedDetailReady.value && selectedRouteId.value === coldDetailTarget.value,
 ))
 
+const pageErrorRetryPending = computed(() => pageError.value?.scope === 'history'
+  ? runStore.historyLoading
+  : runStore.loading || (runStore.historyLoading && !canRetryColdDetail.value))
+
 function retryLoad() {
-  if (canRetryColdDetail.value) {
+  if (pageError.value?.scope === 'history') {
+    retryHistoryPage()
+  } else if (canRetryColdDetail.value) {
     void syncRunFromRoute(selectedRouteId.value, historyRequest, 'retry-detail')
   } else {
     refreshRuns()
@@ -603,17 +613,17 @@ watch(
             <div class="flex min-w-0 items-start gap-2">
               <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
               <div class="min-w-0">
-                <p class="font-semibold">{{ t('runs.loadErrorTitle') }}</p>
-                <p class="mt-1 break-words text-xs">{{ pageError }}</p>
+                <p class="font-semibold">{{ pageError.scope === 'history' ? historyText('loadErrorTitle') : t('runs.loadErrorTitle') }}</p>
+                <p class="mt-1 break-words text-xs">{{ pageError.message }}</p>
               </div>
             </div>
             <button
               class="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
-              :disabled="runStore.loading || (runStore.historyLoading && !canRetryColdDetail)"
+              :disabled="pageErrorRetryPending"
               @click="retryLoad"
             >
-              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': runStore.loading || (runStore.historyLoading && !canRetryColdDetail) }" />
-              {{ t('runs.retryLoad') }}
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': pageErrorRetryPending }" />
+              {{ pageError.scope === 'history' ? historyText('retry') : t('runs.retryLoad') }}
             </button>
           </div>
         </section>

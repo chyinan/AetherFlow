@@ -174,7 +174,11 @@ it('列表部分失败保留错误并恢复路由目标，下次重试可以完�
   expect(store.error).toBeNull()
   expect(store.currentRun?.id).toBe('run-2')
   expect(store.realtimeRunId).toBe('run-2')
-  failList = false; await retry()
+  const detailCalls = mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances').length
+  const listRetry = wrapper!.get('main > div > section:first-child button')
+  expect(listRetry.text()).toBe('重试此页')
+  failList = false; await listRetry.trigger('click'); await flushPromises()
+  expect(mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances')).toHaveLength(detailCalls)
   expect(store.historyError).toBeNull()
   expect(store.error).toBeNull()
   expect(store.currentRun?.id).toBe('run-2')

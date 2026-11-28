@@ -185,7 +185,10 @@ it('未选中运行时，页面提示只显示当前列表错误，且重试仍�
   expect(router.currentRoute.value.fullPath).toBe('/runs?status=SUCCESS')
   expectNoPreviousDetail()
 
-  const retry = view!.findAll<HTMLButtonElement>('main button').find(button => button.text() === i18n.global.t('runs.retryLoad'))!
+  const banner = view!.get('main > div > section:first-child')
+  expect(banner.get('p.font-semibold').text()).toBe('运行记录加载失败')
+  const retry = banner.get<HTMLButtonElement>('button')
+  expect(retry.text()).toBe('重试此页')
   expect(retry.element.disabled).toBe(false)
   const refreshed = deferred<ReturnType<typeof page>>()
   completedPage = refreshed.promise

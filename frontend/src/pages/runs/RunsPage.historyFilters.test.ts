@@ -794,3 +794,67 @@ it('仅从节点推断成功而运行仍未确认终态时不重取状态筛选�
   expect(pageCalls()).toHaveLength(1)
   expect(displayedIds()).toContain('run-2')
 })
+
+it('页首重试运行记录只重新读取当前筛选页，保留已经加载的运行详情', async () => {
+  const query = { workflowId: 'wf-b', status: 'RUNNING', page: 2, pageSize: 20 }
+  const initial = list(query)
+  const selected = initial.items[0]!
+  const runId = `run-${selected.id}`
+  const location = `/runs/${runId}?q=乙流程&workflowId=wf-b&status=RUNNING&page=2&pageSize=20`
+  const { router, store } = await setup(location)
+  const original = mocks.get.getMockImplementation()!
+  mocks.get.mockImplementation((url: string, options?: unknown) => url === '/workflow-instances'
+    ? Promise.reject(new Error('分页暂不可用'))
+    : original(url, options))
+  store.patchCurrentRun({ status: 'failed', backendStatus: 'FAILED', progress: 100 })
+  await flushPromises()
+  expect(store.error).toBeNull()
+  expect(store.historyError).toContain('分页暂不可用')
+  expect(wrapper!.get('[data-testid="run-detail-region"]').text()).toContain(runId)
+
+  const banner = wrapper!.get('main > div > section:first-child')
+  const title = banner.get('p.font-semibold').text()
+  const beforeDetailCalls = mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances').length
+  const selection = store.selectionRequestId
+  mocks.get.mockImplementation((url: string) => url === '/workflow-instances'
+    ? Promise.resolve({ ...initial, total: initial.total - 1, items: initial.items.slice(1) })
+    : Promise.reject(new Error('详情在本次重试期间不可用，不应重新读取')))
+  const label = banner.get('button').text()
+  await banner.get('button').trigger('click'); await flushPromises()
+  expect(mocks.get.mock.calls.filter(([url]) => url !== '/workflow-instances')).toHaveLength(beforeDetailCalls)
+  expect(store.selectionRequestId).toBe(selection)
+  expect(title).toBe('运行记录加载失败')
+  expect(label).toBe('重试此页')
+  expect(store.error).toBeNull()
+  expect(store.historyError).toBeNull()
+  expect(router.currentRoute.value.fullPath).toBe(location)
+  expect(store.currentRun).toMatchObject({ id: runId, backendStatus: 'FAILED' })
+  expect(wrapper!.get('[data-testid="run-detail-region"]').text()).toContain(runId)
+  expect(pageCalls()).toHaveLength(3)
+  expect(pageCalls().at(-1)).toEqual(pageCalls()[0])
+})
+
+it('详情和历史同时失败时，页首仍先重试冷启动详情', async () => {
+  const original = mocks.get.getMockImplementation()!
+  let detailUnavailable = true
+  mocks.get.mockImplementation((url: string, options?: unknown) => {
+    if (url === '/workflow-instances') return Promise.reject(new Error('分页暂不可用'))
+    if (url === '/workflow-instances/81' && detailUnavailable) return Promise.reject(new Error('独立详情暂不可用'))
+    return original(url, options)
+  })
+  const { store } = await setup('/runs/run-81?status=RUNNING')
+  expect(store.error).toContain('独立详情暂不可用')
+  expect(store.historyError).toContain('分页暂不可用')
+  const banner = wrapper!.get('main > div > section:first-child')
+  expect(banner.get('p.font-semibold').text()).toBe(i18n.global.t('runs.loadErrorTitle'))
+  expect(banner.text()).toContain('独立详情暂不可用')
+  expect(banner.get('button').text()).toBe(i18n.global.t('runs.retryLoad'))
+
+  detailUnavailable = false
+  await banner.get('button').trigger('click'); await flushPromises()
+  expect(pageCalls()).toHaveLength(1)
+  expect(store.currentRun?.id).toBe('run-81')
+  expect(store.error).toBeNull()
+  expect(store.historyError).toContain('分页暂不可用')
+  expect(wrapper!.get('main > div > section:first-child').get('p.font-semibold').text()).toBe('运行记录加载失败')
+})
