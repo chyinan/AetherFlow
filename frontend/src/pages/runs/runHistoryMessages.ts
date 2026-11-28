@@ -1,6 +1,7 @@
 export const runHistoryMessages = {
   'zh-CN': {
     viewArtifacts: '查看本次成品',
+    progressPending: '进度待确认',
     historyTitle: '运行记录', filtersTitle: '筛选运行', resultsTitle: '本页匹配记录', detailTitle: '所选运行详情', selected: '已选中',
     search: '本页名称 / 运行 ID', searchHint: '名称和 ID 关键词只搜索已加载的这一页；工作流和状态筛选由服务器执行',
     workflow: '工作流 ID', workflowHint: '留空显示全部工作流，可输入完整工作流 ID', all: '全部状态', status: '运行状态', apply: '应用筛选', clear: '清除筛选',
@@ -12,6 +13,7 @@ export const runHistoryMessages = {
   },
   'en-US': {
     viewArtifacts: 'View this run’s artifacts',
+    progressPending: 'Progress not yet confirmed',
     historyTitle: 'Run history', filtersTitle: 'Filter runs', resultsTitle: 'Matches on this page', detailTitle: 'Selected run details', selected: 'Selected',
     search: 'Name / run ID on this page', searchHint: 'Name and ID keywords search only this loaded page. Workflow and status filters run on the server',
     workflow: 'Workflow ID', workflowHint: 'Leave blank for all workflows, or enter the full workflow ID', all: 'All statuses', status: 'Run status', apply: 'Apply filters', clear: 'Clear filters',
@@ -23,6 +25,7 @@ export const runHistoryMessages = {
   },
   'ja-JP': {
     viewArtifacts: 'この実行の成果物を表示',
+    progressPending: '進捗は未確定です',
     historyTitle: '実行履歴', filtersTitle: '実行を絞り込む', resultsTitle: 'このページの一致項目', detailTitle: '選択した実行の詳細', selected: '選択中',
     search: 'このページの名前 / 実行 ID', searchHint: '名前と ID のキーワードは読み込み済みのこのページのみを検索します。ワークフローと状態はサーバーで絞り込みます',
     workflow: 'ワークフロー ID', workflowHint: '空欄で全ワークフローを表示。完全な ID を入力できます', all: 'すべての状態', status: '実行状態', apply: '絞り込みを適用', clear: '絞り込みを解除',

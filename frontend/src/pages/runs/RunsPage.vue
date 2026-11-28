@@ -11,7 +11,7 @@ import LogStream from '@/components/run/LogStream.vue'
 import RunTimeline from '@/components/run/RunTimeline.vue'
 import SubworkflowChildRuns from '@/components/run/SubworkflowChildRuns.vue'
 import FailedNodeRerunDialog from '@/components/run/FailedNodeRerunDialog.vue'
-import type { RunNodeState, WorkflowCancellationCleanupStatus } from '@/types/run'
+import type { RunNodeState, WorkflowRun, WorkflowCancellationCleanupStatus } from '@/types/run'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { useRunStore } from '@/stores/runStore'
 import { runArtifactsLocation } from '@/utils/runNavigation'
@@ -40,6 +40,11 @@ const historyStatusMismatches = computed(() => new Set(runStore.historyRuns
   .map(run => run.id)))
 const matchingStatusRuns = computed(() => runStore.historyRuns.filter(run => !historyStatusMismatches.value.has(run.id)))
 const visibleRuns = computed(() => matchingStatusRuns.value.filter(run => matchesRunHistorySearch(run, filters.value.q)))
+// WAITING 的 100 是快照合并占位，不是已完成进度；实际数值更新仍原样展示。
+function displayRunProgress(run: Pick<WorkflowRun, 'status' | 'progress'>) {
+  return run.status === 'waiting' && run.progress === 100 ? null : run.progress
+}
+const selectedProgress = computed(() => selectedRun.value ? displayRunProgress(selectedRun.value) : null)
 const historyStatusStale = computed(() => historyStatusMismatches.value.size > 0)
 const pageCount = computed(() => Math.max(1, Math.ceil(runStore.historyTotal / filters.value.pageSize)))
 const historyPageLabel = computed(() => historyText('page', { page: filters.value.page, pages: pageCount.value, total: runStore.historyTotal }))
@@ -687,8 +692,9 @@ watch(
               </div>
               <p data-testid="history-run-id" class="mt-1 break-all text-xs text-text-muted">{{ run.id }}</p>
               <span v-if="selectedRouteId === run.id" class="mt-1 block text-xs font-medium text-primary">{{ historyText('selected') }}</span>
-              <div class="mt-2 h-1.5 rounded-full bg-app-muted">
-                <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${run.progress}%` }" />
+              <p v-if="displayRunProgress(run) === null" data-testid="history-run-progress-pending" class="mt-2 text-xs text-text-muted">{{ historyText('progressPending') }}</p>
+              <div v-else class="mt-2 h-1.5 rounded-full bg-app-muted">
+                <div class="h-1.5 rounded-full bg-primary" :style="{ width: `${displayRunProgress(run)}%` }" />
               </div>
               <p class="mt-2 text-xs text-text-muted">
                 {{ run.startedAt }}<span v-if="run.artifactCount !== undefined"> · {{ run.artifactCount }} {{ t('runs.artifacts') }}</span>
@@ -797,7 +803,7 @@ watch(
               <div class="mt-4 grid gap-3 md:grid-cols-4">
                 <div class="rounded-md bg-app-bg2 p-3">
                   <p class="text-xs text-text-muted">{{ t('runs.progress') }}</p>
-                  <p class="mt-1 text-sm font-semibold text-text-primary">{{ runStore.currentRunProgress }}%</p>
+                  <p data-testid="run-detail-progress" class="mt-1 text-sm font-semibold text-text-primary">{{ selectedProgress === null ? historyText('progressPending') : `${selectedProgress}%` }}</p>
                 </div>
                 <div class="rounded-md bg-app-bg2 p-3">
                   <p class="text-xs text-text-muted">{{ t('runs.trigger') }}</p>
