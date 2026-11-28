@@ -164,7 +164,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
           </div>
         </section>
 
-        <section class="grid min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
+        <section class="grid grid-cols-1 min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
           <aside class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
             <div class="border-b border-app-border p-4">
               <div class="flex items-center justify-between">
@@ -203,14 +203,14 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                         {{ roleText('configuredPrimaryRoute') }}
                       </span>
                     </div>
-                    <p class="mt-1 text-xs text-text-muted">{{ provider.runtime }} · {{ provider.endpoint }}</p>
+                    <p class="mt-1 text-xs text-text-muted [overflow-wrap:anywhere]">{{ provider.runtime }} · {{ provider.endpoint }}</p>
                   </div>
                   <StatusDot :tone="providerTone(provider.status)" :label="provider.status === 'unknown' ? roleText('unknown') : provider.status" />
                 </div>
                 <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-text-secondary">
                   <div class="rounded-md bg-app-bg2 p-2">
                     <p class="text-text-muted">{{ t('models.defaultLabel') }}</p>
-                    <p class="mt-1 font-medium text-text-primary">{{ provider.defaultModel || t('common.none') }}</p>
+                    <p class="mt-1 font-medium text-text-primary [overflow-wrap:anywhere]">{{ provider.defaultModel || t('common.none') }}</p>
                   </div>
                   <div class="rounded-md bg-app-bg2 p-2">
                     <p class="text-text-muted">{{ t('models.latencyLabel') }}</p>
@@ -259,11 +259,11 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                   <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.primary') }}</p>
-                    <p class="mt-1 font-medium text-text-primary">{{ policy.primaryModel || t('common.none') }}</p>
+                      <p class="mt-1 font-medium text-text-primary [overflow-wrap:anywhere]">{{ policy.primaryModel || t('common.none') }}</p>
                     </div>
                     <div class="rounded bg-app-bg2 p-2">
                       <p class="text-text-muted">{{ t('models.fallback') }}</p>
-                      <p class="mt-1 font-medium text-text-primary">{{ policy.fallbackModels.join(' -> ') || '--' }}</p>
+                      <p class="mt-1 font-medium text-text-primary [overflow-wrap:anywhere]">{{ policy.fallbackModels.join(' -> ') || '--' }}</p>
                     </div>
                   </div>
                   <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
@@ -292,10 +292,10 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
             <section id="selected-provider-details" aria-labelledby="selected-provider-title" class="shrink-0 overflow-hidden rounded-lg border border-app-border bg-white shadow-sm">
               <div class="flex flex-wrap items-center justify-between gap-3 border-b border-app-border px-4 py-3">
                 <div class="min-w-0">
-                  <h2 id="selected-provider-title" class="break-words text-sm font-semibold text-text-primary">{{ selectedProvider ? roleText('selectedProviderDetails', { provider: selectedProvider.name }) : t('models.selectProvider') }}</h2>
+                  <h2 id="selected-provider-title" class="text-sm font-semibold text-text-primary [overflow-wrap:anywhere]">{{ selectedProvider ? roleText('selectedProviderDetails', { provider: selectedProvider.name }) : t('models.selectProvider') }}</h2>
                   <p class="text-xs text-text-muted">{{ t('models.catalogAndCapabilities') }}</p>
                 </div>
-                <div class="flex flex-wrap items-center gap-2">
+                <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                   <button v-if="canManageProviders"
                     class="inline-flex items-center gap-2 rounded-md border border-app-border bg-white px-2.5 py-1.5 text-xs text-text-secondary transition hover:border-ai/30 hover:text-ai disabled:cursor-not-allowed disabled:opacity-60"
                     :disabled="!selectedProvider || selectedProvider.id === configuredPrimaryProviderId || managementWriteDisabled || modelStore.snapshotSource !== 'real'"
@@ -312,7 +312,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                     <RotateCcw class="h-3.5 w-3.5" :class="{ 'animate-spin': modelStore.recoveringProviderId === selectedProvider?.id }" />
                     {{ modelStore.recoveringProviderId === selectedProvider?.id ? t('models.recovering') : t('models.recoverProvider') }}
                   </button>
-                  <span v-if="selectedProvider?.defaultModel" class="rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary">
+                  <span v-if="selectedProvider?.defaultModel" class="max-w-full rounded-md border border-app-border bg-app-muted px-2 py-1 text-xs text-text-secondary [overflow-wrap:anywhere]">
                     {{ selectedProvider.defaultModel }}
                   </span>
                 </div>
@@ -374,7 +374,7 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
               </div>
             </section>
 
-            <div class="grid min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div class="grid grid-cols-1 min-h-0 flex-1 gap-4 overflow-visible xl:overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
               <section class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
                 <div class="flex shrink-0 items-center justify-between">
                   <div>
@@ -392,17 +392,17 @@ watch(() => [authStore.token, authStore.user?.id, authStore.user?.userId, canMan
                   <p v-for="log in modelStore.logs" :key="log.id" class="rounded-md border border-transparent bg-app-bg2 px-3 py-2 text-text-secondary transition hover:border-primary/20 hover:bg-primary-soft/30">
                     <span class="text-text-muted">{{ log.time }}</span>
                     <span class="mx-2 font-semibold uppercase text-primary">{{ log.level }}</span>
-                    <span class="text-text-primary">{{ log.message }}</span>
+                    <span class="text-text-primary [overflow-wrap:anywhere]">{{ log.message }}</span>
                   </p>
                 </div>
               </section>
 
               <section data-testid="selected-provider-snapshot" aria-labelledby="selected-provider-snapshot-title" class="flex min-h-0 flex-col rounded-lg border border-app-border bg-white p-4 shadow-sm">
-                <h3 id="selected-provider-snapshot-title" class="shrink-0 break-words text-sm font-semibold text-text-primary">{{ selectedProvider ? roleText('selectedProviderSnapshot', { provider: selectedProvider.name }) : t('models.providerSnapshot') }}</h3>
+                <h3 id="selected-provider-snapshot-title" class="shrink-0 text-sm font-semibold text-text-primary [overflow-wrap:anywhere]">{{ selectedProvider ? roleText('selectedProviderSnapshot', { provider: selectedProvider.name }) : t('models.providerSnapshot') }}</h3>
                 <div v-if="selectedProvider" class="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
                   <div class="rounded-lg bg-app-bg2 p-3">
                     <p class="text-xs text-text-muted">{{ t('models.endpoint') }}</p>
-                    <p class="mt-1 break-all text-sm text-text-primary">{{ selectedProvider.endpoint }}</p>
+                    <p class="mt-1 text-sm text-text-primary [overflow-wrap:anywhere]">{{ selectedProvider.endpoint }}</p>
                   </div>
                   <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded bg-app-bg2 p-2">
