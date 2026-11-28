@@ -1681,6 +1681,7 @@ export const zhCN = {
       applied: '已应用 {count} 项画布操作，可点击顶部“撤销”恢复。',
       notApplied: '未修改画布：{reason}', invalid: '画布修改未通过校验。',
       stale: '生成期间画布已发生变化，请根据最新画布重新发送要求。',
+      savedDuringEdit: '工作流已首次保存，本次修改未应用。请基于已保存的画布重新发送要求，将开始一段新对话。',
       runtimeWarning: '已更新草稿，但运行前还需处理：',
       canvasNodeLimit: '当前画布有 {count} 个节点，超过直接编辑上限（{limit} 个）。可切换到“对话”，或在较小的画布上重试。',
       designRequest: '请根据当前画布和我们此前的需求直接创建或完善工作流。需求不明确时先问一个问题。',

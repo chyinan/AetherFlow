@@ -1673,6 +1673,7 @@ export const enUS = {
       applied: 'Applied {count} canvas operations. Use Undo to restore the previous graph.',
       notApplied: 'Canvas unchanged: {reason}', invalid: 'Canvas validation failed.',
       stale: 'The canvas changed while generating. Send your request again against the latest graph.',
+      savedDuringEdit: 'The workflow was saved for the first time, so these edits were not applied. Send your request again against the saved canvas to start a new conversation.',
       runtimeWarning: 'Draft updated. Resolve these issues before running:',
       canvasNodeLimit: 'This canvas has {count} nodes. Direct Edit supports up to {limit}. Switch to Chat or try again on a smaller canvas.',
       designRequest: 'Create or improve the workflow from the current canvas and our previous requirements. Ask one question if the requirements are unclear.',

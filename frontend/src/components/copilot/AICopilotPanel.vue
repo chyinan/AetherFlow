@@ -1413,6 +1413,27 @@ watch(() => conversationSessionKey(props.context), () => {
   // 此时对话本身仍然有效，不能 reset 清空——否则用户刚发出的聊天记录会瞬间消失。
   // 只把当前会话选择写到新作用域，让后续刷新/重进能接续同一段对话。
   if (shouldCarryDraftSelection(previousScope, props.context)) {
+    const controller = chatController.value
+    const pendingId = canvasEditPendingId.value
+    if (controller && pendingId && !controller.signal.aborted) {
+      // 首次保存改变候选的版本基线，结束本次直接编辑，不重新绑定旧会话或应用旧候选。
+      controller.abort()
+      chatController.value = null
+      canvasEditPendingId.value = null
+      loading.value = false
+      const index = messages.value.findIndex((message) => message.id === pendingId)
+      const message = messages.value[index]
+      const reason = t('copilot.editor.savedDuringEdit')
+      if (message) {
+        // 本地占位消息还没有模型正文；已收到的模型说明则保留并另附未应用回执。
+        if (message.id.startsWith('canvas-edit-')) message.content = ''
+        canvasEditResults.value.set(message.id, { success: false, text: reason })
+        const request = messages.value[index - 1]
+        if (!prompt.value && request?.role === 'user') prompt.value = request.content
+      }
+      conversationId.value = undefined
+      writeConversationSelection(nextScopeKey, 'new')
+    }
     if (conversationId.value) {
       writeConversationSelection(nextScopeKey, conversationId.value)
     }
