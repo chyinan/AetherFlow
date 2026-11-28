@@ -192,3 +192,44 @@ it('收到元数据后关闭会中止流，但重开按已确认 ID 恢复而非
   await stream.event('conversation', { conversationId: 'conv-999' }); await stream.end()
   expect(readConversationSelection(conversationSessionKey(context.value))).toBe('conv-111')
 })
+
+it('普通聊天在未闭合代码块中失败时，失败状态不混入可复制的模型代码', async () => {
+  await setup(true)
+  const stream = controlledStream()
+  await submit('用 Python 打印一行问候')
+  await stream.event('delta', { content: '```python\nprint("hello")' })
+  await stream.event('error', { message: 'provider unavailable 503' })
+  await stream.end()
+
+  const reply = wrapper.findAll('article').at(-1)!
+  expect(reply.get('.copilot-markdown pre code').text()).toBe('print("hello")')
+  expect(reply.get('[data-testid="copilot-chat-error"]').text()).toContain('provider unavailable 503')
+  expect(reply.get('[data-testid="copilot-chat-error"]').attributes('role')).toBe('status')
+  expect(reply.get('.copilot-markdown').text()).not.toContain('provider unavailable 503')
+  expect(wrapper.get('form button[type="submit"]').attributes('disabled')).toBeUndefined()
+  expect(requests).toHaveLength(1)
+})
+
+it('首段文本前失败仍展示独立状态，手动续问正常完成且新对话清理旧状态', async () => {
+  await setup(true)
+  const failed = controlledStream()
+  await submit('第一次提问')
+  await failed.event('error', { message: 'provider temporarily unavailable' })
+  await failed.end()
+  const first = wrapper.findAll('article').at(-1)!
+  expect(first.get('.copilot-markdown').text()).toBe('')
+  expect(first.get('[data-testid="copilot-chat-error"]').text()).toContain('provider temporarily unavailable')
+
+  const next = controlledStream()
+  await submit('请继续完成')
+  await next.event('delta', { content: '恢复后的答复' })
+  await next.event('complete', { ...message('recovered-a', 'assistant', '恢复后的答复'), conversationId: 'conv-10' })
+  await next.end()
+  expect(requests.map(request => request.conversationId)).toEqual(['conv-10', 'conv-10'])
+  const last = wrapper.findAll('article').at(-1)!
+  expect(last.get('.copilot-markdown').text()).toBe('恢复后的答复')
+  expect(last.find('[data-testid="copilot-chat-error"]').exists()).toBe(false)
+  expect(wrapper.findAll('[data-testid="copilot-chat-error"]')).toHaveLength(1)
+  await startNew()
+  expect(wrapper.findAll('[data-testid="copilot-chat-error"]')).toHaveLength(0)
+})

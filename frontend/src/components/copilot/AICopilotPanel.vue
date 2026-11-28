@@ -90,6 +90,7 @@ const plannerController = ref<AbortController | null>(null)
 const chatController = ref<AbortController | null>(null)
 const streamingChatMessageId = ref<string | null>(null)
 const stoppedChatMessageIds = ref(new Set<string>())
+const chatErrors = ref(new Map<string, string>())
 let streamingChatTurnSequence = 0
 const plannerPendingMessageId = ref<string | null>(null)
 const cancelledPlanMessageId = ref<string | null>(null)
@@ -451,6 +452,7 @@ function resetConversationState() {
   chatController.value = null
   streamingChatMessageId.value = null
   stoppedChatMessageIds.value.clear()
+  chatErrors.value.clear()
   plannerPendingMessageId.value = null
   cancelledPlanMessageId.value = null
   canvasEditPendingId.value = null
@@ -873,11 +875,8 @@ async function sendPrompt(value = prompt.value, options: SendPromptOptions = {})
     const apiError = toApiError(error, 'ai')
     const current = assistantMessageIndex >= 0 ? messages.value[assistantMessageIndex] : undefined
     if (current) {
-      const failureMessage = t('copilot.sendFailed', { message: apiError.message })
-      messages.value[assistantMessageIndex] = {
-        ...current,
-        content: current.content ? `${current.content}\n\n${failureMessage}` : failureMessage,
-      }
+      // 传输失败是本轮状态，不是模型生成内容；代码块中断时也不能把提示混入代码。
+      chatErrors.value.set(assistantMessageId, t('copilot.sendFailed', { message: apiError.message }))
       followChatTail()
     }
   } finally {
@@ -1584,6 +1583,7 @@ onMounted(() => {
           <div v-if="message.role === 'assistant'" class="copilot-markdown [overflow-wrap:anywhere]" v-html="renderCopilotMarkdown(message.content)" />
           <p v-else class="whitespace-pre-line [overflow-wrap:anywhere]">{{ message.content }}</p>
           <p v-if="stoppedChatMessageIds.has(message.id)" class="mt-2 text-xs text-text-muted" role="status">{{ presentationText('chatStopped') }}</p>
+          <p v-if="chatErrors.has(message.id)" data-testid="copilot-chat-error" class="mt-2 whitespace-pre-line [overflow-wrap:anywhere] text-xs text-status-error" role="status">{{ chatErrors.get(message.id) }}</p>
           <p v-if="canvasEditResults.has(message.id)" class="mt-2 whitespace-pre-line rounded-md border px-2.5 py-2 text-xs leading-5" :class="canvasEditResults.get(message.id)?.success ? 'border-status-success/25 bg-green-50 text-status-success' : 'border-status-warning/30 bg-amber-50 text-status-warning'" role="status">
             {{ canvasEditResults.get(message.id)?.text }}
           </p>
