@@ -288,6 +288,8 @@ const fileTypes = computed(() => {
 // 与 Python 运行时一致：入口恒为单参 main(payload)，示例不得暗示双参数签名。
 const defaultPythonCode = 'def main(payload):\n    return payload'
 const defaultJinjaTemplate = '{{ arg1 }}'
+// 模板语法作为插值数据传入，避免被 Vue I18n 当成嵌套消息占位符。
+const templateVariableSyntax = '{{ variable }}'
 const conditionOperators = [
   { value: 'EQUALS', labelKey: 'workflow.inspector.conditionOperators.equals' },
   { value: 'NOT_EQUALS', labelKey: 'workflow.inspector.conditionOperators.notEquals' },
@@ -1672,12 +1674,12 @@ onMounted(() => {
           <template v-else>
           <div class="rounded-xl border border-primary/20 bg-primary-soft/60 p-4">
             <p class="text-sm font-semibold text-text-primary">{{ t('workflow.inspector.templateVariablesTitle') }}</p>
-            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.templateVariablesHint') }}</p>
+            <p class="mt-1 text-sm leading-6 text-text-secondary">{{ t('workflow.inspector.templateVariablesHint', { syntax: templateVariableSyntax }) }}</p>
           </div>
           <div class="overflow-hidden rounded-xl bg-app-bg2">
             <div class="flex items-center justify-between border-b border-app-border px-3 py-2 text-sm font-semibold text-text-primary">
               <span>{{ t('workflow.inspector.code') }}</span>
-              <span class="text-xs text-text-muted">{{ t('workflow.inspector.templateSyntax') }}</span>
+              <span class="text-xs text-text-muted">{{ t('workflow.inspector.templateSyntax', { syntax: templateVariableSyntax }) }}</span>
             </div>
             <textarea class="h-56 w-full resize-none bg-app-bg2 p-3 font-mono text-sm outline-none" :placeholder="defaultJinjaTemplate" data-config-field="template" :value="textConfig('template', '')" @input="handleTextInput('template', $event)" />
           </div>
