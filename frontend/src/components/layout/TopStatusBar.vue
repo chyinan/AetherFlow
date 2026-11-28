@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Bell } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { roleMessages } from '@/product/roleMessages'
 import { useI18n } from 'vue-i18n'
 
@@ -187,6 +187,9 @@ onBeforeUnmount(() => {
                     <StatusDot v-if="item.tone" :tone="item.tone" :label="item.tone" />
                 </div>
                 <p class="mt-2 text-xs leading-5 text-text-secondary [overflow-wrap:anywhere]">{{ notificationMessage(item) }}</p>
+                <RouterLink v-if="item.runId" :to="`/runs/${item.runId}`" class="mt-2 inline-block rounded-sm text-xs font-medium text-primary underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+                  {{ t('notifications.viewRun') }}
+                </RouterLink>
                 <div class="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-3 text-[11px] text-text-muted [overflow-wrap:anywhere]">
                   <span class="min-w-0">{{ item.source ?? 'notify' }}</span>
                   <span>{{ item.time }}</span>

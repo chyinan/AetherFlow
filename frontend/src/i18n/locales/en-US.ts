@@ -146,6 +146,7 @@ export const enUS = {
     deleteConfirm: 'Delete workspace “{name}”?',
   },
   notifications: {
+    viewRun: 'View this run',
     loading: 'Loading messages…',
     loadFailed: 'Could not load messages. Existing messages are kept. Please retry.',
     retryLoad: 'Reload messages',

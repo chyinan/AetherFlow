@@ -148,6 +148,7 @@ export const jaJP = {
     deleteConfirm: 'ワークスペース「{name}」を削除しますか？',
   },
   notifications: {
+    viewRun: 'この実行を表示',
     loading: 'メッセージを読み込み中…',
     loadFailed: 'メッセージを読み込めませんでした。既存のメッセージは保持されています。再試行してください。',
     retryLoad: '再読み込み',
