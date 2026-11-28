@@ -3,6 +3,13 @@ import type { WorkflowNodeKind } from '@/types/workflow'
 
 type Config = Record<string, unknown>
 
+export class OutputNameConflictError extends Error {
+  constructor() {
+    super('Output field name already exists. Choose a unique name before saving or running.')
+    this.name = 'OutputNameConflictError'
+  }
+}
+
 function isRecord(value: unknown): value is Config {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -38,6 +45,7 @@ export function mergeWorkflowNodeConfig(kind: WorkflowNodeKind, current: Readonl
   if (kind === 'output') {
     if (Object.hasOwn(patch, 'output') && (isRecord(patch.output) || patch.output === null)) {
       config.output = patch.output ?? {}
+      delete config.outputNameDraft
       const first = Object.entries(config.output as Config)[0]
       delete config.value
       if (first) {
@@ -54,10 +62,23 @@ export function mergeWorkflowNodeConfig(kind: WorkflowNodeKind, current: Readonl
       const value = Object.hasOwn(patch, 'outputValue') ? patch.outputValue
         : Object.hasOwn(patch, 'value') ? patch.value
           : selected ? selected[1] : config.outputValue !== undefined ? config.outputValue : config.value
+      const valueEdited = Object.hasOwn(patch, 'outputValue') || Object.hasOwn(patch, 'value')
+      // 重命名过程中可能短暂经过其他输出键；保留规范配置，直到名称唯一。
+      // outputName 仍指向原展示项，避免后续值编辑误改同名的隐藏项。
+      if (Object.hasOwn(patch, 'outputName') && name !== selected?.[0] && entries.some(([key]) => key === name)) {
+        config.output = valueEdited && selected
+          ? { ...current.output as Config, [selected[0]]: value === undefined || value === '' ? 'completed' : value }
+          : current.output
+        config.outputName = current.outputName ?? selected?.[0]
+        config.outputValue = value
+        config.outputNameDraft = patch.outputName
+        delete config.value
+        return config
+      }
+      if (Object.hasOwn(patch, 'outputName')) delete config.outputNameDraft
       config.outputName = config.outputName ?? name
       config.outputValue = value
       delete config.value
-      const valueEdited = Object.hasOwn(patch, 'outputValue') || Object.hasOwn(patch, 'value')
       // 单字段编辑器只修改当前展示项；整数键重命名后不能依赖对象枚举顺序。
       config.output = {
         [name]: value === undefined || (value === '' && (valueEdited || !selected)) ? 'completed' : value,

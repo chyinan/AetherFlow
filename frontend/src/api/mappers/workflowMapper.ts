@@ -2,7 +2,7 @@
 import { toRaw } from 'vue'
 import type { WorkflowDefinitionDTO } from '@/api/modules/workflow'
 import type { WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode } from '@/types/workflow'
-import { classifierRoutes } from '../../utils/workflowNodeConfig.ts'
+import { classifierRoutes, OutputNameConflictError } from '../../utils/workflowNodeConfig.ts'
 import { assertLoopBindingNames } from '../../utils/loopBindingNames.ts'
 import { ComfySeedRangeError, hasExplicitComfySeedBinding, parseExactImageSeed, usesExactComfySeed } from '../../utils/comfySeed.ts'
 
@@ -514,6 +514,9 @@ function normalizeKnowledgeRetrievalConfig(config: Record<string, unknown>, next
 }
 
 function normalizeEndConfig(config: Record<string, unknown>, nextNodes: string[]) {
+  if (typeof config.outputNameDraft === 'string') {
+    throw new OutputNameConflictError()
+  }
   const output = toRecord(config.output)
   const outputName = stringValue(config.outputName, 'result')
   const outputValue = config.outputValue !== undefined ? config.outputValue : config.value

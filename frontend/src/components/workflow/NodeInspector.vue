@@ -52,6 +52,7 @@ import SubworkflowConfigPanel from './SubworkflowConfigPanel.vue'
 import WhisperEnvironmentDialog from './WhisperEnvironmentDialog.vue'
 import CapabilitySupportDialog from './CapabilitySupportDialog.vue'
 import { capabilitySupportMessages } from './capabilitySupportMessages'
+import { outputNameConflictMessage } from '@/utils/outputNameMessages'
 import { capabilityForNode } from '@/utils/capabilitySupport'
 import type { ImageConnectionProvider } from '@/api/modules/nodeConnections'
 import {
@@ -94,8 +95,10 @@ watch(() => selectedNode.value?.id, (nextNodeId, previousNodeId) => {
     inputFileIntents.set(previousNodeId, ++inputFileIntentCounter)
   }
 }, { flush: 'sync' })
-const { t, te } = useI18n()
+const { t, te, locale } = useI18n()
 const { t: ct } = useI18n({ useScope: 'local', messages: capabilitySupportMessages })
+const outputNameMessage = computed(() => outputNameConflictMessage(locale.value))
+const outputNameConflict = computed(() => typeof selectedNode.value?.data.config.outputNameDraft === 'string')
 const router = useRouter()
 const fileInput = ref<HTMLInputElement | null>(null)
 const activeTab = ref<'settings' | 'lastRun'>('settings')
@@ -1420,9 +1423,10 @@ onMounted(() => {
             </div>
             <div class="space-y-2">
               <div class="grid grid-cols-[110px_minmax(0,1fr)] gap-2">
-                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" data-config-field="outputName" :value="textConfig('outputName', 'answer')" :aria-label="t('workflow.inspector.responseFieldName')" @input="handleTextInput('outputName', $event)" />
+                <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" data-config-field="outputName" :value="outputNameConflict ? textConfig('outputNameDraft') : textConfig('outputName', 'answer')" :aria-invalid="outputNameConflict || undefined" :aria-describedby="outputNameConflict ? 'output-name-error' : undefined" :aria-label="t('workflow.inspector.responseFieldName')" @input="handleTextInput('outputName', $event)" />
                 <input class="rounded-lg border border-transparent bg-app-muted px-3 py-2 text-sm" :placeholder="t('workflow.inspector.setVariable')" data-config-field="outputValue" :value="textConfig('outputValue', '')" @input="handleTextInput('outputValue', $event)" />
               </div>
+              <p v-if="outputNameConflict" id="output-name-error" data-testid="output-name-error" class="text-xs leading-5 text-status-error" role="alert">{{ outputNameMessage }}</p>
             </div>
           </div>
         </section>
