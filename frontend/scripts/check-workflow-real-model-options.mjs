@@ -38,9 +38,9 @@ if (!/modelStore\.loadModels\(\)/.test(inspector)) {
   failures.push('NodeInspector must load the model catalog when the inspector mounts')
 }
 
-const dynamicOptionCount = (inspector.match(/v-for="model in availableChatModels"/g) ?? []).length
-if (dynamicOptionCount < 3) {
-  failures.push(`expected at least 3 dynamic model selects, found ${dynamicOptionCount}`)
+const dynamicOptionCount = (inspector.match(/v-for="option in chatModelPicker.options"/g) ?? []).length
+if (dynamicOptionCount < 6) {
+  failures.push(`expected at least 6 pair-aware dynamic model selects, found ${dynamicOptionCount}`)
 }
 
 if (!packageJson.includes('check:workflow-model-options')) {

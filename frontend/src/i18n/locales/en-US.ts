@@ -658,7 +658,7 @@ export const enUS = {
       importFromTool: 'Import from tool',
       extractionUnset: 'Extraction parameters not set',
       instruction: 'Instruction',
-      instructionPlaceholder: 'Write your prompt here, type “{” to insert variables.',
+      instructionPlaceholder: "Write your prompt here, type “{'{'}” to insert variables.",
       advancedSettings: 'Advanced settings',
       basicMode: 'Basic',
       advancedMode: 'Advanced',

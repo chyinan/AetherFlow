@@ -98,7 +98,8 @@ describe('节点配置与后端执行语义一致', () => {
     expect(source).toContain("name: 'plan'")
     expect(source).toContain("name: 'actionLog'")
     expect(agentPanel).toContain("textConfig('taskVariable'")
-    expect(agentPanel).toContain("textConfig('model'")
+    expect(agentPanel).toContain(':value="selectedModelValue"')
+    expect(agentPanel).toContain('@change="handleChatModelSelection"')
   })
 
   it('展示人工审批执行器实际产出的变量', () => {
