@@ -153,4 +153,37 @@ describe('画布键盘移动属于可保存的布局编辑', () => {
     expect(store.editRevision).toBe(0)
     expect(store.historyPast).toHaveLength(0)
   })
+  it.each(['workflow.addNextNode', 'workflow.duplicateNode', 'workflow.deleteNode'])(
+    '焦点在节点操作按钮 %s 时方向键不修改画布布局', async (labelKey) => {
+      const { store, graphNode } = await setup([node('a', 0, 0, true)])
+      const button = graphNode('a').findAll<HTMLButtonElement>('button')
+        .find(item => item.attributes('aria-label') === i18n.global.t(labelKey))!
+      button.element.focus()
+      for (const key of ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp']) {
+        await button.trigger('keydown', { key, shiftKey: true })
+        expect(store.nodes[0]!.position).toEqual({ x: 0, y: 0 })
+      }
+      expect(store.dirty).toBe(false)
+      expect(store.editRevision).toBe(0)
+      expect(store.historyPast).toHaveLength(0)
+      expect(document.activeElement).toBe(button.element)
+    },
+  )
+
+  it('从操作按钮返回节点容器后仍可键盘移动、撤销和重做', async () => {
+    const { store, graphNode } = await setup([node('a', 0, 0, true)])
+    const duplicate = graphNode('a').findAll<HTMLButtonElement>('button')
+      .find(item => item.attributes('aria-label') === i18n.global.t('workflow.duplicateNode'))!
+    duplicate.element.focus()
+    await duplicate.trigger('keydown', { key: 'ArrowRight' })
+    graphNode('a').element.focus()
+    await graphNode('a').trigger('keydown', { key: 'ArrowRight' })
+    expect(store.nodes[0]!.position).toEqual({ x: 5, y: 0 })
+    expect(store.historyPast).toHaveLength(1)
+    expect(store.undo()).toBe(true)
+    expect(store.nodes[0]!.position).toEqual({ x: 0, y: 0 })
+    expect(store.redo()).toBe(true)
+    expect(store.nodes[0]!.position).toEqual({ x: 5, y: 0 })
+  })
+
 })
