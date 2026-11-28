@@ -16,7 +16,8 @@ import { nodeTemplates } from '@/services/mock/workflowMock'
 import { isWorkflowCapabilitySnapshot } from '@/utils/capabilitySupport'
 import type { CanvasPosition, NodeTemplate, WorkflowDefinition, WorkflowGraphEdge, WorkflowGraphNode, WorkflowNodeKind, WorkflowNodeStatus } from '@/types/workflow'
 import { createWorkflowNodeDataFromTemplate, duplicateWorkflowNode } from '@/utils/workflowNodeClone'
-import { mergeWorkflowNodeConfig } from '@/utils/workflowNodeConfig'
+import { mergeWorkflowNodeConfig, OutputNameConflictError } from '@/utils/workflowNodeConfig'
+import { outputNameConflictMessage } from '@/utils/outputNameMessages'
 import { reconcileNodeRuntimeState } from '@/utils/workflowNodeRuntime'
 import { classifyRemoteSaveState, type SaveSubmissionSnapshot } from '@/utils/workflowSaveRecovery'
 import { applyWorkflowCapabilities, canConfigureNodeRuntime, unavailableWorkflowCapabilities } from '@/utils/workflowCapability'
@@ -1090,6 +1091,7 @@ export const useWorkflowStore = defineStore('workflow', {
         // 调用方只能为仍有效的成功保存执行页面收尾。
         return { workflowId: savedWorkflow.id }
       } catch (error) {
+        if (error instanceof OutputNameConflictError) error.message = outputNameConflictMessage(i18n.global.locale.value)
         if (!ownsSaveState()) {
           throw error
         }
@@ -1157,6 +1159,8 @@ export const useWorkflowStore = defineStore('workflow', {
       }
     },
     captureSaveSubmission(currentWorkflow: WorkflowDefinition): SaveSubmissionSnapshot | null {
+      // 先验证本地配置，再建立首次创建意图；未发请求的名称冲突不应进入创建恢复状态。
+      const payload = JSON.parse(JSON.stringify(mapWorkflowToDefinitionDTO(currentWorkflow))) as WorkflowDefinitionDTO
       if (!this.backendDefinitionId || typeof this.backendVersion !== 'number') {
         // 首次创建没有可核对的远端版本，沿用既有幂等键恢复路径。
         return null
@@ -1166,7 +1170,7 @@ export const useWorkflowStore = defineStore('workflow', {
         definitionId: this.backendDefinitionId,
         expectedVersion: this.backendVersion,
         editRevision: this.editRevision,
-        payload: JSON.parse(JSON.stringify(mapWorkflowToDefinitionDTO(currentWorkflow))) as WorkflowDefinitionDTO,
+        payload,
         workflow: structuredClone(unwrapWorkflowCloneValue(currentWorkflow)) as WorkflowDefinition,
       }
     },
