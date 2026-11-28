@@ -20,6 +20,8 @@ export interface UiNotification {
   time: string
   occurredAt?: string
   title: string
+  titleKey?: string
+  messageParamKeys?: Record<string, string>
   messageKey: string
   messageParams?: Record<string, string>
   statusKey?: string
@@ -231,20 +233,22 @@ function notificationTitle(message: NotifyMessageDTO) {
   const eventType = typeof message.eventType === 'string' ? message.eventType.trim() : ''
   // title 与事件名相同说明是没翻译过的占位文案，走本地映射。
   if (title && title.toUpperCase() !== eventType.toUpperCase()) {
-    return title
+    return { title, titleKey: undefined }
   }
-  const key = notificationEventKey(eventType)
-  return key ? i18n.global.t(key) : (eventType || message.channel || 'Notify')
+  const titleKey = notificationEventKey(eventType)
+  return titleKey
+    ? { title: i18n.global.t(titleKey), titleKey }
+    : { title: eventType || message.channel || 'Notify', titleKey: undefined }
 }
 
-function notificationServiceLabel(message: NotifyMessageDTO) {
+function notificationService(message: NotifyMessageDTO) {
   const explicit = [message.payload.providerName, message.payload.provider, message.payload.service]
     .find((value) => typeof value === 'string' && value.trim())
   const label = typeof explicit === 'string' ? explicit.trim() : message.channel ?? 'notify'
   if (['OPENAI', 'OPENAI_GATEWAY', 'OPENAI_COMPATIBLE'].includes(label.trim().toUpperCase().replace(/-/g, '_'))) {
-    return i18n.global.t('notifications.openaiCompatibleGateway')
+    return { label: i18n.global.t('notifications.openaiCompatibleGateway'), key: 'notifications.openaiCompatibleGateway' }
   }
-  return label
+  return { label }
 }
 
 function notificationTime(occurredAt: string | undefined) {
@@ -282,10 +286,18 @@ function notificationMessageParams(message: NotifyMessageDTO) {
   const nodeType = typeof message.payload.nodeType === 'string' ? message.payload.nodeType.trim() : ''
   const nodeId = typeof message.payload.nodeId === 'string' ? message.payload.nodeId.trim() : ''
   const instance = message.payload.workflowInstanceId
+  const service = notificationService(message)
+  // 本地兜底保留翻译键；服务端显式给出的节点和服务名保持原样。
   return {
-    service: notificationServiceLabel(message),
-    node: nodeType || nodeId || i18n.global.t('notifications.nodeUnknown'),
-    instance: instance === undefined || instance === null ? '' : String(instance),
+    messageParams: {
+      service: service.label,
+      node: nodeType || nodeId || i18n.global.t('notifications.nodeUnknown'),
+      instance: instance === undefined || instance === null ? '' : String(instance),
+    },
+    messageParamKeys: {
+      ...(service.key ? { service: service.key } : {}),
+      ...(!nodeType && !nodeId ? { node: 'notifications.nodeUnknown' } : {}),
+    },
   }
 }
 
@@ -325,9 +337,9 @@ function normalizeRecord(record: NotificationRecordDTO): UiNotification {
     id: `record-${record.id}`,
     time: notificationTime(occurredAt),
     occurredAt,
-    title: notificationTitle(message),
+    ...notificationTitle(message),
     messageKey,
-    messageParams: notificationMessageParams(message),
+    ...notificationMessageParams(message),
     statusKey: statusKeyForTone(tone),
     source: record.channel ?? 'notify',
     read: (record.status ?? '').toUpperCase() === 'READ',
@@ -504,9 +516,9 @@ export const useUiStore = defineStore('ui', {
         time: notificationTime(message.occurredAt),
         // 实时通知本应带 offset；万一缺了也要按同一个服务器偏移补齐，不能落到浏览器本地时区。
         occurredAt: normalizeNotificationTimestamp(message.occurredAt) ?? new Date().toISOString(),
-        title: notificationTitle(message),
+        ...notificationTitle(message),
         messageKey,
-        messageParams: notificationMessageParams(message),
+        ...notificationMessageParams(message),
         statusKey: statusKeyForTone(tone),
         source: message.channel ?? 'notify',
         read: (message.status ?? '').toUpperCase() === 'READ',
