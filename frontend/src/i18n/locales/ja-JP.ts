@@ -605,6 +605,7 @@ export const jaJP = {
       iterationSemanticsIteration: '項目ごとに下のステップを実行し、非同期の待機と復旧に対応します。完了した項目は再実行しません。',
       iterationSemanticsLoop: '各ラウンドで下のステップを実行し、状態を次のラウンドへ引き継ぎます。停止マーカーまたは最大回数で終了します。',
       maxIterations: '最大回数',
+      emptyNumberDefault: '空欄の場合は既定値 {value} を使用します。',
       stopWhen: '停止マーカー',
       stopWhenPlaceholder: '例: done。真値の状態フィールドまたはテキストマーカーに一致します',
       iteration: {

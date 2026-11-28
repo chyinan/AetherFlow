@@ -609,6 +609,7 @@ export const zhCN = {
       iterationSemanticsIteration: '逐项执行下方步骤，支持异步等待与恢复；已完成项不会重复执行。',
       iterationSemanticsLoop: '逐轮执行下方步骤并回填状态，遇到停止标记或次数上限结束。',
       maxIterations: '最大次数',
+      emptyNumberDefault: '留空时使用默认值 {value}。',
       stopWhen: '停止标记',
       stopWhenPlaceholder: '例如 done；匹配状态对象中的真值字段或文本标记',
       iteration: {
