@@ -78,6 +78,7 @@ const retrievalLoading = ref(false)
 const retrievalError = ref('')
 let retrievalRequestId = 0
 let datasetOpenRequestId = 0
+let datasetDetailTargetId = ''
 const importing = ref(false)
 const saving = ref(false)
 const createdDatasetId = ref('')
@@ -90,7 +91,7 @@ const topK = ref(3)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const failedSourceUpload = shallowRef<{ file: File; message: string } | null>(null)
 let sourceUploadRequestId = 0
-const deletingDatasetId = ref('')
+const deletingDatasetIds = ref<string[]>([])
 const deletingDocumentId = ref('')
 const MAX_TOP_K = 50
 const knowledgeFileAccept = [
@@ -224,6 +225,9 @@ function statusTone(status?: SurfaceStatus): 'success' | 'running' | 'warning' {
 
 function openCreateFlow(preferredSource: SourceType = 'file', targetDatasetId = '') {
   datasetOpenRequestId += 1
+  datasetDetailTargetId = ''
+  pageError.value = ''
+  lastRetry.value = null
   clearSourceUpload()
   difyStore.pendingWizardDatasetId = targetDatasetId
   difyStore.pendingWizardPersistenceComplete = false
@@ -252,6 +256,9 @@ function resetRetrievalState() {
 
 function backToList() {
   datasetOpenRequestId += 1
+  datasetDetailTargetId = ''
+  pageError.value = ''
+  lastRetry.value = null
   resetRetrievalState()
   clearSourceUpload()
   viewMode.value = 'datasets'
@@ -260,6 +267,7 @@ function backToList() {
 
 async function openDataset(datasetId: string) {
   const requestId = ++datasetOpenRequestId
+  datasetDetailTargetId = datasetId
   resetRetrievalState()
   pageError.value = ''
   lastRetry.value = null
@@ -475,8 +483,12 @@ async function importSelectedFileToDataset() {
 }
 
 async function deleteSelectedDataset() {
-  const dataset = selectedDataset.value
-  if (!dataset) {
+  await deleteDatasetById(selectedDataset.value?.id)
+}
+
+async function deleteDatasetById(datasetId?: string) {
+  const dataset = difyStore.datasets.find((item) => item.id === datasetId)
+  if (!dataset || deletingDatasetIds.value.includes(dataset.id)) {
     return
   }
   const confirmed = window.confirm(t('knowledge.confirmDeleteDataset', { name: dataset.name }))
@@ -484,14 +496,20 @@ async function deleteSelectedDataset() {
     return
   }
 
-  deletingDatasetId.value = dataset.id
+  const intent = datasetOpenRequestId
+  const ownsPage = () => intent === datasetOpenRequestId && viewMode.value === 'documents'
+  pageError.value = ''
+  lastRetry.value = null
+  deletingDatasetIds.value.push(dataset.id)
   try {
     await difyStore.deleteDataset(dataset.id)
-    viewMode.value = 'datasets'
+    // 已提交删除仍更新对应库；旧回执不接管后来打开的详情或向导。
+    // 重新打开同一库也不能在它删除后显示 store 回退选中的其他库。
+    if (datasetDetailTargetId === dataset.id) backToList()
   } catch (error) {
-    setPageError(error, deleteSelectedDataset)
+    if (ownsPage()) setPageError(error, () => deleteDatasetById(dataset.id))
   } finally {
-    deletingDatasetId.value = ''
+    deletingDatasetIds.value = deletingDatasetIds.value.filter((id) => id !== dataset.id)
   }
 }
 
@@ -499,13 +517,18 @@ async function deleteDocument(document: DatasetDocumentRow) {
   if (deletingDocumentId.value || !window.confirm(t('knowledge.confirmDeleteDocument', { name: document.name }))) {
     return
   }
+  const intent = datasetOpenRequestId
+  pageError.value = ''
+  lastRetry.value = null
   deletingDocumentId.value = document.id
   try {
     await difyStore.deleteDocument(document.id)
   } catch (error) {
-    setPageError(error, () => deleteDocument(document))
+    if (intent === datasetOpenRequestId && viewMode.value === 'documents') {
+      setPageError(error, () => deleteDocument(document))
+    }
   } finally {
-    deletingDocumentId.value = ''
+    if (deletingDocumentId.value === document.id) deletingDocumentId.value = ''
   }
 }
 
@@ -535,6 +558,7 @@ async function loadPage() {
 onMounted(loadPage)
 onBeforeUnmount(() => {
   datasetOpenRequestId += 1
+  datasetDetailTargetId = ''
   clearSourceUpload()
   difyStore.cancelIngestionRequests?.()
 })
@@ -579,6 +603,9 @@ onBeforeUnmount(() => {
           >
             <Loader2 v-if="retrying" class="h-4 w-4 animate-spin" />
             {{ retrying ? t('common.loading') : t('common.retry') }}
+          </button>
+          <button v-if="viewMode !== 'datasets'" data-action="dismiss-knowledge-error" type="button" class="mt-4 ml-3 text-sm font-medium text-primary hover:underline" @click="backToList">
+            {{ t('knowledge.flow.backToKnowledge') }}
           </button>
         </div>
       </div>
@@ -1039,10 +1066,10 @@ onBeforeUnmount(() => {
               class="grid h-8 w-8 shrink-0 place-items-center rounded-md text-text-muted transition hover:bg-white hover:text-status-error disabled:cursor-not-allowed disabled:opacity-50"
               :title="t('knowledge.deleteDataset')"
               :aria-label="t('knowledge.deleteDataset')"
-              :disabled="Boolean(selectedDataset && deletingDatasetId === selectedDataset.id)"
+              :disabled="Boolean(selectedDataset && deletingDatasetIds.includes(selectedDataset.id))"
               @click.stop="deleteSelectedDataset"
             >
-              <Loader2 v-if="selectedDataset && deletingDatasetId === selectedDataset.id" class="h-4 w-4 animate-spin" />
+              <Loader2 v-if="selectedDataset && deletingDatasetIds.includes(selectedDataset.id)" class="h-4 w-4 animate-spin" />
               <Trash2 v-else class="h-4 w-4" />
             </button>
           </div>

@@ -424,7 +424,8 @@ export const useDifyStore = defineStore('difySurface', {
       this.documents = this.documents.filter((document) => document.datasetId !== datasetId)
       this.segments = this.segments.filter((segment) => segment.datasetId !== datasetId)
       this.loadedDatasetSegmentIds = this.loadedDatasetSegmentIds.filter((id) => id !== datasetId)
-      this.retrievalResults = []
+      // 删除旧库的迟到确认不清空用户随后在其他库完成的检索。
+      if (this.selectedDatasetId === datasetId) this.retrievalResults = []
       if (this.pendingKnowledgeImportKey.startsWith(`[\"${datasetId}\"`)) {
         this.pendingKnowledgeImportKey = ''
         this.pendingKnowledgeImportIdempotencyKey = ''
