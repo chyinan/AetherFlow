@@ -1274,8 +1274,7 @@ async function runQuickAction(intent: WorkflowCopilotIntent, label: string) {
     await sendWorkflowPlan(label, { preserveComposerDraft: true })
     return
   }
-  plannerMode.value = false
-  planPreview.value = null
+  // 问答快捷操作只发送一轮对话；不退出规划或丢弃正在修改的预览。
   let action: WorkflowCopilotActionMessage | undefined
   if (intent === 'suggest-next-node' && props.context) {
     const recommendation = recommendNextNodeAction(props.context)

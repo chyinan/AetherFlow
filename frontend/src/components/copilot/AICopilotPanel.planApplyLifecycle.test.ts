@@ -29,6 +29,7 @@ import AICopilotPanel from './AICopilotPanel.vue';
 import { type WorkflowCopilotSnapshot, buildWorkflowPlannerContext } from '@/services/copilot/workflowCopilotActions';
 import { nodeTemplates } from '@/services/mock/workflowMock';
 import type { CopilotWorkflowPlan } from '@/types/copilotWorkflowPlan';
+import type { CopilotMessage } from '@/types/copilot';
 function readyMediaPlan(): CopilotWorkflowPlan {
     return {
         status: 'READY',
@@ -87,6 +88,84 @@ async function setup(withCanvasEditing = false, attachTo?: HTMLElement) {
 }
 function button(key: string) { const b = wrapper!.findAll('button').find(b => b.text() === i18n.global.t(key)); expect(b, key).toBeDefined(); return b!; }
 async function preview() { await button('copilot.quickDraftWorkflow').trigger('click'); await flushPromises(); }
+
+it.each(['copilot.quickSuggestNextNode', 'copilot.quickExplainLatestError'] as const)(
+    '%s 不丢弃已校验的规划预览，原输入仍作为同一方案的修改发送',
+    async shortcut => {
+        const { apply } = await setup(true);
+        await button('copilot.editor.chatMode').trigger('click');
+        await preview();
+        const applyButton = '[data-plan-apply-message="plan-1"]';
+        expect(wrapper!.find(applyButton).exists()).toBe(true);
+
+        const draft = '摘要改为中文并保留行动项';
+        const shortcutReply = deferred<CopilotMessage>();
+        stream.mockReturnValueOnce(shortcutReply.promise);
+        await wrapper!.get('form textarea').setValue(draft);
+        await button(shortcut).trigger('click');
+        expect(stream).toHaveBeenCalledExactlyOnceWith(
+            expect.any(String),
+            expect.objectContaining({ conversationId: 'conv-1', displayPrompt: i18n.global.t(shortcut) }),
+        );
+        expect(wrapper!.find(applyButton).exists()).toBe(true);
+        expect(wrapper!.text()).toContain(i18n.global.t('copilot.planner.mode'));
+        expect((wrapper!.get('textarea').element as HTMLTextAreaElement).value).toBe(draft);
+
+        shortcutReply.resolve({
+            id: 'informational-reply', conversationId: 'conv-1',
+            role: 'assistant', createdAt: '22:31', content: '这是排查建议。',
+        });
+        await flushPromises();
+        expect(wrapper!.text()).toContain('这是排查建议。');
+        expect(wrapper!.find(applyButton).exists()).toBe(true);
+        expect(validateCopilotDraft).toHaveBeenCalledTimes(1);
+        expect(apply).not.toHaveBeenCalled();
+
+        await wrapper!.get('form').trigger('submit');
+        await flushPromises();
+        expect(stream).toHaveBeenCalledTimes(1);
+        expect(editCanvas).not.toHaveBeenCalled();
+        expect(planWorkflow).toHaveBeenCalledTimes(2);
+        expect(planWorkflow).toHaveBeenLastCalledWith(draft, expect.objectContaining({
+            conversationId: 'conv-1',
+            context: expect.objectContaining({ pendingDraft: expect.objectContaining({ messageId: 'plan-1' }) }),
+        }));
+    },
+);
+
+it('正在等待规划澄清时，排错快捷请求不把答案发到普通对话；仍能明确退出规划', async () => {
+    const { context, apply } = await setup(true);
+    stream.mockResolvedValue({
+        id: 'informational-reply', conversationId: 'conv-1',
+        role: 'assistant', createdAt: '22:31', content: '暂无运行失败。',
+    } satisfies CopilotMessage);
+    planWorkflow.mockResolvedValueOnce(planMessage(context.value, {
+        ...readyMediaPlan(), status: 'NEEDS_CLARIFICATION', recipe: null, steps: [],
+        clarifyingQuestion: '输入是本地媒体还是公开网址？', explanation: '请补充输入类型。',
+    }, 'awaiting-input'));
+    await button('copilot.editor.chatMode').trigger('click');
+    await preview();
+    expect(wrapper!.text()).toContain('输入是本地媒体还是公开网址？');
+
+    await button('copilot.quickExplainLatestError').trigger('click');
+    await flushPromises();
+    await wrapper!.get('form textarea').setValue('本地视频文件');
+    await wrapper!.get('form').trigger('submit');
+    await flushPromises();
+    expect(planWorkflow).toHaveBeenLastCalledWith('本地视频文件', expect.objectContaining({ conversationId: 'conv-1' }));
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(apply).not.toHaveBeenCalled();
+
+    await button('copilot.planner.leaveMode').trigger('click');
+    expect(wrapper!.text()).not.toContain(i18n.global.t('copilot.planner.mode'));
+    expect(wrapper!.find('[data-plan-apply-message]').exists()).toBe(false);
+    await wrapper!.get('form textarea').setValue('还有哪些常见错误？');
+    await wrapper!.get('form').trigger('submit');
+    await flushPromises();
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(planWorkflow).toHaveBeenCalledTimes(2);
+    expect(editCanvas).not.toHaveBeenCalled();
+});
 
 it('中文媒体需求澄清后，最终校验返回 503 可以重试同一预览并且只应用一次', async () => {
     const { store, apply, context } = await setup(true);
