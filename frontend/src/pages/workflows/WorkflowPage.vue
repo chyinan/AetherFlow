@@ -142,6 +142,7 @@ type ToolbarSaveReceipt = {
   saveSequence: number
 }
 const toolbarSaveDuringLeave = shallowRef<ToolbarSaveReceipt | null>(null)
+let toolbarSaveAfterNavigation: ToolbarSaveReceipt | null = null
 function ownsToolbarSave(receipt: ToolbarSaveReceipt) {
   return pageActive && receipt.saveSequence === pageSaveSequence
     && receipt.navigationRevision === pageNavigationRevision && receipt.workflowId === workflowStore.workflowId
@@ -183,6 +184,16 @@ watch(() => route.fullPath, (to, from) => {
   const preservesSavedCanvas = ownsSaveNavigation(to, from)
   pageNavigationRevision += 1
   toolbarSaveDuringLeave.value = null
+  const deferredReceipt = toolbarSaveAfterNavigation
+  if (deferredReceipt) {
+    if (deferredReceipt.navigationRevision === pageNavigationRevision - 1
+      && sameWorkflowEditorContext(router.resolve(from), router.currentRoute.value)) {
+      // 节点或锚点的查看上下文改变，但已保存的画布未被替换。
+      deferredReceipt.navigationRevision = pageNavigationRevision
+    } else {
+      toolbarSaveAfterNavigation = null
+    }
+  }
   if (preservesSavedCanvas && saveNavigation) {
     saveNavigation.navigationRevision = pageNavigationRevision
   } else {
@@ -327,6 +338,15 @@ const copilotContext = computed(() => ({
 
 function routeQueryString(value: unknown) {
   return Array.isArray(value) ? value[0] : typeof value === 'string' ? value : undefined
+}
+
+function sameWorkflowEditorContext(
+  from: Pick<RouteLocationNormalized, 'path' | 'query'>,
+  to: Pick<RouteLocationNormalized, 'path' | 'query'>,
+) {
+  return from.path === to.path
+    && routeQueryString(from.query.projectId) === routeQueryString(to.query.projectId)
+    && routeQueryString(from.query.name) === routeQueryString(to.query.name)
 }
 
 function numericProjectId(value: unknown) {
@@ -798,10 +818,10 @@ function requestNavigation(to: RouteLocationNormalized, from: RouteLocationNorma
   settleNavigation(false)
   approvedNavigation = null
   // 纯节点定位或锚点只改变查看上下文，不替换画布，也不能丢弃未保存内容。
-  if (to.path === from.path
-    && routeQueryString(to.query.projectId) === routeQueryString(from.query.projectId)
-    && routeQueryString(to.query.name) === routeQueryString(from.query.name)) return true
+  if (sameWorkflowEditorContext(from, to)) return true
   if (!workflowStore.dirty) return true
+  // 更新的编辑仍要由真实离开确认处理，不允许旧保存绕过选择。
+  toolbarSaveAfterNavigation = null
   return new Promise<boolean>((resolve) => {
     pendingNavigation.value = { fromPath: from.fullPath, target: to, resolve }
     if (!handingOffTemplateModal) {
@@ -928,7 +948,10 @@ function restoreLeaveSaveAddress(choice: LeaveSaveChoice) {
   if (leaveSaveChoice !== choice || !navigationFinished || !receipt) return
   leaveSaveChoice = null
   toolbarSaveDuringLeave.value = null
-  const fromPath = choice.pending.fromPath
+  restoreSavedWorkflowAddress(receipt, choice.pending.fromPath)
+}
+
+function restoreSavedWorkflowAddress(receipt: ToolbarSaveReceipt, fromPath: string) {
   const restore = () => {
     if (route.fullPath === fromPath && router.options.history.location === fromPath
       && !workflowNavigation.pending && !pendingNavigation.value) {
@@ -958,6 +981,13 @@ function finishWorkflowNavigation(to: RouteLocationNormalized, from: RouteLocati
   if (choice?.pending.target === to) {
     choice.navigationFinished = true
     restoreLeaveSaveAddress(choice)
+  }
+  // 全局守卫可能早于编辑器的离开确认。仅在最新目的地稳定后补同一画布的地址。
+  if (toolbarSaveAfterNavigation && !workflowNavigation.pending && !pendingNavigation.value) {
+    const receipt = toolbarSaveAfterNavigation
+    toolbarSaveAfterNavigation = null
+    toolbarSaveDuringLeave.value = null
+    restoreSavedWorkflowAddress(receipt, route.fullPath)
   }
   // 导航失败留在原地址，或成功更新同一画布的首存地址：恢复守卫期间搁置的选择。
   if (route.fullPath === from.fullPath
@@ -1050,9 +1080,10 @@ async function canonicalizeToolbarSave(receipt: ToolbarSaveReceipt, markReady?: 
   }
   const canonicalRoute = {
     path: `/workflows/${workflowId}`,
+    ...(route.hash ? { hash: route.hash } : {}),
     query: {
       ...(projectId ? { projectId } : {}),
-      ...(route.query.sourceRunId ? {
+      ...(route.query.sourceRunId || route.query.nodeId ? {
         sourceRunId: route.query.sourceRunId,
         nodeId: route.query.nodeId,
         runReturnLocation: route.query.runReturnLocation,
@@ -1079,6 +1110,7 @@ async function canonicalizeToolbarSave(receipt: ToolbarSaveReceipt, markReady?: 
 async function saveWorkflow() {
   const saveSequence = ++pageSaveSequence
   toolbarSaveDuringLeave.value = null
+  toolbarSaveAfterNavigation = null
   try {
     const projectId = resolveWorkflowProjectId()
     const navigationRevision = pageNavigationRevision
@@ -1099,9 +1131,14 @@ async function saveWorkflow() {
     if (!ownsToolbarSave(receipt)) return
     if (projectId) projectStore.linkWorkflowToProject(String(projectId), saved.workflowId)
     const markReady = () => projectStore.updateWorkflowStatus(saved.workflowId, 'ready')
-    if (pendingNavigation.value) {
-      // 记录仍属于当前画布的回执，但不抢占用户正在选择的目的地。
+    const pending = workflowNavigation.pending
+    const anotherDestinationPending = pending && (pending.fullPath !== saveNavigation?.fullPath
+      || route.fullPath !== saveNavigation?.fromPath)
+    if (pendingNavigation.value || anotherDestinationPending) {
+      // 全局守卫等待时编辑器的同路由更新确认尚未开始，不能用首存地址抢占目的地。
+      // 更早的内部保存跳转仍由最新保存接替。
       toolbarSaveDuringLeave.value = receipt
+      if (!pendingNavigation.value) toolbarSaveAfterNavigation = receipt
       markReady()
     } else {
       await canonicalizeToolbarSave(receipt, markReady)
