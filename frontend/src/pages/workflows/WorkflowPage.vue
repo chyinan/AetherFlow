@@ -745,6 +745,10 @@ const leaveSaveError = ref('')
 const workflowPageError = computed(() => {
   const savingError = workflowStore.savingError
   if (savingError && leaveDialogReady.value && leaveSaveError.value === savingError) return null
+  // 保存冲突与旧启动被取消是同一次交互的两项反馈，不能只显示前者。
+  if (savingError && workflowStore.runError === t('workflow.runSupersededBySave')) {
+    return `${savingError} ${workflowStore.runError}`
+  }
   return savingError || workflowStore.runError
 })
 const leaveAlreadySaved = computed(() => {
@@ -1348,6 +1352,7 @@ async function startRun(event: MouseEvent) {
   activeRunStart = operation
   // 未保存模板共享 new 身份；派发前必须仍是点击时的画布，派发后保留原运行回执。
   const editRevision = workflowStore.editRevision
+  const saveSequenceAtStart = workflowStore.workflowSaveRequestSequence
   let dispatched = false
   const ownsOperation = () => activeRunStart === operation
     && operation.generation === startNavigationGeneration
@@ -1379,6 +1384,12 @@ async function startRun(event: MouseEvent) {
     const submittedWorkflow = {
       workflowName: workflowStore.workflowName,
       nodes: workflowStore.nodes.map((node) => ({ ...node, data: { ...node.data } })),
+    }
+    // 运行读取历史时工具栏仍可保存。旧运行意图不能在另一保存冲突并刷新基线后，
+    // 自动排队重提并覆盖远端；即使那次保存已经结束，也必须重新点击运行。
+    if (workflowStore.workflowSaveRequestSequence !== saveSequenceAtStart) {
+      workflowStore.setRunError(t('workflow.runSupersededBySave'))
+      return
     }
     await workflowStore.saveCurrentWorkflow({
       allowMockFallback: false,

@@ -441,6 +441,7 @@ export const jaJP = {
     waitingForInput: '外部入力を待機中',
     startingRun: '開始中',
     runFailed: '実行に失敗しました',
+    runSupersededBySave: '開始待機中に別の保存が行われたため、実行を開始しませんでした。保存結果を確認し、競合があれば解決してから再度実行してください。',
     runChangedIntentConfirm: '前回の開始結果は未確認で、すでに実行中の可能性があります。設定または入力が変更されています。新しい設定で別の実行を開始しますか？キャンセルすると編集内容を保持し、実行は開始しません。',
     runFailedUnknown: '不明なエラー',
     runRequiresFileId: '開始ノードで今回の入力ファイルを選択してください。アップロード中の場合は完了を待ってください。',

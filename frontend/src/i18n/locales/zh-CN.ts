@@ -445,6 +445,7 @@ export const zhCN = {
     waitingForInput: '等待外部输入',
     startingRun: '启动中',
     runFailed: '启动失败',
+    runSupersededBySave: '启动等待期间发生了另一项保存，本次运行未启动。请先核对保存结果；如有冲突，处理后再点击运行。',
     runChangedIntentConfirm: '上一次启动结果尚未确认，旧运行可能已在执行。当前配置或输入已改变，是否按新配置另起一次运行？取消将保留修改，不会发起运行。',
     runFailedUnknown: '未知错误',
     runRequiresFileId: '请在开始节点选择本次输入文件；如需上传，请等待上传完成后再运行。',
