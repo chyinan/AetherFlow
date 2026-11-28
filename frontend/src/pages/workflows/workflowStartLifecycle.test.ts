@@ -1022,3 +1022,44 @@ describe('工作流编辑页恢复 Copilot 时保留本次选择的规划模型'
     expect(copilotApi.planWorkflow).toHaveBeenCalledTimes(1)
   })
 })
+
+it.each(['FAILED', 'SUCCESS', 'CANCELLED'] as const)('启动回执超时后同键返回既有%s，不能显示成新运行中', async backendStatus => {
+  const { runs, router, status } = await setup()
+  api.startRun.mockRejectedValueOnce(new Error('启动回执未收到')).mockResolvedValueOnce({ ...result, backendStatus })
+  await clickRun()
+  const key = api.startRun.mock.calls[0]![2].idempotencyKey
+  await clickRun()
+  expect(api.startRun.mock.calls).toHaveLength(2)
+  expect(api.startRun.mock.calls[1]![2].idempotencyKey).toBe(key)
+  expect(router.currentRoute.value.path).toBe('/runs/run-901')
+  expect(runs.currentRun?.backendStatus).toBe(backendStatus)
+  expect(runs.currentRun?.status).toBe(({ FAILED: 'failed', SUCCESS: 'success', CANCELLED: 'cancelled' } as const)[backendStatus])
+  expect(runs.currentRun?.nodeStates).toEqual([])
+  expect(runs.logs).toEqual([])
+  expect(runs.logsByRunId['run-901']).toBeUndefined()
+  expect(status).not.toHaveBeenCalled()
+})
+
+
+
+it('幂等终态回执不清除同一运行已确认的节点结果和归档日志', async () => {
+  const { runs, store } = await setup()
+  api.startRun.mockRejectedValueOnce(new Error('启动回执未收到')).mockResolvedValueOnce({ ...result, backendStatus: 'FAILED' })
+  await clickRun()
+  const nodeUpdate = vi.spyOn(store, 'updateNodeStatus')
+  const known = { id: 'run-901', workflowId: '101', workflowName: '已确认名称', backendInstanceId: 901,
+    backendStatus: 'FAILED', status: 'running' as const, startedAt: '2026-11-01', durationMs: 2350, trigger: 'manual' as const,
+    owner: '测试', traceId: 'trace-901', queueName: 'runtime', progress: 0, artifactNames: ['已确认产物'],
+    nodeStates: [{ nodeId: 'node-101', label: '真实节点', status: 'failed' as const, output: '已确认失败原因' }] }
+  runs.historyRuns = [known]
+  runs.logsByRunId['run-901'] = [{ id: 'archived-901', time: '12:00:00', level: 'error', message: '已确认归档' }]
+  await clickRun()
+  expect(runs.currentRun).toMatchObject({ backendStatus: 'FAILED', status: 'failed', progress: 100 })
+  expect(runs.currentRun?.nodeStates).toEqual(known.nodeStates)
+  expect(runs.currentRun?.startedAt).toBe('2026-11-01')
+  expect(runs.currentRun?.durationMs).toBe(2350)
+  expect(runs.currentRun?.artifactNames).toEqual(['已确认产物'])
+  expect(runs.logs.map(log => log.id)).toEqual(['archived-901'])
+  expect(files.addArtifactsFromRun).not.toHaveBeenCalled()
+  expect(nodeUpdate).not.toHaveBeenCalled()
+})

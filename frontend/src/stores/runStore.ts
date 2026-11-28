@@ -836,7 +836,14 @@ export const useRunStore = defineStore('run', {
         payload.runtimeWorkflowId ??
         startedRunLink?.runtimeWorkflowId ??
         (backendInstanceId ? String(backendInstanceId) : undefined)
-      const nodeStates: RunNodeState[] = payload.nodes.map((node, index) => ({
+      const backendStatus = payload.backendStatus ?? startedRunLink?.backendStatus
+      // 幂等启动可能返回已经结束的既有实例，回执终态不能伪装成一次新启动。
+      const receiptStatus = backendStatus === 'SUCCESS' ? 'success'
+        : backendStatus === 'FAILED' ? 'failed' : backendStatus === 'CANCELLED' ? 'cancelled' : null
+      const confirmedRun = receiptStatus ? [this.currentRun, ...this.runs, ...this.historyRuns, ...this.workflowRuns]
+        .find((item): item is WorkflowRun => Boolean(item && item.id === payload.runId
+          && item.backendStatus === backendStatus && isBackendTerminalRun(item))) : undefined
+      const nodeStates: RunNodeState[] = receiptStatus ? [] : payload.nodes.map((node, index) => ({
         nodeId: node.id,
         label: node.data.label,
         status: index === 0 ? 'running' : 'queued',
@@ -849,17 +856,20 @@ export const useRunStore = defineStore('run', {
         backendInstanceId,
         runtimeWorkflowId,
         definitionId: payload.definitionId ?? startedRunLink?.definitionId,
-        backendStatus: payload.backendStatus ?? startedRunLink?.backendStatus,
-        status: 'running',
+        backendStatus,
+        status: receiptStatus ?? 'running',
         startedAt: formatDateTime(createdAt),
         durationMs: 0,
         trigger: payload.trigger ?? 'manual',
         owner: 'aether.operator',
         traceId: `trace-${payload.runId}`,
         queueName: 'workflow-runtime',
-        progress: 0,
+        progress: receiptStatus ? 100 : 0,
         artifactNames: [],
         nodeStates,
+        // 同一实例已确认的终态详情来自读取或事件，不被本次简略回执清空。
+        ...confirmedRun,
+        ...(receiptStatus ? { backendStatus, status: receiptStatus, progress: 100 } : {}),
       }
       this.runs = [run, ...this.runs.filter((item) => item.id !== run.id)]
       this.currentRun = run
@@ -867,7 +877,7 @@ export const useRunStore = defineStore('run', {
       this.loading = false
       this.logsLoading = false
       this.error = null
-      this.logs = [
+      this.logs = receiptStatus ? this.logsByRunId[run.id] ?? [] : [
         {
           id: `${run.id}-created`,
           time: formatTime(createdAt),
@@ -876,10 +886,13 @@ export const useRunStore = defineStore('run', {
           message: i18n.global.t('runs.started', { workflow: run.workflowName }),
         },
       ]
-      this.logsByRunId[run.id] = this.logs
-      useFileStore().addArtifactsFromRun(run)
+      // 终态回执不提供节点或归档日志，后续详情读取仍必须真正恢复这些数据。
+      if (!receiptStatus) {
+        this.logsByRunId[run.id] = this.logs
+        useFileStore().addArtifactsFromRun(run)
+      }
       const workflowStore = useWorkflowStore()
-      if (runBelongsToWorkflow(run, workflowStore)) {
+      if (!receiptStatus && runBelongsToWorkflow(run, workflowStore)) {
         nodeStates.forEach((node) => workflowStore.updateNodeStatus(node.nodeId, node.status, node.durationMs))
       }
       this.subscribeCurrentRun()

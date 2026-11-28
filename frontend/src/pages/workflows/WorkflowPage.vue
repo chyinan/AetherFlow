@@ -1427,7 +1427,10 @@ async function startRun(event: MouseEvent) {
       definitionId: result.definitionId,
       backendStatus: result.backendStatus,
     })
-    projectStore.updateWorkflowStatus(operation.workflowId, 'running')
+    // 既有实例的终态不代表发生新启动，也不能改写另一条运行的项目标记。
+    if (!['SUCCESS', 'FAILED', 'CANCELLED'].includes(result.backendStatus ?? '')) {
+      projectStore.updateWorkflowStatus(operation.workflowId, 'running')
+    }
     runStore.subscribeCurrentRun()
     await router.push(`/runs/${run.id}`)
   } catch (error) {
