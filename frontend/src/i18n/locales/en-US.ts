@@ -439,6 +439,7 @@ export const enUS = {
     waitingForInput: 'Waiting for external input',
     startingRun: 'Starting',
     runFailed: 'Run failed',
+    runSupersededBySave: 'Another save occurred while this start was waiting, so no run was started. Check the save result, resolve any conflict, then click Run again.',
     runChangedIntentConfirm: 'The previous start is unconfirmed and may already be running. The configuration or input has changed. Start a separate run with the new configuration? Cancel keeps your edits without starting a run.',
     runFailedUnknown: 'Unknown error',
     runRequiresFileId: 'Select this run’s input file in the start node. If uploading, wait until the upload finishes.',
